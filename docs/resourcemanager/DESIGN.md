@@ -1,5 +1,131 @@
 # Reflection-Compiled Residency Graph
 
+## Introduction
+
+### What a game-engine resource manager is
+
+A game does not execute authoring files directly. Models, images, fonts, audio,
+shaders, scenes, and other source assets must be interpreted, validated,
+converted into engine-defined representations, packaged, loaded, realized by
+the responsible device module, and eventually retired. The same logical asset
+often has several representations: glTF source data, canonical mesh artifacts,
+packed bytes, CPU views, and renderer-owned GPU buffers can all describe one
+mesh at different points in its lifetime.
+
+A resource manager is the engine subsystem that preserves the identity and
+dependency relationships of those logical assets while moving their typed
+representations through the offline and runtime pipeline.
+
+| Term | Meaning |
+|---|---|
+| Source asset | Authoring input such as glTF/GLB, PNG/JPEG, OpenType, WAV, GLSL, an include file, or SPIR-V |
+| Artifact | A canonical typed and versioned product produced by import, migration, cooking, or transformation |
+| Semantic asset | The stable game-facing identity represented by `AssetRef<T>` independently of its current bytes or residency |
+| Resident representation | A CPU view or an opaque renderer-, audio-, or text-owned slot ready for runtime use |
+| Residency goal | A request for a semantic asset at a representation, quality, and priority required by the current world |
+| Residency epoch | An immutable publication mapping stable asset identities to one mutually consistent generation of resident bindings |
+
+The resource manager therefore spans two connected domains:
+
+- Offline content processing imports source formats, validates and migrates
+  typed data, incrementally cooks dependency graphs, stores exact products by
+  content identity, and produces manifests and shipping packs.
+- Runtime residency accepts demand from ECS and behavioral systems, reads and
+  transforms artifacts, asks owner modules to realize device objects, publishes
+  immutable bindings, and retires replaced or unneeded representations safely.
+
+It is not merely a file cache or asynchronous loader. A complete resource
+manager also answers which transformations are legal, which dependencies form
+an atomic floor, which representation satisfies a platform, when a replacement
+generation may become visible, and when the previous generation is safe to
+destroy. It preserves stable semantic references while content, packaging,
+memory location, device objects, and quality levels change.
+
+The resource manager does not absorb every subsystem that touches an asset.
+ECS owns mutable simulation state. The renderer owns Vulkan objects. The audio
+module owns mixer and device objects. The text module owns font realization.
+The resource manager owns identity, typed transformation, demand reconciliation,
+publication, and retirement across those boundaries.
+
+### Existing solutions
+
+Existing engines solve substantial parts of this problem with different centers
+of gravity. The following systems are representative rather than exhaustive.
+
+| System | Architectural center | Established strengths | Boundary changed by RCRG |
+|---|---|---|---|
+| [Unreal Asset Manager](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-management-in-unreal-engine) and [Asset Registry](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-registry-in-unreal-engine) | A global Asset Manager, asynchronously populated Asset Registry, primary and secondary asset IDs, bundles, configuration, and streamable handles around the `UObject` ecosystem | Mature discovery, cooking, chunking, auditing, asynchronous loading, and project customization | RCRG makes reflected artifact and transform declarations, rather than a global object plus configuration and registration, the structural authority for every pipeline stage. |
+| [Unity Addressables](https://docs.unity3d.com/Packages/com.unity.addressables@1.21/manual/index.html) | Addresses and labels resolve through content catalogs to dependency-aware AssetBundles and asynchronous operation handles | Local or remote delivery, catalog updates, grouping, bundle construction, dependency download, and runtime loading | RCRG's manifest locates content, but its reflected type graph additionally compiles import, validation, migration, representation routes, owner realization, and ECS demand. |
+| [Godot Resources](https://docs.godotengine.org/en/stable/tutorials/scripting/resources.html) and [import pipeline](https://docs.godotengine.org/en/stable/tutorials/assets_pipeline/import_process.html) | Path-addressed, cached, reference-counted `Resource` objects with engine serialization and editor-managed source import | Tight editor integration, shared loaded objects, automatic serialization, custom resource types, and straightforward scene composition | RCRG separates stable semantic identity from paths and object lifetime, then publishes immutable cross-module residency epochs instead of exposing one mutable cached object generation. |
+| [Bevy Assets](https://docs.rs/bevy/latest/bevy/asset/) | `AssetServer`, registered asset types and loaders, strongly typed `Assets<T>` collections, and `Handle<T>` references integrated with ECS | Typed handles, asynchronous loading, dependency tracking, asset events, and development hot reload | RCRG preserves the typed ECS reference but compiles the asset inventory and legal transformations from declarations; demand, liveness, replacement, and owner bindings resolve through immutable epochs rather than handle-owned residency. |
+| [O3DE Asset Pipeline](https://docs.o3de.org/docs/user-guide/assets/pipeline/) | Asset Processor, registered Asset Builders, processing jobs, source and product assets, an Asset Cache, database, catalog, and runtime asset system | End-to-end source processing, platform products, dependency tracking, incremental jobs, caching, catalogs, and hot-reload notifications | RCRG unifies the builder, product schema, runtime representation, ECS reference, and owner route in one reflected language instead of coordinating separate builder descriptors, products, catalogs, and runtime registrations. |
+
+These systems demonstrate that typed handles, asynchronous loading, import
+pipelines, dependency catalogs, incremental products, packaging, and hot reload
+are proven requirements. RCRG adopts those requirements. Its departure is where
+the system's structural truth lives and when inconsistencies are rejected.
+
+### Anoptic's reflection-compiled approach
+
+RCRG treats the complete resource domain as a language embedded in ordinary
+C++. Public module interfaces declare artifact types, transformation functions,
+`AssetRef<T>` fields, and typed annotations. A resource-universe translation
+unit reflects those declarations and closes one type graph spanning source
+import, cooking, validation, migration, packing, loading, device realization,
+ECS demand, residency, reload, and retirement.
+
+C++26 reflection makes the declarations themselves available as compile-time
+values. Typed annotations add semantic facts without creating a stringly typed
+side channel. A mandatory `consteval` compiler invokes ordinary `constexpr`
+algorithms over the reflected graph to compute schemas, fingerprints,
+dependencies, migration closure, legal representation routes, capability
+matrices, executor ownership, and retained dispatch. Expansion statements and
+splicing then emit direct member operations, exact types, and direct transform
+calls. Only final immutable tables and diagnostics remain when runtime needs
+them.
+
+This produces one structural authority instead of a stack of synchronized
+descriptions:
+
+```text
+public C++ declarations + typed annotations
+                    |
+                    v
+      reflected compile-time type graph
+                    |
+       +------------+-------------+
+       |            |             |
+       v            v             v
+ offline typed   runtime typed   ECS demand
+ operations      routes/bindings extractors
+       |            |             |
+       +------------+-------------+
+                    |
+                    v
+       direct ordinary generated C++
+```
+
+Within the one-language, no-parallel-IDL, no-external-generator contract, this
+combination is enabled specifically by C++26 reflection and generation. A field
+or transform is declared once and all affected importers, validators, encoders,
+migrations, dependency extractors, routes, owner bridges, and ECS demand
+extractors follow from it. Missing coverage is a compile error at the responsible
+declaration rather than a runtime fallback or a human synchronization task.
+
+Reflection does not replace algorithms with metadata. Reflection supplies
+program structure; ordinary `constexpr` C++ performs parsing, hashing, graph,
+validation, decoding, and transformation work; `consteval` requires language
+closure during translation; expansion and splicing reify the result as direct
+code. Templates parameterize inherently typed interfaces but own no parallel
+metaprogram. Runtime still performs instance-dependent I/O, allocation,
+scheduling, and owner-device effects, using signatures and routes already
+compiled from the reflected language.
+
+The result is a resource manager whose offline and runtime halves share one
+typed definition of every resource, whose hot paths contain no reflection
+interpreter, and whose unsupported structural combinations cannot enter a
+successful build.
+
 ## Contract
 
 **Types and laws are compile-time. Asset instances and schedules are runtime.**
@@ -18,20 +144,68 @@ C++ compilation never evaluates an asset-instance graph. The resource language
 uses reflected declarations directly and has no parallel template typelist or
 marker hierarchy.
 
+The complete data flow is:
+
+```text
+ Public reflected declarations
+ (artifacts, transforms, AssetRef fields, typed annotations)
+                         |
+                         v
+ C++26 resource compiler: consteval boundary + constexpr algorithms
+                         |
+             +-----------+-------------+
+             |                         |
+             v                         v
+ schemas, fingerprints,          legal typed routes,
+ validators, migrations          direct generated calls
+             |                         |
+             +-----------+-------------+
+                         |
+                         v
+ source bytes -> import -> canonical artifacts -> cook/CAS -> manifest + packs
+                                                            |
+ ECS AssetRef<T> + behavioral demand ------------------------+
+                                                            |
+                                                            v
+                                            residency reconciliation
+                                                            |
+                                  +-------------------------+------------------+
+                                  |                         |                  |
+                                  v                         v                  v
+                         renderer bridge             audio bridge         text bridge
+                         (GPU objects)               (audio objects)      (font objects)
+                                  |                         |                  |
+                                  +-------------------------+------------------+
+                                                            |
+                                                            v
+                                           immutable residency epoch
+                                                            |
+                                                            v
+                                             ECS and frame consumers
+```
+
+The arrows carry typed values or immutable data. They do not cross through a
+runtime reflection interpreter, an untyped service locator, or backend handles
+owned by the resource manager.
+
 ## Resource language
 
 Artifact types and transformation functions are the declarations reflected by
 the resource compiler. Their annotations state storage class, execution stage,
 determinism, streaming granularity, capabilities, and other resource semantics.
 
-One mandatory `consteval` operation scans the shared `ano::asset_schema`
-namespace and produces the compiled resource language:
+One mandatory `consteval` operation scans the supplied resource namespace under
+the active build profile and produces the compiled resource language:
 
 ```cpp
-consteval auto compile_resource_language();
+consteval auto compile_resource_language(
+    std::meta::info schema_namespace,
+    ResourceCompileProfile profile);
 
 inline constexpr auto resource_language =
-    compile_resource_language();
+    compile_resource_language(
+        ^^ano::asset_schema,
+        current_resource_profile());
 ```
 
 `compile_resource_language` is the mandatory translation-phase boundary, not a
@@ -112,6 +286,31 @@ perform general graph search during gameplay.
 | `std::meta::exception` | Reports errors at the responsible declaration |
 | Ordinary runtime functions | Perform irreducible I/O, allocation, foreign-library calls, and owner-device effects through signatures selected and bound by the compile-time program |
 
+### Reflection-specific closure
+
+Under the one-language, no-parallel-IDL, no-external-generator contract, the
+architecture depends on C++26 reflection for all of the following at once:
+
+- Namespace reflection discovers the artifact and transform inventory exposed
+  by independently owned public module extensions.
+- Type, field, parameter, return-type, layout, and annotation reflection turns
+  those declarations into the closed representation graph without a manual
+  registry.
+- Ordinary `constexpr` graph algorithms compute fingerprints, migrations,
+  dependency closure, legal routes, capabilities, and retained paths over that
+  reflected structure.
+- The `consteval` boundary rejects duplicate identities, malformed schemas,
+  illegal ownership edges, missing migrations, cycles, and incomplete routes
+  during translation.
+- Expansion statements and splicing emit direct field operations and exact
+  transform calls from the computed result.
+- Reflection over ECS components emits typed `AssetRef<T>` demand extractors
+  from the same resource language.
+
+Reflection is consumed while compiling the language. Runtime retains only the
+immutable schemas, dispatch products, and diagnostic names it needs; it does not
+retain a general reflection interpreter or reconstruct the type graph.
+
 ### Compile-time and instance graphs
 
 The type graph is closed and small enough for constant evaluation. It contains
@@ -127,19 +326,38 @@ manifest, and physical packs.
 
 ### Module boundary
 
-Each module exposes its artifact and transform declarations through its public
-compile-time interface:
+The resource API follows the engine's base-plus-extension convention. The base
+header is C-compatible; the typed header and owner extensions are C++26
+compile-time interfaces.
 
-```text
-anoptic_render.h    scene, mesh, and texture representations
-anoptic_audio.h     PCM, bank, and impulse representations
-anoptic_text.h      font and font-atlas representations
-anoptic_resources.h common resource language
-```
+| Public header | Boundary |
+|---|---|
+| `anoptic_resources.h` | Stable IDs, content IDs, schema fingerprints, byte/range values, errors, and opaque runtime views |
+| `anoptic_resources_typed.h` | Resource annotations, `AssetRef<T>`, relative wire types, the reflection compiler, and direct typed operations |
+| `anoptic_resources_cook.h` | Import and cook requests, build profiles, diagnostics, incremental results, and CAS control |
+| `anoptic_resources_pack.h` | Vendor-neutral manifests, packs, queries, and range reads |
+| `anoptic_resources_runtime.h` | Residency goals, commit groups, manifest transactions, epoch acquisition, resolution, and retirement |
+| `anoptic_resources_ecs.h` | Reflected component demand, native prefab/world-cell schemas, bulk instantiation, and coordinated publication |
+| `anoptic_render_resources.h` | Render artifacts and transforms, opaque GPU slots, and the renderer-owned realization bridge |
+| `anoptic_audio_resources.h` | Audio artifacts and transforms, opaque audio slots, streaming adoption, and the mixer-owned realization bridge |
+| `anoptic_text_resources.h` | Font artifacts and transforms, opaque text slots, and the text-owned realization bridge |
 
-A resource-universe translation unit includes those public interfaces and
-reflects the shared schema namespace. It never includes another module's private
-`src/` headers.
+Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
+namespace `ano`; reflected semantic declarations live in the shared
+`ano::asset_schema` namespace. C-compatible headers expose neither templates nor
+`std::meta::info`. The base header includes no owner extension.
+
+Each owner extension declares its artifact types and transformation functions.
+The owning module implements device or library effects behind that public
+interface and issues opaque resident slots. The resource runtime schedules those
+operations but never owns Vulkan, audio, or font-library objects.
+
+One resource-universe translation unit includes every public resource extension
+before invoking `compile_resource_language(^^ano::asset_schema, profile)`. It is
+the only place that closes the type graph. Public headers and that translation
+unit never include another module's private `src/` headers. Private
+implementations consume compiler-produced schemas and operations; they do not
+redeclare artifact inventories, transform routes, or owner maps.
 
 ## ECS boundary
 
@@ -160,7 +378,7 @@ The bridge is a typed stable reference:
 ```cpp
 template<class SemanticAsset>
 struct AssetRef final {
-    AssetId id;
+    AnoAssetId id;
 };
 ```
 
@@ -364,3 +582,50 @@ transformations, and ECS asset references. The offline cooker evaluates that
 language over content. ECS declares the desired semantic world. Runtime
 incrementally materializes and atomically publishes the cheapest residency
 epochs satisfying that world.
+
+## Sources and prior art
+
+These sources define language capability, external data contracts, and the
+systems patterns adapted by this architecture. They are inputs to the design,
+not substitute specifications for Anoptic's public API.
+
+### C++26 language and generation
+
+| Source | Design consequence |
+|---|---|
+| [P2996R13: Reflection for C++26](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p2996r13.html) | Reflections are compile-time values; member, function, layout, type, and name queries feed ordinary constant-evaluation programs and spliced direct operations. |
+| [P3394R4: Annotations for Reflection](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3394r4.html) | Typed annotations carry resource semantics on the declarations they describe. |
+| [P1306R5: Expansion Statements](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p1306r5.html) | Heterogeneous reflected ranges expand into ordinary statements without recursive template iteration. |
+| [P3491R3: `define_static_*`](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3491r3.html) and [P3560R2: Error Handling in Reflection](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3560r2.html) | Final compile-time products have static storage, and malformed resource declarations fail at their responsible declarations. |
+| [P3437R1: Reflect C++, generate C++](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p3437r1.pdf), [P3466R1: design principles](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p3466r1.pdf), and [P0707R5: metaclass functions](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/p0707r5.pdf) | Reflection reads the program and generation writes direct C++; templates do not become a second algorithm language. |
+
+### External contracts
+
+| Authority | Resource boundary |
+|---|---|
+| [glTF 2.0](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html) | glTF/GLB structure, validation rules, buffer layout, scene semantics, materials, and dependencies |
+| [PNG](https://www.w3.org/TR/png-3/), [JPEG](https://www.itu.int/rec/T-REC-T.81/en), and [OpenType](https://learn.microsoft.com/en-us/typography/opentype/spec/) | Image and font source schemas and their validation constraints |
+| [RIFF](https://learn.microsoft.com/en-us/windows/win32/xaudio2/resource-interchange-file-format--riff-) and [WAVE format tags](https://www.rfc-editor.org/rfc/rfc2361) | WAV container structure and codec identification |
+| [GLSL 4.60](https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.4.60.html) and [SPIR-V](https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html) | Shader source dependencies, compiled-module structure, interfaces, and validation |
+| [Ogg Opus](https://www.rfc-editor.org/rfc/rfc7845) and [Opus](https://www.rfc-editor.org/rfc/rfc6716) | Streaming container, codec, granule-position, pre-skip, and seeking semantics |
+| [KTX 2.0](https://registry.khronos.org/KTX/specs/2.0/ktxspec.v2.html) | Texture levels, data-format descriptors, supercompression, and Basis Universal payload carriage |
+| [Vulkan object lifetime](https://docs.vulkan.org/spec/latest/chapters/fundamentals.html) and [synchronization](https://docs.vulkan.org/spec/latest/chapters/synchronization.html) | Renderer ownership, queue-domain execution, fence-safe publication, and deferred retirement |
+
+### Systems prior art
+
+| System | Adapted idea | Deliberate difference |
+|---|---|---|
+| [Bazel remote caching](https://bazel.build/remote/caching) | Separate action lookup from content-addressed object storage | Cook actions and artifacts are typed by reflected schemas and platform profiles. |
+| [Nix content-addressed store objects](https://nix.dev/manual/nix/2.26/store/store-object/content-address) | Content identity incorporates an object's content and dependency references | Shipping manifests preserve stable semantic `AssetId` values separately from exact `ContentId` values. |
+| [FlatBuffers internals](https://flatbuffers.dev/internals/) and [schema evolution](https://flatbuffers.dev/evolution/) | Relative offsets, direct in-buffer access, explicit field identity, and constrained schema evolution | Reflected C++ declarations are the schema and generate the operations directly; there is no parallel IDL or external source-generation step. |
+| [Linux RCU](https://www.kernel.org/doc/html/latest/RCU/whatisRCU.html) | Readers consume an immutable publication while replaced state waits for safe reclamation | Residency epochs coordinate typed CPU, GPU, audio, text, manifest, and ECS bindings as commit groups. |
+| [Bevy assets and handles](https://docs.rs/bevy/latest/bevy/asset/) | Typed handles separate entity/component references from asset storage | `AssetRef<T>` is a stable manifest identity; liveness and replacement belong to demand reconciliation and immutable epochs rather than handle reference counts. |
+
+### Repository precedent
+
+| Source | Established technique reused here |
+|---|---|
+| [`include/anogltf.h`](../../include/anogltf.h) | Typed annotations, stabilized reflection queries, expansion statements, spliced field access, generic structural parsing, and validation |
+| [`src/render/gltf/ano_GltfParser_reflect.c`](../../src/render/gltf/ano_GltfParser_reflect.c) | Reflected structural projection from imported glTF records into renderer-owned material data |
+| [`src/vulkan_backend/gpu_abi_schema.c`](../../src/vulkan_backend/gpu_abi_schema.c) | Reflection-driven GPU ABI inspection and validation |
+| [`src/vulkan_backend/frame/schema/attachment_graph.h`](../../src/vulkan_backend/frame/schema/attachment_graph.h) and [`mesh_rows.h`](../../src/vulkan_backend/frame/schema/mesh_rows.h) | Reflected render-graph contracts and direct generated structural projection |
