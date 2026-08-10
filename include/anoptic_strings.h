@@ -81,7 +81,32 @@ anostr_t anostr_from_cstr(mi_heap_t *heap, const char *cstr);
 anostr_t anostr_view(const char *bytes, size_t len);
 
 // Value from a string literal (static storage; borrow is sound).
+// C+Ultra: consteval mirror of anostr_view, folded to a constant. I1-I3 as the runtime constructors.
+#ifdef __cplusplus
+extern "C++" {
+template <size_t N>
+consteval anostr_t anostr_lit_(const char (&bytes)[N])
+{
+    static_assert(N - 1 <= UINT32_MAX, "anostr_lit literal exceeds UINT32_MAX bytes (I1)");
+    anostr_t s = {};    // union starts on suffix, all zero (I3)
+    s.len = (uint32_t)(N - 1);
+    if constexpr (N - 1 <= ANOSTR_INLINE_CAP) {
+        for (size_t i = 0; i < N - 1 && i < 4; i++)
+            s.prefix[i] = bytes[i];
+        for (size_t i = 4; i < N - 1; i++)
+            s.suffix[i - 4] = bytes[i];
+    } else {
+        for (size_t i = 0; i < 4; i++)
+            s.prefix[i] = bytes[i];
+        s.ptr = bytes;  // the literal itself backs the borrow
+    }
+    return s;
+}
+}
+#define anostr_lit(strlit) (anostr_lit_("" strlit))
+#else
 #define anostr_lit(strlit) anostr_view("" strlit, sizeof(strlit) - 1)
+#endif
 
 
 /* Accessors */
@@ -240,34 +265,48 @@ typedef uint32_t anostr_sid32;
 
 #define ANOSTR_SID_MAX 128u
 
-// One FNV-1a step, masked to width; identity past the literal's last byte.
-#define ANOSTR_SID_B_(s, i) ((i) < sizeof(s) - 1 ? (uint64_t)(uint8_t)(s)[i] : UINT64_C(0))
-#define ANOSTR_SID_1_(s, i, h, p, m) \
-    ((((h) ^ ANOSTR_SID_B_(s, i)) * ((i) < sizeof(s) - 1 ? (p) : UINT64_C(1))) & (m))
-// Unroll tiers: 4, 16, 64, then ANOSTR_SID_MAX bytes.
-#define ANOSTR_SID_4_(s, i, h, p, m) \
-    ANOSTR_SID_1_(s, (i) + 3, ANOSTR_SID_1_(s, (i) + 2, \
-    ANOSTR_SID_1_(s, (i) + 1, ANOSTR_SID_1_(s, i, h, p, m), p, m), p, m), p, m)
-#define ANOSTR_SID_16_(s, i, h, p, m) \
-    ANOSTR_SID_4_(s, (i) + 12, ANOSTR_SID_4_(s, (i) + 8, \
-    ANOSTR_SID_4_(s, (i) + 4, ANOSTR_SID_4_(s, i, h, p, m), p, m), p, m), p, m)
-#define ANOSTR_SID_64_(s, i, h, p, m) \
-    ANOSTR_SID_16_(s, (i) + 48, ANOSTR_SID_16_(s, (i) + 32, \
-    ANOSTR_SID_16_(s, (i) + 16, ANOSTR_SID_16_(s, i, h, p, m), p, m), p, m), p, m)
-#define ANOSTR_SID_ALL_(s, h, p, m) \
-    ANOSTR_SID_64_(s, 64u, ANOSTR_SID_64_(s, 0u, h, p, m), p, m)
-// Overlong literal: negative array size -> compile error.
-#define ANOSTR_SID_GUARD_(s) (0 * sizeof(char[1 - 2 * (sizeof(s) - 1 > ANOSTR_SID_MAX)]))
+// One FNV-1a loop, masked to width. The runtime hashes and the consteval SIDs share it,
+// so ANOSTR_SID(x) == anostr_hash(anostr_lit(x)) by construction (proofs in ano_strings.c).
+#ifdef __cplusplus
+extern "C++" {
+constexpr uint64_t anostr_fnv1a_(const char *p, size_t n, uint64_t h, uint64_t prime, uint64_t mask)
+{
+    for (size_t i = 0; i < n; i++)
+        h = ((h ^ (uint8_t)p[i]) * prime) & mask;
+    return h;
+}
 
-#define ANOSTR_SID(strlit)                                                        \
-    ((anostr_sid)(ANOSTR_SID_ALL_("" strlit, UINT64_C(0xcbf29ce484222325),        \
-                                  UINT64_C(0x100000001b3), UINT64_MAX)            \
-                  + ANOSTR_SID_GUARD_("" strlit)))
+constexpr uint64_t anostr_fnv1a64_(const char *p, size_t n)
+{
+    return anostr_fnv1a_(p, n, UINT64_C(0xcbf29ce484222325), UINT64_C(0x100000001b3), UINT64_MAX);
+}
 
-#define ANOSTR_SID32(strlit)                                                      \
-    ((anostr_sid32)(ANOSTR_SID_ALL_("" strlit, UINT64_C(0x811c9dc5),              \
-                                    UINT64_C(0x01000193), UINT64_C(0xffffffff))   \
-                    + ANOSTR_SID_GUARD_("" strlit)))
+constexpr uint32_t anostr_fnv1a32_(const char *p, size_t n)
+{
+    return (uint32_t)anostr_fnv1a_(p, n, UINT64_C(0x811c9dc5), UINT64_C(0x01000193),
+                                   UINT64_C(0xffffffff));
+}
+
+template <size_t N>
+consteval anostr_sid anostr_sid_(const char (&s)[N])
+{
+    static_assert(N - 1 <= ANOSTR_SID_MAX,
+                  "ANOSTR_SID literal exceeds ANOSTR_SID_MAX (128) bytes");
+    return anostr_fnv1a64_(s, N - 1);
+}
+
+template <size_t N>
+consteval anostr_sid32 anostr_sid32_(const char (&s)[N])
+{
+    static_assert(N - 1 <= ANOSTR_SID_MAX,
+                  "ANOSTR_SID32 literal exceeds ANOSTR_SID_MAX (128) bytes");
+    return anostr_fnv1a32_(s, N - 1);
+}
+}
+
+#define ANOSTR_SID(strlit)   (anostr_sid_("" strlit))
+#define ANOSTR_SID32(strlit) (anostr_sid32_("" strlit))
+#endif
 
 
 /* Builder */

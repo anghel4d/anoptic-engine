@@ -43,29 +43,76 @@ anostr_t anostr_view(const char *bytes, size_t len)
 
 /* Hash */
 
-// FNV-1a, both widths. Runtime twins of ANOSTR_SID/ANOSTR_SID32.
+// FNV-1a, both widths. Runtime twins of ANOSTR_SID/ANOSTR_SID32, same anostr_fnv1a_ core.
 
 uint64_t anostr_hash(anostr_t s)
 {
-    const char *p = anostr_bytes(&s);
-    uint64_t h = 0xcbf29ce484222325ull;
-    for (uint32_t i = 0; i < s.len; i++) {
-        h ^= (uint8_t)p[i];
-        h *= 0x100000001b3ull;
-    }
-    return h;
+    return anostr_fnv1a64_(anostr_bytes(&s), s.len);
 }
 
 uint32_t anostr_hash32(anostr_t s)
 {
-    const char *p = anostr_bytes(&s);
-    uint32_t h = 0x811c9dc5u;
-    for (uint32_t i = 0; i < s.len; i++) {
-        h ^= (uint8_t)p[i];
-        h *= 0x01000193u;
-    }
-    return h;
+    return anostr_fnv1a32_(anostr_bytes(&s), s.len);
 }
+
+/* Twin Proofs */
+
+// ANOSTR_SID(x) == anostr_hash(anostr_lit(x)) at translation time 〜 the shared anostr_fnv1a_
+// core over the consteval-built value's bytes, gathered per the layout contract (anostr_bytes
+// reads inline bytes through prefix's contiguity, which constant evaluation cannot).
+template <size_t N>
+consteval bool sid_twins_(const char (&s)[N])
+{
+    anostr_t v = anostr_lit_(s);
+    char b[N] = {};
+    for (size_t i = 0; i < v.len; i++)
+        b[i] = v.len <= ANOSTR_INLINE_CAP ? (i < 4 ? v.prefix[i] : v.suffix[i - 4]) : v.ptr[i];
+    return anostr_sid_(s) == anostr_fnv1a64_(b, v.len)
+        && anostr_sid32_(s) == anostr_fnv1a32_(b, v.len);
+}
+
+// I3 for the consteval constructor: bytes [0..len) match the literal, inline padding is 0x00,
+// long form borrows the literal and caches its first four bytes.
+template <size_t N>
+consteval bool lit_canonical_(const char (&s)[N])
+{
+    constexpr size_t len = N - 1;
+    anostr_t v = anostr_lit_(s);
+    if (v.len != len)
+        return false;
+    if constexpr (len <= ANOSTR_INLINE_CAP) {
+        for (size_t i = 0; i < 12; i++)
+            if ((i < 4 ? v.prefix[i] : v.suffix[i - 4]) != (i < len ? s[i] : '\0'))
+                return false;
+    } else {
+        if (v.ptr != s)
+            return false;
+        for (size_t i = 0; i < 4; i++)
+            if (v.prefix[i] != s[i])
+                return false;
+    }
+    return true;
+}
+
+#define SID_PROOF_16_  "0123456789abcdef"
+#define SID_PROOF_128_ SID_PROOF_16_ SID_PROOF_16_ SID_PROOF_16_ SID_PROOF_16_ \
+                       SID_PROOF_16_ SID_PROOF_16_ SID_PROOF_16_ SID_PROOF_16_
+
+static_assert(sid_twins_(""), "SID/hash twins diverge on the empty string");
+static_assert(sid_twins_("a"), "SID/hash twins diverge on one byte");
+static_assert(sid_twins_("a\0b"), "SID/hash twins diverge on an embedded NUL");
+static_assert(sid_twins_("player_spawn"), "SID/hash twins diverge on a 12-byte inline value");
+static_assert(sid_twins_("a-string-longer-than-twelve"), "SID/hash twins diverge on a long value");
+static_assert(sid_twins_(SID_PROOF_128_), "SID/hash twins diverge at the ANOSTR_SID_MAX cap");
+
+static_assert(lit_canonical_(""), "anostr_lit: empty is not all-zero");
+static_assert(lit_canonical_("abc"), "anostr_lit: sub-prefix inline form not canonical (I3)");
+static_assert(lit_canonical_("hello, world"), "anostr_lit: 12-byte inline form not canonical (I3)");
+static_assert(lit_canonical_("categorically"), "anostr_lit: long form not canonical");
+static_assert(lit_canonical_(SID_PROOF_128_), "anostr_lit: 128-byte long form not canonical");
+
+#undef SID_PROOF_16_
+#undef SID_PROOF_128_
 
 /* Slicing and Promotion */
 

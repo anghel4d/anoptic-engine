@@ -65,15 +65,15 @@ static_assert(uc_case_deltas_closed(),
 
 /* Decode */
 
-static inline bool rune_is_surrogate(anorune_t r)
+static constexpr bool rune_is_surrogate(anorune_t r)
 {
     return r >= 0xD800u && r <= 0xDFFFu;
 }
 
 // Strict decode at p[0], n >= 1. Returns bytes consumed (1..4) with rune in *out, or 0 if malformed.
-static int utf8_decode(const uint8_t *p, size_t n, anorune_t *out)
+static constexpr int utf8_decode(const char *cp, size_t n, anorune_t *out)
 {
-    uint8_t b0 = p[0];
+    const uint8_t b0 = (uint8_t)cp[0];
     if (b0 < 0x80u) {
         *out = b0;
         return 1;
@@ -89,9 +89,10 @@ static int utf8_decode(const uint8_t *p, size_t n, anorune_t *out)
     if (n - 1 < (size_t)need)
         return 0;   // truncated at end
     for (int k = 1; k <= need; k++) {
-        if ((p[k] & 0xC0u) != 0x80u)
+        uint8_t b = (uint8_t)cp[k];
+        if ((b & 0xC0u) != 0x80u)
             return 0;
-        r = (r << 6) | (p[k] & 0x3Fu);
+        r = (r << 6) | (b & 0x3Fu);
     }
     if (r < min || r > ANORUNE_MAX || rune_is_surrogate(r))
         return 0;   // overlong, out of range, or encoded surrogate
@@ -102,7 +103,7 @@ static int utf8_decode(const uint8_t *p, size_t n, anorune_t *out)
 
 anorune_t anostr_rune_next(anostr_t s, size_t *i)
 {
-    const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
+    const char *p = anostr_bytes(&s);
     size_t at = *i;
     if (at >= s.len) {
         *i = s.len;
@@ -136,7 +137,7 @@ anorune_t anostr_rune_prev(anostr_t s, size_t *i)
         start--;
 
     anorune_t r;
-    int consumed = utf8_decode(p + start, s.len - start, &r);
+    int consumed = utf8_decode((const char *)p + start, s.len - start, &r);
     if (consumed > 0 && start + (size_t)consumed == at) {
         *i = start;
         return r;
@@ -156,7 +157,7 @@ size_t anostr_rune_count(anostr_t s)
 
 bool anostr_utf8_valid(anostr_t s)
 {
-    const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
+    const char *p = anostr_bytes(&s);
     size_t i = 0;
     while (i < s.len) {
         anorune_t r;
@@ -170,7 +171,8 @@ bool anostr_utf8_valid(anostr_t s)
 
 /* Encode */
 
-int anorune_encode(char buf[4], anorune_t r)
+// Constexpr body of anorune_encode; the exported symbol wraps it, the codec proofs run it.
+static constexpr int rune_encode_(char buf[4], anorune_t r)
 {
     if (r > ANORUNE_MAX || rune_is_surrogate(r))
         r = ANORUNE_REPLACEMENT;
@@ -196,6 +198,48 @@ int anorune_encode(char buf[4], anorune_t r)
     return 4;
 }
 
+int anorune_encode(char buf[4], anorune_t r)
+{
+    return rune_encode_(buf, r);
+}
+
+/* Codec Proofs */
+
+// Encode -> strict decode round-trips at every UTF-8 width edge, expected byte counts pinned.
+consteval bool rune_edges_roundtrip(void)
+{
+    constexpr struct { anorune_t r; int len; } edges[] = {
+        { 0x7Fu, 1 }, { 0x80u, 2 }, { 0x7FFu, 2 }, { 0x800u, 3 },
+        { 0xFFFFu, 3 }, { 0x10000u, 4 }, { 0x10FFFFu, 4 },
+    };
+    for (auto e : edges) {
+        char buf[4] = {};
+        anorune_t out = 0;
+        if (rune_encode_(buf, e.r) != e.len)
+            return false;
+        if (utf8_decode(buf, (size_t)e.len, &out) != e.len || out != e.r)
+            return false;
+    }
+    return true;
+}
+
+// Surrogates: never encoded (U+FFFD instead), never decoded (malformed).
+consteval bool surrogates_rejected(void)
+{
+    char buf[4] = {};
+    anorune_t out = 0;
+    if (rune_encode_(buf, 0xD800u) != 3 || utf8_decode(buf, 3, &out) != 3
+        || out != ANORUNE_REPLACEMENT)
+        return false;
+    constexpr char d800[3] = { '\xED', '\xA0', '\x80' };    // raw encoded U+D800
+    return utf8_decode(d800, 3, &out) == 0;
+}
+
+static_assert(rune_edges_roundtrip(),
+              "a UTF-8 width-edge rune fails the encode/decode round-trip 〜 codec drifted");
+static_assert(surrogates_rejected(),
+              "a surrogate slipped through the codec 〜 encode must FFFD, decode must reject");
+
 int anostr_builder_append_rune(anostr_builder_t *b, anorune_t r)
 {
     char buf[4];
@@ -207,7 +251,7 @@ int anostr_builder_append_rune(anostr_builder_t *b, anorune_t r)
 
 // Record 0 is the identity record.
 
-static inline const ano_uc_record_t *uc_record(anorune_t r)
+static constexpr const ano_uc_record_t *uc_record(anorune_t r)
 {
     if (r >= ANO_UC_TABLE_MAX)
         return &ano_uc_records[0];
@@ -253,8 +297,14 @@ bool anorune_is_punct(anorune_t r)
 /* Rune-class Culling */
 
 // One pass, survivors copied in runs. ASCII: 8-byte high-bit test + bitset.
+// Both per-mask tables precomputed by consteval loops over the real records table,
+// indexed by classes & 7.
 
-static uint8_t cull_uc_mask(uint32_t classes)
+static_assert((ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT | ANOSTR_CULL_MARK) == 7u,
+              "ANOSTR_CULL_* domain is no longer exactly 3 bits 〜 resize cull_tables");
+
+// classes & 7 -> ANO_UC_* flag mask (public bit meanings, anoptic_strings_utf.h).
+consteval uint8_t cull_mask_for(uint32_t classes)
 {
     uint8_t m = 0;
     if (classes & ANOSTR_CULL_WHITESPACE) m |= ANO_UC_WHITESPACE;
@@ -262,6 +312,25 @@ static uint8_t cull_uc_mask(uint32_t classes)
     if (classes & ANOSTR_CULL_MARK)       m |= ANO_UC_MARK;
     return m;
 }
+
+struct cull_tables_t {
+    uint8_t  mask[8];        // ANO_UC_* mask per classes value
+    uint64_t ascii[8][2];    // ASCII membership bitset per classes value
+};
+
+consteval cull_tables_t cull_tables_build(void)
+{
+    cull_tables_t t = {};
+    for (uint32_t m = 0; m < 8; m++) {
+        t.mask[m] = cull_mask_for(m);
+        for (uint32_t c = 0; c < 128; c++)
+            if ((uc_record(c)->flags & t.mask[m]) != 0)
+                t.ascii[m][c >> 6] |= 1ull << (c & 63);
+    }
+    return t;
+}
+
+static constexpr cull_tables_t cull_tables = cull_tables_build();
 
 // Byte offset of the first rune to cull, or len if none.
 static size_t cull_find_first(anostr_t s, uint8_t ucMask, const uint64_t asciiSet[2])
@@ -303,15 +372,10 @@ static size_t cull_find_first(anostr_t s, uint8_t ucMask, const uint64_t asciiSe
 
 anostr_t anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
 {
-    uint8_t ucMask = cull_uc_mask(classes);
+    uint8_t ucMask = cull_tables.mask[classes & 7u];
     if (ucMask == 0 || s.len == 0)
         return s;
-
-    // ASCII membership bitset for these classes.
-    uint64_t asciiSet[2] = {0};
-    for (uint32_t c = 0; c < 128; c++)
-        if ((uc_record(c)->flags & ucMask) != 0)
-            asciiSet[c >> 6] |= 1ull << (c & 63);
+    const uint64_t *asciiSet = cull_tables.ascii[classes & 7u];
 
     size_t first = cull_find_first(s, ucMask, asciiSet);
     if (first == s.len)

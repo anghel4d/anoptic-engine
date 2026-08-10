@@ -144,7 +144,7 @@ void ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
 
 /* Literal macros */
 
-// String-literal face macros wrapping anostr_lit, length folded at compile time.
+// String-literal face macros wrapping anostr_lit, the whole value folded at compile time.
 
 #define ano_text_shape_lit(bake, textlit, sizePx, origin, color, out, cap, penOut) \
     ano_text_shape((bake), anostr_lit(textlit), (sizePx), (origin), (color), (out), (cap), (penOut))

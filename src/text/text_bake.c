@@ -25,60 +25,17 @@
 /* Half pack */
 
 // binary16 round-to-nearest-even, bit-exact. Overflow -> +-inf.
+// Constexpr bodies live in text_internal.h (half_pack_/half_unpack_); these exported
+// symbols remain for out-of-module callers (ui_path.h).
 
 uint16_t ano_half_pack(float v)
 {
-    uint32_t x;
-    memcpy(&x, &v, 4);
-    uint32_t sign = (x >> 16) & 0x8000u;
-    x &= 0x7FFFFFFFu;
-    if (x >= 0x47800000u) // >= 65536 after rounding: inf/nan/overflow
-        return (uint16_t)(sign | (x > 0x7F800000u ? 0x7E00u : 0x7C00u));
-    if (x < 0x38800000u) // subnormal or zero
-    {
-        if (x < 0x33000000u) // < 2^-25 -> 0
-            return (uint16_t)sign;
-        uint32_t shift = 126u - (x >> 23); // 14..24, implicit mant -> 10-bit
-        uint32_t mant  = (x & 0x7FFFFFu) | 0x800000u;
-        uint32_t half  = mant >> shift;
-        uint32_t rem   = mant & ((1u << shift) - 1u);
-        uint32_t mid   = 1u << (shift - 1u);
-        if (rem > mid || (rem == mid && (half & 1u)))
-            half++;
-        return (uint16_t)(sign | half);
-    }
-    uint32_t mant = x & 0x7FFFFFu;
-    uint32_t half = (((x >> 23) - 112u) << 10) | (mant >> 13);
-    uint32_t rem  = mant & 0x1FFFu;
-    if (rem > 0x1000u || (rem == 0x1000u && (half & 1u)))
-        half++;
-    return (uint16_t)(sign | half);
+    return half_pack_(v);
 }
 
 float ano_half_unpack(uint16_t h)
 {
-    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
-    uint32_t em   = h & 0x7FFFu;
-    uint32_t bits;
-    if (em >= 0x7C00u) // inf/nan
-        bits = sign | 0x7F800000u | ((em & 0x3FFu) << 13);
-    else if (em >= 0x0400u) // normal
-        bits = sign | ((em + 0x1C000u) << 13);
-    else if (em == 0u)
-        bits = sign;
-    else // subnormal renormalize
-    {
-        uint32_t e = 113u, m = em;
-        while (!(m & 0x400u))
-        {
-            m <<= 1;
-            e--;
-        }
-        bits = sign | (e << 23) | ((m & 0x3FFu) << 13);
-    }
-    float out;
-    memcpy(&out, &bits, 4);
-    return out;
+    return half_unpack_(h);
 }
 
 /* Quad utilities */
@@ -348,8 +305,8 @@ static bool stream_push(mi_heap_t *heap, StreamVec *s, uint32_t val)
 // Quantize one coordinate. *q = exact float the GPU unpacks.
 static uint16_t bake_quant(double v, float *q)
 {
-    uint16_t h = ano_half_pack((float)v);
-    *q = ano_half_unpack(h);
+    uint16_t h = half_pack_((float)v);
+    *q = half_unpack_(h);
     return h;
 }
 

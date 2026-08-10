@@ -86,8 +86,8 @@ static float curve_area(float x0, float y0, float x1, float y1, float x2, float 
     return area;
 }
 
-static inline float half_lo(uint32_t u) { return ano_half_unpack((uint16_t)(u & 0xFFFFu)); }
-static inline float half_hi(uint32_t u) { return ano_half_unpack((uint16_t)(u >> 16)); }
+static inline float half_lo(uint32_t u) { return half_unpack_((uint16_t)(u & 0xFFFFu)); }
+static inline float half_hi(uint32_t u) { return half_unpack_((uint16_t)(u >> 16)); }
 
 // Unclamped coverage sum for one em-space window: walk stream, signed swept area / window area.
 // Blank (curveCount 0): 0.0, never touches pts.

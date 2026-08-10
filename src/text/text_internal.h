@@ -8,6 +8,7 @@
 #ifndef ANO_TEXT_INTERNAL_H
 #define ANO_TEXT_INTERNAL_H
 
+#include <bit>
 #include <stdint.h>
 
 #include "anoptic_text.h"
@@ -64,11 +65,99 @@ float ano_text_kern(const AnoFontBake *bake, uint32_t leftSlot, uint32_t rightSl
 
 /* Bake math */
 
+// binary16 codec, bit-exact, constexpr. The exported ano_half_* symbols in text_bake.c wrap
+// these for out-of-module callers (ui_path.h); in-module code and the wire proofs use them
+// directly.
+
 // float -> binary16 bits, round-to-nearest-even. |v| >= 65536 -> +-inf; RNE may overflow below that.
-uint16_t ano_half_pack(float v);
+inline constexpr uint16_t half_pack_(float v)
+{
+    uint32_t x = std::bit_cast<uint32_t>(v);
+    uint32_t sign = (x >> 16) & 0x8000u;
+    x &= 0x7FFFFFFFu;
+    if (x >= 0x47800000u) // >= 65536 after rounding: inf/nan/overflow
+        return (uint16_t)(sign | (x > 0x7F800000u ? 0x7E00u : 0x7C00u));
+    if (x < 0x38800000u) // subnormal or zero
+    {
+        if (x < 0x33000000u) // < 2^-25 -> 0
+            return (uint16_t)sign;
+        uint32_t shift = 126u - (x >> 23); // 14..24, implicit mant -> 10-bit
+        uint32_t mant  = (x & 0x7FFFFFu) | 0x800000u;
+        uint32_t half  = mant >> shift;
+        uint32_t rem   = mant & ((1u << shift) - 1u);
+        uint32_t mid   = 1u << (shift - 1u);
+        if (rem > mid || (rem == mid && (half & 1u)))
+            half++;
+        return (uint16_t)(sign | half);
+    }
+    uint32_t mant = x & 0x7FFFFFu;
+    uint32_t half = (((x >> 23) - 112u) << 10) | (mant >> 13);
+    uint32_t rem  = mant & 0x1FFFu;
+    if (rem > 0x1000u || (rem == 0x1000u && (half & 1u)))
+        half++;
+    return (uint16_t)(sign | half);
+}
 
 // binary16 bits -> float, exact.
+inline constexpr float half_unpack_(uint16_t h)
+{
+    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
+    uint32_t em   = h & 0x7FFFu;
+    uint32_t bits;
+    if (em >= 0x7C00u) // inf/nan
+        bits = sign | 0x7F800000u | ((em & 0x3FFu) << 13);
+    else if (em >= 0x0400u) // normal
+        bits = sign | ((em + 0x1C000u) << 13);
+    else if (em == 0u)
+        bits = sign;
+    else // subnormal renormalize
+    {
+        uint32_t e = 113u, m = em;
+        while (!(m & 0x400u))
+        {
+            m <<= 1;
+            e--;
+        }
+        bits = sign | (e << 23) | ((m & 0x3FFu) << 13);
+    }
+    return std::bit_cast<float>(bits);
+}
+
+// Exported wrappers, defined in text_bake.c.
+uint16_t ano_half_pack(float v);
 float ano_half_unpack(uint16_t h);
+
+/* Wire Proofs */
+
+// The bake wire format is pinned at translation time 〜 a codec drift fails these
+// static_asserts instead of baking streams the shaders misread.
+
+// Every non-NaN binary16 bit pattern survives unpack -> pack unchanged (the codec is exact).
+consteval bool half_bits_roundtrip(void)
+{
+    for (uint32_t h = 0; h < 0x10000u; h++) {
+        if ((h & 0x7FFFu) > 0x7C00u)
+            continue;   // NaN payloads canonicalize, not identity
+        if (half_pack_(half_unpack_((uint16_t)h)) != h)
+            return false;
+    }
+    return true;
+}
+
+static_assert(((uint32_t)half_pack_(__builtin_inff()) << 16 | half_pack_(__builtin_inff()))
+                  == ANO_TEXT_POINT_SENTINEL,
+              "ANO_TEXT_POINT_SENTINEL is not two packed +inf halves 〜 wire format drifted");
+static_assert(half_bits_roundtrip(),
+              "a binary16 bit pattern fails unpack -> pack identity 〜 codec drifted");
+// RNE vectors: exact, tie-down, tie-up, max normal, RNE overflow, min subnormal, underflow tie.
+static_assert(half_pack_(1.0f) == 0x3C00u, "half: 1.0 packs 0x3C00");
+static_assert(half_pack_(1.0f + 0x1p-11f) == 0x3C00u, "half: tie rounds to even (down)");
+static_assert(half_pack_(1.0f + 3 * 0x1p-11f) == 0x3C02u, "half: tie rounds to even (up)");
+static_assert(half_pack_(65504.0f) == 0x7BFFu, "half: max normal");
+static_assert(half_pack_(65520.0f) == 0x7C00u, "half: RNE overflow to +inf");
+static_assert(half_pack_(-65520.0f) == 0xFC00u, "half: RNE overflow to -inf");
+static_assert(half_pack_(0x1p-24f) == 0x0001u, "half: min subnormal");
+static_assert(half_pack_(0x1p-25f) == 0x0000u, "half: underflow tie to even zero");
 
 // Quadratic Bezier in bake space (em, double while processing).
 typedef struct AnoQuad {

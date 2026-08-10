@@ -61,6 +61,13 @@ static uint32_t gmul(uint32_t a, uint32_t b, bool *ok)
     return a * b;
 }
 
+// 4-char OpenType tag literal as its big-endian u32.
+static consteval uint32_t ot_tag(const char (&s)[5])
+{
+    return (uint32_t)(uint8_t)s[0] << 24 | (uint32_t)(uint8_t)s[1] << 16
+         | (uint32_t)(uint8_t)s[2] << 8 | (uint32_t)(uint8_t)s[3];
+}
+
 // Coverage index of gid, or -1. Unknown formats poison *ok.
 static int32_t cov_index(const GposCtx *g, uint32_t off, uint32_t gid, bool *ok)
 {
@@ -229,7 +236,7 @@ static uint32_t find_langsys(const GposCtx *g, uint32_t slOff, bool *ok)
         uint32_t scriptOff = g16(g, ro + 4u, ok);
         if (!*ok)
             return 0;
-        if (tag != 0x6C61746Eu && tag != 0x44464C54u) // 'latn' / 'DFLT'
+        if (tag != ot_tag("latn") && tag != ot_tag("DFLT"))
             continue;
         uint32_t sOff = gadd(g, slOff, scriptOff, ok);
         uint32_t dls = g16(g, sOff, ok);
@@ -240,7 +247,7 @@ static uint32_t find_langsys(const GposCtx *g, uint32_t slOff, bool *ok)
         best = gadd(g, sOff, dls, ok);
         if (!*ok)
             return 0;
-        if (tag == 0x6C61746Eu)
+        if (tag == ot_tag("latn"))
             break; // 'latn' wins over 'DFLT'
     }
     return best;
@@ -290,7 +297,7 @@ int ano_gpos_extract_kerns(const uint8_t *gpos, uint32_t len, const uint32_t *sl
         uint32_t featOff = g16(&g, fro + 4u, &ok);
         if (!ok)
             return EIO;
-        if (tag != 0x6B65726Eu) // 'kern'
+        if (tag != ot_tag("kern"))
             continue;
         uint32_t fo = gadd(&g, flOff, featOff, &ok);
         uint32_t lookupCount = g16(&g, fo + 2u, &ok);
