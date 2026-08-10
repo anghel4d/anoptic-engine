@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 ## What this is
-Anoptic Engine. An SoA C23 game engine for million-entity simulation.
-We implement the very pinnacle of the modern SoA techniques and algorithms, without reservation. We believe Agentic Code Assistants make it possible to turn our years of experience and knowledge into real, proven deliverables.
+Anoptic Engine. A SOTA C++26 game engine for million-entity simulation.
+We implement the very pinnacle of the modern SOTA techniques and algorithms, without reservation. We believe Agentic Code Assistants make it possible to turn our years of experience and knowledge into real, proven deliverables.
 Keep reading to get a grasp of how we ship fast, clean, idiomatic systems-level code.
 
 ## Build
