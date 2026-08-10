@@ -2,7 +2,9 @@
 
 namespace invalid_schema {
 
-struct [[=ano::Artifact{}]] Record;
+struct [[=ano::Artifact{}]] Record final {
+    ano::AssetRef<uint32_t> target;
+};
 
 } // namespace invalid_schema
 

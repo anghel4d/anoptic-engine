@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Stable C boundary for resource identities, canonical bytes, and language metadata.
+// C boundary for resource identities, canonical bytes, and errors.
 
 #ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_H
 #define ANOPTICENGINE_ANOPTIC_RESOURCES_H
@@ -66,52 +66,6 @@ typedef enum AnoResourceError {
     ANO_RESOURCE_ERROR_COUNT
 } AnoResourceError;
 
-typedef enum AnoResourceWireKind {
-    ANO_RESOURCE_WIRE_INTEGER = 0,
-    ANO_RESOURCE_WIRE_FLOAT,
-    ANO_RESOURCE_WIRE_ARRAY,
-    ANO_RESOURCE_WIRE_RECORD,
-    ANO_RESOURCE_WIRE_ASSET_REF,
-    ANO_RESOURCE_WIRE_RELATIVE_SPAN
-} AnoResourceWireKind;
-
-typedef struct AnoResourceFieldDescriptor {
-    uint32_t wireId;
-    uint32_t fixedOffset;
-    uint32_t fixedSize;
-    uint8_t policy;
-    uint8_t kind;
-    uint16_t reserved;
-    const char *debugName;
-} AnoResourceFieldDescriptor;
-
-typedef struct AnoResourceTypeDescriptor {
-    AnoResourceTypeId type;
-    AnoSchemaFingerprint schema;
-    uint32_t version;
-    uint32_t fixedSize;
-    uint32_t fieldCount;
-    uint8_t storage;
-    uint8_t reserved[3];
-    const AnoResourceFieldDescriptor *fields;
-    const char *debugName;
-} AnoResourceTypeDescriptor;
-
-typedef struct AnoResourceTransformDescriptor {
-    uint8_t executor;
-    uint8_t streaming;
-    uint8_t deterministic;
-    uint8_t parameterCount;
-    const char *debugName;
-} AnoResourceTransformDescriptor;
-
-typedef struct AnoResourceLanguage {
-    const AnoResourceTypeDescriptor *types;
-    uint32_t typeCount;
-    const AnoResourceTransformDescriptor *transforms;
-    uint32_t transformCount;
-} AnoResourceLanguage;
-
 static inline bool ano_asset_id_equal(AnoAssetId lhs, AnoAssetId rhs)
 {
     return lhs.value == rhs.value;
@@ -123,7 +77,6 @@ static inline bool ano_resource_type_id_equal(AnoResourceTypeId lhs,
     return lhs.value == rhs.value;
 }
 
-const AnoResourceLanguage *ano_resource_language(void);
 const char *ano_resource_error_string(AnoResourceError error);
 AnoResourceError ano_resource_content_id(AnoResourceBytes bytes,
                                          AnoContentId *contentId);

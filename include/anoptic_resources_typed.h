@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// C++26 resource declarations compile into canonical operations and immutable metadata.
+// C++26 resource declarations compile directly into canonical operations.
 
 #ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_TYPED_H
 #define ANOPTICENGINE_ANOPTIC_RESOURCES_TYPED_H
@@ -16,26 +16,13 @@
 #include "anoptic_resources.h"
 
 #include <bit>
-#include <limits>
 #include <meta>
 #include <stddef.h>
 #include <stdint.h>
 #include <string_view>
 #include <type_traits>
-#include <vector>
 
 namespace ano {
-
-enum class Storage : uint8_t {
-    portable,
-    resident,
-};
-
-enum class FieldPolicy : uint8_t {
-    required,
-    optional,
-    dependency,
-};
 
 enum class Executor : uint8_t {
     io,
@@ -50,52 +37,13 @@ enum class Streaming : uint8_t {
     atoms,
 };
 
-struct Artifact final {
-    uint64_t wireId;
-    Storage storage;
-    uint32_t version;
-};
-
-struct Field final {
-    uint32_t wireId;
-    FieldPolicy policy;
-};
+struct Artifact final {};
 
 struct Transform final {
     Executor executor;
     Streaming streaming;
     bool deterministic;
 };
-
-struct ResourceCompileProfile final {
-    uint32_t executorMask;
-};
-
-consteval ResourceCompileProfile current_resource_profile()
-{
-    return {UINT32_MAX};
-}
-
-consteval uint64_t wire_id(std::string_view text)
-{
-    if (text.empty())
-        __builtin_abort();
-    uint64_t hash = UINT64_C(14695981039346656037);
-    for (const char value : text) {
-        hash ^= static_cast<uint8_t>(value);
-        hash *= UINT64_C(1099511628211);
-    }
-    if (hash == 0)
-        __builtin_abort();
-    return hash;
-}
-
-template<size_t Count>
-consteval uint64_t wire_id(const char (&text)[Count])
-{
-    static_assert(Count > 1);
-    return wire_id(std::string_view(text, Count - 1));
-}
 
 template<class SemanticAsset>
 struct AssetRef final {
@@ -314,53 +262,41 @@ consteval bool specialization_of(std::meta::info type,
         && std::meta::template_of(type) == classTemplate;
 }
 
-consteval Artifact artifact_contract(std::meta::info declaration)
+enum class WireShape : uint8_t {
+    invalid,
+    boolean,
+    integer,
+    floating,
+    array,
+    assetRef,
+    relativeSpan,
+    record,
+};
+
+consteval bool has_artifact_marker(std::meta::info declaration)
+{
+    return !std::meta::annotations_of_with_type(declaration, ^^Artifact).empty();
+}
+
+consteval void validate_artifact_marker(std::meta::info declaration)
 {
     const auto annotations =
         std::meta::annotations_of_with_type(declaration, ^^Artifact);
     if (annotations.size() != 1)
         reject("an artifact type requires exactly one Artifact annotation",
                declaration);
-    const Artifact contract = std::meta::extract<Artifact>(annotations[0]);
-    if (contract.wireId == 0 || contract.version == 0)
-        reject("artifact wire identity and version must be nonzero", declaration);
-    return contract;
 }
 
-consteval Field field_contract(std::meta::info declaration)
-{
-    const auto annotations =
-        std::meta::annotations_of_with_type(declaration, ^^Field);
-    if (annotations.size() != 1)
-        reject("a canonical field requires exactly one Field annotation",
-               declaration);
-    const Field contract = std::meta::extract<Field>(annotations[0]);
-    if (contract.wireId == 0)
-        reject("canonical field wire identity must be nonzero", declaration);
-    return contract;
-}
-
-consteval std::vector<std::meta::info> sorted_fields(std::meta::info type)
+consteval auto wire_fields(std::meta::info type)
 {
     auto fields = std::meta::nonstatic_data_members_of(
         type, std::meta::access_context::unchecked());
-    for (size_t i = 0; i < fields.size(); ++i) {
-        if (std::meta::is_bit_field(fields[i]))
-            reject("canonical fields cannot be bit fields", fields[i]);
-        const Field lhs = field_contract(fields[i]);
-        for (size_t j = i + 1; j < fields.size(); ++j) {
-            const Field rhs = field_contract(fields[j]);
-            if (lhs.wireId == rhs.wireId)
-                reject("canonical field wire identities must be unique", fields[j]);
-        }
+    for (const std::meta::info field : fields) {
+        if (std::meta::is_bit_field(field))
+            reject("canonical fields cannot be bit fields", field);
+        if (!std::meta::has_identifier(field))
+            reject("canonical fields require identifiers", field);
     }
-    for (size_t i = 0; i < fields.size(); ++i)
-        for (size_t j = i + 1; j < fields.size(); ++j)
-            if (field_contract(fields[j]).wireId < field_contract(fields[i]).wireId) {
-                const std::meta::info temporary = fields[i];
-                fields[i] = fields[j];
-                fields[j] = temporary;
-            }
     return fields;
 }
 
@@ -372,18 +308,39 @@ consteval std::meta::info template_element(std::meta::info type)
     return arguments[0];
 }
 
-consteval bool contains_asset_ref(std::meta::info type)
+consteval WireShape wire_shape(std::meta::info type)
 {
     type = std::meta::dealias(type);
-    if (specialization_of(type, ^^AssetRef))
-        return true;
-    if (specialization_of(type, ^^RelativeSpan))
-        return contains_asset_ref(template_element(type));
+    if (type == ^^bool)
+        return WireShape::boolean;
+    if (std::meta::is_integral_type(type))
+        return WireShape::integer;
+    if (std::meta::is_floating_point_type(type))
+        return WireShape::floating;
     if (std::meta::is_array_type(type))
-        return contains_asset_ref(std::meta::remove_extent(type));
+        return WireShape::array;
+    if (specialization_of(type, ^^AssetRef))
+        return WireShape::assetRef;
+    if (specialization_of(type, ^^RelativeSpan))
+        return WireShape::relativeSpan;
     if (std::meta::is_class_type(type))
-        for (const std::meta::info field : sorted_fields(type))
-            if (contains_asset_ref(std::meta::type_of(field)))
+        return WireShape::record;
+    return WireShape::invalid;
+}
+
+consteval bool wire_contains(std::meta::info type, WireShape sought)
+{
+    type = std::meta::dealias(type);
+    const WireShape shape = wire_shape(type);
+    if (shape == sought)
+        return true;
+    if (shape == WireShape::array)
+        return wire_contains(std::meta::remove_extent(type), sought);
+    if (shape == WireShape::relativeSpan)
+        return wire_contains(template_element(type), sought);
+    if (shape == WireShape::record)
+        for (const std::meta::info field : wire_fields(type))
+            if (wire_contains(std::meta::type_of(field), sought))
                 return true;
     return false;
 }
@@ -392,21 +349,38 @@ consteval void validate_wire_type(std::meta::info type,
                                   std::meta::info declaration)
 {
     type = std::meta::dealias(type);
-    if (std::meta::is_pointer_type(type) || std::meta::is_reference_type(type)
-        || std::meta::is_member_pointer_type(type))
-        reject("portable artifacts cannot contain pointers or references",
-               declaration);
+    const WireShape shape = wire_shape(type);
+    if (shape == WireShape::invalid) {
+        if (std::meta::is_pointer_type(type) || std::meta::is_reference_type(type)
+            || std::meta::is_member_pointer_type(type))
+            reject("portable artifacts cannot contain pointers or references",
+                   declaration);
+        if (std::meta::is_enum_type(type))
+            reject("portable enum fields require an explicit reflected wire mapping",
+                   declaration);
+        reject("unsupported canonical field type", declaration);
+    }
 
-    if (std::meta::is_integral_type(type)
-        || std::meta::is_floating_point_type(type)) {
+    if (shape == WireShape::boolean) {
+        if (std::meta::size_of(type) != 1)
+            reject("canonical bools must occupy one byte", declaration);
+        return;
+    }
+    if (shape == WireShape::integer) {
         const size_t width = std::meta::size_of(type);
         if (width != 1 && width != 2 && width != 4 && width != 8)
-            reject("canonical scalar width must be 1, 2, 4, or 8 bytes",
+            reject("canonical integers must occupy 1, 2, 4, or 8 bytes",
                    declaration);
         return;
     }
+    if (shape == WireShape::floating) {
+        const size_t width = std::meta::size_of(type);
+        if (width != 4 && width != 8)
+            reject("canonical floats must occupy 4 or 8 bytes", declaration);
+        return;
+    }
 
-    if (std::meta::is_array_type(type)) {
+    if (shape == WireShape::array) {
         if (std::meta::rank(type) != 1 || std::meta::extent(type) == 0)
             reject("canonical arrays must have one fixed nonzero extent",
                    declaration);
@@ -414,15 +388,15 @@ consteval void validate_wire_type(std::meta::info type,
         return;
     }
 
-    if (specialization_of(type, ^^AssetRef)) {
+    if (shape == WireShape::assetRef) {
         const std::meta::info target = template_element(type);
         if (!std::meta::is_complete_type(target))
             reject("AssetRef target types must be complete", declaration);
-        (void)artifact_contract(target);
+        validate_artifact_marker(target);
         return;
     }
 
-    if (specialization_of(type, ^^RelativeSpan)) {
+    if (shape == WireShape::relativeSpan) {
         const std::meta::info element = template_element(type);
         if (!std::meta::is_complete_type(element))
             reject("RelativeSpan element types must be complete", declaration);
@@ -430,40 +404,65 @@ consteval void validate_wire_type(std::meta::info type,
         return;
     }
 
-    if (std::meta::is_enum_type(type))
-        reject("portable enum fields require an explicit reflected wire mapping",
-               declaration);
-
-    if (!std::meta::is_class_type(type) || !std::meta::is_complete_type(type))
-        reject("unsupported or incomplete canonical field type", declaration);
+    if (!std::meta::is_complete_type(type))
+        reject("canonical records must be complete", declaration);
     if (!std::meta::is_standard_layout_type(type)
         || !std::meta::is_trivially_copyable_type(type)
         || !std::meta::is_aggregate_type(type)
         || !std::meta::is_final_type(type))
         reject("canonical records must be final standard-layout trivial aggregates",
                declaration);
+    if (!std::meta::bases_of(type, std::meta::access_context::unchecked()).empty())
+        reject("canonical records cannot have base classes", declaration);
 
-    const auto fields = sorted_fields(type);
+    const auto fields = wire_fields(type);
     if (fields.empty())
         reject("canonical records must contain at least one field", declaration);
-    for (const std::meta::info field : fields) {
-        const Field contract = field_contract(field);
-        const bool hasDependency = contains_asset_ref(std::meta::type_of(field));
-        if (hasDependency != (contract.policy == FieldPolicy::dependency))
-            reject("AssetRef-bearing fields require dependency policy and only those fields use it",
-                   field);
+    for (const std::meta::info field : fields)
         validate_wire_type(std::meta::type_of(field), field);
-    }
 }
 
 consteval void validate_artifact(std::meta::info type)
 {
     if (!std::meta::is_type(type) || !std::meta::is_complete_type(type))
         reject("artifact declarations must denote complete types", type);
-    const Artifact contract = artifact_contract(type);
-    if (contract.storage != Storage::portable)
-        reject("canonical artifact operations require portable storage", type);
+    validate_artifact_marker(type);
+    if (wire_shape(type) != WireShape::record)
+        reject("artifact declarations must denote record types", type);
     validate_wire_type(type, type);
+}
+
+consteval void hash_qualified_name(Sha256& hash, std::meta::info declaration)
+{
+    if (std::meta::has_parent(declaration))
+        hash_qualified_name(hash, std::meta::parent_of(declaration));
+    if (!std::meta::has_identifier(declaration)) {
+        if (std::meta::has_parent(declaration))
+            reject("persistent declarations cannot use unnamed scopes", declaration);
+        return;
+    }
+    const std::string_view identifier = std::meta::identifier_of(declaration);
+    if (identifier.size() > UINT32_MAX)
+        reject("declaration identifier exceeds canonical limits", declaration);
+    hash_u32(hash, static_cast<uint32_t>(identifier.size()));
+    hash.append(identifier);
+}
+
+consteval AnoResourceTypeId reflected_type_id(std::meta::info type)
+{
+    type = std::meta::dealias(type);
+    if (!std::meta::is_type(type) || !std::meta::has_identifier(type))
+        reject("resource type identity requires a named type", type);
+    Sha256 hash;
+    hash.append("anoptic.resource.type.v2");
+    hash_qualified_name(hash, type);
+    const AnoContentId digest = hash.finish();
+    uint64_t value = 0;
+    for (uint32_t i = 0; i < 8; ++i)
+        value |= static_cast<uint64_t>(digest.bytes[i]) << (i * 8u);
+    if (value == 0)
+        reject("reflected resource type identity cannot be zero", type);
+    return {value};
 }
 
 consteval uint64_t checked_wire_add(uint64_t lhs, uint64_t rhs,
@@ -485,19 +484,20 @@ consteval uint64_t checked_wire_multiply(uint64_t lhs, uint64_t rhs,
 consteval uint64_t wire_size(std::meta::info type)
 {
     type = std::meta::dealias(type);
-    if (std::meta::is_integral_type(type)
-        || std::meta::is_floating_point_type(type))
+    const WireShape shape = wire_shape(type);
+    if (shape == WireShape::boolean || shape == WireShape::integer
+        || shape == WireShape::floating)
         return std::meta::size_of(type);
-    if (std::meta::is_array_type(type))
+    if (shape == WireShape::array)
         return checked_wire_multiply(std::meta::extent(type),
                                      wire_size(std::meta::remove_extent(type)), type);
-    if (specialization_of(type, ^^AssetRef))
+    if (shape == WireShape::assetRef)
         return 8;
-    if (specialization_of(type, ^^RelativeSpan))
+    if (shape == WireShape::relativeSpan)
         return 16;
-    if (std::meta::is_class_type(type)) {
+    if (shape == WireShape::record) {
         uint64_t result = 0;
-        for (const std::meta::info field : sorted_fields(type))
+        for (const std::meta::info field : wire_fields(type))
             result = checked_wire_add(result,
                                       wire_size(std::meta::type_of(field)), field);
         return result;
@@ -505,66 +505,52 @@ consteval uint64_t wire_size(std::meta::info type)
     reject("unsupported canonical wire type", type);
 }
 
-consteval AnoResourceWireKind wire_kind(std::meta::info type)
-{
-    type = std::meta::dealias(type);
-    if (std::meta::is_integral_type(type))
-        return ANO_RESOURCE_WIRE_INTEGER;
-    if (std::meta::is_floating_point_type(type))
-        return ANO_RESOURCE_WIRE_FLOAT;
-    if (std::meta::is_array_type(type))
-        return ANO_RESOURCE_WIRE_ARRAY;
-    if (specialization_of(type, ^^AssetRef))
-        return ANO_RESOURCE_WIRE_ASSET_REF;
-    if (specialization_of(type, ^^RelativeSpan))
-        return ANO_RESOURCE_WIRE_RELATIVE_SPAN;
-    if (std::meta::is_class_type(type))
-        return ANO_RESOURCE_WIRE_RECORD;
-    reject("unsupported canonical wire type", type);
-}
-
 consteval void hash_wire_type(Sha256& hash, std::meta::info type)
 {
     type = std::meta::dealias(type);
-    if (type == ^^bool) {
+    const WireShape shape = wire_shape(type);
+    if (shape == WireShape::boolean) {
         hash_u8(hash, 'b');
         return;
     }
-    if (std::meta::is_integral_type(type)) {
+    if (shape == WireShape::integer) {
         hash_u8(hash, 'i');
         hash_u8(hash, static_cast<uint8_t>(std::meta::size_of(type)));
         hash_u8(hash, std::meta::is_signed_type(type) ? 1 : 0);
         return;
     }
-    if (std::meta::is_floating_point_type(type)) {
+    if (shape == WireShape::floating) {
         hash_u8(hash, 'f');
         hash_u8(hash, static_cast<uint8_t>(std::meta::size_of(type)));
         return;
     }
-    if (std::meta::is_array_type(type)) {
+    if (shape == WireShape::array) {
         hash_u8(hash, 'a');
         hash_u64(hash, std::meta::extent(type));
         hash_wire_type(hash, std::meta::remove_extent(type));
         return;
     }
-    if (specialization_of(type, ^^AssetRef)) {
+    if (shape == WireShape::assetRef) {
         hash_u8(hash, 'd');
-        hash_u64(hash, artifact_contract(template_element(type)).wireId);
+        hash_qualified_name(hash, template_element(type));
         return;
     }
-    if (specialization_of(type, ^^RelativeSpan)) {
+    if (shape == WireShape::relativeSpan) {
         hash_u8(hash, 's');
         hash_wire_type(hash, template_element(type));
         return;
     }
 
+    if (shape != WireShape::record)
+        reject("unsupported canonical wire type", type);
     hash_u8(hash, 'r');
-    const auto fields = sorted_fields(type);
+    hash_qualified_name(hash, type);
+    const auto fields = wire_fields(type);
     hash_u32(hash, static_cast<uint32_t>(fields.size()));
     for (const std::meta::info field : fields) {
-        const Field contract = field_contract(field);
-        hash_u32(hash, contract.wireId);
-        hash_u8(hash, static_cast<uint8_t>(contract.policy));
+        const std::string_view identifier = std::meta::identifier_of(field);
+        hash_u32(hash, static_cast<uint32_t>(identifier.size()));
+        hash.append(identifier);
         hash_wire_type(hash, std::meta::type_of(field));
     }
 }
@@ -572,12 +558,9 @@ consteval void hash_wire_type(Sha256& hash, std::meta::info type)
 consteval AnoSchemaFingerprint fingerprint(std::meta::info type)
 {
     validate_artifact(type);
-    const Artifact contract = artifact_contract(type);
     Sha256 hash;
-    hash.append("anoptic.resource.schema.v1");
-    hash_u64(hash, contract.wireId);
-    hash_u8(hash, static_cast<uint8_t>(contract.storage));
-    hash_u32(hash, contract.version);
+    hash.append("anoptic.resource.schema.v2");
+    hash_qualified_name(hash, type);
     hash_wire_type(hash, type);
     const AnoContentId content = hash.finish();
     AnoSchemaFingerprint result = {};
@@ -589,7 +572,7 @@ consteval AnoSchemaFingerprint fingerprint(std::meta::info type)
 template<class Type>
 consteval auto fields_for()
 {
-    return std::define_static_array(sorted_fields(^^Type));
+    return std::define_static_array(wire_fields(^^Type));
 }
 
 template<class Type>
@@ -600,63 +583,12 @@ consteval bool require_artifact()
 }
 
 template<class Type>
-inline constexpr Artifact compiledArtifact = artifact_contract(^^Type);
-
-template<class Type>
 inline constexpr AnoSchemaFingerprint compiledFingerprint = fingerprint(^^Type);
 
 template<class Type>
 inline constexpr uint64_t compiledWireSize = wire_size(^^Type);
 
-consteval auto field_descriptors(std::meta::info type)
-{
-    validate_artifact(type);
-    const auto fields = sorted_fields(type);
-    std::vector<AnoResourceFieldDescriptor> descriptors;
-    descriptors.reserve(fields.size());
-    uint64_t offset = 0;
-    for (const std::meta::info field : fields) {
-        const Field contract = field_contract(field);
-        const uint64_t size = wire_size(std::meta::type_of(field));
-        if (offset > UINT32_MAX || size > UINT32_MAX)
-            reject("runtime field descriptors require 32-bit fixed extents", field);
-        descriptors.push_back({
-            .wireId = contract.wireId,
-            .fixedOffset = static_cast<uint32_t>(offset),
-            .fixedSize = static_cast<uint32_t>(size),
-            .policy = static_cast<uint8_t>(contract.policy),
-            .kind = static_cast<uint8_t>(wire_kind(std::meta::type_of(field))),
-            .reserved = 0,
-            .debugName = std::define_static_string(
-                std::meta::identifier_of(field)),
-        });
-        offset += size;
-    }
-    return std::define_static_array(descriptors);
-}
-
-consteval AnoResourceTypeDescriptor type_descriptor(std::meta::info type)
-{
-    const auto fields = field_descriptors(type);
-    const Artifact contract = artifact_contract(type);
-    const uint64_t size = wire_size(type);
-    if (size > UINT32_MAX || fields.size() > UINT32_MAX)
-        reject("runtime type descriptors require 32-bit fixed extents", type);
-    return {
-        .type = {contract.wireId},
-        .schema = fingerprint(type),
-        .version = contract.version,
-        .fixedSize = static_cast<uint32_t>(size),
-        .fieldCount = static_cast<uint32_t>(fields.size()),
-        .storage = static_cast<uint8_t>(contract.storage),
-        .reserved = {},
-        .fields = fields.data(),
-        .debugName = std::define_static_string(std::meta::identifier_of(type)),
-    };
-}
-
-consteval AnoResourceTransformDescriptor transform_descriptor(
-    std::meta::info declaration)
+consteval void validate_transform(std::meta::info declaration)
 {
     const auto annotations =
         std::meta::annotations_of_with_type(declaration, ^^Transform);
@@ -667,17 +599,33 @@ consteval AnoResourceTransformDescriptor transform_descriptor(
     if (std::meta::return_type_of(declaration) != ^^bool)
         reject("resource transforms return bool", declaration);
     const auto parameters = std::meta::parameters_of(declaration);
-    if (parameters.empty() || parameters.size() > UINT8_MAX)
-        reject("resource transforms require one to 255 parameters", declaration);
-    const Transform contract = std::meta::extract<Transform>(annotations[0]);
-    return {
-        .executor = static_cast<uint8_t>(contract.executor),
-        .streaming = static_cast<uint8_t>(contract.streaming),
-        .deterministic = contract.deterministic ? uint8_t{1} : uint8_t{0},
-        .parameterCount = static_cast<uint8_t>(parameters.size()),
-        .debugName = std::define_static_string(
-            std::meta::identifier_of(declaration)),
-    };
+    std::meta::info input{};
+    std::meta::info output{};
+    for (const std::meta::info parameter : parameters) {
+        const std::meta::info parameterType = std::meta::type_of(parameter);
+        const std::meta::info valueType = std::meta::remove_cvref(parameterType);
+        if (!has_artifact_marker(valueType))
+            continue;
+        validate_artifact(valueType);
+        if (!std::meta::is_lvalue_reference_type(parameterType))
+            reject("artifact transform parameters must be lvalue references",
+                   parameter);
+        const std::meta::info referred = std::meta::remove_reference(parameterType);
+        if (std::meta::is_const_type(referred)) {
+            if (input != std::meta::info{})
+                reject("resource transforms require exactly one artifact input",
+                       parameter);
+            input = valueType;
+        } else {
+            if (output != std::meta::info{})
+                reject("resource transforms require exactly one artifact output",
+                       parameter);
+            output = valueType;
+        }
+    }
+    if (input == std::meta::info{} || output == std::meta::info{})
+        reject("resource transforms require one const artifact input and one artifact output",
+               declaration);
 }
 
 constexpr bool checked_add(uint64_t lhs, uint64_t rhs, uint64_t *result)
@@ -725,10 +673,7 @@ constexpr void write_unsigned(uint8_t *bytes, uint64_t value, uint32_t width)
 }
 
 template<class Type>
-inline constexpr bool isAssetRef = specialization_of(^^Type, ^^AssetRef);
-
-template<class Type>
-inline constexpr bool isRelativeSpan = specialization_of(^^Type, ^^RelativeSpan);
+inline constexpr WireShape compiledWireShape = wire_shape(^^Type);
 
 struct PlanContext final {
     AnoResourceBytes source;
@@ -783,7 +728,7 @@ constexpr void plan_value(const Type& value, PlanContext& context)
 {
     if (context.error != ANO_RESOURCE_OK)
         return;
-    if constexpr (isRelativeSpan<Type>) {
+    if constexpr (compiledWireShape<Type> == WireShape::relativeSpan) {
         constexpr std::meta::info elementInfo = template_element(^^Type);
         using Element = [:elementInfo:];
         const Element *elements = source_elements(context.source, value,
@@ -799,10 +744,10 @@ constexpr void plan_value(const Type& value, PlanContext& context)
         }
         for (uint64_t i = 0; i < value.count; ++i)
             plan_value(elements[i], context);
-    } else if constexpr (std::is_array_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         for (size_t i = 0; i < std::extent_v<Type>; ++i)
             plan_value(value[i], context);
-    } else if constexpr (std::is_class_v<Type> && !isAssetRef<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::record) {
         plan_record(value, context);
     }
 }
@@ -838,9 +783,9 @@ constexpr void encode_value(const Type& value, uint64_t offset,
 {
     if (context.error != ANO_RESOURCE_OK)
         return;
-    if constexpr (isAssetRef<Type>) {
+    if constexpr (compiledWireShape<Type> == WireShape::assetRef) {
         write_unsigned(context.output.data + offset, value.id.value, 8);
-    } else if constexpr (isRelativeSpan<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::relativeSpan) {
         constexpr std::meta::info elementInfo = template_element(^^Type);
         using Element = [:elementInfo:];
         if (value.count == 0) {
@@ -865,18 +810,18 @@ constexpr void encode_value(const Type& value, uint64_t offset,
         for (uint64_t i = 0; i < value.count; ++i)
             encode_value(elements[i],
                          payloadOffset + i * wire_size(^^Element), context);
-    } else if constexpr (std::is_array_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         using Element = std::remove_extent_t<Type>;
         for (size_t i = 0; i < std::extent_v<Type>; ++i)
             encode_value(value[i], offset + i * wire_size(^^Element), context);
-    } else if constexpr (std::is_same_v<Type, bool>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::boolean) {
         context.output.data[offset] = value ? uint8_t{1} : uint8_t{0};
-    } else if constexpr (std::is_integral_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::integer) {
         using Unsigned = std::make_unsigned_t<Type>;
         const Unsigned bits = std::bit_cast<Unsigned>(value);
         write_unsigned(context.output.data + offset,
                        static_cast<uint64_t>(bits), sizeof(Type));
-    } else if constexpr (std::is_floating_point_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::floating) {
         if constexpr (sizeof(Type) == 4) {
             write_unsigned(context.output.data + offset,
                            std::bit_cast<uint32_t>(value), 4);
@@ -884,8 +829,11 @@ constexpr void encode_value(const Type& value, uint64_t offset,
             write_unsigned(context.output.data + offset,
                            std::bit_cast<uint64_t>(value), 8);
         }
-    } else {
+    } else if constexpr (compiledWireShape<Type> == WireShape::record) {
         encode_record(value, offset, context);
+    } else {
+        static_assert(compiledWireShape<Type> != WireShape::invalid,
+                      "unsupported canonical wire type");
     }
 }
 
@@ -930,7 +878,7 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
         return;
     }
 
-    if constexpr (isAssetRef<Type>) {
+    if constexpr (compiledWireShape<Type> == WireShape::assetRef) {
         const AnoAssetId id = {read_unsigned(context.bytes.data + offset, 8)};
         if (output != nullptr)
             output->id = id;
@@ -940,7 +888,7 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
                 context.dependencies[context.dependencyCount] = id;
             ++context.dependencyCount;
         }
-    } else if constexpr (isRelativeSpan<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::relativeSpan) {
         constexpr std::meta::info elementInfo = template_element(^^Type);
         using Element = [:elementInfo:];
         const uint64_t spanOffset = read_unsigned(context.bytes.data + offset, 8);
@@ -969,12 +917,12 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
         for (uint64_t i = 0; i < count; ++i)
             decode_value(spanOffset + i * wire_size(^^Element), context,
                          static_cast<Element *>(nullptr));
-    } else if constexpr (std::is_array_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         using Element = std::remove_extent_t<Type>;
         for (size_t i = 0; i < std::extent_v<Type>; ++i)
             decode_value(offset + i * wire_size(^^Element), context,
                          output == nullptr ? nullptr : &(*output)[i]);
-    } else if constexpr (std::is_same_v<Type, bool>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::boolean) {
         const uint8_t value = context.bytes.data[offset];
         if (value > 1) {
             context.error = ANO_RESOURCE_NON_CANONICAL;
@@ -982,13 +930,13 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
         }
         if (output != nullptr)
             *output = value != 0;
-    } else if constexpr (std::is_integral_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::integer) {
         using Unsigned = std::make_unsigned_t<Type>;
         const Unsigned bits = static_cast<Unsigned>(
             read_unsigned(context.bytes.data + offset, sizeof(Type)));
         if (output != nullptr)
             *output = std::bit_cast<Type>(bits);
-    } else if constexpr (std::is_floating_point_v<Type>) {
+    } else if constexpr (compiledWireShape<Type> == WireShape::floating) {
         if (output != nullptr) {
             if constexpr (sizeof(Type) == 4)
                 *output = std::bit_cast<Type>(static_cast<uint32_t>(
@@ -997,8 +945,11 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
                 *output = std::bit_cast<Type>(
                     read_unsigned(context.bytes.data + offset, 8));
         }
-    } else {
+    } else if constexpr (compiledWireShape<Type> == WireShape::record) {
         decode_record(offset, context, output);
+    } else {
+        static_assert(compiledWireShape<Type> != WireShape::invalid,
+                      "unsupported canonical wire type");
     }
 }
 
@@ -1018,8 +969,8 @@ constexpr AnoResourceError decode_artifact(AnoResourceBytes bytes, Type *output,
         if (bytes.data[i] != canonicalMagic[i])
             return ANO_RESOURCE_BAD_MAGIC;
 
-    constexpr Artifact contract = compiledArtifact<Type>;
-    if (read_unsigned(bytes.data + 8, 8) != contract.wireId)
+    constexpr AnoResourceTypeId type = reflected_type_id(^^Type);
+    if (read_unsigned(bytes.data + 8, 8) != type.value)
         return ANO_RESOURCE_TYPE_MISMATCH;
     constexpr AnoSchemaFingerprint expected = compiledFingerprint<Type>;
     AnoSchemaFingerprint encoded = {};
@@ -1057,94 +1008,45 @@ constexpr AnoResourceError decode_artifact(AnoResourceBytes bytes, Type *output,
     return ANO_RESOURCE_OK;
 }
 
-consteval bool contains_relative_span(std::meta::info type)
-{
-    type = std::meta::dealias(type);
-    if (specialization_of(type, ^^RelativeSpan))
-        return true;
-    if (std::meta::is_array_type(type))
-        return contains_relative_span(std::meta::remove_extent(type));
-    if (std::meta::is_class_type(type) && !specialization_of(type, ^^AssetRef))
-        for (const std::meta::info field : sorted_fields(type))
-            if (contains_relative_span(std::meta::type_of(field)))
-                return true;
-    return false;
-}
-
 } // namespace detail
 
-struct CompiledResourceLanguage final {
-    AnoResourceLanguage value;
-
-    constexpr AnoResourceLanguage runtime_view() const
-    {
-        return value;
-    }
-};
-
-consteval CompiledResourceLanguage compile_resource_language(
-    std::meta::info schemaNamespace, ResourceCompileProfile)
+consteval bool compile_resource_language(std::meta::info schemaNamespace)
 {
     if (!std::meta::is_namespace(schemaNamespace))
         detail::reject("resource language input must be a namespace",
                        schemaNamespace);
     const auto declarations = std::meta::members_of(
         schemaNamespace, std::meta::access_context::unchecked());
-    std::vector<AnoResourceTypeDescriptor> types;
-    std::vector<AnoResourceTransformDescriptor> transforms;
-
-    for (const std::meta::info declaration : declarations) {
-        const auto artifactAnnotations =
-            std::meta::annotations_of_with_type(declaration, ^^Artifact);
+    size_t artifactCount = 0;
+    for (size_t i = 0; i < declarations.size(); ++i) {
+        const std::meta::info declaration = declarations[i];
         const auto transformAnnotations =
             std::meta::annotations_of_with_type(declaration, ^^Transform);
-        if (!artifactAnnotations.empty()) {
-            if (!std::meta::is_type(declaration)
-                || !std::meta::is_complete_type(declaration)) {
-                detail::reject("artifact declarations must be complete types",
-                               declaration);
-            } else {
-                types.push_back(detail::type_descriptor(declaration));
-            }
+        if (detail::has_artifact_marker(declaration)) {
+            detail::validate_artifact(declaration);
+            const AnoResourceTypeId type = detail::reflected_type_id(declaration);
+            for (size_t j = 0; j < i; ++j)
+                if (detail::has_artifact_marker(declarations[j])
+                    && detail::reflected_type_id(declarations[j]).value == type.value)
+                    detail::reject("reflected resource type identity collision",
+                                   declaration);
+            ++artifactCount;
         }
         if (!transformAnnotations.empty())
-            transforms.push_back(detail::transform_descriptor(declaration));
+            detail::validate_transform(declaration);
     }
 
-    if (types.empty())
+    if (artifactCount == 0)
         detail::reject("resource language contains no artifact declarations",
                        schemaNamespace);
-    for (size_t i = 0; i < types.size(); ++i)
-        for (size_t j = i + 1; j < types.size(); ++j)
-            if (types[i].type.value == types[j].type.value)
-                detail::reject("artifact wire identities must be unique",
-                               schemaNamespace);
-    for (size_t i = 0; i < types.size(); ++i)
-        for (size_t j = i + 1; j < types.size(); ++j)
-            if (types[j].type.value < types[i].type.value) {
-                const AnoResourceTypeDescriptor temporary = types[i];
-                types[i] = types[j];
-                types[j] = temporary;
-            }
-
-    if (types.size() > UINT32_MAX || transforms.size() > UINT32_MAX)
-        detail::reject("resource language descriptor count exceeds uint32_t",
-                       schemaNamespace);
-    const auto retainedTypes = std::define_static_array(types);
-    const auto retainedTransforms = std::define_static_array(transforms);
-    return {{
-        .types = retainedTypes.data(),
-        .typeCount = static_cast<uint32_t>(retainedTypes.size()),
-        .transforms = retainedTransforms.data(),
-        .transformCount = static_cast<uint32_t>(retainedTransforms.size()),
-    }};
+    return true;
 }
 
 template<class Type>
 consteval AnoResourceTypeId resource_type_id()
 {
     detail::validate_artifact(^^Type);
-    return {detail::compiledArtifact<Type>.wireId};
+    return detail::reflected_type_id(^^Type);
 }
 
 template<class Type>
@@ -1192,8 +1094,8 @@ constexpr EncodeResult encode(ArtifactSource<Type> source,
 
     for (size_t i = 0; i < sizeof(detail::canonicalMagic); ++i)
         output.data[i] = detail::canonicalMagic[i];
-    constexpr Artifact contract = detail::compiledArtifact<Type>;
-    detail::write_unsigned(output.data + 8, contract.wireId, 8);
+    constexpr AnoResourceTypeId type = detail::reflected_type_id(^^Type);
+    detail::write_unsigned(output.data + 8, type.value, 8);
     constexpr AnoSchemaFingerprint schema = detail::compiledFingerprint<Type>;
     for (size_t i = 0; i < sizeof(schema.bytes); ++i)
         output.data[16 + i] = schema.bytes[i];
@@ -1256,7 +1158,7 @@ constexpr AnoResourceError resolve(const ArtifactView<Root>& view,
                                    RelativeSpan<Element> span, uint64_t index,
                                    Element *output)
 {
-    static_assert(!detail::contains_relative_span(^^Element),
+    static_assert(!detail::wire_contains(^^Element, detail::WireShape::relativeSpan),
                   "resolve returns fixed elements; nested spans remain views");
     if (output == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;

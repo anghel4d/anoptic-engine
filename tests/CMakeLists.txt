@@ -21,18 +21,14 @@ function(ano_add_resource_compile_failure name source expected)
     set_tests_properties(${name} PROPERTIES TIMEOUT 30 LABELS "unit;resources;compile-fail")
 endfunction()
 
-ano_add_resource_compile_failure(anoptic_resources_reject_duplicate_type
-        compile_fail/resources_duplicate_type_id.c "wire identities must be unique")
-ano_add_resource_compile_failure(anoptic_resources_reject_duplicate_field
-        compile_fail/resources_duplicate_field_id.c "field wire identities must be unique")
 ano_add_resource_compile_failure(anoptic_resources_reject_pointer
         compile_fail/resources_pointer_field.c "cannot contain pointers or references")
-ano_add_resource_compile_failure(anoptic_resources_reject_missing_field
-        compile_fail/resources_missing_field_annotation.c "exactly one Field annotation")
 ano_add_resource_compile_failure(anoptic_resources_reject_incomplete
-        compile_fail/resources_incomplete_artifact.c "must be complete types")
-ano_add_resource_compile_failure(anoptic_resources_reject_dependency_policy
-        compile_fail/resources_bad_dependency_policy.c "require dependency policy")
+        compile_fail/resources_incomplete_artifact.c "must denote complete types")
+ano_add_resource_compile_failure(anoptic_resources_reject_non_artifact_ref
+        compile_fail/resources_non_artifact_ref.c "exactly one Artifact annotation")
+ano_add_resource_compile_failure(anoptic_resources_reject_transform_values
+        compile_fail/resources_bad_transform_signature.c "must be lvalue references")
 
 # Testing for ``anoptic_time.h``
 add_executable(anotest_time anotest_time.c)

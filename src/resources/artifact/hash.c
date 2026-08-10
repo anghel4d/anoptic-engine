@@ -7,22 +7,10 @@
 
 extern "C" const char *ano_resource_error_string(AnoResourceError error)
 {
-    static constexpr const char *messages[ANO_RESOURCE_ERROR_COUNT] = {
-        "ok",
-        "invalid argument",
-        "buffer too small",
-        "integer overflow",
-        "truncated canonical artifact",
-        "bad canonical artifact magic",
-        "resource type mismatch",
-        "schema fingerprint mismatch",
-        "non-canonical artifact",
-        "artifact range is out of bounds",
-        "typed source range is misaligned",
-        "dependency output capacity is insufficient",
-    };
-    const uint32_t index = static_cast<uint32_t>(error);
-    return index < ANO_RESOURCE_ERROR_COUNT ? messages[index] : "unknown resource error";
+    static constexpr auto names = ano::reflect_enum_names<AnoResourceError>(
+        "ANO_RESOURCE_", ano::EnumNameCase::lower);
+    const auto *name = names.find(static_cast<size_t>(error));
+    return name == nullptr ? "unknown_resource_error" : *name;
 }
 
 extern "C" AnoResourceError ano_resource_content_id(AnoResourceBytes bytes,

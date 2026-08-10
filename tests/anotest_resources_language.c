@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Resource-language metadata, canonical artifacts, hostile-byte rejection, and SHA-256.
+// Reflected schemas, canonical artifacts, hostile-byte rejection, and SHA-256.
 
 #include <anoptic_render_resources.h>
 #include <anoptic_resources.h>
@@ -36,44 +36,49 @@ constexpr bool fingerprint_equal(AnoSchemaFingerprint lhs,
     return true;
 }
 
-namespace renamed_first {
+namespace reflected_schema_probe {
 
-struct [[=ano::Artifact{ano::wire_id("ano.test.rename"),
-                        ano::Storage::portable, 1}]] Record final {
-    [[=ano::Field{1, ano::FieldPolicy::required}]] uint32_t first;
-    [[=ano::Field{2, ano::FieldPolicy::required}]] uint64_t second;
+struct [[=ano::Artifact{}]] First final {
+    uint32_t first;
+    uint64_t second;
 };
 
-} // namespace renamed_first
-
-namespace renamed_second {
-
-struct [[=ano::Artifact{ano::wire_id("ano.test.rename"),
-                        ano::Storage::portable, 1}]] DifferentName final {
-    [[=ano::Field{2, ano::FieldPolicy::required}]] uint64_t renamedSecond;
-    [[=ano::Field{1, ano::FieldPolicy::required}]] uint32_t renamedFirst;
+struct [[=ano::Artifact{}]] Reordered final {
+    uint64_t second;
+    uint32_t first;
 };
 
-} // namespace renamed_second
+} // namespace reflected_schema_probe
 
+namespace reflected_transform_probe {
+
+struct [[=ano::Artifact{}]] Source final {
+    uint32_t value;
+};
+
+struct [[=ano::Artifact{}]] Output final {
+    uint32_t value;
+};
+
+[[=ano::Transform{ano::Executor::worker, ano::Streaming::whole, true}]]
+bool transform(const Source&, uint32_t scratchSize, Output&) noexcept;
+
+} // namespace reflected_transform_probe
+
+static_assert(ano::compile_resource_language(^^ano::asset_schema));
+static_assert(ano::compile_resource_language(^^reflected_transform_probe));
 static_assert(ano::fixed_wire_size<Texture>() == 32);
 static_assert(ano::fixed_wire_size<Material>() == 92);
 static_assert(ano::fixed_wire_size<Vertex>() == 32);
 static_assert(ano::fixed_wire_size<Mesh>() == 64);
-static_assert(ano::resource_type_id<Texture>().value == UINT64_C(0x829eaebd8703c5a6));
-static_assert(ano::resource_type_id<Material>().value == UINT64_C(0x3679bf1f1802b5de));
-static_assert(ano::resource_type_id<Mesh>().value == UINT64_C(0x7546a0ef2187b71a));
-static_assert(fingerprint_equal(
-    ano::schema_fingerprint<renamed_first::Record>(),
-    ano::schema_fingerprint<renamed_second::DifferentName>()));
-
-constexpr AnoSchemaFingerprint meshSchema = {{
-    0x2f, 0xce, 0x1b, 0x6e, 0x48, 0xda, 0x31, 0xb6,
-    0xbd, 0x08, 0x79, 0x77, 0x41, 0x84, 0x91, 0x11,
-    0x35, 0x10, 0xdc, 0x79, 0x0b, 0x22, 0xcf, 0xc4,
-    0x80, 0x6b, 0x17, 0x03, 0x4b, 0x7b, 0xbd, 0x1c,
-}};
-static_assert(fingerprint_equal(ano::schema_fingerprint<Mesh>(), meshSchema));
+static_assert(ano::resource_type_id<Texture>().value != 0);
+static_assert(ano::resource_type_id<Texture>().value
+              != ano::resource_type_id<Material>().value);
+static_assert(ano::resource_type_id<reflected_schema_probe::First>().value
+              != ano::resource_type_id<reflected_schema_probe::Reordered>().value);
+static_assert(!fingerprint_equal(
+    ano::schema_fingerprint<reflected_schema_probe::First>(),
+    ano::schema_fingerprint<reflected_schema_probe::Reordered>()));
 
 constexpr uint8_t abcBytes[3] = {'a', 'b', 'c'};
 constexpr AnoContentId abcDigest = ano::detail::sha256(abcBytes, sizeof(abcBytes));
@@ -122,46 +127,6 @@ consteval bool material_constexpr_round_trip(void)
 }
 
 static_assert(material_constexpr_round_trip());
-
-static const AnoResourceTypeDescriptor *find_type(AnoResourceTypeId type)
-{
-    const AnoResourceLanguage *language = ano_resource_language();
-    if (language == nullptr)
-        return nullptr;
-    for (uint32_t i = 0; i < language->typeCount; ++i)
-        if (ano_resource_type_id_equal(language->types[i].type, type))
-            return &language->types[i];
-    return nullptr;
-}
-
-static void test_language_metadata(void)
-{
-    const AnoResourceLanguage *language = ano_resource_language();
-    CHECK(language != nullptr, "compiled resource language exists");
-    if (language == nullptr)
-        return;
-    CHECK(language->typeCount == 3, "render resource universe has three artifacts");
-    CHECK(language->transformCount == 0, "initial resource universe has no transforms");
-
-    const AnoResourceTypeDescriptor *mesh =
-        find_type(ano::resource_type_id<Mesh>());
-    const AnoResourceTypeDescriptor *material =
-        find_type(ano::resource_type_id<Material>());
-    const AnoResourceTypeDescriptor *texture =
-        find_type(ano::resource_type_id<Texture>());
-    CHECK(mesh != nullptr && material != nullptr && texture != nullptr,
-          "all reflected render artifacts are retained");
-    if (mesh != nullptr) {
-        CHECK(mesh->fixedSize == 64 && mesh->fieldCount == 5,
-              "mesh runtime descriptor matches canonical schema");
-        CHECK(mesh->fields[0].wireId == 1 && mesh->fields[0].fixedOffset == 0
-              && mesh->fields[0].kind == ANO_RESOURCE_WIRE_RELATIVE_SPAN,
-              "mesh vertex field descriptor is generated");
-        CHECK(mesh->fields[2].wireId == 3 && mesh->fields[2].fixedOffset == 32
-              && mesh->fields[2].kind == ANO_RESOURCE_WIRE_ASSET_REF,
-              "mesh material dependency descriptor is generated");
-    }
-}
 
 typedef struct MeshSourceExtent {
     Vertex vertices[3];
@@ -355,11 +320,13 @@ static void test_sha256(void)
               == ANO_RESOURCE_OK
           && memcmp(content.bytes, expected, sizeof(expected)) == 0,
           "content identity matches the published SHA-256 abc vector");
+    CHECK(strcmp(ano_resource_error_string(ANO_RESOURCE_SCHEMA_MISMATCH),
+                 "schema_mismatch") == 0,
+          "resource error names come from the reflected enum");
 }
 
 int main(void)
 {
-    test_language_metadata();
     test_mesh_canonical_artifact();
     test_material_canonical_artifact();
     test_sha256();

@@ -19,7 +19,7 @@ representations through the offline and runtime pipeline.
 | Term | Meaning |
 |---|---|
 | Source asset | Authoring input such as glTF/GLB, PNG/JPEG, OpenType, WAV, GLSL, an include file, or SPIR-V |
-| Artifact | A canonical typed and versioned product produced by import, migration, cooking, or transformation |
+| Artifact | A canonical typed product produced by import, migration, cooking, or transformation |
 | Semantic asset | The stable game-facing identity represented by `AssetRef<T>` independently of its current bytes or residency |
 | Resident representation | A CPU view or an opaque renderer-, audio-, or text-owned slot ready for runtime use |
 | Residency goal | A request for a semantic asset at a representation, quality, and priority required by the current world |
@@ -191,21 +191,20 @@ owned by the resource manager.
 ## Resource language
 
 Artifact types and transformation functions are the declarations reflected by
-the resource compiler. Their annotations state storage class, execution stage,
-determinism, streaming granularity, capabilities, and other resource semantics.
+the resource compiler. An empty `Artifact` annotation marks a canonical type;
+its reflected qualified identifier, member identifiers, declaration order, and
+exact member types define its identity and schema. Transform annotations carry
+only irreducible execution semantics such as executor, determinism, streaming
+granularity, and capabilities. Their input and output types come from the
+reflected function signature.
 
-One mandatory `consteval` operation scans the supplied resource namespace under
-the active build profile and produces the compiled resource language:
+One mandatory `consteval` operation scans and closes the supplied resource
+namespace:
 
 ```cpp
-consteval auto compile_resource_language(
-    std::meta::info schema_namespace,
-    ResourceCompileProfile profile);
+consteval bool compile_resource_language(std::meta::info schema_namespace);
 
-inline constexpr auto resource_language =
-    compile_resource_language(
-        ^^ano::asset_schema,
-        current_resource_profile());
+static_assert(compile_resource_language(^^ano::asset_schema));
 ```
 
 `compile_resource_language` is the mandatory translation-phase boundary, not a
@@ -236,8 +235,8 @@ by hand.
 For every artifact type, reflection, ordinary `constexpr` algorithms, and
 expansion produce:
 
-- Stable semantic type identity.
-- Field inventory and wire-field descriptors.
+- Semantic type identity derived from the reflected qualified declaration.
+- Canonical declaration-order field traversal.
 - Schema fingerprint.
 - Pointer-free and load-in-place classification.
 - Endian conversion.
@@ -245,7 +244,7 @@ expansion produce:
 - Dependency extraction.
 - Streaming-atom inventory.
 - Typed views.
-- Retained debug field names.
+- Field names in compile-time diagnostics.
 
 Generated field operations contain direct member accesses. Runtime validation
 does not interpret a reflection database or iterate a generic field registry.

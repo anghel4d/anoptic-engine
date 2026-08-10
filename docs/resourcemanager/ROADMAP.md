@@ -90,7 +90,7 @@ one all-purpose manager interface:
 
 | Header | Required public entry points |
 |---|---|
-| `anoptic_resources.h` | `ano_resource_language`, `ano_resource_error_string`, ID comparison and formatting |
+| `anoptic_resources.h` | `ano_resource_error_string`, content identity, ID comparison and formatting |
 | `anoptic_resources_cook.h` | `ano_resource_cooker_create`, `ano_resource_cooker_destroy`, `ano_resource_import`, `ano_resource_cook`, `ano_resource_cooker_cancel` |
 | `anoptic_resources_pack.h` | `ano_resource_manifest_open`, `ano_resource_manifest_close`, `ano_resource_manifest_find`, `ano_resource_pack_open`, `ano_resource_pack_read`, `ano_resource_pack_close` |
 | `anoptic_resources_runtime.h` | `ano_resource_manager_create`, `ano_resource_manager_destroy`, `ano_resource_goal_set`, `ano_resource_goal_remove`, `ano_resource_reconcile`, `ano_resource_reload`, `ano_resource_epoch_acquire`, `ano_resource_epoch_resolve`, `ano_resource_epoch_release` |
@@ -116,11 +116,7 @@ struct AssetRef final {
     AnoAssetId id;
 };
 
-struct Artifact final {
-    uint64_t wireId;
-    Storage storage;
-    uint32_t version;
-};
+struct Artifact final {};
 
 struct Transform final {
     Executor executor;
@@ -128,22 +124,17 @@ struct Transform final {
     bool deterministic;
 };
 
-struct Field final {
-    uint32_t wireId;
-    FieldPolicy policy;
-};
-
-consteval auto compile_resource_language(
-    std::meta::info schemaNamespace,
-    ResourceCompileProfile profile);
+consteval bool compile_resource_language(std::meta::info schemaNamespace);
 
 } // namespace ano
 ```
 
-Annotation value types are structural types. Persistent wire IDs and field IDs
-are explicit semantic constants. Declaration identifiers may supply retained
-debug names, but renaming an ordinary C++ identifier does not silently change a
-shipping schema.
+Annotation value types are structural types. `Artifact` is only a marker. The
+fully qualified reflected identifier supplies semantic type identity; member
+identifiers, exact types, and declaration order supply the canonical schema.
+Renaming or reordering a declaration changes its identity or fingerprint and
+requires a recook. Explicit aliases and migrations are introduced only when a
+shipped artifact format actually needs them.
 
 ### Owner extensions
 
@@ -153,13 +144,13 @@ types and functions:
 ```cpp
 namespace ano::asset_schema {
 
-struct [[=Artifact{wire_id("mesh"), Storage::portable, 1}]] Mesh final {
-    [[=Field{1, FieldPolicy::required}]] RelativeSpan<Vertex> vertices;
-    [[=Field{2, FieldPolicy::required}]] RelativeSpan<uint32_t> indices;
-    [[=Field{3, FieldPolicy::dependency}]] AssetRef<Material> material;
+struct [[=Artifact{}]] Mesh final {
+    RelativeSpan<Vertex> vertices;
+    RelativeSpan<uint32_t> indices;
+    AssetRef<Material> material;
 };
 
-struct [[=Artifact{wire_id("gpu-mesh"), Storage::resident, 1}]] GpuMesh final {
+struct [[=Artifact{}]] GpuMesh final {
     AnoGpuMeshSlot slot;
 };
 
@@ -187,22 +178,12 @@ includes all public resource extensions before compilation:
 #include <anoptic_text_resources.h>
 #include <anoptic_resources_ecs.h>
 
-namespace {
-inline constexpr auto compiledLanguage =
-    ano::compile_resource_language(
-        ^^ano::asset_schema, ano::current_resource_profile());
-}
-
-extern "C" const AnoResourceLanguage *ano_resource_language() noexcept
-{
-    return compiledLanguage.runtime_view();
-}
+static_assert(ano::compile_resource_language(^^ano::asset_schema));
 ```
 
-The build profile changes retained routes and executor bindings, not portable
-artifact identities or schema fingerprints. A headless tool can inspect a
-render transform declaration without retaining a call to its unavailable
-implementation.
+The compiler validates every visible artifact and transform without retaining a
+runtime type graph. A headless tool can inspect a render transform declaration
+without retaining a call to its unavailable implementation.
 
 ## Compile-time execution model
 
@@ -285,7 +266,7 @@ handwritten registry.
 |---|---|---|
 | Closed-world discovery from independently owned modules | The resource-universe translation unit discovers every annotated render, audio, text and ECS artifact and transform | Central registration file, linker tricks, typelist or plugin registry |
 | One structural authority | A field declaration simultaneously governs wire encoding, validation, hashing, dependencies, migration and diagnostics | Separate structs, serializer schemas, validators and field tables |
-| Typed semantic metadata | Storage class, wire identity, executor, requiredness, foreign names and backend codes remain typed values attached to declarations | String attributes, side tables, magic enums or external schema files |
+| Typed semantic metadata | Executor, streaming policy, foreign names and backend codes remain typed values attached only where structure cannot express them | String attributes, side tables, magic enums or external schema files |
 | Functions become graph edges | Parameters and return types define representations; annotations define execution and capability policy | Callback registration, type-erased nodes and duplicated route declarations |
 | Whole-language graph compilation | `constexpr` graph algorithms compute reachability, dependency closure, cycles, legal stages, capabilities and Pareto-optimal routes | Runtime graph search or a separate build-time generator |
 | Compile-time exhaustiveness | Missing routes, migrations, mappings, executor bridges or backend annotations fail the build | Runtime “unsupported type” paths and incomplete switch defaults |
@@ -293,8 +274,8 @@ handwritten registry.
 | Direct invocation | A selected reflected transform is emitted as `[:function:](...)` with its exact signature | Function-pointer tables, virtual interfaces, `void*` contexts or type erasure |
 | Foreign-schema compilation | glTF fields, JSON names, Vulkan mappings, shader interfaces and multimedia codes compile from typed declarations | Thousands of lines of mapping switches and mirror tables |
 | Layout-aware generation | Size, alignment, offsets, bit fields and representation properties participate in validation and code generation | Mirrored ABI descriptions and scattered handwritten `static_assert`s |
-| Canonical identities from semantics | Reflected wire IDs, field IDs and types produce deterministic schema fingerprints and action-key inputs | Manually synchronized version constants and hashing recipes |
-| Migration closure | Versioned artifact declarations and reflected migration functions form a compile-checked migration graph | Handwritten version dispatch and undiscovered upgrade gaps |
+| Canonical identities from semantics | Reflected qualified identifiers, field names, declaration order and exact types produce deterministic type IDs, schema fingerprints and action-key inputs | Manually synchronized IDs, versions and hashing recipes |
+| Migration closure | Reflected artifact aliases and migration functions form a compile-checked migration graph once a shipped schema requires compatibility | Handwritten version dispatch and undiscovered upgrade gaps |
 | Typed ECS demand | Reflection finds `AssetRef<T>` fields and emits component-specific demand-delta functions | Per-component visitors or continuous generic ECS scans |
 | Owner-safe realization | Reflected signatures bind legal routes to renderer, audio and text owner bridges while opaque slots preserve ownership | Generic service locators, backend callbacks or resource-manager-owned device objects |
 | Runtime reflection disappears | Runtime executes ordinary field accesses, array lookups and direct calls | RTTI, metadata interpretation, registry traversal and dynamic dispatch |
@@ -379,8 +360,8 @@ owner extension declaring each artifact.
 
 An artifact declaration is the sole schema authority. Reflection compiles:
 
-- Stable semantic type IDs from explicit wire IDs.
-- Ordered wire fields from explicit field IDs.
+- Semantic type IDs from fully qualified reflected identifiers.
+- Canonical wire fields from reflected declaration order.
 - Schema fingerprints from canonical semantic tokens.
 - Direct typed encode, decode, endian, validate, and dependency operations.
 - Pointer-free and load-in-place classification.
@@ -388,10 +369,10 @@ An artifact declaration is the sole schema authority. Reflection compiles:
 - Streaming-atom extraction.
 - Retained field names for diagnostics only.
 
-The `consteval` compiler rejects duplicate IDs, missing field policy, unsupported
-field types, illegal pointers in portable artifacts, invalid alignment,
-non-`noexcept` generated operations, and schema changes without a version
-transition.
+The `consteval` compiler rejects type-identity collisions, unsupported field
+types, illegal pointers in portable artifacts, invalid alignment, malformed
+transform signatures, and non-`noexcept` transforms. `AssetRef<T>` itself marks
+a dependency; there is no parallel field policy to synchronize.
 
 Ordinary `constexpr` code owns checked addition, multiplication, ranges, endian
 loads/stores, canonical byte framing, and hashing. These functions have
@@ -668,9 +649,9 @@ Reflection over the actual persistent component declarations compiles:
 - Persistent/default/ignored field behavior.
 - Required schema migrations.
 
-The compiler rejects pointer-bearing persistent fields, unregistered component
-types, duplicate persistent field IDs, invalid local-reference types, and a
-world schema without a complete dependency floor.
+The compiler rejects pointer-bearing persistent fields, unsupported component
+types, invalid local-reference types, and a world schema without a complete
+dependency floor.
 
 World-cell materialization keeps candidate columns private until their resource
 commit group is complete. ECS bulk-instantiates the columns, remaps local entity
