@@ -57,18 +57,47 @@ struct AnoGltfIndexKind final {
     std::meta::info tag;
 };
 
+// Storage policy for one glTF accessor componentType: machine storage plus
+// spec eligibility. Every non-invalid component enumerator must declare one.
+struct AnoGltfComponentContract final {
+    std::meta::info storageType;
+    bool indexEligible = false;
+    bool normalizable = false;
+};
+
+// Element shape for one glTF accessor type: rows per column, column count.
+// Matrices are square and column-major; vectors and scalars use cols == 1.
+struct AnoGltfShapeContract final {
+    uint8_t rows = 0;
+    uint8_t cols = 0;
+};
+
+struct AnoGltfResultText final {
+    char text[32]{};
+
+    consteval AnoGltfResultText() = default;
+
+    template<size_t Count>
+    consteval AnoGltfResultText(const char (&value)[Count])
+    {
+        static_assert(Count > 0 && Count <= sizeof(text));
+        for (size_t i = 0; i < Count - 1; ++i)
+            text[i] = value[i];
+    }
+};
+
 enum class AnoGltfResult : uint8_t {
-    success,
-    data_too_short,
-    unknown_format,
-    invalid_json,
-    invalid_gltf,
-    invalid_options,
-    file_not_found,
-    io_error,
-    out_of_memory,
-    limit_exceeded,
-    unsupported_required_extension,
+    success [[=AnoGltfResultText{"success"}]],
+    data_too_short [[=AnoGltfResultText{"data too short"}]],
+    unknown_format [[=AnoGltfResultText{"unknown format"}]],
+    invalid_json [[=AnoGltfResultText{"invalid JSON"}]],
+    invalid_gltf [[=AnoGltfResultText{"invalid glTF"}]],
+    invalid_options [[=AnoGltfResultText{"invalid options"}]],
+    file_not_found [[=AnoGltfResultText{"file not found"}]],
+    io_error [[=AnoGltfResultText{"I/O error"}]],
+    out_of_memory [[=AnoGltfResultText{"out of memory"}]],
+    limit_exceeded [[=AnoGltfResultText{"resource limit exceeded"}]],
+    unsupported_required_extension [[=AnoGltfResultText{"unsupported required extension"}]],
 };
 
 enum class AnoGltfFileType : uint8_t {
@@ -79,23 +108,26 @@ enum class AnoGltfFileType : uint8_t {
 
 enum class AnoGltfComponentType : uint16_t {
     invalid [[=AnoGltfEnumInvalid{}]] = 0,
-    byte = 5120,
-    unsigned_byte = 5121,
-    short_ = 5122,
-    unsigned_short = 5123,
-    unsigned_int = 5125,
-    float_ = 5126,
+    byte [[=AnoGltfComponentContract{.storageType = ^^int8_t, .normalizable = true}]] = 5120,
+    unsigned_byte [[=AnoGltfComponentContract{
+        .storageType = ^^uint8_t, .indexEligible = true, .normalizable = true}]] = 5121,
+    short_ [[=AnoGltfComponentContract{.storageType = ^^int16_t, .normalizable = true}]] = 5122,
+    unsigned_short [[=AnoGltfComponentContract{
+        .storageType = ^^uint16_t, .indexEligible = true, .normalizable = true}]] = 5123,
+    unsigned_int [[=AnoGltfComponentContract{
+        .storageType = ^^uint32_t, .indexEligible = true}]] = 5125,
+    float_ [[=AnoGltfComponentContract{.storageType = ^^float}]] = 5126,
 };
 
 enum class AnoGltfAccessorType : uint8_t {
-    invalid [[=AnoGltfEnumInvalid{}]],
-    scalar [[=AnoGltfJsonName{"SCALAR"}]],
-    vec2 [[=AnoGltfJsonName{"VEC2"}]],
-    vec3 [[=AnoGltfJsonName{"VEC3"}]],
-    vec4 [[=AnoGltfJsonName{"VEC4"}]],
-    mat2 [[=AnoGltfJsonName{"MAT2"}]],
-    mat3 [[=AnoGltfJsonName{"MAT3"}]],
-    mat4 [[=AnoGltfJsonName{"MAT4"}]],
+    invalid [[=AnoGltfEnumInvalid{}]] [[=AnoGltfShapeContract{}]],
+    scalar [[=AnoGltfJsonName{"SCALAR"}]] [[=AnoGltfShapeContract{1, 1}]],
+    vec2 [[=AnoGltfJsonName{"VEC2"}]] [[=AnoGltfShapeContract{2, 1}]],
+    vec3 [[=AnoGltfJsonName{"VEC3"}]] [[=AnoGltfShapeContract{3, 1}]],
+    vec4 [[=AnoGltfJsonName{"VEC4"}]] [[=AnoGltfShapeContract{4, 1}]],
+    mat2 [[=AnoGltfJsonName{"MAT2"}]] [[=AnoGltfShapeContract{2, 2}]],
+    mat3 [[=AnoGltfJsonName{"MAT3"}]] [[=AnoGltfShapeContract{3, 3}]],
+    mat4 [[=AnoGltfJsonName{"MAT4"}]] [[=AnoGltfShapeContract{4, 4}]],
 };
 
 enum class AnoGltfBufferViewTarget : uint16_t {
@@ -931,6 +963,7 @@ void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16]);
 
 #ifdef ANOGLTF_IMPLEMENTATION
 
+#include <anoptic_meta.h>
 #include <stdio.h>
 
 namespace anogltf_detail {
@@ -2471,66 +2504,83 @@ static bool string_equal(const AnoGltfString& string, const char* literal, size_
     return string.length == length && memcmp(string.data, literal, length) == 0;
 }
 
+// Inputs: runtime component type, fallback result, visitor templated on the storage contract.
+// Output: visitor result for the contracted enumerator matching type, fallback otherwise.
+// Invariant: every non-invalid component enumerator declares one full storage policy.
+template<class Result, class Fn>
+static Result component_contract_dispatch(AnoGltfComponentType type, Result fallback, Fn&& visit)
+{
+    static constexpr auto enumerators =
+        std::define_static_array(std::meta::enumerators_of(^^AnoGltfComponentType));
+    Result result = fallback;
+    template for (constexpr auto enumerator : enumerators) {
+        constexpr auto contracts = std::define_static_array(
+            std::meta::annotations_of_with_type(enumerator, ^^AnoGltfComponentContract));
+        constexpr auto invalid = std::define_static_array(
+            std::meta::annotations_of_with_type(enumerator, ^^AnoGltfEnumInvalid));
+        static_assert(contracts.size() + invalid.size() == 1,
+                      "component types declare exactly one storage contract");
+        if constexpr (contracts.size() == 1) {
+            constexpr AnoGltfComponentContract contract =
+                std::meta::extract<AnoGltfComponentContract>(contracts[0]);
+            using Storage = [:contract.storageType:];
+            static_assert(std::is_arithmetic_v<Storage>
+                          && (sizeof(Storage) == 1 || sizeof(Storage) == 2 || sizeof(Storage) == 4),
+                          "component storage must be a 1/2/4-byte arithmetic type");
+            static_assert(!contract.indexEligible || std::is_unsigned_v<Storage>,
+                          "index-eligible components store unsigned integers");
+            static_assert(!contract.normalizable
+                          || (std::is_integral_v<Storage> && sizeof(Storage) <= 2),
+                          "normalization covers 8- and 16-bit integer components only");
+            if (type == [:enumerator:])
+                result = visit.template operator()<contract>();
+        }
+    }
+    return result;
+}
+
+// Inputs: parsed component type. Output: declared storage width in bytes, 0 when invalid.
 static uint32_t component_size(AnoGltfComponentType type)
 {
-    using enum AnoGltfComponentType;
-    switch (type) {
-    case byte:
-    case unsigned_byte:
-        return 1;
-    case short_:
-    case unsigned_short:
-        return 2;
-    case unsigned_int:
-    case float_:
-        return 4;
-    case invalid:
-        return 0;
-    }
-    return 0;
+    return component_contract_dispatch<uint32_t>(type, 0u,
+        []<AnoGltfComponentContract contract>() {
+            using Storage = [:contract.storageType:];
+            return static_cast<uint32_t>(sizeof(Storage));
+        });
 }
 
+static constexpr auto accessorShapes =
+    ano::reflect_enum_contracts<AnoGltfAccessorType, AnoGltfShapeContract>();
+
+static_assert([] consteval {
+    for (size_t i = 0; i < accessorShapes.count; ++i) {
+        const AnoGltfShapeContract shape = accessorShapes.values[i];
+        if (shape.rows > 4 || shape.cols > 4 || (shape.rows == 0) != (shape.cols == 0))
+            return false;
+        if (shape.cols > 1 && shape.rows != shape.cols)
+            return false;
+    }
+    return true;
+}(), "accessor shapes are scalars, vectors, or square matrices up to 4x4");
+
+// Inputs: parsed accessor shape. Output: scalars per element (rows x cols), 0 when invalid.
 static uint32_t component_count(AnoGltfAccessorType type)
 {
-    using enum AnoGltfAccessorType;
-    switch (type) {
-    case scalar: return 1;
-    case vec2: return 2;
-    case vec3: return 3;
-    case vec4: return 4;
-    case mat2: return 4;
-    case mat3: return 9;
-    case mat4: return 16;
-    case invalid: return 0;
-    }
-    return 0;
+    const AnoGltfShapeContract* shape = accessorShapes.find(static_cast<size_t>(type));
+    return shape ? static_cast<uint32_t>(shape->rows) * shape->cols : 0;
 }
 
+// Inputs: component and shape. Output: element footprint in bytes, 0 when invalid.
+// Invariant: matrix columns start on 4-byte boundaries; scalars and vectors pack tight.
 static uint32_t element_size(AnoGltfComponentType component, AnoGltfAccessorType type)
 {
     const uint32_t scalarSize = component_size(component);
-    if (scalarSize == 0)
+    const AnoGltfShapeContract* shape = accessorShapes.find(static_cast<size_t>(type));
+    if (scalarSize == 0 || !shape || shape->rows == 0)
         return 0;
-    using enum AnoGltfAccessorType;
-    switch (type) {
-    case scalar: return scalarSize;
-    case vec2: return scalarSize * 2;
-    case vec3: return scalarSize * 3;
-    case vec4: return scalarSize * 4;
-    case mat2: {
-        const uint32_t column = scalarSize * 2;
-        return ((column + 3u) & ~3u) * 2u;
-    }
-    case mat3: {
-        const uint32_t column = scalarSize * 3;
-        return ((column + 3u) & ~3u) * 3u;
-    }
-    case mat4:
-        return scalarSize * 16;
-    case invalid:
-        return 0;
-    }
-    return 0;
+    const uint32_t column = scalarSize * shape->rows;
+    const uint32_t columnStride = shape->cols > 1 ? (column + 3u) & ~3u : column;
+    return columnStride * shape->cols;
 }
 
 static bool valid_target(AnoGltfBufferViewTarget target)
@@ -4087,95 +4137,79 @@ static T read_unaligned(const uint8_t* bytes)
     return value;
 }
 
+// Inputs: element bytes and component type. Output: sign-extended integer, 0 for float/invalid.
 static int64_t read_component_integer(const uint8_t* bytes, AnoGltfComponentType type)
 {
-    using enum AnoGltfComponentType;
-    switch (type) {
-    case byte: return read_unaligned<int8_t>(bytes);
-    case unsigned_byte: return read_unaligned<uint8_t>(bytes);
-    case short_: return read_unaligned<int16_t>(bytes);
-    case unsigned_short: return read_unaligned<uint16_t>(bytes);
-    case unsigned_int: return read_unaligned<uint32_t>(bytes);
-    case float_:
-    case invalid:
-        return 0;
-    }
-    return 0;
+    return component_contract_dispatch<int64_t>(type, 0,
+        [&]<AnoGltfComponentContract contract>() -> int64_t {
+            using Storage = [:contract.storageType:];
+            if constexpr (std::is_integral_v<Storage>)
+                return read_unaligned<Storage>(bytes);
+            else
+                return 0;
+        });
 }
 
+// Inputs: element bytes and component type. Output: index value, 0 for ineligible components.
 static uint32_t read_component_index(const uint8_t* bytes, AnoGltfComponentType type)
 {
-    using enum AnoGltfComponentType;
-    switch (type) {
-    case unsigned_byte: return read_unaligned<uint8_t>(bytes);
-    case unsigned_short: return read_unaligned<uint16_t>(bytes);
-    case unsigned_int: return read_unaligned<uint32_t>(bytes);
-    case byte:
-    case short_:
-    case float_:
-    case invalid:
-        return 0;
-    }
-    return 0;
+    return component_contract_dispatch<uint32_t>(type, 0u,
+        [&]<AnoGltfComponentContract contract>() -> uint32_t {
+            using Storage = [:contract.storageType:];
+            if constexpr (contract.indexEligible)
+                return read_unaligned<Storage>(bytes);
+            else
+                return 0;
+        });
 }
 
+// Inputs: element bytes, component type, normalization flag.
+// Output: float value; normalized signed minima clamp to -1.0, unnormalizable components read 0.
 static float read_component_float(
     const uint8_t* bytes, AnoGltfComponentType type, bool normalized)
 {
-    using enum AnoGltfComponentType;
-    if (type == float_)
-        return read_unaligned<float>(bytes);
-    if (!normalized)
-        return static_cast<float>(read_component_integer(bytes, type));
-    switch (type) {
-    case byte: {
-        const int8_t value = read_unaligned<int8_t>(bytes);
-        return value == INT8_MIN ? -1.0f : static_cast<float>(value) / 127.0f;
-    }
-    case unsigned_byte:
-        return static_cast<float>(read_unaligned<uint8_t>(bytes)) / 255.0f;
-    case short_: {
-        const int16_t value = read_unaligned<int16_t>(bytes);
-        return value == INT16_MIN ? -1.0f : static_cast<float>(value) / 32767.0f;
-    }
-    case unsigned_short:
-        return static_cast<float>(read_unaligned<uint16_t>(bytes)) / 65535.0f;
-    case unsigned_int:
-    case float_:
-    case invalid:
-        return 0.0f;
-    }
-    return 0.0f;
+    return component_contract_dispatch<float>(type, 0.0f,
+        [&]<AnoGltfComponentContract contract>() -> float {
+            using Storage = [:contract.storageType:];
+            if constexpr (std::is_floating_point_v<Storage>)
+                return read_unaligned<Storage>(bytes);
+            else if constexpr (contract.normalizable) {
+                const Storage value = read_unaligned<Storage>(bytes);
+                if (!normalized)
+                    return static_cast<float>(value);
+                constexpr int64_t bits = static_cast<int64_t>(sizeof(Storage)) * 8;
+                if constexpr (std::is_signed_v<Storage>) {
+                    constexpr int64_t minimum = -(int64_t{1} << (bits - 1));
+                    constexpr float divisor = static_cast<float>((int64_t{1} << (bits - 1)) - 1);
+                    return value == minimum ? -1.0f : static_cast<float>(value) / divisor;
+                } else {
+                    constexpr float divisor = static_cast<float>((int64_t{1} << bits) - 1);
+                    return static_cast<float>(value) / divisor;
+                }
+            } else {
+                return normalized ? 0.0f : static_cast<float>(read_unaligned<Storage>(bytes));
+            }
+        });
 }
 
+// Inputs: element bytes, shape/component, normalization, output span.
+// Output: true and rows x cols floats written column-major; false on invalid or short span.
+// Invariant: component offset = col * align4(rows * scalarSize) + row * scalarSize.
 static bool read_element_float(
     const uint8_t* element, AnoGltfAccessorType type, AnoGltfComponentType componentType,
     bool normalized, float* output, size_t outputCount)
 {
-    const uint32_t count = component_count(type);
+    const AnoGltfShapeContract* shape = accessorShapes.find(static_cast<size_t>(type));
     const uint32_t scalarSize = component_size(componentType);
-    if (!element || !output || count == 0 || scalarSize == 0 || outputCount < count)
+    if (!element || !output || !shape || shape->rows == 0 || scalarSize == 0
+        || outputCount < static_cast<uint32_t>(shape->rows) * shape->cols)
         return false;
-    if (type == AnoGltfAccessorType::mat2 && scalarSize == 1) {
-        static constexpr uint8_t offsets[] = {0, 1, 4, 5};
-        for (uint32_t i = 0; i < 4; ++i)
-            output[i] = read_component_float(element + offsets[i], componentType, normalized);
-        return true;
-    }
-    if (type == AnoGltfAccessorType::mat3 && scalarSize == 1) {
-        static constexpr uint8_t offsets[] = {0, 1, 2, 4, 5, 6, 8, 9, 10};
-        for (uint32_t i = 0; i < 9; ++i)
-            output[i] = read_component_float(element + offsets[i], componentType, normalized);
-        return true;
-    }
-    if (type == AnoGltfAccessorType::mat3 && scalarSize == 2) {
-        static constexpr uint8_t offsets[] = {0, 2, 4, 8, 10, 12, 16, 18, 20};
-        for (uint32_t i = 0; i < 9; ++i)
-            output[i] = read_component_float(element + offsets[i], componentType, normalized);
-        return true;
-    }
-    for (uint32_t i = 0; i < count; ++i)
-        output[i] = read_component_float(element + scalarSize * i, componentType, normalized);
+    const uint32_t column = scalarSize * shape->rows;
+    const uint32_t columnStride = shape->cols > 1 ? (column + 3u) & ~3u : column;
+    for (uint32_t col = 0; col < shape->cols; ++col)
+        for (uint32_t row = 0; row < shape->rows; ++row)
+            output[col * shape->rows + row] = read_component_float(
+                element + col * columnStride + row * scalarSize, componentType, normalized);
     return true;
 }
 
@@ -4546,6 +4580,10 @@ static bool node_transform_world(
     return true;
 }
 
+// Result texts projected from the AnoGltfResultText annotations; dense 0-based domain.
+inline constexpr auto resultTexts =
+    ano::reflect_enum_contracts<AnoGltfResult, AnoGltfResultText>();
+
 } // namespace anogltf_detail
 
 extern "C" {
@@ -4752,21 +4790,9 @@ bool ano_gltf_node_transform_world(
 
 const char* ano_gltf_result_string(AnoGltfResult result)
 {
-    using enum AnoGltfResult;
-    switch (result) {
-    case success: return "success";
-    case data_too_short: return "data too short";
-    case unknown_format: return "unknown format";
-    case invalid_json: return "invalid JSON";
-    case invalid_gltf: return "invalid glTF";
-    case invalid_options: return "invalid options";
-    case file_not_found: return "file not found";
-    case io_error: return "I/O error";
-    case out_of_memory: return "out of memory";
-    case limit_exceeded: return "resource limit exceeded";
-    case unsupported_required_extension: return "unsupported required extension";
-    }
-    return "unknown result";
+    const AnoGltfResultText* text =
+        anogltf_detail::resultTexts.find(static_cast<size_t>(result));
+    return text ? text->text : "unknown result";
 }
 
 } // extern "C"
