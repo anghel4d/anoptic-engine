@@ -186,136 +186,170 @@ bool ano_audio_fx_init(AnoAudioFx *fx, uint32_t kind, mi_heap_t *heap,
 
 /* parameter dispatch */
 
+// Reflected FX contracts. The union links prove each payload member against its kind's
+// AnoAudioFxKindContract; the binding registry proves every AnoAudioFxParam enumerator
+// (bar the kind-agnostic BYPASS) reaches exactly one field of its owner's payload.
+
+static constexpr auto kFxKindContracts =
+    ano::reflect_dense_enum_contracts<AnoAudioEffectKind, AnoAudioFxKindContract>();
+static_assert(ano::validate_tagged_union<decltype(AnoAudioFx::u), AnoAudioFxPayloadFor>(
+    kFxKindContracts,
+    [](AnoAudioFxKindContract contract) { return contract.payload != AnoAudioFxPayloadKind::none; }));
+
+// Input: raw AnoAudioFxParam value. Output: owning kind from the public-header owner
+// annotations. Aborts on a non-enumerator or the bare BYPASS; the static_assert pins
+// exactly-one owner on every other enumerator.
+static consteval AnoAudioEffectKind fx_param_owner(uint32_t param)
+{
+    static constexpr auto params =
+        std::define_static_array(std::meta::enumerators_of(^^AnoAudioFxParam));
+    AnoAudioEffectKind owner = ANO_AUDIO_FX_COUNT;
+    bool found = false;
+    template for (constexpr auto enumerator : params) {
+        constexpr auto owners = std::define_static_array(
+            std::meta::annotations_of_with_type(enumerator, ^^AnoAudioFxParamOwner));
+        static_assert(owners.size() == ([:enumerator:] == ANO_AUDIO_P_BYPASS ? 0u : 1u));
+        if (static_cast<uint32_t>([:enumerator:]) == param) {
+            if constexpr (owners.size() == 1) {
+                owner = std::meta::extract<AnoAudioFxParamOwner>(owners[0]).kind;
+                found = true;
+            } else {
+                __builtin_abort(); // BYPASS may not carry a binding
+            }
+        }
+    }
+    if (!found)
+        __builtin_abort(); // binding names a non-enumerator param
+    return owner;
+}
+
+struct AnoAudioFxBindingRow final
+{
+    AnoAudioFxBinding  binding;
+    AnoAudioEffectKind owner;
+};
+
+// fx_param_owner's static_assert leaves BYPASS as the sole unowned enumerator.
+static constexpr size_t kFxBindingCount =
+    ano::reflected_enumerator_count<AnoAudioFxParam> - 1u;
+
+struct AnoAudioFxBindingRegistry final
+{
+    AnoAudioFxBindingRow rows[kFxBindingCount];
+
+    constexpr const AnoAudioFxBindingRow* find(uint32_t param) const
+    {
+        for (const AnoAudioFxBindingRow& row : rows)
+            if (row.binding.param == param)
+                return &row;
+        return nullptr;
+    }
+};
+
+// One sparse registry over every payload field binding, keyed by param id.
+// Rejects: a param bound twice, a bindable param left unbound, and a binding whose
+// param does not belong to the kind owning that payload struct.
+static consteval AnoAudioFxBindingRegistry fx_reflect_bindings()
+{
+    AnoAudioFxBindingRegistry result{};
+    size_t filled = 0;
+    static constexpr auto unionMembers = std::define_static_array(
+        std::meta::nonstatic_data_members_of(^^decltype(AnoAudioFx::u),
+                                             std::meta::access_context::current()));
+    template for (constexpr auto unionMember : unionMembers) {
+        constexpr auto links = std::define_static_array(
+            std::meta::annotations_of_with_type(unionMember, ^^AnoAudioFxPayloadFor));
+        constexpr AnoAudioFxPayloadFor link =
+            std::meta::extract<AnoAudioFxPayloadFor>(links[0]);
+        static constexpr auto fields = std::define_static_array(
+            std::meta::nonstatic_data_members_of(std::meta::type_of(unionMember),
+                                                 std::meta::access_context::current()));
+        template for (constexpr auto field : fields) {
+            constexpr auto bindings = std::define_static_array(
+                std::meta::annotations_of_with_type(field, ^^AnoAudioFxBinding));
+            static_assert(bindings.size() <= 1);
+            if constexpr (bindings.size() == 1) {
+                constexpr AnoAudioFxBinding binding =
+                    std::meta::extract<AnoAudioFxBinding>(bindings[0]);
+                if (result.find(binding.param) != nullptr)
+                    __builtin_abort(); // param bound twice
+                if (fx_param_owner(binding.param) != link.kind)
+                    __builtin_abort(); // binding outside its owning kind's payload
+                if (filled >= kFxBindingCount)
+                    __builtin_abort();
+                result.rows[filled++] = { binding, link.kind };
+            }
+        }
+    }
+    if (filled != kFxBindingCount)
+        __builtin_abort(); // bindable param left unbound
+    return result;
+}
+
+static constexpr AnoAudioFxBindingRegistry kFxBindings = fx_reflect_bindings();
+
+// BYPASS is kind-agnostic and instant. Every other id dispatches through the binding
+// registry: applied only when fx->kind matches the binding's owner; unknown or
+// wrong-owner ids drop with a debug warn. filter_mode validates against FilterMode,
+// snaps cutoff+q and clears state only on OFF -> non-OFF, then stores the raw mode.
 void ano_audio_fx_set(AnoAudioFx *fx, uint32_t paramId, float value)
 {
     if (paramId == ANO_AUDIO_P_BYPASS) {
         fx->bypass = value != 0.0f;
         return;
     }
-    switch (effect_kind(fx->kind).get()) {
-
-    case ANO_AUDIO_FX_FILTER: {
-        AnoAudioFxFilter *f = &fx->u.filter;
-        switch (paramId) {
-        case ANO_AUDIO_P_FILTER_MODE: {
-            FilterMode mode = FilterMode::constant<ANO_AUDIO_FILTER_OFF>();
-            if (value >= 0.0f && value < (float)ANO_AUDIO_FILTER_COUNT)
-                mode = FilterMode::from_raw((uint32_t)value).value_or(mode);
-            uint32_t raw = static_cast<uint32_t>(ano::underlying(mode.get()));
-            if (f->mode == ANO_AUDIO_FILTER_OFF && raw != ANO_AUDIO_FILTER_OFF) {
-                // enter from rest at target
-                ano_audio_smooth_snap(&f->cutoff, f->cutoff.target);
-                ano_audio_smooth_snap(&f->q, f->q.target);
-                memset(f->s, 0, sizeof f->s);
+    bool applied = false;
+    if (kFxBindings.find(paramId) != nullptr)
+        ano::visit_enum(static_cast<AnoAudioFxParam>(paramId), [&]<AnoAudioFxParam P>() {
+            static constexpr auto unionMembers = std::define_static_array(
+                std::meta::nonstatic_data_members_of(^^decltype(AnoAudioFx::u),
+                                                     std::meta::access_context::current()));
+            template for (constexpr auto unionMember : unionMembers) {
+                constexpr auto links = std::define_static_array(
+                    std::meta::annotations_of_with_type(unionMember, ^^AnoAudioFxPayloadFor));
+                constexpr AnoAudioFxPayloadFor link =
+                    std::meta::extract<AnoAudioFxPayloadFor>(links[0]);
+                static constexpr auto fields = std::define_static_array(
+                    std::meta::nonstatic_data_members_of(std::meta::type_of(unionMember),
+                                                         std::meta::access_context::current()));
+                template for (constexpr auto field : fields) {
+                    constexpr auto bindings = std::define_static_array(
+                        std::meta::annotations_of_with_type(field, ^^AnoAudioFxBinding));
+                    if constexpr (bindings.size() == 1) {
+                        constexpr AnoAudioFxBinding binding =
+                            std::meta::extract<AnoAudioFxBinding>(bindings[0]);
+                        if constexpr (binding.param == static_cast<uint32_t>(P)) {
+                            if (fx->kind == static_cast<uint32_t>(ano::underlying(link.kind))) {
+                                if constexpr (binding.transform == AnoAudioFxTransform::smooth_target) {
+                                    fx->u.[:unionMember:].[:field:].target =
+                                        fx_clampf(value, binding.min, binding.max);
+                                } else if constexpr (binding.transform == AnoAudioFxTransform::pole_ms) {
+                                    fx->u.[:unionMember:].[:field:] =
+                                        ano_dsp_pole_ms(fx_clampf(value, binding.min, binding.max), fx->fs);
+                                } else {
+                                    auto *f = &fx->u.[:unionMember:];
+                                    FilterMode mode = FilterMode::constant<ANO_AUDIO_FILTER_OFF>();
+                                    if (value >= 0.0f && value < (float)ANO_AUDIO_FILTER_COUNT)
+                                        mode = FilterMode::from_raw((uint32_t)value).value_or(mode);
+                                    uint32_t raw = static_cast<uint32_t>(ano::underlying(mode.get()));
+                                    if (f->mode == ANO_AUDIO_FILTER_OFF && raw != ANO_AUDIO_FILTER_OFF) {
+                                        // enter from rest at target
+                                        ano_audio_smooth_snap(&f->cutoff, f->cutoff.target);
+                                        ano_audio_smooth_snap(&f->q, f->q.target);
+                                        memset(f->s, 0, sizeof f->s);
+                                    }
+                                    f->mode = raw;
+                                }
+                                applied = true;
+                            }
+                        }
+                    }
+                }
             }
-            f->mode = raw;
-            return;
-        }
-        case ANO_AUDIO_P_FILTER_CUTOFF: f->cutoff.target = fx_clampf(value, 20.0f, 20000.0f); return;
-        case ANO_AUDIO_P_FILTER_Q:      f->q.target = fx_clampf(value, 0.1f, 12.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_EQ3: {
-        AnoAudioFxEq3 *e = &fx->u.eq3;
-        switch (paramId) {
-        case ANO_AUDIO_P_EQ_LOW_GAIN_DB:  e->lowDb.target = fx_clampf(value, -24.0f, 24.0f); return;
-        case ANO_AUDIO_P_EQ_LOW_FREQ:     e->lowF.target = fx_clampf(value, 20.0f, 2000.0f); return;
-        case ANO_AUDIO_P_EQ_MID_GAIN_DB:  e->midDb.target = fx_clampf(value, -24.0f, 24.0f); return;
-        case ANO_AUDIO_P_EQ_MID_FREQ:     e->midF.target = fx_clampf(value, 100.0f, 10000.0f); return;
-        case ANO_AUDIO_P_EQ_MID_Q:        e->midQ.target = fx_clampf(value, 0.1f, 12.0f); return;
-        case ANO_AUDIO_P_EQ_HIGH_GAIN_DB: e->highDb.target = fx_clampf(value, -24.0f, 24.0f); return;
-        case ANO_AUDIO_P_EQ_HIGH_FREQ:    e->highF.target = fx_clampf(value, 1000.0f, 20000.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_DRIVE: {
-        switch (paramId) {
-        case ANO_AUDIO_P_DRIVE_AMOUNT: fx->u.drive.amount.target = fx_clampf(value, 0.1f, 16.0f); return;
-        case ANO_AUDIO_P_DRIVE_TRIM:   fx->u.drive.trim.target = fx_clampf(value, 0.0f, 4.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_COMPRESSOR: {
-        AnoAudioFxComp *c = &fx->u.comp;
-        switch (paramId) {
-        case ANO_AUDIO_P_COMP_THRESHOLD:  c->threshold.target = fx_clampf(value, 0.01f, 1.0f); return;
-        case ANO_AUDIO_P_COMP_RATIO:      c->ratio.target = fx_clampf(value, 1.0f, 20.0f); return;
-        case ANO_AUDIO_P_COMP_ATTACK_MS:  c->attackCoef = ano_dsp_pole_ms(fx_clampf(value, 0.1f, 500.0f), fx->fs); return;
-        case ANO_AUDIO_P_COMP_RELEASE_MS: c->releaseCoef = ano_dsp_pole_ms(fx_clampf(value, 1.0f, 2000.0f), fx->fs); return;
-        case ANO_AUDIO_P_COMP_MAKEUP:     c->makeup.target = fx_clampf(value, 0.25f, 4.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_LIMITER: {
-        AnoAudioFxLim *l = &fx->u.lim;
-        switch (paramId) {
-        case ANO_AUDIO_P_LIM_CEILING:    l->ceiling.target = fx_clampf(value, 0.1f, 1.0f); return;
-        case ANO_AUDIO_P_LIM_RELEASE_MS: l->releaseCoef = ano_dsp_pole_ms(fx_clampf(value, 1.0f, 1000.0f), fx->fs); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_CHORUS: {
-        AnoAudioFxChorus *c = &fx->u.chorus;
-        switch (paramId) {
-        case ANO_AUDIO_P_CHORUS_RATE_HZ:  c->rate.target = fx_clampf(value, 0.01f, 8.0f); return;
-        case ANO_AUDIO_P_CHORUS_DEPTH_MS: c->depth.target = fx_clampf(value, 0.1f, 12.0f); return;
-        case ANO_AUDIO_P_CHORUS_MIX:      c->mix.target = fx_clampf(value, 0.0f, 1.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_REVERB: {
-        AnoAudioFxReverb *r = &fx->u.reverb;
-        switch (paramId) {
-        case ANO_AUDIO_P_REV_PREDELAY_MS: r->predelayMs.target = fx_clampf(value, 0.0f, 190.0f); return;
-        case ANO_AUDIO_P_REV_T60_S:       r->t60.target = fx_clampf(value, 0.1f, 12.0f); return;
-        case ANO_AUDIO_P_REV_DAMP_HZ:     r->dampHz.target = fx_clampf(value, 500.0f, 18000.0f); return;
-        case ANO_AUDIO_P_REV_MIX:         r->mix.target = fx_clampf(value, 0.0f, 1.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_PINGPONG: {
-        AnoAudioFxPingpong *p = &fx->u.pp;
-        switch (paramId) {
-        case ANO_AUDIO_P_PP_TIME_MS:  p->timeMs.target = fx_clampf(value, 10.0f, 1100.0f); return;
-        case ANO_AUDIO_P_PP_FEEDBACK: p->feedback.target = fx_clampf(value, 0.0f, 0.95f); return;
-        case ANO_AUDIO_P_PP_MIX:      p->mix.target = fx_clampf(value, 0.0f, 1.0f); return;
-        default: break;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_WIDTH: {
-        if (paramId == ANO_AUDIO_P_WIDTH_AMOUNT) {
-            fx->u.width.amount.target = fx_clampf(value, 0.0f, 2.0f);
-            return;
-        }
-        break;
-    }
-
-    case ANO_AUDIO_FX_NONE:
-    case ANO_AUDIO_FX_DCBLOCK:
-        break;
-
-    case ANO_AUDIO_FX_COUNT:
-        std::unreachable();
-    }
-    ano_debug_log(ANO_WARN, "audio: FX_SET param %u does not belong to effect kind %u; dropped.",
-                  paramId, fx->kind);
+        });
+    if (!applied)
+        ano_debug_log(ANO_WARN, "audio: FX_SET param %u does not belong to effect kind %u; dropped.",
+                      paramId, fx->kind);
 }
 
 /* processing */

@@ -10,6 +10,7 @@
 
 #include "music_bass.h"
 #include "music_motif.h" // ANO_NEAR_NONE
+#include "music_roles.h"
 
 AnoBassConfig ano_bass_config_default(void)
 {
@@ -35,7 +36,7 @@ static int nearest_instance(int pc, int near, int lo, int hi)
 }
 
 static void bass_note(AnoMusicEvent *e, const AnoHarmonicContext *ctx,
-                      double t, double d, int p, int velocity, const char *role)
+                      double t, double d, int p, int velocity, AnoMusicRole role)
 {
     *e = (AnoMusicEvent){ 0 };
     e->core = (AnoNoteEvent){ t, d, (uint8_t)p, (uint8_t)velocity,
@@ -43,7 +44,7 @@ static void bass_note(AnoMusicEvent *e, const AnoHarmonicContext *ctx,
     int deg = ano_scale_degree_of(ctx->scale, p);
     e->degree = deg > 0 ? (uint8_t)deg : 0;
     strncpy(e->chordSym, ctx->chordSym, sizeof e->chordSym - 1);
-    strncpy(e->role, role, sizeof e->role - 1);
+    ano_event_set_role(e, role);
 }
 
 void ano_generate_bass(const AnoHarmonicContext *ctx, AnoMeter meter,
@@ -64,7 +65,7 @@ void ano_generate_bass(const AnoHarmonicContext *ctx, AnoMeter meter,
         // nearest to prev root on entry, then to itself
         int pc = ano_scale_pitch_at(ctx->scale, pedalDegree, 4) % 12;
         int pedal = nearest_instance(pc, near, cfg->lo, cfg->hi);
-        bass_note(&out->events[0], ctx, start, barLen, pedal, velocity, "pedal");
+        bass_note(&out->events[0], ctx, start, barLen, pedal, velocity, ANO_ROLE_PEDAL);
         out->eventCount = 1;
         out->root = pedal;
         return;
@@ -104,7 +105,7 @@ void ano_generate_bass(const AnoHarmonicContext *ctx, AnoMeter meter,
         if (optN) {
             uint32_t i = ano_music_choices1(rng, optW, optN);
             bass_note(&approach, ctx, start + barLen - cfg->approachBeats,
-                      cfg->approachBeats, optP[i], velocity, "approach");
+                      cfg->approachBeats, optP[i], velocity, ANO_ROLE_APPROACH);
             haveApproach = true;
         }
     }
@@ -114,17 +115,18 @@ void ano_generate_bass(const AnoHarmonicContext *ctx, AnoMeter meter,
     double split = ano_meter_pulse_quarters(meter) * (halfPulses > 1 ? halfPulses : 1);
     if (params->noteDensity < 0.35 || !haveApproach) {
         bass_note(&out->events[out->eventCount++], ctx, start, barLen, root,
-                  velocity, "root");
+                  velocity, ANO_ROLE_ROOT);
     } else if (params->noteDensity < 0.65 || barLen - split - cfg->approachBeats <= 0.0) {
         bass_note(&out->events[out->eventCount++], ctx, start,
-                  barLen - cfg->approachBeats, root, velocity, "root");
+                  barLen - cfg->approachBeats, root, velocity, ANO_ROLE_ROOT);
     } else {
         int fifthPc = ctx->chordPcCount >= 3 ? ctx->chordPcs[2] : rootPc;
         int fifth = nearest_instance(fifthPc, root, cfg->lo, cfg->hi);
         bass_note(&out->events[out->eventCount++], ctx, start, split, root,
-                  velocity, "root");
+                  velocity, ANO_ROLE_ROOT);
         bass_note(&out->events[out->eventCount++], ctx, start + split,
-                  barLen - split - cfg->approachBeats, fifth, velocity, "chord-tone");
+                  barLen - split - cfg->approachBeats, fifth, velocity,
+                  ANO_ROLE_CHORD_TONE);
     }
     if (haveApproach)
         out->events[out->eventCount++] = approach;

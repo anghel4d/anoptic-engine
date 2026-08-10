@@ -15,6 +15,8 @@
 
 #include <anoptic_meta.h>
 #include "music_conductor.h"
+#include "music_roles.h"
+#include "music_project.h"
 
 // Cadence cycle capacity: policy_of indexes cadencePolicies[phrase % count].
 #define CADENCE_CYCLE_MAX 8u
@@ -30,50 +32,53 @@ static_assert(ANO_MOTIF_MAX
                   <= sizeof ((AnoPeriodPlanner *)0)->openingMelody[0] / sizeof(AnoPlacedNote),
               "planner opening-melody row must hold a full motif");
 
-// mode/cadence table-index ingress. In: any double. Out: true only in contract. NaN fails both.
-static bool mode_ok(double v)
-{
-    return v >= static_cast<double>(ANO_MODE_NONE)
-        && v < static_cast<double>(ANO_MODE_COUNT);
-}
+// Public <-> engine projection contract: policy manifest + named ignores.
+// music_project.h compiles expand / ano_music_config_default from this spec.
+template<>
+struct ano::music::ProjSpec<AnoMusicConfig, AnoEngineConfig> final {
+    static constexpr ProjPolicy policies[] = {
+        { "keyTonic", ProjRule::pitch_class },
+        { "mode", ProjRule::mode_gate },
+        { "valence", ProjRule::narrow },
+        { "energy", ProjRule::narrow },
+        { "tension", ProjRule::narrow },
+        { "phraseBars", ProjRule::positive },
+        { "cadencePolicies", ProjRule::cadence_cycle },
+        { "cadencePolicyCount", ProjRule::count_clamp },
+        { "params", ProjRule::params_block },
+        { "motifLibrary", ProjRule::motif_library },
+        { "motifLibraryCount", ProjRule::count_clamp },
+        { "melody", ProjRule::melody_flags },
+    };
+    static constexpr std::array<std::string_view, 0> pubIgnore{};
+    // generator tuning stays engine-default
+    static constexpr std::string_view implIgnore[] = {
+        "harmony", "voicing", "bass", "counter", "arp", "perc",
+    };
+};
 
-static bool cadence_ok(double v)
-{
-    return v >= static_cast<double>(ANO_CADENCE_AUTHENTIC)
-        && v < static_cast<double>(ANO_CADENCE_COUNT);
-}
+// Both directions total: every field projected or explicitly ignored.
+static_assert(ano::music::PROJ_DIAG<AnoMusicConfig, AnoEngineConfig>.ok,
+              ano::music::PROJ_DIAG<AnoMusicConfig, AnoEngineConfig>);
+static_assert(ano::music::PROJ_DIAG<AnoMusicalParams, AnoGenParams>.ok,
+              ano::music::PROJ_DIAG<AnoMusicalParams, AnoGenParams>);
+
+// Count-clamp annotations must clamp to the real capacities.
+static_assert(ano::music::proj_policy<AnoProjCountClamp>(
+                  ano::music::proj_member_named(^^AnoMusicConfig, "cadencePolicyCount")).max
+                      == CADENCE_CYCLE_MAX
+              && ano::music::proj_policy<AnoProjCountClamp>(
+                  ano::music::proj_member_named(^^AnoMusicConfig, "motifLibraryCount")).max
+                      == ANO_SIG_MAX,
+              "count-clamp annotations must match cycle/library capacities");
 
 AnoMusicConfig ano_music_config_default(void)
 {
     AnoEngineConfig e = ano_engine_config_default();
-    AnoMusicConfig c = {
-        .meter = e.meter,
-        .keyTonic = e.keyTonic,
-        .mode = e.mode,
-        .valence = (float)e.valence,
-        .energy = (float)e.energy,
-        .tension = (float)e.tension,
-        .phraseBars = e.phraseBars,
-        .wanderPhrases = e.wanderPhrases,
-        .cadencePolicyCount = e.cadencePolicyCount,
-        .hasMapper = e.hasMapper,
-        .mapper = e.mapper,
-        .hasDramaturg = e.hasDramaturg,
-        .dramaturg = e.dramaturg,
-        .params = ano_gen_params_bridge(&e.params),
-        .motifLibraryCount = e.motifLibraryCount,
-        .motifLeniency = e.motifLeniency,
-        .cadenceRit = e.cadenceRit,
-        .phraseGroove = e.phraseGroove,
-        .form = e.form,
-        .texture = e.texture,
-        .ties = e.ties,
-        .clock = e.clock,
-        .melody = { e.melody.planApex, e.melody.counterpoint },
-        .useChains = e.useChains,
-        .performChains = e.performChains,
-    };
-    memcpy(c.cadencePolicies, e.cadencePolicies, sizeof c.cadencePolicies);
+    // memset: initializer leaves padding unspecified; snapshot = bytes.
+    AnoMusicConfig c;
+    memset(&c, 0, sizeof c);
+    ano::music::project_to_public(c, e);
     return c;
 }
 
@@ -82,71 +87,7 @@ AnoMusicConfig ano_music_config_default(void)
 static void expand(const AnoMusicConfig *c, AnoEngineConfig *e)
 {
     *e = ano_engine_config_default();
-    e->meter = c->meter;
-    // pitch class 0..11 (anoptic_music.h): normalize like mode/cadence below.
-    // Stays signed: wander_target computes keyTonic + 7*step, step in {-1,+1}.
-    e->keyTonic = ((c->keyTonic % 12) + 12) % 12;
-    e->mode = mode_ok(c->mode) ? c->mode : ANO_MODE_NONE;
-    e->valence = c->valence;
-    e->energy = c->energy;
-    e->tension = c->tension;
-    if (c->phraseBars > 0)
-        e->phraseBars = c->phraseBars;
-    e->wanderPhrases = c->wanderPhrases;
-    for (uint32_t i = 0; i < CADENCE_CYCLE_MAX; ++i)
-        e->cadencePolicies[i] = cadence_ok(c->cadencePolicies[i])
-                                    ? c->cadencePolicies[i]
-                                    : (int8_t)ANO_CADENCE_AUTHENTIC;
-    e->cadencePolicyCount = c->cadencePolicyCount < CADENCE_CYCLE_MAX ? c->cadencePolicyCount
-                                                                     : CADENCE_CYCLE_MAX;
-    e->hasMapper = c->hasMapper;
-    e->mapper = c->mapper;
-    e->hasDramaturg = c->hasDramaturg;
-    e->dramaturg = c->dramaturg;
-
-    // Bridge params -> ordered layer list from bitmask.
-    if (!c->hasMapper) {
-        const AnoMusicalParams *p = &c->params;
-        e->params.tempoBpm = p->tempoBpm;
-        e->params.noteDensity = p->noteDensity;
-        e->params.roughness = p->roughness;
-        e->params.articulation = p->articulation;
-        e->params.velocityCenter = p->velocityCenter;
-        e->params.accentDepth = p->accentDepth;
-        e->params.registerCenter = p->registerCenter;
-        e->params.harmonicRhythm = p->harmonicRhythm;
-        e->params.dissonanceBudget = p->dissonanceBudget;
-        e->params.filterCutoff = p->filterCutoff;
-        e->params.reverbSend = p->reverbSend;
-        e->params.delaySend = p->delaySend;
-        e->params.drive = p->drive;
-        e->params.stereoWidth = p->stereoWidth;
-        e->params.layerCount = 0;
-        for (uint32_t l = 0; l < ANO_MUSIC_LAYER_COUNT; ++l)
-            if (p->layersActive & (1u << l))
-                e->params.layers[e->params.layerCount++] = (uint8_t)l;
-        for (uint32_t l = 0; l < ANO_MUSIC_LAYER_COUNT; ++l)
-            e->params.instruments[l] = (uint8_t)p->instruments[l];
-    }
-
-    for (uint32_t i = 0; i < c->motifLibraryCount && i < ANO_SIG_MAX; ++i) {
-        e->motifLibrary[i] = c->motifLibrary[i];
-        if (e->motifLibrary[i].motif.n > ANO_MOTIF_MAX) // authored count can't exceed the buffers
-            e->motifLibrary[i].motif.n = ANO_MOTIF_MAX;
-    }
-    e->motifLibraryCount = c->motifLibraryCount < ANO_SIG_MAX ? c->motifLibraryCount
-                                                              : ANO_SIG_MAX;
-    e->motifLeniency = c->motifLeniency;
-    e->cadenceRit = c->cadenceRit;
-    e->phraseGroove = c->phraseGroove;
-    e->form = c->form;
-    e->texture = c->texture;
-    e->ties = c->ties;
-    e->clock = c->clock;
-    e->melody.planApex = c->melody.planApex;
-    e->melody.counterpoint = c->melody.counterpoint;
-    e->useChains = c->useChains;
-    e->performChains = c->performChains;
+    ano::music::project_from_public(*e, *c);
 }
 
 // One allocation; engine stays pointer-free (snapshot = bytes).
@@ -295,7 +236,7 @@ void ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out)
     m->keyArrived = e->scale.tonic != keyBefore; // the modulation landed here
     m->motifStated = false;
     for (uint32_t i = 0; i < r.eventCount && !m->motifStated; ++i)
-        m->motifStated = strcmp(r.events[i].role, "motif") == 0;
+        m->motifStated = strcmp(r.events[i].role, ano_role_text(ANO_ROLE_MOTIF)) == 0;
 }
 
 double ano_music_bar_quarters(const AnoMusicEngine *e)

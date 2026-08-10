@@ -7,6 +7,7 @@
 // Float op order matches prototype expression-for-expression.
 
 #include "music_ir.h"
+#include "music_project.h"
 
 #include <math.h>
 #include <string.h>
@@ -95,35 +96,14 @@ uint32_t ano_meter_strong_slots(AnoMeter m, int out[ANO_METER_MAX_SLOTS])
 }
 
 // Gen params -> public bridge (layers list -> bitmask).
+// Both directions total: every field projected or explicitly ignored.
+static_assert(ano::music::PROJ_DIAG<AnoMusicalParams, AnoGenParams>.ok,
+              ano::music::PROJ_DIAG<AnoMusicalParams, AnoGenParams>);
+
 AnoMusicalParams ano_gen_params_bridge(const AnoGenParams *p)
 {
-    AnoMusicalParams o = {
-        .tempoBpm         = p->tempoBpm,
-        .noteDensity      = (float)p->noteDensity,
-        .roughness        = (float)p->roughness,
-        .articulation     = (float)p->articulation,
-        .velocityCenter   = (uint8_t)(p->velocityCenter < 0     ? 0
-                                      : p->velocityCenter > 127 ? 127
-                                                                : p->velocityCenter),
-        .accentDepth      = (uint8_t)(p->accentDepth < 0     ? 0
-                                      : p->accentDepth > 127 ? 127
-                                                             : p->accentDepth),
-        .registerCenter   = (uint8_t)(p->registerCenter < 0     ? 0
-                                      : p->registerCenter > 127 ? 127
-                                                                : p->registerCenter),
-        .harmonicRhythm   = (float)p->harmonicRhythm,
-        .dissonanceBudget = (float)p->dissonanceBudget,
-        .filterCutoff     = (float)p->filterCutoff,
-        .reverbSend       = (float)p->reverbSend,
-        .delaySend        = (float)p->delaySend,
-        .drive            = (float)p->drive,
-        .stereoWidth      = (float)p->stereoWidth,
-    };
-    for (uint32_t i = 0; i < p->layerCount; ++i)
-        if (p->layers[i] < ANO_MUSIC_LAYER_COUNT)
-            o.layersActive |= (uint8_t)(1u << p->layers[i]);
-    for (uint32_t i = 0; i < ANO_MUSIC_LAYER_COUNT; ++i)
-        o.instruments[i] = p->instruments[i];
+    AnoMusicalParams o = {}; // value-init before splice assignments; layersActive |= needs zero
+    ano::music::project_to_public(o, *p);
     return o;
 }
 

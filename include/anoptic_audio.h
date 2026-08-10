@@ -56,66 +56,77 @@ typedef enum AnoAudioBackend
     ANO_AUDIO_BACKEND_COREAUDIO, // macOS
 } AnoAudioBackend;
 
+#ifdef __cplusplus
+// C++ view only: per-kind payload identity for the private AnoAudioFx union. C values/layout untouched.
+enum class AnoAudioFxPayloadKind : uint8_t { none, filter, eq3, dc, drive, comp, lim, chorus, reverb, pingpong, width };
+struct AnoAudioFxKindContract final { AnoAudioFxPayloadKind payload; };
+#endif
+
 // Bus insert kinds. Chain fixed at init. Params retarget via ACMD_FX_SET.
 typedef enum AnoAudioEffectKind
 {
-    ANO_AUDIO_FX_NONE = 0,
-    ANO_AUDIO_FX_FILTER,     // TPT SVF (LP/HP/BP + resonance)
-    ANO_AUDIO_FX_EQ3,        // low shelf + peak + high shelf
-    ANO_AUDIO_FX_DCBLOCK,    // one-pole DC blocker
-    ANO_AUDIO_FX_DRIVE,      // tanh saturator, pre-gain + trim
-    ANO_AUDIO_FX_COMPRESSOR, // feedback compressor, bounded makeup
-    ANO_AUDIO_FX_LIMITER,    // lookahead limiter
-    ANO_AUDIO_FX_CHORUS,     // dual-rate modulated taps
-    ANO_AUDIO_FX_REVERB,     // predelay -> diffusers -> FDN -> shelf
-    ANO_AUDIO_FX_PINGPONG,   // cross-feedback stereo delay
-    ANO_AUDIO_FX_WIDTH,      // mid/side width (0 = mono)
+    ANO_AUDIO_FX_NONE ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::none}) = 0,
+    ANO_AUDIO_FX_FILTER ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::filter}),         // TPT SVF (LP/HP/BP + resonance)
+    ANO_AUDIO_FX_EQ3 ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::eq3}),               // low shelf + peak + high shelf
+    ANO_AUDIO_FX_DCBLOCK ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::dc}),            // one-pole DC blocker
+    ANO_AUDIO_FX_DRIVE ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::drive}),           // tanh saturator, pre-gain + trim
+    ANO_AUDIO_FX_COMPRESSOR ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::comp}),       // feedback compressor, bounded makeup
+    ANO_AUDIO_FX_LIMITER ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::lim}),           // lookahead limiter
+    ANO_AUDIO_FX_CHORUS ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::chorus}),         // dual-rate modulated taps
+    ANO_AUDIO_FX_REVERB ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::reverb}),         // predelay -> diffusers -> FDN -> shelf
+    ANO_AUDIO_FX_PINGPONG ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::pingpong}),     // cross-feedback stereo delay
+    ANO_AUDIO_FX_WIDTH ANO_AUDIO_META(AnoAudioFxKindContract{AnoAudioFxPayloadKind::width}),           // mid/side width (0 = mono)
     ANO_AUDIO_FX_COUNT,
 } AnoAudioEffectKind;
+
+#ifdef __cplusplus
+// C++ view only: owning effect kind per FX param. BYPASS is kind-agnostic and stays bare.
+struct AnoAudioFxParamOwner final { AnoAudioEffectKind kind; };
+#endif
 
 // Flat ACMD_FX_SET params. Continuous glide per-block. Modes/bypass instant.
 typedef enum AnoAudioFxParam
 {
     ANO_AUDIO_P_BYPASS = 0,        // nonzero = bypass
 
-    ANO_AUDIO_P_FILTER_MODE = 16,  // AnoAudioFilterMode
-    ANO_AUDIO_P_FILTER_CUTOFF,     // Hz
-    ANO_AUDIO_P_FILTER_Q,
+    ANO_AUDIO_P_FILTER_MODE ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_FILTER}) = 16,  // AnoAudioFilterMode
+    ANO_AUDIO_P_FILTER_CUTOFF ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_FILTER}),     // Hz
+    ANO_AUDIO_P_FILTER_Q ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_FILTER}),
 
-    ANO_AUDIO_P_EQ_LOW_GAIN_DB = 32,
-    ANO_AUDIO_P_EQ_LOW_FREQ,
-    ANO_AUDIO_P_EQ_MID_GAIN_DB,
-    ANO_AUDIO_P_EQ_MID_FREQ,
-    ANO_AUDIO_P_EQ_MID_Q,
-    ANO_AUDIO_P_EQ_HIGH_GAIN_DB,
-    ANO_AUDIO_P_EQ_HIGH_FREQ,
+    ANO_AUDIO_P_EQ_LOW_GAIN_DB ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}) = 32,
+    ANO_AUDIO_P_EQ_LOW_FREQ ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}),
+    ANO_AUDIO_P_EQ_MID_GAIN_DB ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}),
+    ANO_AUDIO_P_EQ_MID_FREQ ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}),
+    ANO_AUDIO_P_EQ_MID_Q ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}),
+    ANO_AUDIO_P_EQ_HIGH_GAIN_DB ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}),
+    ANO_AUDIO_P_EQ_HIGH_FREQ ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_EQ3}),
 
-    ANO_AUDIO_P_DRIVE_AMOUNT = 48, // pre-gain into tanh, 0.1 .. 16
-    ANO_AUDIO_P_DRIVE_TRIM,        // post trim, linear
+    ANO_AUDIO_P_DRIVE_AMOUNT ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_DRIVE}) = 48, // pre-gain into tanh, 0.1 .. 16
+    ANO_AUDIO_P_DRIVE_TRIM ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_DRIVE}),        // post trim, linear
 
-    ANO_AUDIO_P_COMP_THRESHOLD = 64, // linear amplitude
-    ANO_AUDIO_P_COMP_RATIO,
-    ANO_AUDIO_P_COMP_ATTACK_MS,
-    ANO_AUDIO_P_COMP_RELEASE_MS,
-    ANO_AUDIO_P_COMP_MAKEUP,       // linear, clamped [0.25, 4], never implicit
+    ANO_AUDIO_P_COMP_THRESHOLD ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_COMPRESSOR}) = 64, // linear amplitude
+    ANO_AUDIO_P_COMP_RATIO ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_COMPRESSOR}),
+    ANO_AUDIO_P_COMP_ATTACK_MS ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_COMPRESSOR}),
+    ANO_AUDIO_P_COMP_RELEASE_MS ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_COMPRESSOR}),
+    ANO_AUDIO_P_COMP_MAKEUP ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_COMPRESSOR}),       // linear, clamped [0.25, 4], never implicit
 
-    ANO_AUDIO_P_LIM_CEILING = 80,
-    ANO_AUDIO_P_LIM_RELEASE_MS,
+    ANO_AUDIO_P_LIM_CEILING ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_LIMITER}) = 80,
+    ANO_AUDIO_P_LIM_RELEASE_MS ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_LIMITER}),
 
-    ANO_AUDIO_P_CHORUS_RATE_HZ = 96,
-    ANO_AUDIO_P_CHORUS_DEPTH_MS,
-    ANO_AUDIO_P_CHORUS_MIX,
+    ANO_AUDIO_P_CHORUS_RATE_HZ ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_CHORUS}) = 96,
+    ANO_AUDIO_P_CHORUS_DEPTH_MS ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_CHORUS}),
+    ANO_AUDIO_P_CHORUS_MIX ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_CHORUS}),
 
-    ANO_AUDIO_P_REV_PREDELAY_MS = 112,
-    ANO_AUDIO_P_REV_T60_S,
-    ANO_AUDIO_P_REV_DAMP_HZ,
-    ANO_AUDIO_P_REV_MIX,
+    ANO_AUDIO_P_REV_PREDELAY_MS ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_REVERB}) = 112,
+    ANO_AUDIO_P_REV_T60_S ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_REVERB}),
+    ANO_AUDIO_P_REV_DAMP_HZ ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_REVERB}),
+    ANO_AUDIO_P_REV_MIX ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_REVERB}),
 
-    ANO_AUDIO_P_PP_TIME_MS = 128,
-    ANO_AUDIO_P_PP_FEEDBACK,
-    ANO_AUDIO_P_PP_MIX,
+    ANO_AUDIO_P_PP_TIME_MS ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_PINGPONG}) = 128,
+    ANO_AUDIO_P_PP_FEEDBACK ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_PINGPONG}),
+    ANO_AUDIO_P_PP_MIX ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_PINGPONG}),
 
-    ANO_AUDIO_P_WIDTH_AMOUNT = 144, // 0 mono .. 1 unity .. 2 wide
+    ANO_AUDIO_P_WIDTH_AMOUNT ANO_AUDIO_META(AnoAudioFxParamOwner{ANO_AUDIO_FX_WIDTH}) = 144, // 0 mono .. 1 unity .. 2 wide
 } AnoAudioFxParam;
 
 // Bus 0 = master. Other parents and send targets must be lower index (acyclic).

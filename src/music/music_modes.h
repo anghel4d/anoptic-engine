@@ -19,6 +19,8 @@ extern "C" {
 const char *ano_mode_name(AnoMode mode);
 int ano_mode_brightness(AnoMode mode);
 const uint8_t *ano_mode_intervals(AnoMode mode);
+uint16_t ano_mode_pc_mask(AnoMode mode);
+const uint8_t *ano_mode_degrees(AnoMode mode);
 
 #ifdef __cplusplus
 }

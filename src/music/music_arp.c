@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "music_arp.h"
+#include "music_roles.h"
 
 AnoArpConfig ano_arp_config_default(void)
 {
@@ -114,7 +115,7 @@ void ano_generate_arp(const AnoHarmonicContext *ctx, AnoMeter meter,
         int deg = ano_scale_degree_of(ctx->scale, pitch);
         e->degree = deg > 0 ? (uint8_t)deg : 0;
         strncpy(e->chordSym, ctx->chordSym, sizeof e->chordSym - 1);
-        strncpy(e->role, ano_scale_contains(ctx->scale, pitch) ? "chord-tone" : "borrowed",
-                sizeof e->role - 1);
+        ano_event_set_role(e, ano_scale_contains(ctx->scale, pitch) ? ANO_ROLE_CHORD_TONE
+                                                                    : ANO_ROLE_BORROWED);
     }
 }

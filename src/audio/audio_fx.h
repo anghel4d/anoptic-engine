@@ -18,17 +18,42 @@
 #include "dsp/delay.h"
 #include "dsp/dynamics.h"
 
+// FX_SET binding contract: param id + clamp range + write transform, consumed by the
+// consteval registry in audio_fx.cpp. filter_mode ignores min/max (FilterMode validates).
+enum class AnoAudioFxTransform : uint8_t { smooth_target, pole_ms, filter_mode };
+
+struct AnoAudioFxBinding final
+{
+    uint32_t param; // AnoAudioFxParam
+    float    min, max;
+    AnoAudioFxTransform transform;
+};
+
+// Union link: ties each AnoAudioFx payload member to its owning AnoAudioEffectKind.
+struct AnoAudioFxPayloadFor final
+{
+    AnoAudioEffectKind    kind;
+    AnoAudioFxPayloadKind payload;
+};
+
 typedef struct AnoAudioFxFilter
 {
-    uint32_t       mode; // AnoAudioFilterMode
-    AnoAudioSmooth cutoff, q;
+    uint32_t mode [[=AnoAudioFxBinding{ANO_AUDIO_P_FILTER_MODE, 0.0f, 0.0f, AnoAudioFxTransform::filter_mode}]]; // AnoAudioFilterMode
+    AnoAudioSmooth cutoff [[=AnoAudioFxBinding{ANO_AUDIO_P_FILTER_CUTOFF, 20.0f, 20000.0f, AnoAudioFxTransform::smooth_target}]],
+                   q      [[=AnoAudioFxBinding{ANO_AUDIO_P_FILTER_Q, 0.1f, 12.0f, AnoAudioFxTransform::smooth_target}]];
     AnoDspSvfCoef  c;
     AnoDspSvfState s[2];
 } AnoAudioFxFilter;
 
 typedef struct AnoAudioFxEq3
 {
-    AnoAudioSmooth lowDb, lowF, midDb, midF, midQ, highDb, highF;
+    AnoAudioSmooth lowDb  [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_LOW_GAIN_DB, -24.0f, 24.0f, AnoAudioFxTransform::smooth_target}]],
+                   lowF   [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_LOW_FREQ, 20.0f, 2000.0f, AnoAudioFxTransform::smooth_target}]],
+                   midDb  [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_MID_GAIN_DB, -24.0f, 24.0f, AnoAudioFxTransform::smooth_target}]],
+                   midF   [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_MID_FREQ, 100.0f, 10000.0f, AnoAudioFxTransform::smooth_target}]],
+                   midQ   [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_MID_Q, 0.1f, 12.0f, AnoAudioFxTransform::smooth_target}]],
+                   highDb [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_HIGH_GAIN_DB, -24.0f, 24.0f, AnoAudioFxTransform::smooth_target}]],
+                   highF  [[=AnoAudioFxBinding{ANO_AUDIO_P_EQ_HIGH_FREQ, 1000.0f, 20000.0f, AnoAudioFxTransform::smooth_target}]];
     AnoDspBiquad      cl, cm, ch;
     AnoDspBiquadState sl[2], sm[2], sh[2];
 } AnoAudioFxEq3;
@@ -41,21 +66,25 @@ typedef struct AnoAudioFxDc
 
 typedef struct AnoAudioFxDrive
 {
-    AnoAudioSmooth amount, trim;
+    AnoAudioSmooth amount [[=AnoAudioFxBinding{ANO_AUDIO_P_DRIVE_AMOUNT, 0.1f, 16.0f, AnoAudioFxTransform::smooth_target}]],
+                   trim   [[=AnoAudioFxBinding{ANO_AUDIO_P_DRIVE_TRIM, 0.0f, 4.0f, AnoAudioFxTransform::smooth_target}]];
 } AnoAudioFxDrive;
 
 typedef struct AnoAudioFxComp
 {
-    AnoAudioSmooth threshold, ratio, makeup;
-    float attackCoef, releaseCoef;
+    AnoAudioSmooth threshold [[=AnoAudioFxBinding{ANO_AUDIO_P_COMP_THRESHOLD, 0.01f, 1.0f, AnoAudioFxTransform::smooth_target}]],
+                   ratio     [[=AnoAudioFxBinding{ANO_AUDIO_P_COMP_RATIO, 1.0f, 20.0f, AnoAudioFxTransform::smooth_target}]],
+                   makeup    [[=AnoAudioFxBinding{ANO_AUDIO_P_COMP_MAKEUP, 0.25f, 4.0f, AnoAudioFxTransform::smooth_target}]];
+    float attackCoef  [[=AnoAudioFxBinding{ANO_AUDIO_P_COMP_ATTACK_MS, 0.1f, 500.0f, AnoAudioFxTransform::pole_ms}]];
+    float releaseCoef [[=AnoAudioFxBinding{ANO_AUDIO_P_COMP_RELEASE_MS, 1.0f, 2000.0f, AnoAudioFxTransform::pole_ms}]];
     float env;  // stereo-linked envelope
     float gain; // previous sample gain (feedback)
 } AnoAudioFxComp;
 
 typedef struct AnoAudioFxLim
 {
-    AnoAudioSmooth ceiling;
-    float          releaseCoef;
+    AnoAudioSmooth ceiling [[=AnoAudioFxBinding{ANO_AUDIO_P_LIM_CEILING, 0.1f, 1.0f, AnoAudioFxTransform::smooth_target}]];
+    float          releaseCoef [[=AnoAudioFxBinding{ANO_AUDIO_P_LIM_RELEASE_MS, 1.0f, 1000.0f, AnoAudioFxTransform::pole_ms}]];
     float          gain;
     uint32_t       lookahead; // samples (5 ms at init)
     AnoDspDelay    dl[2];
@@ -64,14 +93,19 @@ typedef struct AnoAudioFxLim
 
 typedef struct AnoAudioFxChorus
 {
-    AnoAudioSmooth rate, depth, mix; // Hz, ms, 0..1
+    AnoAudioSmooth rate  [[=AnoAudioFxBinding{ANO_AUDIO_P_CHORUS_RATE_HZ, 0.01f, 8.0f, AnoAudioFxTransform::smooth_target}]],
+                   depth [[=AnoAudioFxBinding{ANO_AUDIO_P_CHORUS_DEPTH_MS, 0.1f, 12.0f, AnoAudioFxTransform::smooth_target}]],
+                   mix   [[=AnoAudioFxBinding{ANO_AUDIO_P_CHORUS_MIX, 0.0f, 1.0f, AnoAudioFxTransform::smooth_target}]]; // Hz, ms, 0..1
     double         phase;            // LFO cycles [0, 1)
     AnoDspDelay    dl[2];
 } AnoAudioFxChorus;
 
 typedef struct AnoAudioFxReverb
 {
-    AnoAudioSmooth predelayMs, t60, dampHz, mix;
+    AnoAudioSmooth predelayMs [[=AnoAudioFxBinding{ANO_AUDIO_P_REV_PREDELAY_MS, 0.0f, 190.0f, AnoAudioFxTransform::smooth_target}]],
+                   t60        [[=AnoAudioFxBinding{ANO_AUDIO_P_REV_T60_S, 0.1f, 12.0f, AnoAudioFxTransform::smooth_target}]],
+                   dampHz     [[=AnoAudioFxBinding{ANO_AUDIO_P_REV_DAMP_HZ, 500.0f, 18000.0f, AnoAudioFxTransform::smooth_target}]],
+                   mix        [[=AnoAudioFxBinding{ANO_AUDIO_P_REV_MIX, 0.0f, 1.0f, AnoAudioFxTransform::smooth_target}]];
     AnoDspDelay    pre;
     AnoDspAllpass  ap[2];
     AnoDspDelay    line[4];
@@ -86,13 +120,15 @@ typedef struct AnoAudioFxReverb
 
 typedef struct AnoAudioFxPingpong
 {
-    AnoAudioSmooth timeMs, feedback, mix;
+    AnoAudioSmooth timeMs   [[=AnoAudioFxBinding{ANO_AUDIO_P_PP_TIME_MS, 10.0f, 1100.0f, AnoAudioFxTransform::smooth_target}]],
+                   feedback [[=AnoAudioFxBinding{ANO_AUDIO_P_PP_FEEDBACK, 0.0f, 0.95f, AnoAudioFxTransform::smooth_target}]],
+                   mix      [[=AnoAudioFxBinding{ANO_AUDIO_P_PP_MIX, 0.0f, 1.0f, AnoAudioFxTransform::smooth_target}]];
     AnoDspDelay    dl[2];
 } AnoAudioFxPingpong;
 
 typedef struct AnoAudioFxWidth
 {
-    AnoAudioSmooth amount; // 0 mono .. 1 unity .. 2 wide
+    AnoAudioSmooth amount [[=AnoAudioFxBinding{ANO_AUDIO_P_WIDTH_AMOUNT, 0.0f, 2.0f, AnoAudioFxTransform::smooth_target}]]; // 0 mono .. 1 unity .. 2 wide
 } AnoAudioFxWidth;
 
 typedef struct AnoAudioFx
@@ -101,16 +137,16 @@ typedef struct AnoAudioFx
     bool     bypass;
     float    fs;     // engine rate at init
     union {
-        AnoAudioFxFilter   filter;
-        AnoAudioFxEq3      eq3;
-        AnoAudioFxDc       dc;
-        AnoAudioFxDrive    drive;
-        AnoAudioFxComp     comp;
-        AnoAudioFxLim      lim;
-        AnoAudioFxChorus   chorus;
-        AnoAudioFxReverb   reverb;
-        AnoAudioFxPingpong pp;
-        AnoAudioFxWidth    width;
+        AnoAudioFxFilter   filter [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_FILTER, AnoAudioFxPayloadKind::filter}]];
+        AnoAudioFxEq3      eq3 [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_EQ3, AnoAudioFxPayloadKind::eq3}]];
+        AnoAudioFxDc       dc [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_DCBLOCK, AnoAudioFxPayloadKind::dc}]];
+        AnoAudioFxDrive    drive [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_DRIVE, AnoAudioFxPayloadKind::drive}]];
+        AnoAudioFxComp     comp [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_COMPRESSOR, AnoAudioFxPayloadKind::comp}]];
+        AnoAudioFxLim      lim [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_LIMITER, AnoAudioFxPayloadKind::lim}]];
+        AnoAudioFxChorus   chorus [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_CHORUS, AnoAudioFxPayloadKind::chorus}]];
+        AnoAudioFxReverb   reverb [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_REVERB, AnoAudioFxPayloadKind::reverb}]];
+        AnoAudioFxPingpong pp [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_PINGPONG, AnoAudioFxPayloadKind::pingpong}]];
+        AnoAudioFxWidth    width [[=AnoAudioFxPayloadFor{ANO_AUDIO_FX_WIDTH, AnoAudioFxPayloadKind::width}]];
     } u;
 } AnoAudioFx;
 

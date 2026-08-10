@@ -28,6 +28,20 @@ struct AnoCadenceContract final {
     int8_t arrivalDegrees[2];
     int8_t approachDegrees[2];
 };
+/* Projection policies: field rules for the public <-> engine config compiler
+ * (src/music/music_project.h). Ingress = public -> engine; egress = engine -> public. */
+struct AnoProjNarrow final {};       // double <-> float twin; cast to the destination type
+struct AnoProjPitchClass final {};   // ingress ((x%12)+12)%12; stays signed
+struct AnoProjModeGate final {};     // ingress mode_ok(x) ? x : ANO_MODE_NONE
+struct AnoProjCadenceCycle final {}; // ingress per element: cadence_ok(x) ? x : AUTHENTIC
+struct AnoProjCountClamp final { uint32_t max; }; // ingress min(x, max)
+struct AnoProjPositive final {};     // ingress assigned only when > 0
+struct AnoProjClamp final { int lo, hi; }; // egress clamp then cast; ingress plain copy
+struct AnoProjLayerMask final {};    // bitmask <-> ordered layers[] + layerCount (gate order)
+struct AnoProjElemCast final {};     // per-element cast between equal-extent arrays
+struct AnoProjMotifLibrary final {}; // ingress bounded copy + motif.n clamp; egress stays zero
+struct AnoProjParamsBlock final {};  // ingress gated on !hasMapper; egress ano_gen_params_bridge
+struct AnoProjMelodyFlags final {};  // planApex/counterpoint across differing melody structs
 #else
 #define ANO_MUSIC_META(...)
 #endif
@@ -91,23 +105,23 @@ typedef struct AnoMusicAffect
 typedef struct AnoMusicalParams
 {
     double   tempoBpm;         // 100.0
-    float    noteDensity;      // 0.5
-    float    roughness;        // 0.0
-    float    articulation;     // 0.9 (baked into event durations)
-    uint8_t  velocityCenter;   // 80
-    uint8_t  accentDepth;      // 12
-    uint8_t  registerCenter;   // 72
-    uint8_t  layersActive;     // bitmask by AnoMusicLayer; bit set = sounding
-    float    harmonicRhythm;   // 1.0
-    float    dissonanceBudget; // 0.0
-    uint16_t instruments[ANO_MUSIC_LAYER_COUNT]; // AnoPatchName; 0 = layer default
+    ANO_MUSIC_META(AnoProjNarrow{}) float noteDensity;  // 0.5
+    ANO_MUSIC_META(AnoProjNarrow{}) float roughness;    // 0.0
+    ANO_MUSIC_META(AnoProjNarrow{}) float articulation; // 0.9 (baked into event durations)
+    ANO_MUSIC_META(AnoProjClamp{0, 127}) uint8_t velocityCenter; // 80
+    ANO_MUSIC_META(AnoProjClamp{0, 127}) uint8_t accentDepth;    // 12
+    ANO_MUSIC_META(AnoProjClamp{0, 127}) uint8_t registerCenter; // 72
+    ANO_MUSIC_META(AnoProjLayerMask{}) uint8_t layersActive; // bitmask by AnoMusicLayer; bit set = sounding
+    ANO_MUSIC_META(AnoProjNarrow{}) float harmonicRhythm;   // 1.0
+    ANO_MUSIC_META(AnoProjNarrow{}) float dissonanceBudget; // 0.0
+    ANO_MUSIC_META(AnoProjElemCast{}) uint16_t instruments[ANO_MUSIC_LAYER_COUNT]; // AnoPatchName; 0 = layer default
 
     /* DSP tier */
-    float filterCutoff; // Hz, 2500.0
-    float reverbSend;   // 0.20 (global multiplier on per-layer static sends)
-    float delaySend;    // 0.10
-    float drive;        // 0.15
-    float stereoWidth;  // 0.70
+    ANO_MUSIC_META(AnoProjNarrow{}) float filterCutoff; // Hz, 2500.0
+    ANO_MUSIC_META(AnoProjNarrow{}) float reverbSend;   // 0.20 (global multiplier on per-layer static sends)
+    ANO_MUSIC_META(AnoProjNarrow{}) float delaySend;    // 0.10
+    ANO_MUSIC_META(AnoProjNarrow{}) float drive;        // 0.15
+    ANO_MUSIC_META(AnoProjNarrow{}) float stereoWidth;  // 0.70
 } AnoMusicalParams;
 
 
@@ -407,25 +421,25 @@ typedef struct AnoMelodyFlags
 typedef struct AnoMusicConfig
 {
     AnoMeter meter;    // 4/4
-    int      keyTonic; // pitch class 0..11
-    int      mode;     // AnoMode; NONE = valence-driven (mapper) / ionian
-    float    valence, energy, tension; // initial affect
-    int      phraseBars;    // 8
+    ANO_MUSIC_META(AnoProjPitchClass{}) int keyTonic; // pitch class 0..11
+    ANO_MUSIC_META(AnoProjModeGate{}) int mode; // AnoMode; NONE = valence-driven (mapper) / ionian
+    ANO_MUSIC_META(AnoProjNarrow{}) float valence, energy, tension; // initial affect
+    ANO_MUSIC_META(AnoProjPositive{}) int phraseBars; // 8
     int      wanderPhrases; // auto-modulate every N phrases; -1 = never
 
     // Cadence plan: explicit cycle, or (count 0) tension-driven / default cycle.
-    int8_t   cadencePolicies[8]; // AnoCadencePolicy
-    uint32_t cadencePolicyCount;
+    ANO_MUSIC_META(AnoProjCadenceCycle{}) int8_t cadencePolicies[8]; // AnoCadencePolicy
+    ANO_MUSIC_META(AnoProjCountClamp{8}) uint32_t cadencePolicyCount;
 
     // hasMapper false pins params; hasDramaturg false leaves ledger inert.
     bool               hasMapper;
     AnoMappingTable    mapper;
     bool               hasDramaturg;
     AnoDramaturgConfig dramaturg;
-    AnoMusicalParams   params; // static path only (hasMapper == false)
+    ANO_MUSIC_META(AnoProjParamsBlock{}) AnoMusicalParams params; // static path only (hasMapper == false)
 
-    AnoSignatureMotif motifLibrary[ANO_SIG_MAX];
-    uint32_t          motifLibraryCount;
+    ANO_MUSIC_META(AnoProjMotifLibrary{}) AnoSignatureMotif motifLibrary[ANO_SIG_MAX];
+    ANO_MUSIC_META(AnoProjCountClamp{ANO_SIG_MAX}) uint32_t motifLibraryCount;
     double            motifLeniency; // 0.5
 
     double cadenceRit;   // A1: fractional tempo dip into cadence; 0 = off
@@ -434,7 +448,7 @@ typedef struct AnoMusicConfig
     AnoTextureConfig texture;
     AnoTieConfig     ties;
     AnoClockConfig   clock;
-    AnoMelodyFlags   melody;
+    ANO_MUSIC_META(AnoProjMelodyFlags{}) AnoMelodyFlags melody;
 
     bool useChains;     // performance modifiers
     bool performChains; // ...with expressive Perform pass

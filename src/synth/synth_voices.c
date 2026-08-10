@@ -7,6 +7,7 @@
 // Filter keytrack at alloc: kt = clamp((f/261.63)^amount, 0.5, 2.5). Amp = (velocity/127)^1.5 at spawn.
 // Drum noise seeds fixed per recipe (bit-identical); Humanize supplies variation upstream.
 
+#include <array>
 #include <math.h>
 #include <string.h>
 
@@ -44,25 +45,29 @@ static float midi_hz(uint8_t pitch)
 /* Baked Banks */
 
 // 4 frames dark->bright: harmonics 1..23 at 1/h^(2.3-0.45f), even amp 0.35+0.2f; peak 0.9.
-void ano_synth_bake_wavetable(float *bank)
+// Rate-invariant, so baked consteval; CTFE pow/sin proven bit-identical to the libm bake
+// on GCC 16.1 (scratch/wt_bitident_probe.cpp memcmp gate).
+static consteval std::array<float, ANO_SYNTH_WT_FRAMES * ANO_SYNTH_WT_LEN>
+bake_wavetable()
 {
+    std::array<float, ANO_SYNTH_WT_FRAMES * ANO_SYNTH_WT_LEN> bank{};
     for (uint32_t f = 0; f < ANO_SYNTH_WT_FRAMES; ++f) {
-        float *wave = bank + (size_t)f * ANO_SYNTH_WT_LEN;
+        float *wave = bank.data() + (size_t)f * ANO_SYNTH_WT_LEN;
         float rolloff = 2.3f - 0.45f * (float)f;
         float evenAmp = 0.35f + 0.2f * (float)f;
         for (uint32_t n = 0; n < ANO_SYNTH_WT_LEN; ++n) {
             double ph = (double)n / ANO_SYNTH_WT_LEN;
             double v = 0.0;
             for (uint32_t h = 1; h <= 23; ++h) {
-                double a = 1.0 / pow((double)h, rolloff);
+                double a = 1.0 / __builtin_pow((double)h, rolloff);
                 if ((h & 1u) == 0u) a *= evenAmp;
-                v += a * sin(2.0 * 3.14159265358979 * h * ph);
+                v += a * __builtin_sin(2.0 * 3.14159265358979 * h * ph);
             }
             wave[n] = (float)v;
         }
         float peak = 0.0f;
         for (uint32_t n = 0; n < ANO_SYNTH_WT_LEN; ++n) {
-            float a = fabsf(wave[n]);
+            float a = wave[n] < 0.0f ? -wave[n] : wave[n];
             if (a > peak) peak = a;
         }
         if (peak > 0.0f) {
@@ -71,7 +76,11 @@ void ano_synth_bake_wavetable(float *bank)
                 wave[n] *= g;
         }
     }
+    return bank;
 }
+
+static constexpr auto kWtBank = bake_wavetable();
+static_assert(kWtBank[0] == 0.0f && kWtBank[1] != 0.0f); // sin sum at phase 0, else nonzero
 
 // Bell sample: 1.6 s at C5 (MIDI 72), inharmonic partials + 12 ms noise chiff, peak 0.8.
 void ano_synth_bake_bell(float *out, uint64_t frames, float sampleRate)
@@ -505,7 +514,7 @@ static inline void voice_step(AnoSynth *s, AnoSynthVoice *v, const float *staged
         float morph = ano_dsp_asr_step<aux0_curve<Recipe>>(&v->u.wt.morph)
                     * v->u.wt.morphAmp;
         float smp = ano_dsp_wavetable_read<ANO_SYNTH_WT_LEN, ANO_SYNTH_WT_FRAMES>(
-            s->wtBank, v->u.wt.ph, morph);
+            kWtBank.data(), v->u.wt.ph, morph);
         ano_dsp_phase_step(&v->u.wt.ph, v->u.wt.dt);
         float e = ano_dsp_asr_step<main_curve<Recipe>>(&v->env) * v->amp;
         float o = ano_dsp_svf_step(&v->fc, &v->f0, smp, ANO_DSP_SVF_LOWPASS) * e;

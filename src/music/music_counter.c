@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "music_counter.h"
+#include "music_roles.h"
 
 AnoCounterConfig ano_counter_config_default(void)
 {
@@ -73,7 +74,7 @@ void ano_generate_counter(const AnoHarmonicContext *ctx, AnoMeter meter,
     const AnoMusicEvent *surface[128];
     uint32_t sfn = 0;
     for (uint32_t i = 0; i < melodyCount && sfn < 128u; ++i)
-        if (strcmp(melodyEvents[i].role, "doubling") != 0)
+        if (strcmp(melodyEvents[i].role, ano_role_text(ANO_ROLE_DOUBLING)) != 0)
             surface[sfn++] = &melodyEvents[i];
     for (uint32_t i = 1; i < sfn; ++i) {
         const AnoMusicEvent *key = surface[i];
@@ -253,9 +254,10 @@ void ano_generate_counter(const AnoHarmonicContext *ctx, AnoMeter meter,
     velocity = velocity < 1 ? 1 : velocity > 127 ? 127 : velocity;
     for (uint32_t i = 0; i < pn; ++i) {
         int pitch = placed[i].pitch;
-        const char *role = pc_in(pitch, ctx->chordPcs, ctx->chordPcCount)
-                         ? "chord-tone"
-                         : ano_scale_contains(ctx->scale, pitch) ? "passing" : "borrowed";
+        AnoMusicRole role = pc_in(pitch, ctx->chordPcs, ctx->chordPcCount)
+                          ? ANO_ROLE_CHORD_TONE
+                          : ano_scale_contains(ctx->scale, pitch) ? ANO_ROLE_PASSING
+                                                                  : ANO_ROLE_BORROWED;
         AnoMusicEvent *e = &out->events[out->eventCount++];
         *e = (AnoMusicEvent){ 0 };
         e->core = (AnoNoteEvent){ barStart + placed[i].slot * ANO_MUSIC_GRID,
@@ -265,7 +267,7 @@ void ano_generate_counter(const AnoHarmonicContext *ctx, AnoMeter meter,
         int deg = ano_scale_degree_of(ctx->scale, pitch);
         e->degree = deg > 0 ? (uint8_t)deg : 0;
         strncpy(e->chordSym, ctx->chordSym, sizeof e->chordSym - 1);
-        strncpy(e->role, role, sizeof e->role - 1);
+        ano_event_set_role(e, role);
     }
     out->state.prevPitch = prev;
     out->state.guidePc = guide;

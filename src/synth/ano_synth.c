@@ -47,9 +47,6 @@ AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
         mi_heap_calloc(heap, voices, sizeof *s->voices));
     s->duckGain = static_cast<float *>(
         mi_heap_calloc(heap, ANO_SYNTH_SPAN_MAX, sizeof(float)));
-    s->wtBank   = static_cast<float *>(
-        mi_heap_calloc(heap, (size_t)ANO_SYNTH_WT_FRAMES * ANO_SYNTH_WT_LEN,
-                       sizeof(float)));
     s->bellFrames = (uint64_t)(1.6f * (float)rate);
     s->bell       = static_cast<float *>(
         mi_heap_calloc(heap, s->bellFrames, sizeof(float)));
@@ -61,11 +58,10 @@ AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
     s->grainCap  = cap;
     s->grainRing = static_cast<float *>(mi_heap_calloc(heap, cap, sizeof(float)));
 
-    if (!s->voices || !s->duckGain || !s->wtBank || !s->bell || !s->grainRing) {
+    if (!s->voices || !s->duckGain || !s->bell || !s->grainRing) {
         mi_heap_destroy(heap);
         return NULL;
     }
-    ano_synth_bake_wavetable(s->wtBank);
     ano_synth_bake_bell(s->bell, s->bellFrames, (float)rate);
     return s;
 }
@@ -951,19 +947,71 @@ void ano_synth_generator(void *user, float *const *busMix, uint32_t busCount,
 
 /* Console Helpers */
 
-static const float STRIP_TRIM[6] = { 0.60f, 0.85f, 0.70f, 0.55f, 0.55f, 0.95f };
-static const float SEND_REV[6]   = { 1.00f, 0.10f, 0.75f, 0.65f, 0.90f, 0.30f };
-static const float SEND_DLY[6]   = { 0.00f, 0.00f, 1.00f, 0.30f, 0.80f, 0.00f };
-
-// per-strip 3-band EQ: low/mid/high gains, shelf corners
-static const float STRIP_EQ[6][5] = {
-    { 0.85f, 1.00f, 1.05f, 260.0f, 3200.0f }, // pad
-    { 1.12f, 1.00f, 0.80f, 180.0f, 2200.0f }, // bass
-    { 0.80f, 1.05f, 1.15f, 220.0f, 3600.0f }, // melody
-    { 0.85f, 1.05f, 0.95f, 240.0f, 3000.0f }, // counter
-    { 0.60f, 1.00f, 1.20f, 300.0f, 4800.0f }, // arp
-    { 1.15f, 0.95f, 1.10f, 120.0f, 5000.0f }, // perc
+// One row per music layer 〜 every per-layer console fact: fader trim, wet
+// sends, per-strip 3-band EQ: low/mid/high gains, shelf corners, extra insert
+// slots after EQ3, plus the consteval-derived dB gains and geometric mid
+// frequency emitted by ano_synth_console_setup. Derived floats are bitwise
+// identical to the former runtime sqrtf/log10f path (probe:
+// scratch/console_strip_probe.cpp, 2026-08-10, 24/24 MATCH).
+struct StripProfile final {
+    float    trim;
+    float    sendRev, sendDly;
+    float    eqLow, eqMid, eqHigh;    // linear band gains
+    float    eqLoF, eqHiF;            // shelf corners, Hz
+    uint32_t fx1, fx2;                // AnoAudioEffectKind after EQ3; 0 = none
+    float    eqLowDb, eqMidDb, eqHighDb; // 20*log10f(band gain)
+    float    eqMidF;                     // sqrtf(eqLoF * eqHiF)
 };
+
+// inputs: raw per-layer console facts; output: row with derived EQ floats
+static consteval StripProfile strip_profile(float trim, float rev, float dly,
+                                            float lo, float mid, float hi,
+                                            float loF, float hiF,
+                                            uint32_t fx1 = ANO_AUDIO_FX_NONE,
+                                            uint32_t fx2 = ANO_AUDIO_FX_NONE)
+{
+    return StripProfile {
+        .trim = trim, .sendRev = rev, .sendDly = dly,
+        .eqLow = lo, .eqMid = mid, .eqHigh = hi,
+        .eqLoF = loF, .eqHiF = hiF,
+        .fx1 = fx1, .fx2 = fx2,
+        .eqLowDb  = 20.0f * __builtin_log10f(lo),
+        .eqMidDb  = 20.0f * __builtin_log10f(mid),
+        .eqHighDb = 20.0f * __builtin_log10f(hi),
+        .eqMidF   = __builtin_sqrtf(loF * hiF),
+    };
+}
+
+// AnoMusicLayer is music-module public; synth facts stay here 〜 a new layer
+// lands in the unhandled else and fails compilation until it gains a row.
+static_assert(ano::reflected_enum_domain<AnoMusicLayer>.valid);
+static constexpr auto strip_profiles =
+    ano::reflect_enum_values<AnoMusicLayer, StripProfile,
+                             ANO_MUSIC_LAYER_COUNT, 0>(
+        []<auto enumerator>() consteval {
+            if constexpr ([:enumerator:] == ANO_MUSIC_PAD)
+                return strip_profile(0.60f, 1.00f, 0.00f,
+                                     0.85f, 1.00f, 1.05f, 260.0f, 3200.0f,
+                                     ANO_AUDIO_FX_CHORUS, ANO_AUDIO_FX_WIDTH); // pad
+            else if constexpr ([:enumerator:] == ANO_MUSIC_BASS)
+                return strip_profile(0.85f, 0.10f, 0.00f,
+                                     1.12f, 1.00f, 0.80f, 180.0f, 2200.0f); // bass
+            else if constexpr ([:enumerator:] == ANO_MUSIC_MELODY)
+                return strip_profile(0.70f, 0.75f, 1.00f,
+                                     0.80f, 1.05f, 1.15f, 220.0f, 3600.0f); // melody
+            else if constexpr ([:enumerator:] == ANO_MUSIC_COUNTER)
+                return strip_profile(0.55f, 0.65f, 0.30f,
+                                     0.85f, 1.05f, 0.95f, 240.0f, 3000.0f); // counter
+            else if constexpr ([:enumerator:] == ANO_MUSIC_ARP)
+                return strip_profile(0.55f, 0.90f, 0.80f,
+                                     0.60f, 1.00f, 1.20f, 300.0f, 4800.0f); // arp
+            else if constexpr ([:enumerator:] == ANO_MUSIC_PERC)
+                return strip_profile(0.95f, 0.30f, 0.00f,
+                                     1.15f, 0.95f, 1.10f, 120.0f, 5000.0f); // perc
+            else
+                static_assert(false,
+                    "unhandled AnoMusicLayer: add a console StripProfile row");
+        });
 
 #define CONSOLE_REV_INIT 0.20f
 #define CONSOLE_DLY_INIT 0.10f
@@ -990,19 +1038,18 @@ uint32_t ano_synth_console_layout(AnoAudioBusDesc *out, uint32_t cap)
         .fx = { ANO_AUDIO_FX_PINGPONG },
     };
     for (uint32_t l = 0; l < ANO_MUSIC_LAYER_COUNT; ++l) {
+        const StripProfile *sp = &strip_profiles.values[l];
         AnoAudioBusDesc *b = &out[ANO_SYNTH_BUS_STRIP0 + l];
         b->parent = ANO_SYNTH_BUS_MASTER;
-        b->gain   = STRIP_TRIM[l];
+        b->gain   = sp->trim;
         b->fx[0]  = ANO_AUDIO_FX_EQ3;
-        if (l == ANO_MUSIC_PAD) {
-            b->fx[1] = ANO_AUDIO_FX_CHORUS;
-            b->fx[2] = ANO_AUDIO_FX_WIDTH;
-        }
+        b->fx[1]  = sp->fx1;
+        b->fx[2]  = sp->fx2;
         b->sendTarget[0] = ANO_SYNTH_BUS_REVERB;
-        b->sendLevel[0]  = SEND_REV[l] * CONSOLE_REV_INIT;
-        if (SEND_DLY[l] > 0.0f) {
+        b->sendLevel[0]  = sp->sendRev * CONSOLE_REV_INIT;
+        if (sp->sendDly > 0.0f) {
             b->sendTarget[1] = ANO_SYNTH_BUS_DELAY;
-            b->sendLevel[1]  = SEND_DLY[l] * CONSOLE_DLY_INIT;
+            b->sendLevel[1]  = sp->sendDly * CONSOLE_DLY_INIT;
         }
     }
     // shimmer: dry x0.2, post-fader send 5.0 (= full into reverb)
@@ -1035,14 +1082,13 @@ uint32_t ano_synth_console_setup(AnoAudioOfflineEvent *out, uint32_t cap)
     out[n++] = fx_evt(0, ANO_SYNTH_BUS_MASTER, 1, ANO_AUDIO_P_COMP_MAKEUP, 1.5f);
     for (uint32_t l = 0; l < ANO_MUSIC_LAYER_COUNT; ++l) {
         uint32_t bus = ANO_SYNTH_BUS_STRIP0 + l;
-        const float *eq = STRIP_EQ[l];
-        float midF = sqrtf(eq[3] * eq[4]);
-        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_LOW_GAIN_DB, 20.0f * log10f(eq[0]));
-        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_LOW_FREQ, eq[3]);
-        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_MID_GAIN_DB, 20.0f * log10f(eq[1]));
-        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_MID_FREQ, midF);
-        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_HIGH_GAIN_DB, 20.0f * log10f(eq[2]));
-        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_HIGH_FREQ, eq[4]);
+        const StripProfile *sp = &strip_profiles.values[l];
+        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_LOW_GAIN_DB, sp->eqLowDb);
+        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_LOW_FREQ, sp->eqLoF);
+        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_MID_GAIN_DB, sp->eqMidDb);
+        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_MID_FREQ, sp->eqMidF);
+        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_HIGH_GAIN_DB, sp->eqHighDb);
+        out[n++] = fx_evt(0, bus, 0, ANO_AUDIO_P_EQ_HIGH_FREQ, sp->eqHiF);
     }
     return n;
 }
@@ -1053,10 +1099,11 @@ static uint32_t console_bar_cmds(const AnoSynthBar *bar, AnoAudioCommand *out)
     const AnoMusicalParams *p = &bar->params;
     uint32_t n = 0;
     for (uint32_t l = 0; l < ANO_MUSIC_LAYER_COUNT; ++l) {
+        const StripProfile *sp = &strip_profiles.values[l];
         out[n++] = (AnoAudioCommand){
             .kind = ACMD_BUS_SET, .fields = ANO_AUDIO_FIELD_SEND0 | ANO_AUDIO_FIELD_SEND1,
             .bus = ANO_SYNTH_BUS_STRIP0 + l,
-            .send = { SEND_REV[l] * p->reverbSend, SEND_DLY[l] * p->delaySend } };
+            .send = { sp->sendRev * p->reverbSend, sp->sendDly * p->delaySend } };
     }
     float width = p->stereoWidth;
     if (width < 0.0f) width = 0.0f;

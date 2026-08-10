@@ -42,26 +42,18 @@ void ano_scale_pcs(AnoScale s, uint8_t out[7])
         out[i] = (uint8_t)((tonic + iv[i]) % 12);
 }
 
+// Mask bit i = tonic-relative pc offset i is in scale; O(1), bit-identical to the pcs scan.
 bool ano_scale_contains(AnoScale s, int midi)
 {
-    uint8_t pcs[7];
-    ano_scale_pcs(s, pcs);
-    int pc = pymod(midi, 12);
-    for (int i = 0; i < 7; ++i)
-        if (pcs[i] == pc)
-            return true;
-    return false;
+    int offset = pymod(pymod(midi, 12) - scale_tonic(s), 12);
+    return (ano_mode_pc_mask(scale_mode(s)) >> offset) & 1;
 }
 
+// degrees[offset] maps tonic-relative pc offset -> degree 1..7, 0 = not in scale.
 int ano_scale_degree_of(AnoScale s, int midi)
 {
-    uint8_t pcs[7];
-    ano_scale_pcs(s, pcs);
-    int pc = pymod(midi, 12);
-    for (int i = 0; i < 7; ++i)
-        if (pcs[i] == pc)
-            return i + 1;
-    return 0;
+    int offset = pymod(pymod(midi, 12) - scale_tonic(s), 12);
+    return ano_mode_degrees(scale_mode(s))[offset];
 }
 
 int ano_scale_pitch_at(AnoScale s, int degree, int octave)

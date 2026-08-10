@@ -12,6 +12,7 @@
 #include "music_gen.h"
 #include "music_motif.h" // ANO_NEAR_NONE
 #include "music_pad.h"
+#include "music_roles.h"
 
 #define PAD_VELOCITY_OFFSET (-6)
 
@@ -141,7 +142,7 @@ static bool appoggiatura_pair(const int *voicing, uint32_t n,
 
 static void pad_note(AnoMusicEvent *e, const AnoHarmonicContext *ctx,
                      double t, double d, int pitch, int velocity,
-                     const char *role, uint8_t tie)
+                     AnoMusicRole role, uint8_t tie)
 {
     *e = (AnoMusicEvent){ 0 };
     e->core = (AnoNoteEvent){ t, d, (uint8_t)pitch, (uint8_t)velocity,
@@ -149,9 +150,10 @@ static void pad_note(AnoMusicEvent *e, const AnoHarmonicContext *ctx,
     int deg = ano_scale_degree_of(ctx->scale, pitch);
     e->degree = deg > 0 ? (uint8_t)deg : 0;
     strncpy(e->chordSym, ctx->chordSym, sizeof e->chordSym - 1);
-    if (!role[0])
-        role = ano_scale_contains(ctx->scale, pitch) ? "chord-tone" : "borrowed";
-    strncpy(e->role, role, sizeof e->role - 1);
+    if (role == ANO_ROLE_NONE)
+        role = ano_scale_contains(ctx->scale, pitch) ? ANO_ROLE_CHORD_TONE
+                                                     : ANO_ROLE_BORROWED;
+    ano_event_set_role(e, role);
 }
 
 // pcs: root-first, mutated in place. cfg: voice count clamped to 2.
@@ -200,17 +202,17 @@ void ano_generate_pad(const AnoHarmonicContext *ctx, AnoMeter meter,
     // ornament: a prepared suspension if available, else the payoff lean
     bool haveOrn = false;
     int ornTarget = 0, ornDiss = 0;
-    const char *ornRole = "";
+    AnoMusicRole ornRole = ANO_ROLE_NONE;
     if (suspend && suspension_pair(voicing, vn, prevVoicing, prevCount,
                                    ctx->chordPcs, ctx->chordPcCount, ctx->scale,
                                    &ornTarget, &ornDiss)) {
         haveOrn = true;
-        ornRole = "suspension";
+        ornRole = ANO_ROLE_SUSPENSION;
     }
     if (!haveOrn && appoggiatura
         && appoggiatura_pair(voicing, vn, ctx, vc.hi, &ornTarget, &ornDiss)) {
         haveOrn = true;
-        ornRole = "appoggiatura";
+        ornRole = ANO_ROLE_APPOGGIATURA;
     }
 
     if (!haveOrn && animate == ANO_PAD_CONNECTIVE && nextPcs && nextPcCount) {
@@ -222,14 +224,15 @@ void ano_generate_pad(const AnoHarmonicContext *ctx, AnoMeter meter,
             for (uint32_t j = 0; j < vn; ++j) {
                 if ((int)j == vi) {
                     pad_note(&out->events[out->eventCount++], ctx, start, walkAt,
-                             voicing[j], velocity, "", ANO_MUSIC_TIE_NONE);
+                             voicing[j], velocity, ANO_ROLE_NONE, ANO_MUSIC_TIE_NONE);
                     pad_note(&out->events[out->eventCount++], ctx, start + walkAt,
                              barLen - walkAt, vp, velocity,
-                             pc_in(vp, ctx->chordPcs, ctx->chordPcCount) ? "" : "passing",
+                             pc_in(vp, ctx->chordPcs, ctx->chordPcCount)
+                                 ? ANO_ROLE_NONE : ANO_ROLE_PASSING,
                              ANO_MUSIC_TIE_NONE);
                 } else {
                     pad_note(&out->events[out->eventCount++], ctx, start, barLen,
-                             voicing[j], velocity, "", ANO_MUSIC_TIE_NONE);
+                             voicing[j], velocity, ANO_ROLE_NONE, ANO_MUSIC_TIE_NONE);
                 }
             }
             return;
@@ -244,7 +247,7 @@ void ano_generate_pad(const AnoHarmonicContext *ctx, AnoMeter meter,
             int voice = COMPING_ORDER[j % 4] % (int)vn;
             pad_note(&out->events[out->eventCount++], ctx,
                      start + cell[j].slot * pq, cell[j].durSlots * pq,
-                     voicing[voice], velocity, "", ANO_MUSIC_TIE_NONE);
+                     voicing[voice], velocity, ANO_ROLE_NONE, ANO_MUSIC_TIE_NONE);
         }
         return;
     }
@@ -263,7 +266,7 @@ void ano_generate_pad(const AnoHarmonicContext *ctx, AnoMeter meter,
         }
         for (uint32_t j = 0; j < vn; ++j)
             pad_note(&out->events[out->eventCount++], ctx, start, barLen, voicing[j],
-                     velocity, "",
+                     velocity, ANO_ROLE_NONE,
                      voicing[j] == held ? ANO_MUSIC_TIE_OUT : ANO_MUSIC_TIE_NONE);
         return;
     }
@@ -273,16 +276,16 @@ void ano_generate_pad(const AnoHarmonicContext *ctx, AnoMeter meter,
     double resAt = ano_meter_pulse_quarters(meter) * (halfPulses > 1 ? halfPulses : 1);
     for (uint32_t j = 0; j < vn; ++j) {
         if (voicing[j] == ornTarget) {
-            bool genuinelyHeld = strcmp(ornRole, "suspension") == 0 && prevTie == ornDiss;
+            bool genuinelyHeld = ornRole == ANO_ROLE_SUSPENSION && prevTie == ornDiss;
             pad_note(&out->events[out->eventCount++], ctx, start, resAt, ornDiss,
                      velocity, ornRole,
                      genuinelyHeld ? ANO_MUSIC_TIE_IN : ANO_MUSIC_TIE_NONE);
             pad_note(&out->events[out->eventCount++], ctx, start + resAt,
-                     barLen - resAt, ornTarget, velocity, "resolution",
+                     barLen - resAt, ornTarget, velocity, ANO_ROLE_RESOLUTION,
                      ANO_MUSIC_TIE_NONE);
         } else {
             pad_note(&out->events[out->eventCount++], ctx, start, barLen, voicing[j],
-                     velocity, "", ANO_MUSIC_TIE_NONE);
+                     velocity, ANO_ROLE_NONE, ANO_MUSIC_TIE_NONE);
         }
     }
 }

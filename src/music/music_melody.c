@@ -10,6 +10,7 @@
 
 #include "music_cadence.h"
 #include "music_melody.h"
+#include "music_roles.h"
 
 #define GRID ANO_MUSIC_GRID
 
@@ -373,7 +374,7 @@ static uint32_t mel_introduce(const AnoMotif *motif, const AnoHarmonicContext *c
 /* Event assembly */
 
 static void mel_event(AnoMusicEvent *e, const AnoHarmonicContext *ctx,
-                      double t, double d, int p, int velocity, const char *role,
+                      double t, double d, int p, int velocity, AnoMusicRole role,
                       uint8_t tie)
 {
     *e = (AnoMusicEvent){ 0 };
@@ -382,7 +383,7 @@ static void mel_event(AnoMusicEvent *e, const AnoHarmonicContext *ctx,
     int deg = ano_scale_degree_of(ctx->scale, p);
     e->degree = deg > 0 ? (uint8_t)deg : 0;
     strncpy(e->chordSym, ctx->chordSym, sizeof e->chordSym - 1);
-    strncpy(e->role, role, sizeof e->role - 1);
+    ano_event_set_role(e, role);
 }
 
 // D1 pickups on the cadence bar; mutates events/newState/guard in place.
@@ -434,7 +435,7 @@ static bool mel_anacrusis(AnoMusicEvent *events, uint32_t *eventCount,
     for (int i = 0; i < n; ++i) {
         double start = barEnd - (n - i) * eighth;
         mel_event(&events[(*eventCount)++], ctx, start, eighth, run[i],
-                  velocity_of(params, -8), "pickup",
+                  velocity_of(params, -8), ANO_ROLE_PICKUP,
                   i == n - 1 ? ANO_MUSIC_TIE_OUT : ANO_MUSIC_TIE_NONE);
         if (guard) {
             int slot = ano_meter_slot_of(meter, start);
@@ -498,7 +499,7 @@ static uint32_t mel_double_line(const AnoMusicEvent *events, uint32_t count,
         if (vel < 1)
             vel = 1;
         mel_event(&out[n++], ctx, e->core.start, e->core.dur, pitch, vel,
-                  "doubling", ANO_MUSIC_TIE_NONE);
+                  ANO_ROLE_DOUBLING, ANO_MUSIC_TIE_NONE);
     }
     return n;
 }
@@ -539,7 +540,7 @@ static void mel_cadence_statement(const AnoMotif *motif, const AnoHarmonicContex
             ? -2 + (int)ano_music_round_int(8.0 * i / (double)(n - 1)) : 6;
         mel_event(&out->events[out->eventCount++], ctx,
                   barStart + placed[i].slot * GRID, placed[i].durSlots * GRID,
-                  placed[i].pitch, velocity_of(params, emphasis), "motif",
+                  placed[i].pitch, velocity_of(params, emphasis), ANO_ROLE_MOTIF,
                   ANO_MUSIC_TIE_NONE);
     }
     int target = placed[n - 1].pitch;
@@ -643,15 +644,16 @@ static void mel_cadence_bar(const AnoHarmonicContext *ctx, AnoMeter meter,
 
     double targetStart;
     // role_of: chord-tone / appoggiatura / borrowed
-    #define ROLE_OF(px) (pc_in((px), ctx->chordPcs, ctx->chordPcCount) ? "chord-tone" \
-                         : ano_scale_contains(scale, (px)) ? "appoggiatura" : "borrowed")
+    #define ROLE_OF(px) (pc_in((px), ctx->chordPcs, ctx->chordPcCount) ? ANO_ROLE_CHORD_TONE \
+                         : ano_scale_contains(scale, (px)) ? ANO_ROLE_APPOGGIATURA \
+                                                           : ANO_ROLE_BORROWED)
     if (runLen) {
         mel_event(&out->events[out->eventCount++], ctx, barStart, eighth, first,
                   velocity_of(params, -2), ROLE_OF(first), ANO_MUSIC_TIE_NONE);
         for (int i = 0; i < runLen; ++i) {
-            const char *role = ROLE_OF(run[i]);
-            if (strcmp(role, "appoggiatura") == 0)
-                role = "passing";
+            AnoMusicRole role = ROLE_OF(run[i]);
+            if (role == ANO_ROLE_APPOGGIATURA)
+                role = ANO_ROLE_PASSING;
             mel_event(&out->events[out->eventCount++], ctx,
                       barStart + (i + 1) * eighth, eighth, run[i],
                       velocity_of(params, -6), role, ANO_MUSIC_TIE_NONE);
@@ -894,18 +896,18 @@ void ano_generate_melody(const AnoHarmonicContext *ctx, AnoMeter meter,
     double barStart = ctx->bar * barQ;
     for (uint32_t i = 0; i < placedN; ++i) {
         int pitch = placed[i].pitch;
-        const char *role;
+        AnoMusicRole role;
         if (faithful) {
-            role = "motif"; // licensed as a whole; note heuristics don't apply
+            role = ANO_ROLE_MOTIF; // licensed as a whole; note heuristics don't apply
         } else if (pc_in(pitch, ctx->chordPcs, ctx->chordPcCount)) {
-            role = "chord-tone";
+            role = ANO_ROLE_CHORD_TONE;
         } else if (ano_scale_contains(ctx->scale, pitch)) {
             bool hasPrevP = i > 0;
             int prevP = hasPrevP ? placed[i - 1].pitch : 0;
             bool nextEq = i + 1 < placedN && placed[i + 1].pitch == prevP;
-            role = hasPrevP && nextEq ? "neighbor" : "passing";
+            role = hasPrevP && nextEq ? ANO_ROLE_NEIGHBOR : ANO_ROLE_PASSING;
         } else {
-            role = "borrowed";
+            role = ANO_ROLE_BORROWED;
         }
         mel_event(&out->events[out->eventCount++], ctx,
                   barStart + placed[i].slot * GRID, placed[i].durSlots * GRID,

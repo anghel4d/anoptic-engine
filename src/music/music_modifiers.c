@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "music_modifiers.h"
+#include "music_roles.h"
 
 static int clamp_velocity(double v)
 {
@@ -208,7 +209,8 @@ static uint32_t apply_perform(const AnoModifier *m, AnoMusicEvent *ev, uint32_t 
         }
         // the anacrusis pickups live where the luftpause would carve
         if (luftpause != 0.0 && ctx->phrasePos == bars - 1
-            && tie == ANO_MUSIC_TIE_NONE && strcmp(ev[i].role, "pickup") != 0
+            && tie == ANO_MUSIC_TIE_NONE
+            && strcmp(ev[i].role, ano_role_text(ANO_ROLE_PICKUP)) != 0
             && start < cut && cut < start + dur) {
             double d = cut - start;
             dur = d > ANO_MOD_MIN_DUR ? d : ANO_MOD_MIN_DUR;
@@ -256,7 +258,7 @@ static uint32_t apply_echo(const AnoModifier *m, AnoMusicEvent *ev, uint32_t n,
             ev[out].core.start = start;
             ev[out].core.dur = dur;
             ev[out].core.velocity = (uint8_t)clamp_velocity(velocity);
-            strncpy(ev[out].role, "echo", sizeof ev[out].role - 1);
+            ano_event_set_role(&ev[out], ANO_ROLE_ECHO);
             ev[out].role[4] = '\0';
             out++;
         }

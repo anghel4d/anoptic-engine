@@ -43,7 +43,8 @@ uint32_t ano_meter_strong_slots(AnoMeter m, int out[ANO_METER_MAX_SLOTS]); // we
 
 bool ano_note_event_valid(const AnoNoteEvent *ev);
 
-// Playable core + inspection annotations (textdump / lint). role is free string.
+// Playable core + inspection annotations (textdump / lint). role text comes from the
+// AnoMusicRole vocabulary (music_roles.h); storage stays char[] 〜 tests author free text.
 typedef struct AnoMusicEvent
 {
     AnoNoteEvent core;

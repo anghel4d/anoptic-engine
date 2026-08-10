@@ -28,7 +28,7 @@ typedef struct AnoLintLimits
     int    counterLo, counterHi;   // 55, 79
     double counterConsonanceRatio; // 0.7
     double counterOverlapRatio;    // 0.4
-    const uint8_t *drumPitches;    // defaults to ANO_DRUM_PITCHES
+    const uint8_t *drumPitches;    // defaults to the reflected drum pitch table (music_perc.h)
     uint32_t       drumPitchCount;
 } AnoLintLimits;
 

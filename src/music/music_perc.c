@@ -3,23 +3,15 @@
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Hits sort by (slot, drum NAME, velocity); equal-slot tie-break is strcmp on drum name.
+// Hits sort by (slot, drum NAME, velocity); equal-slot tie-break is the drum name's byte order (consteval rank).
 // ohat draw: only at slot slots-2, and only after drop draw passed (and short-circuit).
 // Fill velocities: 84 + 7i before dyn scale, then banker's round.
 // Slot counts are clamped to ANO_METER_MAX_SLOTS: the kick set is that wide and AnoGroove.hatDrops
 // is a u32 slot mask. Hits and emitted events are capped at their buffers.
 
-#include <stdio.h>
 #include <string.h>
 
 #include "music_perc.h"
-
-const char *const ANO_DRUM_NAMES[ANO_DRUM_COUNT] = {
-    "kick", "rim", "snare", "chat", "ohat", "crash", "ltom", "mtom", "htom", "shaker",
-};
-const uint8_t ANO_DRUM_PITCHES[ANO_DRUM_COUNT] = {
-    36, 37, 38, 42, 46, 49, 45, 47, 50, 70,
-};
 
 static const int FILL_PATTERNS[3][4] = {
     { -6, -4, -2, 0 }, { -8, -6, -4, -2 }, { -6, -4, -3, -2 },
@@ -208,14 +200,15 @@ void ano_generate_perc(const AnoHarmonicContext *ctx, AnoMeter meter,
     if (hadFill && (pos.pos == 0 || (hyperFill > 0 && pos.pos == pos.bars / 2)))
         hit_push(hits, &hn, 0, ANO_DRUM_CRASH, cfg->crashVel);
 
-    // sorted(hits): tuple order (slot, drum NAME string, velocity)
+    // sorted(hits): tuple order (slot, drum NAME string, velocity); rank == name order
     for (uint32_t i = 1; i < hn; ++i) {
         Hit key = hits[i];
         uint32_t j = i;
         while (j > 0) {
             const Hit *q = &hits[j - 1];
             int c = q->slot != key.slot ? (q->slot < key.slot ? -1 : 1)
-                  : strcmp(ANO_DRUM_NAMES[q->drum], ANO_DRUM_NAMES[key.drum]);
+                  : (int)ANO_DRUM_SORT_RANK.values[q->drum]
+                        - (int)ANO_DRUM_SORT_RANK.values[key.drum];
             if (c < 0 || (c == 0 && q->velocity <= key.velocity))
                 break;
             hits[j] = hits[j - 1];
@@ -232,9 +225,10 @@ void ano_generate_perc(const AnoHarmonicContext *ctx, AnoMeter meter,
         AnoMusicEvent *e = &out->events[out->eventCount++];
         *e = (AnoMusicEvent){ 0 };
         e->core = (AnoNoteEvent){ barStart + hits[i].slot * ANO_MUSIC_GRID,
-                                  ANO_MUSIC_GRID, ANO_DRUM_PITCHES[hits[i].drum],
+                                  ANO_MUSIC_GRID, ANO_DRUM_PITCH_REGISTRY.values[hits[i].drum],
                                   (uint8_t)vel, ANO_MUSIC_PERC, ANO_MUSIC_TIE_NONE };
-        snprintf(e->role, sizeof e->role, "drum:%s", ANO_DRUM_NAMES[hits[i].drum]);
+        strncpy(e->role, ANO_DRUM_ROLE_REGISTRY.values[hits[i].drum].text,
+                sizeof e->role - 1);
     }
     out->fill = fill;
 }

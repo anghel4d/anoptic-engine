@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "music_imitation.h"
+#include "music_roles.h"
 
 // 2nds, 7ths, tritone against the sounding melody.
 static bool clash_interval(int ic)
@@ -57,7 +58,7 @@ static int collisions(const AnoPlacedNote *placed, uint32_t n,
         const AnoMusicEvent *m = NULL;
         for (uint32_t j = 0; j < melodyCount; ++j) {
             const AnoMusicEvent *e = &melody[j];
-            if (strcmp(e->role, "doubling") == 0)
+            if (strcmp(e->role, ano_role_text(ANO_ROLE_DOUBLING)) == 0)
                 continue;
             double end = e->core.start + e->core.dur;
             if (e->core.start - 1e-9 <= t && t < end - 1e-9) {
@@ -150,7 +151,7 @@ void ano_generate_imitation(const AnoHarmonicContext *ctx, AnoMeter meter,
         int deg = ano_scale_degree_of(ctx->scale, bestPlaced[i].pitch);
         e->degree = deg > 0 ? (uint8_t)deg : 0;
         strncpy(e->chordSym, ctx->chordSym, sizeof e->chordSym - 1);
-        strncpy(e->role, "imitation", sizeof e->role - 1);
+        ano_event_set_role(e, ANO_ROLE_IMITATION);
     }
     out->eventCount = bestCount;
     out->emitted = bestVariant;

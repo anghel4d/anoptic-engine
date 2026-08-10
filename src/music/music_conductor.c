@@ -19,6 +19,7 @@
 #include "music_imitation.h"
 #include "music_modifiers.h"
 #include "music_pad.h"
+#include "music_roles.h"
 
 
 
@@ -1140,9 +1141,9 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
                 int deg = ano_scale_degree_of(e->scale, v[i]);
                 ev->degree = deg > 0 ? (uint8_t)deg : 0;
                 strncpy(ev->chordSym, ctx.chordSym, sizeof ev->chordSym - 1);
-                strncpy(ev->role, ano_scale_contains(e->scale, v[i]) ? "chord-tone"
-                                                                     : "borrowed",
-                        sizeof ev->role - 1);
+                ano_event_set_role(ev, ano_scale_contains(e->scale, v[i])
+                                           ? ANO_ROLE_CHORD_TONE
+                                           : ANO_ROLE_BORROWED);
             }
         }
         for (uint32_t i = 0; i < vn2; ++i)
@@ -1241,7 +1242,7 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
                 int deg = ano_scale_degree_of(ctx.scale, p);
                 ev->degree = deg > 0 ? (uint8_t)deg : 0;
                 strncpy(ev->chordSym, ctx.chordSym, sizeof ev->chordSym - 1);
-                strncpy(ev->role, "motif", sizeof ev->role - 1);
+                ano_event_set_role(ev, ANO_ROLE_MOTIF);
             }
         }
         AnoMelodyState ms;
@@ -1311,7 +1312,7 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
             const AnoMusicEvent *surf[ANO_MELODY_MAX_EVENTS];
             uint32_t sn = 0;
             for (uint32_t i = 0; i < melCount; ++i)
-                if (strcmp(melEvents[i].role, "doubling") != 0)
+                if (strcmp(melEvents[i].role, ano_role_text(ANO_ROLE_DOUBLING)) != 0)
                     surf[sn++] = &melEvents[i];
             for (uint32_t i = 1; i < sn; ++i) { // stable by start
                 const AnoMusicEvent *key = surf[i];
@@ -1340,7 +1341,7 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
             st->planner.openingScale[op] = e->scale;
             uint32_t n = 0;
             for (uint32_t i = 0; i < melCount && n < ANO_MOTIF_MAX; ++i)
-                if (strcmp(melEvents[i].role, "doubling") != 0)
+                if (strcmp(melEvents[i].role, ano_role_text(ANO_ROLE_DOUBLING)) != 0)
                     st->planner.openingMelody[op][n++] = (AnoPlacedNote){
                         ano_meter_slot_of(cfg->meter, melEvents[i].core.start),
                         (int)ano_music_round_int(melEvents[i].core.dur / ANO_MUSIC_GRID),
@@ -1421,7 +1422,8 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
             bool masked = false;
             for (uint32_t j = 0; j < nEvents && !masked; ++j) {
                 const AnoMusicEvent *im = &events[j];
-                if (im->core.layer != ANO_MUSIC_ARP || strcmp(im->role, "imitation") != 0)
+                if (im->core.layer != ANO_MUSIC_ARP
+                    || strcmp(im->role, ano_role_text(ANO_ROLE_IMITATION)) != 0)
                     continue;
                 double aEnd = ar.events[i].core.start + ar.events[i].core.dur;
                 double iEnd = im->core.start + im->core.dur;

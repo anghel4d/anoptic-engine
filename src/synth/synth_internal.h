@@ -160,7 +160,6 @@ struct AnoSynth
     uint32_t maxVoices;
     float    smoothCoef; // ~30 ms one-pole
 
-    float   *wtBank; // ANO_SYNTH_WT_FRAMES * ANO_SYNTH_WT_LEN
     float   *bell;
     uint64_t bellFrames;
 
@@ -240,7 +239,6 @@ void ano_synth_voice_render_span(AnoSynth *s, AnoSynthVoice *v, const float *sta
                                  const float *duckGain, bool ducked, float *strip,
                                  uint32_t pos, uint32_t span);
 
-void ano_synth_bake_wavetable(float *bank);
 void ano_synth_bake_bell(float *out, uint64_t frames, float sampleRate);
 
 #endif // ANO_SYNTH_INTERNAL_H

@@ -16,6 +16,7 @@
 
 #include "music_cadence.h"
 #include "music_perc.h"
+#include "music_roles.h"
 
 #define LINT_MAX_LINE  1024 // merged melodic line
 #define LINT_MAX_GROUP 16   // simultaneous pad voices
@@ -24,34 +25,30 @@
 
 /* Roles */
 
-// Scale-outside licenses: echo, motif, imitation, doubling (tighter whitelist).
-static const char *const CHROMATIC_ROLES[] = {
-    "approach", "borrowed", "chromatic", "echo", "motif", "doubling", "imitation",
-};
-// Non-chord licenses. pedal/suspension must also discharge (lint_obligations).
-static const char *const EXTRA_NONCHORD[] = {
-    "passing", "neighbor", "pedal", "appoggiatura", "suspension",
-};
+// Licenses live on the AnoMusicRole annotations (music_roles.h); unknown text: no license.
+// pedal/suspension must also discharge (lint_obligations).
 
 static bool role_is(const AnoMusicEvent *e, const char *r)
 {
     return strcmp(e->role, r) == 0;
 }
 
+// Scale-outside licenses: echo, motif, imitation, doubling (tighter whitelist).
 static bool is_chromatic_role(const char *r)
 {
-    for (uint32_t i = 0; i < sizeof CHROMATIC_ROLES / sizeof CHROMATIC_ROLES[0]; ++i)
-        if (strcmp(r, CHROMATIC_ROLES[i]) == 0)
+    for (uint32_t i = 0; i < ANO_ROLE_COUNT; ++i)
+        if (ANO_ROLE_REGISTRY.values[i].chromaticLicense
+            && strcmp(r, ANO_ROLE_REGISTRY.values[i].text) == 0)
             return true;
     return false;
 }
 
+// Non-chord licenses (superset of chromatic).
 static bool is_licensed_nonchord(const char *r)
 {
-    if (is_chromatic_role(r))
-        return true;
-    for (uint32_t i = 0; i < sizeof EXTRA_NONCHORD / sizeof EXTRA_NONCHORD[0]; ++i)
-        if (strcmp(r, EXTRA_NONCHORD[i]) == 0)
+    for (uint32_t i = 0; i < ANO_ROLE_COUNT; ++i)
+        if (ANO_ROLE_REGISTRY.values[i].nonChordLicense
+            && strcmp(r, ANO_ROLE_REGISTRY.values[i].text) == 0)
             return true;
     return false;
 }
@@ -73,7 +70,7 @@ AnoLintLimits ano_lint_limits_default(void)
         .counterLo = 55, .counterHi = 79, // C5: the tenor gap (G3..G5)
         .counterConsonanceRatio = 0.7,
         .counterOverlapRatio = 0.4,
-        .drumPitches = ANO_DRUM_PITCHES,
+        .drumPitches = ANO_DRUM_PITCH_REGISTRY.values,
         .drumPitchCount = ANO_DRUM_COUNT,
     };
     return k;
@@ -279,7 +276,7 @@ static void lint_events(const AnoMusicEvent *ev, uint32_t n,
 
         const AnoHarmonicContext *c = ctx_of(cx, ncx, bar);
         if (!c) {
-            if (!role_is(e, "echo")) // echo tails may ring past the last bar
+            if (!role_is(e, ano_role_text(ANO_ROLE_ECHO))) // echo tails may ring past the last bar
                 vio(out, "context", bar, "no HarmonicContext covers %s %s",
                     lname(e), pname(e->core.pitch, nb));
             continue;
@@ -295,7 +292,7 @@ static void lint_events(const AnoMusicEvent *ev, uint32_t n,
                 csym(c), e->role);
         // Echo keeps source-bar degree.
         if (e->degree != 0 && ano_scale_degree_of(c->scale, e->core.pitch) != e->degree
-            && !role_is(e, "echo"))
+            && !role_is(e, ano_role_text(ANO_ROLE_ECHO)))
             vio(out, "degree", bar, "%s annotated ^%d but is ^%d in %s",
                 pname(e->core.pitch, nb), e->degree,
                 ano_scale_degree_of(c->scale, e->core.pitch),
@@ -318,7 +315,7 @@ static void lint_pad(const AnoMusicEvent *ev, uint32_t n,
     const AnoMusicEvent *grp[LINT_MAX_LINE];
     uint32_t ng = 0;
     for (uint32_t i = 0; i < np; ++i) {
-        if (role_is(pads[i], "imitation")) {
+        if (role_is(pads[i], ano_role_text(ANO_ROLE_IMITATION))) {
             int p = pads[i]->core.pitch;
             if (!(L->padLo <= p && p <= L->padHi))
                 vio(out, "pad-range", ano_meter_bar_of(meter, pads[i]->core.start),
@@ -445,7 +442,7 @@ static void lint_melody(const AnoMusicEvent *ev, uint32_t n,
     char a[8], b[8];
     for (uint32_t i = 0; i < nl; ++i) {
         // Doubling floor = melodyLo - 9 (6th under surface).
-        int floor_ = role_is(mel[i], "doubling") ? L->melodyLo - 9 : L->melodyLo;
+        int floor_ = role_is(mel[i], ano_role_text(ANO_ROLE_DOUBLING)) ? L->melodyLo - 9 : L->melodyLo;
         int p = mel[i]->core.pitch;
         if (!(floor_ <= p && p <= L->melodyHi))
             vio(out, "melody-range", ano_meter_bar_of(meter, mel[i]->core.start),
@@ -457,7 +454,8 @@ static void lint_melody(const AnoMusicEvent *ev, uint32_t n,
     const AnoMusicEvent *tune[LINT_MAX_LINE];
     uint32_t nt = 0;
     for (uint32_t i = 0; i < nl; ++i)
-        if (!role_is(mel[i], "motif") && !role_is(mel[i], "doubling"))
+        if (!role_is(mel[i], ano_role_text(ANO_ROLE_MOTIF))
+            && !role_is(mel[i], ano_role_text(ANO_ROLE_DOUBLING)))
             tune[nt++] = mel[i];
 
     int strong[ANO_METER_MAX_SLOTS];
@@ -544,14 +542,14 @@ static void lint_doubling(const AnoMusicEvent *ev, uint32_t n,
 
     for (uint32_t i = 0; i < n; ++i) {
         const AnoMusicEvent *d = &ev[i];
-        if (d->core.layer != ANO_MUSIC_MELODY || !role_is(d, "doubling"))
+        if (d->core.layer != ANO_MUSIC_MELODY || !role_is(d, ano_role_text(ANO_ROLE_DOUBLING)))
             continue;
         int bar = ano_meter_bar_of(meter, d->core.start);
 
         const AnoMusicEvent *src = NULL;
         for (uint32_t j = 0; j < n && !src; ++j) {
             const AnoMusicEvent *m = &ev[j];
-            if (m->core.layer != ANO_MUSIC_MELODY || role_is(m, "doubling"))
+            if (m->core.layer != ANO_MUSIC_MELODY || role_is(m, ano_role_text(ANO_ROLE_DOUBLING)))
                 continue;
             if (fabs(m->core.start - d->core.start) < 1e-9 && m->core.pitch > d->core.pitch)
                 src = m;
@@ -599,10 +597,12 @@ static void lint_counter(const AnoMusicEvent *ev, uint32_t n,
     uint32_t nc = 0, nm = 0, nb = 0;
     for (uint32_t i = 0; i < n; ++i) {
         const AnoMusicEvent *e = &ev[i];
-        if (e->core.layer == ANO_MUSIC_COUNTER && !role_is(e, "echo") && nc < LINT_MAX_LINE)
+        if (e->core.layer == ANO_MUSIC_COUNTER && !role_is(e, ano_role_text(ANO_ROLE_ECHO))
+            && nc < LINT_MAX_LINE)
             ctr[nc++] = e;
-        else if (e->core.layer == ANO_MUSIC_MELODY && !role_is(e, "doubling")
-                 && !role_is(e, "echo") && nm < LINT_MAX_LINE)
+        else if (e->core.layer == ANO_MUSIC_MELODY
+                 && !role_is(e, ano_role_text(ANO_ROLE_DOUBLING))
+                 && !role_is(e, ano_role_text(ANO_ROLE_ECHO)) && nm < LINT_MAX_LINE)
             mel[nm++] = e;
         else if (e->core.layer == ANO_MUSIC_BASS && nb < LINT_MAX_LINE)
             bas[nb++] = e;
@@ -762,9 +762,10 @@ static void lint_obligations(const AnoMusicEvent *ev, uint32_t n,
     char a[8];
     for (uint32_t i = 0; i < n; ++i) {
         const AnoMusicEvent *e = &ev[i];
-        bool susp = role_is(e, "suspension");
+        bool susp = role_is(e, ano_role_text(ANO_ROLE_SUSPENSION));
         // Pad appoggiatura: same resolve obligation, unprepared.
-        bool appog = role_is(e, "appoggiatura") && e->core.layer == ANO_MUSIC_PAD;
+        bool appog = role_is(e, ano_role_text(ANO_ROLE_APPOGGIATURA))
+                  && e->core.layer == ANO_MUSIC_PAD;
         if (!susp && !appog)
             continue;
         int bar = ano_meter_bar_of(meter, e->core.start);
@@ -811,7 +812,7 @@ static void lint_obligations(const AnoMusicEvent *ev, uint32_t n,
     const AnoMusicEvent *ped[LINT_MAX_LINE];
     uint32_t npe = 0;
     for (uint32_t i = 0; i < n && npe < LINT_MAX_LINE; ++i)
-        if (role_is(&ev[i], "pedal"))
+        if (role_is(&ev[i], ano_role_text(ANO_ROLE_PEDAL)))
             ped[npe++] = &ev[i];
     sort_evp(ped, npe, by_start);
 
@@ -955,7 +956,8 @@ static uint32_t perc_pattern(const AnoMusicEvent *ev, uint32_t n, AnoMeter meter
     uint32_t m = 0;
     for (uint32_t i = 0; i < n && m < LINT_MAX_PAT; ++i) {
         const AnoMusicEvent *e = &ev[i];
-        if (e->core.layer != ANO_MUSIC_PERC || role_is(e, "drum:crash"))
+        if (e->core.layer != ANO_MUSIC_PERC
+            || role_is(e, ANO_DRUM_ROLE_REGISTRY.values[ANO_DRUM_CRASH].text))
             continue;
         if (ano_meter_bar_of(meter, e->core.start) != bar)
             continue;
@@ -981,8 +983,8 @@ static uint32_t arp_pattern(const AnoMusicEvent *ev, uint32_t n, AnoMeter meter,
     uint32_t m = 0;
     for (uint32_t i = 0; i < n && m < LINT_MAX_PAT; ++i) {
         const AnoMusicEvent *e = &ev[i];
-        if (e->core.layer != ANO_MUSIC_ARP || role_is(e, "echo")
-            || role_is(e, "imitation"))
+        if (e->core.layer != ANO_MUSIC_ARP || role_is(e, ano_role_text(ANO_ROLE_ECHO))
+            || role_is(e, ano_role_text(ANO_ROLE_IMITATION)))
             continue;
         if (ano_meter_bar_of(meter, e->core.start) != bar)
             continue;
@@ -1084,8 +1086,10 @@ void ano_lint_outer(const AnoMusicEvent *events, uint32_t n,
         if (e->core.layer == ANO_MUSIC_BASS && nb < LINT_MAX_LINE)
             bas[nb++] = e;
         // signature statements are licensed as a whole and echoes ring free
-        else if (e->core.layer == ANO_MUSIC_MELODY && !role_is(e, "motif")
-                 && !role_is(e, "doubling") && !role_is(e, "echo")
+        else if (e->core.layer == ANO_MUSIC_MELODY
+                 && !role_is(e, ano_role_text(ANO_ROLE_MOTIF))
+                 && !role_is(e, ano_role_text(ANO_ROLE_DOUBLING))
+                 && !role_is(e, ano_role_text(ANO_ROLE_ECHO))
                  && nm < LINT_MAX_LINE)
             mel[nm++] = e;
     }
@@ -1184,7 +1188,7 @@ void ano_lint_periods(const AnoMusicEvent *events, uint32_t n,
         bool payoff = false;
         for (uint32_t k = 0; k < n && !payoff; ++k) {
             const AnoMusicEvent *e = &events[k];
-            if (e->core.layer != ANO_MUSIC_MELODY || !role_is(e, "motif"))
+            if (e->core.layer != ANO_MUSIC_MELODY || !role_is(e, ano_role_text(ANO_ROLE_MOTIF)))
                 continue;
             int bar = ano_meter_bar_of(meter, e->core.start);
             payoff = bar >= c->bar && bar < c->bar + c->phraseBars;
@@ -1196,7 +1200,7 @@ void ano_lint_periods(const AnoMusicEvent *events, uint32_t n,
         uint32_t nq = 0, na = 0;
         for (uint32_t k = 0; k < n; ++k) {
             const AnoMusicEvent *e = &events[k];
-            if (e->core.layer != ANO_MUSIC_MELODY || role_is(e, "doubling"))
+            if (e->core.layer != ANO_MUSIC_MELODY || role_is(e, ano_role_text(ANO_ROLE_DOUBLING)))
                 continue; // the question is the surface line
             int bar = ano_meter_bar_of(meter, e->core.start);
             int slot = ano_meter_slot_of(meter, e->core.start);
@@ -1290,11 +1294,12 @@ void ano_lint_texture(const AnoMusicEvent *events, uint32_t n,
             int bar = ano_meter_bar_of(meter, e->core.start);
             if (!int_in(bars, nbars, bar))
                 continue;
-            if (e->core.layer == ANO_MUSIC_MELODY && !role_is(e, "doubling"))
+            if (e->core.layer == ANO_MUSIC_MELODY
+                && !role_is(e, ano_role_text(ANO_ROLE_DOUBLING)))
                 nmel++;
-            if (role_is(e, "doubling"))
+            if (role_is(e, ano_role_text(ANO_ROLE_DOUBLING)))
                 ndbl++;
-            if (role_is(e, "imitation"))
+            if (role_is(e, ano_role_text(ANO_ROLE_IMITATION)))
                 nimi++;
             if (e->core.layer == ANO_MUSIC_COUNTER)
                 nctr++;
@@ -1338,14 +1343,15 @@ void ano_lint_texture(const AnoMusicEvent *events, uint32_t n,
             bool found = false;
             for (uint32_t k = 0; k < n; ++k) {
                 const AnoMusicEvent *e = &events[k];
-                if (e->core.layer != ANO_MUSIC_PAD || role_is(e, "imitation"))
+                if (e->core.layer != ANO_MUSIC_PAD
+                    || role_is(e, ano_role_text(ANO_ROLE_IMITATION)))
                     continue;
                 if (!int_in(bars, nbars, ano_meter_bar_of(meter, e->core.start)))
                     continue;
                 uint32_t cnt = 0;
                 for (uint32_t j = 0; j < n; ++j)
                     if (events[j].core.layer == ANO_MUSIC_PAD
-                        && !role_is(&events[j], "imitation")
+                        && !role_is(&events[j], ano_role_text(ANO_ROLE_IMITATION))
                         && events[j].core.start == e->core.start
                         && int_in(bars, nbars,
                                   ano_meter_bar_of(meter, events[j].core.start)))
@@ -1359,7 +1365,7 @@ void ano_lint_texture(const AnoMusicEvent *events, uint32_t n,
                 uint32_t cnt = 0;
                 for (uint32_t j = 0; j < n; ++j)
                     if (events[j].core.layer == ANO_MUSIC_PAD
-                        && !role_is(&events[j], "imitation")
+                        && !role_is(&events[j], ano_role_text(ANO_ROLE_IMITATION))
                         && events[j].core.start == fat)
                         cnt++;
                 vio(out, "texture", ano_meter_bar_of(meter, fat),
@@ -1384,7 +1390,7 @@ void ano_lint_imitation(const AnoMusicEvent *events, uint32_t n,
         uint32_t ne = 0;
         for (uint32_t k = 0; k < n && ne < ANO_MOTIF_MAX * 2; ++k) {
             const AnoMusicEvent *e = &events[k];
-            if (!role_is(e, "imitation")
+            if (!role_is(e, ano_role_text(ANO_ROLE_IMITATION))
                 || (e->core.layer != ANO_MUSIC_ARP && e->core.layer != ANO_MUSIC_PAD))
                 continue;
             const AnoHarmonicContext *c =
