@@ -30,7 +30,7 @@ typedef struct ano_uc_record_t {
     uint8_t flags;
 } ano_uc_record_t;
 
-static const ano_uc_record_t ano_uc_records[77] = {
+constexpr ano_uc_record_t ano_uc_records[77] = {
     { 0, 0, 0 },
     { 0, 0, 4 },
     { 0, 0, 16 },
@@ -110,7 +110,7 @@ static const ano_uc_record_t ano_uc_records[77] = {
     { 0, -126, 1 },
 };
 
-static const uint16_t ano_uc_stage2[4096] = {
+constexpr uint16_t ano_uc_stage2[4096] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -369,7 +369,7 @@ static const uint16_t ano_uc_stage2[4096] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
 
-static const uint16_t ano_uc_stage1[256] = {
+constexpr uint16_t ano_uc_stage1[256] = {
     1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 8, 9,
     10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

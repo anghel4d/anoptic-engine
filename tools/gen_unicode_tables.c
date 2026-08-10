@@ -524,7 +524,7 @@ static void assert_trim_closure(void)
 
 static void emit_u16_array(FILE *f, const char *name, const uint16_t *v, size_t n)
 {
-    fprintf(f, "static const uint16_t %s[%zu] = {\n", name, n);
+    fprintf(f, "constexpr uint16_t %s[%zu] = {\n", name, n);
     for (size_t i = 0; i < n; i += 16) {
         fputs("   ", f);
         for (size_t j = i; j < n && j < i + 16; j++)
@@ -536,7 +536,7 @@ static void emit_u16_array(FILE *f, const char *name, const uint16_t *v, size_t 
 
 static void emit_u32_array(FILE *f, const char *name, const uint32_t *v, size_t n)
 {
-    fprintf(f, "static const uint32_t %s[%zu] = {\n", name, n);
+    fprintf(f, "constexpr uint32_t %s[%zu] = {\n", name, n);
     for (size_t i = 0; i < n; i += 8) {
         fputs("   ", f);
         for (size_t j = i; j < n && j < i + 8; j++)
@@ -688,7 +688,7 @@ int main(void)
         "\n",
         version, version, FLAG_LETTER, FLAG_DIGIT, FLAG_WHITESPACE, FLAG_MARK, FLAG_PUNCT);
 
-    fprintf(f, "static const ano_uc_record_t ano_uc_records[%zu] = {\n", record_count);
+    fprintf(f, "constexpr ano_uc_record_t ano_uc_records[%zu] = {\n", record_count);
     for (size_t k = 0; k < record_count; k++)
         fprintf(f, "    { %d, %d, %u },\n",
                 records[k].upper_delta, records[k].lower_delta, records[k].flags);

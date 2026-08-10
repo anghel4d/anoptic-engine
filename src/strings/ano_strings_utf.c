@@ -10,6 +10,59 @@
 
 #include "strings/ano_unicode_tables.h"
 
+/* Table Proofs */
+
+// Compile-time re-proof of tools/gen_unicode_tables.c's index-range and trim-closure
+// guarantees over the committed tables 〜 a hand-edited or stale ano_unicode_tables.h
+// fails these static_asserts instead of compiling into out-of-bounds reads.
+
+// True iff every ano_uc_stage1 entry names a full 256-entry block inside ano_uc_stage2.
+consteval bool uc_stage1_in_range(void)
+{
+    constexpr size_t blocks = sizeof ano_uc_stage2 / sizeof ano_uc_stage2[0] / 256;
+    for (size_t i = 0; i < sizeof ano_uc_stage1 / sizeof ano_uc_stage1[0]; i++)
+        if (ano_uc_stage1[i] >= blocks)
+            return false;
+    return true;
+}
+
+// True iff every ano_uc_stage2 entry indexes ano_uc_records.
+consteval bool uc_stage2_in_range(void)
+{
+    for (size_t i = 0; i < sizeof ano_uc_stage2 / sizeof ano_uc_stage2[0]; i++)
+        if (ano_uc_stage2[i] >= sizeof ano_uc_records / sizeof ano_uc_records[0])
+            return false;
+    return true;
+}
+
+// True iff case deltas are closed over the table (header line 11): every nonzero
+// upper/lower delta lands in [0, ANO_UC_TABLE_MAX) on a kept (nonzero) record.
+consteval bool uc_case_deltas_closed(void)
+{
+    for (int64_t cp = 0; cp < (int64_t)ANO_UC_TABLE_MAX; cp++) {
+        uint16_t idx = ano_uc_stage2[ano_uc_stage1[cp >> 8] * 256 + (cp & 0xFF)];
+        const int64_t deltas[2] = { ano_uc_records[idx].upper_delta,
+                                    ano_uc_records[idx].lower_delta };
+        for (int64_t d : deltas) {
+            if (d == 0)
+                continue;
+            int64_t t = cp + d;
+            if (t < 0 || t >= (int64_t)ANO_UC_TABLE_MAX)
+                return false;
+            if (ano_uc_stage2[ano_uc_stage1[t >> 8] * 256 + (t & 0xFF)] == 0)
+                return false;
+        }
+    }
+    return true;
+}
+
+static_assert(uc_stage1_in_range(),
+              "ano_uc_stage1 names a block past ano_uc_stage2 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(uc_stage2_in_range(),
+              "ano_uc_stage2 indexes past ano_uc_records 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(uc_case_deltas_closed(),
+              "a case delta leaves the table closure (ano_unicode_tables.h) 〜 regenerate with tools/gen_unicode_tables.c");
+
 /* Decode */
 
 static inline bool rune_is_surrogate(anorune_t r)

@@ -81,6 +81,127 @@ static int ce_push_rune(uint32_t *q, int qn, anorune_t r)
     return ce_push_cp(q, qn, r);
 }
 
+/* Table Proofs */
+
+// Compile-time re-proof of tools/gen_unicode_tables.c's guarantees over the committed
+// ano_collate_tables.h 〜 a hand-edited or stale header fails these static_asserts
+// instead of compiling into out-of-bounds reads or a CE queue overflow.
+
+// True iff every ano_ce_stage1 entry names a full 256-entry block inside ano_ce_stage2.
+consteval bool ce_stage1_in_range(void)
+{
+    constexpr size_t blocks = sizeof ano_ce_stage2 / sizeof ano_ce_stage2[0] / 256;
+    for (size_t i = 0; i < sizeof ano_ce_stage1 / sizeof ano_ce_stage1[0]; i++)
+        if (ano_ce_stage1[i] >= blocks)
+            return false;
+    return true;
+}
+
+// True iff every ano_ce_stage2 entry indexes ano_ce_spans.
+consteval bool ce_stage2_in_range(void)
+{
+    for (size_t i = 0; i < sizeof ano_ce_stage2 / sizeof ano_ce_stage2[0]; i++)
+        if (ano_ce_stage2[i] >= sizeof ano_ce_spans / sizeof ano_ce_spans[0])
+            return false;
+    return true;
+}
+
+// True iff every ano_ce_spans offset+len (offset<<4|len) lies inside ano_ce_pool.
+consteval bool ce_spans_in_pool(void)
+{
+    for (size_t i = 0; i < sizeof ano_ce_spans / sizeof ano_ce_spans[0]; i++)
+        if ((size_t)(ano_ce_spans[i] >> 4) + (ano_ce_spans[i] & 0xFu) >
+            sizeof ano_ce_pool / sizeof ano_ce_pool[0])
+            return false;
+    return true;
+}
+
+// True iff ano_decomp_cp is strictly ascending (decomp_lookup's bsearch precondition).
+consteval bool decomp_cps_ascending(void)
+{
+    for (size_t i = 1; i < sizeof ano_decomp_cp / sizeof ano_decomp_cp[0]; i++)
+        if (ano_decomp_cp[i - 1] >= ano_decomp_cp[i])
+            return false;
+    return true;
+}
+
+// True iff every ano_decomp_span offset+len (offset<<3|len) lies inside ano_decomp_pool.
+consteval bool decomp_spans_in_pool(void)
+{
+    for (size_t i = 0; i < sizeof ano_decomp_span / sizeof ano_decomp_span[0]; i++)
+        if ((size_t)(ano_decomp_span[i] >> 3) + (ano_decomp_span[i] & 0x7u) >
+            sizeof ano_decomp_pool / sizeof ano_decomp_pool[0])
+            return false;
+    return true;
+}
+
+// True iff every decomp piece is CE-listed (the trim closure documented in the header).
+consteval bool decomp_pieces_listed(void)
+{
+    for (size_t i = 0; i < sizeof ano_decomp_span / sizeof ano_decomp_span[0]; i++) {
+        uint16_t span = ano_decomp_span[i];
+        for (uint32_t k = 0; k < (span & 0x7u); k++) {
+            uint16_t piece = ano_decomp_pool[(span >> 3) + k];
+            if (ano_ce_stage2[ano_ce_stage1[piece >> 8] * 256 + (piece & 0xFFu)] == 0)
+                return false;
+        }
+    }
+    return true;
+}
+
+// CEs ce_push_cp pushes for one cp 〜 its exact arithmetic: span len if listed, else 2.
+consteval uint32_t ce_proof_count_cp(anorune_t cp)
+{
+    if (cp < 0x10000u) {
+        size_t block = ano_ce_stage1[cp >> 8];
+        uint32_t span_idx = ano_ce_stage2[block * 256 + (cp & 0xFFu)];
+        if (span_idx != 0)
+            return ano_ce_spans[span_idx] & 0xFu;
+    }
+    return 2;
+}
+
+// Worst CE fill one rune can push through ce_push_rune, max over every BMP code point
+// (decomp_lookup's bsearch mirrored; cp >= 0x10000 is structurally implicit: 2 CEs).
+consteval uint32_t ce_queue_worst(void)
+{
+    uint32_t worst = 0;
+    for (anorune_t cp = 0; cp < 0x10000u; cp++) {
+        size_t lo = 0, hi = sizeof ano_decomp_cp / sizeof ano_decomp_cp[0];
+        while (lo < hi) {
+            size_t mid = (lo + hi) / 2;
+            if (ano_decomp_cp[mid] < cp) lo = mid + 1;
+            else hi = mid;
+        }
+        uint32_t total = 0;
+        if (lo < sizeof ano_decomp_cp / sizeof ano_decomp_cp[0] && ano_decomp_cp[lo] == cp) {
+            uint16_t span = ano_decomp_span[lo];
+            for (uint32_t k = 0; k < (span & 0x7u); k++)
+                total += ce_proof_count_cp(ano_decomp_pool[(span >> 3) + k]);
+        } else {
+            total = ce_proof_count_cp(cp);
+        }
+        if (total > worst)
+            worst = total;
+    }
+    return worst;
+}
+
+static_assert(ce_stage1_in_range(),
+              "ano_ce_stage1 names a block past ano_ce_stage2 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(ce_stage2_in_range(),
+              "ano_ce_stage2 indexes past ano_ce_spans 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(ce_spans_in_pool(),
+              "an ano_ce_spans span leaves ano_ce_pool 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(decomp_cps_ascending(),
+              "ano_decomp_cp is not strictly ascending 〜 decomp_lookup's bsearch would misresolve; regenerate with tools/gen_unicode_tables.c");
+static_assert(decomp_spans_in_pool(),
+              "an ano_decomp_span span leaves ano_decomp_pool 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(decomp_pieces_listed(),
+              "a decomp piece lost its CE listing (trim closure, ano_collate_tables.h) 〜 regenerate with tools/gen_unicode_tables.c");
+static_assert(ce_queue_worst() <= CE_QUEUE_CAP,
+              "a BMP code point pushes more CEs than CE_QUEUE_CAP 〜 ce_iter_t::q would overflow; regenerate with tools/gen_unicode_tables.c");
+
 static bool ce_next(ce_iter_t *it, uint32_t *ce)
 {
     while (it->qk == it->qn) {
