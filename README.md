@@ -117,17 +117,20 @@ Output goes to `build/<label>/`; shaders and assets from `assets/` are staged ne
 
 Make sure you have `CMake` installed and in your path: https://cmake.org/install/.
 
-Have a copy of the `Mingw-w64` toolkit in your path.
+Install the MSYS2 UCRT64 GCC and Ninja packages:
 
-We recommend [MSYS2](https://www.msys2.org/)'s **CLANG64** environment with [mingw-w64-clang-x86_64-clang](https://packages.msys2.org/package/mingw-w64-clang-x86_64-clang)
-and [mingw-w64-clang-x86_64-ninja](https://packages.msys2.org/package/mingw-w64-clang-x86_64-ninja).
-The engine needs the UCRT runtime because we just do okay?
+```bash
+pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja
+```
+
+GCC 16.1 or newer is required for C++26 reflection. `build.bat` uses
+`C:\msys64\ucrt64\bin` by default; set `MSYS2_UCRT64` to override it.
 
 Additional guidance:
 - [Microsoft Documentation](https://learn.microsoft.com/en-us/vcpkg/users/platforms/mingw)
 - [CLion Configuration](https://www.jetbrains.com/help/clion/quick-tutorial-on-configuring-clion-on-windows.html#clang-mingw)
 
-Once Mingw-w64 is installed with `clang` working on your system, run `build.bat` from the repository root. Its usage mirrors `build.sh`.
+Once the UCRT64 toolchain is installed, run `build.bat` from the repository root. Its usage mirrors `build.sh`.
 
 #### Building for Windows with WSL
 
@@ -135,11 +138,13 @@ WSL has no Linux Vulkan driver, so the renderer runs there only as a **Windows**
 
 WSL's Vulkan devices (Mesa `dozen` and `llvmpipe`) are not supported render targets. The **headless** build needs no GPU or display at all: `nix build .#headless` / `build.sh 3` run fine in WSL, containers, and GPU-less servers.
 
-**MSYS2 clang + Windows Vulkan SDK** (no Nix): the `build.bat` path:
+**MSYS2 UCRT64 GCC 16.1+ + Windows Vulkan SDK** (no Nix): the `build.bat` path:
 
-```bash
-cmd.exe /c build.bat 1
-( cd build/Release && ./anopticengine.exe )
+```powershell
+.\build.bat 1
+Push-Location .\build\Release
+.\anopticengine.exe
+Pop-Location
 ```
 
 If your config is cursed and that doesn't work, just use Nix okay?

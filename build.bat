@@ -4,46 +4,47 @@ setlocal enabledelayedexpansion
 :: Navigate to the script's directory
 cd /d %~dp0
 
-:: Toolchain discovery. Override with: set MSYS2_CLANG=... / set CMAKE_BIN=...
-if not defined MSYS2_CLANG set "MSYS2_CLANG=C:\msys64\clang64\bin"
+:: Toolchain discovery. Override with: set MSYS2_UCRT64=... / set CMAKE_BIN=...
+if not defined MSYS2_UCRT64 set "MSYS2_UCRT64=C:\msys64\ucrt64\bin"
 if not defined CMAKE_BIN   set "CMAKE_BIN=C:\Program Files\CMake\bin"
-where clang >nul 2>&1 || set "PATH=%MSYS2_CLANG%;%PATH%"
+set "PATH=%MSYS2_UCRT64%;%PATH%"
 where cmake >nul 2>&1 || set "PATH=%CMAKE_BIN%;%PATH%"
-where clang >nul 2>&1 || (echo ERROR: clang not found. Install MSYS2 clang64 or set MSYS2_CLANG. & exit /b 1)
+where gcc >nul 2>&1 || (echo ERROR: gcc not found. Install MSYS2 UCRT64 GCC 16.1+ or set MSYS2_UCRT64. & exit /b 1)
+where g++ >nul 2>&1 || (echo ERROR: g++ not found. Install MSYS2 UCRT64 GCC 16.1+ or set MSYS2_UCRT64. & exit /b 1)
 where cmake >nul 2>&1 || (echo ERROR: cmake not found. Install CMake or set CMAKE_BIN. & exit /b 1)
-where ninja >nul 2>&1 || (echo ERROR: ninja not found. Install it with: pacman -S mingw-w64-clang-x86_64-ninja & exit /b 1)
+where ninja >nul 2>&1 || (echo ERROR: ninja not found. Install it with: pacman -S mingw-w64-ucrt-x86_64-ninja & exit /b 1)
 
 :: Build profile
 if "%1"=="1" (
     set BUILD_LABEL=Release
     set CMAKE_CONFIG=Release
-    set TOOLCHAIN_FILE=release_clang-windows-x64-mingw.cmake
+    set TOOLCHAIN_FILE=gcc-windows-x64.cmake
     set EXTRA_FLAGS=
     set RUN_TESTS=0
 ) else if "%1"=="2" (
     set BUILD_LABEL=Debug
     set CMAKE_CONFIG=Debug
-    set TOOLCHAIN_FILE=debug_clang-windows-x64-mingw.cmake
+    set TOOLCHAIN_FILE=gcc-windows-x64.cmake
     set EXTRA_FLAGS=
     set RUN_TESTS=0
 ) else if "%1"=="3" (
     rem Headless engine (no GPU). TESTS=OFF: stale build\Headless cache must not keep ANOPTIC_TESTS=ON.
     set BUILD_LABEL=Headless
     set CMAKE_CONFIG=Release
-    set TOOLCHAIN_FILE=release_clang-windows-x64-mingw.cmake
+    set TOOLCHAIN_FILE=gcc-windows-x64.cmake
     set EXTRA_FLAGS=-DANOPTIC_HEADLESS=ON -DANOPTIC_TESTS=OFF
     set RUN_TESTS=0
 ) else if "%1"=="4" (
     rem Headless debug engine: core + CTest, no renderer
     set BUILD_LABEL=HeadlessDebug
     set CMAKE_CONFIG=Debug
-    set TOOLCHAIN_FILE=tests_clang-windows-x64-mingw.cmake
+    set TOOLCHAIN_FILE=gcc-windows-x64.cmake
     set EXTRA_FLAGS=-DANOPTIC_TESTS=ON -DANOPTIC_HEADLESS=ON
     set RUN_TESTS=1
 ) else if "%1"=="5" (
     set BUILD_LABEL=Tests
     set CMAKE_CONFIG=Debug
-    set TOOLCHAIN_FILE=tests_clang-windows-x64-mingw.cmake
+    set TOOLCHAIN_FILE=gcc-windows-x64.cmake
     set EXTRA_FLAGS=-DANOPTIC_TESTS=ON
     set RUN_TESTS=1
 ) else if "%1"=="6" (
@@ -58,7 +59,7 @@ if "%1"=="1" (
     rem Release (-O3) tests, use for benchmarks
     set BUILD_LABEL=O3Tests
     set CMAKE_CONFIG=Release
-    set TOOLCHAIN_FILE=release_clang-windows-x64-mingw.cmake
+    set TOOLCHAIN_FILE=gcc-windows-x64.cmake
     set EXTRA_FLAGS=-DANOPTIC_TESTS=ON
     set RUN_TESTS=1
 ) else (
@@ -83,11 +84,15 @@ echo TOOLCHAIN_PATH is set to: %TOOLCHAIN_PATH%
 set "ANO_SRC=%~dp0"
 set "ANO_SRC=%ANO_SRC:\=/%"
 if "%ANO_SRC:~-1%"=="/" set "ANO_SRC=%ANO_SRC:~0,-1%"
+set "ANO_TOOLCHAIN=%TOOLCHAIN_PATH:\=/%"
 if exist build\%BUILD_LABEL%\CMakeCache.txt (
     findstr /c:"CMAKE_GENERATOR:INTERNAL=Ninja" build\%BUILD_LABEL%\CMakeCache.txt >nul || rmdir /s /q build\%BUILD_LABEL%
 )
 if exist build\%BUILD_LABEL%\CMakeCache.txt (
     findstr /i /c:"CMAKE_HOME_DIRECTORY:INTERNAL=%ANO_SRC%" build\%BUILD_LABEL%\CMakeCache.txt >nul || rmdir /s /q build\%BUILD_LABEL%
+)
+if exist build\%BUILD_LABEL%\CMakeCache.txt (
+    findstr /i /c:"CMAKE_TOOLCHAIN_FILE:FILEPATH=%ANO_TOOLCHAIN%" build\%BUILD_LABEL%\CMakeCache.txt >nul || rmdir /s /q build\%BUILD_LABEL%
 )
 
 :: Configure

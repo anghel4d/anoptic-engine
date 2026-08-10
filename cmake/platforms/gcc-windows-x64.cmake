@@ -1,16 +1,18 @@
-# windows-x64.cmake
-# Toolchain file for 64-bit Windows platforms.
-# GCC fallback, clang/LLVM is the default (*_clang-windows-x64-mingw.cmake).
+# Native UCRT64 GCC toolchain for 64-bit Windows.
+message(STATUS "Using native MSYS2 UCRT64 GCC toolchain.")
 
-message(STATUS "!! Using windows-x64.cmake toolchain.")
-
-# Specify Target System
 set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
-# Specify the compiler
-set(CMAKE_C_COMPILER gcc)
-set(CMAKE_CXX_COMPILER g++)
+if(DEFINED ENV{MSYS2_UCRT64})
+    file(TO_CMAKE_PATH "$ENV{MSYS2_UCRT64}" ANO_MSYS2_UCRT64_BIN)
+else()
+    set(ANO_MSYS2_UCRT64_BIN "C:/msys64/ucrt64/bin")
+endif()
 
-# Set gcc compiler to 64-bit mode.
-set(CMAKE_C_FLAGS "-m64 -march=x86-64")
-set(CMAKE_CXX_FLAGS "-m64 -march=x86-64")
+set(CMAKE_C_COMPILER "${ANO_MSYS2_UCRT64_BIN}/gcc.exe")
+set(CMAKE_CXX_COMPILER "${ANO_MSYS2_UCRT64_BIN}/g++.exe")
+
+# Optimization and debug information belong to CMAKE_BUILD_TYPE.
+set(CMAKE_C_FLAGS_INIT "-m64 -march=x86-64")
+set(CMAKE_CXX_FLAGS_INIT "-m64 -march=x86-64")
