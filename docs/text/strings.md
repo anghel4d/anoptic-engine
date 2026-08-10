@@ -96,20 +96,13 @@ default:
 
 Pattern for every "text outside, integers inside" boundary: scene files, prefabs, animation event tracks, particle descriptors.
 
-## Scenario 3: asset keys / resource GUIDs *(sketch, see `docs/resourcemgr/resource-manager.md`)*
+## Scenario 3: resource diagnostics
 
-Resource registry GUID is the hashed path. Build-time call sites bake the key; mod loaders and hot-reload watchers hash discovered paths. One registry, one key type, both producers:
-
-```c
-// Compiled call site: no path string in the binary, no hash at runtime.
-model_handle crate = resmg_acquire(ANOSTR_SID("assets/props/crate.gltf"));
-
-// Mod loader: same key space, computed once per discovered file at scan time.
-anostr_sid key = anostr_hash(modFilePath);
-resmg_register(key, modFilePath /* kept for reload + diagnostics */);
-```
-
-Rule of thumb: the *reference* is a sid; the *inventory* (enumerate, display, reload) also keeps the string, interned.
+Resource identity does not use string SIDs. Persistent code stores typed
+`AssetRef<T>` values backed by `AnoAssetId`; manifests map those stable IDs to
+content. Source paths and interned strings belong only to cooker input,
+inventory display, reload discovery, and diagnostics. See
+`docs/resourcemanager/DESIGN.md`.
 
 ## Scenario 4: material / shader parameters, `SID32` and packed stores
 
