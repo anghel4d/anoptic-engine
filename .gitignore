@@ -109,6 +109,14 @@
 !/.claude/agents/**/
 !/.claude/agents/**/*.md
 
+# Codex harness: repository-owned skills
+!/.agents/
+!/.agents/skills/
+!/.agents/skills/anoptic-c-ultra/
+!/.agents/skills/anoptic-c-ultra/**
+!/.agents/skills/cpp-reflection-status-2026-08-02/
+!/.agents/skills/cpp-reflection-status-2026-08-02/**
+
 # Junk the wide grants above must not readmit (parity with the pre-whitelist shapes)
 .DS_Store
 *.swp
@@ -154,3 +162,5 @@ AGENTS.md
 AGENTS.override.md
 SKILL.md
 !/.claude/skills/**/SKILL.md
+!/.agents/skills/anoptic-c-ultra/SKILL.md
+!/.agents/skills/cpp-reflection-status-2026-08-02/SKILL.md
