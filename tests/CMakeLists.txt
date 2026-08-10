@@ -1,5 +1,39 @@
 # Test executables link anoptic_core. Exit 0 = pass.
 
+add_executable(anotest_resources_language anotest_resources_language.c)
+target_link_libraries(anotest_resources_language PRIVATE anoptic_core)
+add_test(NAME anoptic_resources_language COMMAND anotest_resources_language)
+set_tests_properties(anoptic_resources_language PROPERTIES TIMEOUT 30 LABELS "unit;resources")
+
+add_test(NAME anoptic_resources_c_header
+        COMMAND ${CMAKE_C_COMPILER} -std=c17 -I ${CMAKE_SOURCE_DIR}/include
+                -fsyntax-only ${CMAKE_CURRENT_SOURCE_DIR}/anotest_resources_c_header.c)
+set_tests_properties(anoptic_resources_c_header PROPERTIES TIMEOUT 30 LABELS "unit;resources")
+
+function(ano_add_resource_compile_failure name source expected)
+    add_test(NAME ${name}
+            COMMAND ${CMAKE_COMMAND}
+                    -DCXX=${CMAKE_CXX_COMPILER}
+                    -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/${source}
+                    -DINCLUDE_DIR=${CMAKE_SOURCE_DIR}/include
+                    -DEXPECTED=${expected}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/expect_compile_failure.cmake)
+    set_tests_properties(${name} PROPERTIES TIMEOUT 30 LABELS "unit;resources;compile-fail")
+endfunction()
+
+ano_add_resource_compile_failure(anoptic_resources_reject_duplicate_type
+        compile_fail/resources_duplicate_type_id.c "wire identities must be unique")
+ano_add_resource_compile_failure(anoptic_resources_reject_duplicate_field
+        compile_fail/resources_duplicate_field_id.c "field wire identities must be unique")
+ano_add_resource_compile_failure(anoptic_resources_reject_pointer
+        compile_fail/resources_pointer_field.c "cannot contain pointers or references")
+ano_add_resource_compile_failure(anoptic_resources_reject_missing_field
+        compile_fail/resources_missing_field_annotation.c "exactly one Field annotation")
+ano_add_resource_compile_failure(anoptic_resources_reject_incomplete
+        compile_fail/resources_incomplete_artifact.c "must be complete types")
+ano_add_resource_compile_failure(anoptic_resources_reject_dependency_policy
+        compile_fail/resources_bad_dependency_policy.c "require dependency policy")
+
 # Testing for ``anoptic_time.h``
 add_executable(anotest_time anotest_time.c)
 target_link_libraries(anotest_time PRIVATE anoptic_core)

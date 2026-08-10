@@ -37,6 +37,7 @@
 !/tests/**/*.c
 !/tests/**/*.h
 !/tests/**/*.md
+!/tests/**/*.cmake
 !/tests/**/CMakeLists.txt
 !/tests/**/*.anofix
 

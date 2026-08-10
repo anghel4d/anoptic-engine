@@ -22,6 +22,7 @@ src/
 ├── render_bridge/  # Logic <-> render boundary: lock-free SPSC command/event rings
 ├── vulkan_backend/ # GPU-driven Vulkan renderer (render master thread); owns GPU slots + all GLFW
 ├── render/         # Asset-facing render support: glTF loader (gltf/), text/font stack (text/)
+├── resources/      # Reflected resource universe and canonical artifact runtime boundary
 ├── mesh/           # clean-room mesh ops: meshlet decomposition, vertex-cache opt, LOD simplify
 ├── audio/          # Lock-free mixer thread + DSP library + per-platform device backends
 ├── synth/          # The synthesizer: music IR -> voices -> the audio module's bus graph
@@ -52,6 +53,12 @@ src/
 - `vulkan_backend/` (renderer contract in `include/anoptic_render.h`): GPU-driven, meshlet-based renderer on the render master thread. Sole authority over GPU memory and the physical slot space (private `render_slots.h`: logical `render_id` -> GPU slot, stable slots with holes, frame-gated reuse). Drains the bridge; grows slot-indexed GPU buffers on demand. Owns all GLFW (window + event pump).
 
 - `render/`: Asset-facing render support for the backend: glTF loader (`gltf/`), FreeType/SDF text stack (`text/`).
+
+- `resources/` (public `include/anoptic_resources.h`, C++26 extension
+  `include/anoptic_resources_typed.h`): Compiles reflected artifact declarations into
+  immutable language metadata and direct canonical validation, encoding, decoding,
+  hashing, typed-view, and dependency operations. Owner declarations live in focused
+  extension headers such as `include/anoptic_render_resources.h`.
 
 - `mesh/` (`ano_meshoptimizer.h`): Clean-room reimplementation of the meshoptimizer algorithms (no library linked): vertex-cache optimization, meshlet + bounds decomposition for the GPU geometry pool, and quadric-error edge-collapse simplification (`ano_simplify`) for LOD chain production.
 

@@ -16,6 +16,9 @@ include/
 ├── anoptic_meta.h      # Header-only C++26 reflection and value contracts
 ├── anoptic_memory.h    # Public memory allocation API
 ├── anoptic_memory_typed.h # C++ typed allocation extension
+├── anoptic_resources.h # Stable C resource identities and language metadata
+├── anoptic_resources_typed.h # C++26 canonical artifact compiler and operations
+├── anoptic_render_resources.h # Portable render artifact declarations
 ├── anoptic_threads.h   # Platform abstraction of pthread API
 ├── anoptic_threads_typed.h # C++26 typed lock-free transport
 ├── ...                 # other APIs
@@ -24,6 +27,7 @@ include/
 ```plaintext
 src/
 ├── memory/             # Memory allocation implemented
+├── resources/          # Resource universe and canonical runtime operations
 ├── threads/            # Platform abstraction of pthread implemented
 ├── ...                 # other implementations
 └── time/               # Public timekeeping implemented
