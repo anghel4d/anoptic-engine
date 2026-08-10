@@ -61,12 +61,6 @@ typedef struct GlobalUBO
 
 /* Functions */
 
-// Vertex input binding (load rate through the vertices).
-VkVertexInputBindingDescription getBindingDescription(void);
-
-// Extracts vertex attributes into an array of two attribute descriptions.
-void getAttributeDescriptions(VkVertexInputAttributeDescription*);
-
 // Performs matrix rotation
 void rotateMatrix(float mat[4][4], char axis, float angle);
 

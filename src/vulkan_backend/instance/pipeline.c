@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <meta>
 
 #include <vulkan/vulkan.h>
 
@@ -123,6 +124,12 @@ bool ano_pipeline_prepare_prototype(PipelinePrototype* proto, PipelineType type)
 	return true;
 }
 
+// flat.task constant_id 0/1 lanes; the map is reflected from this struct's layout.
+struct AnoTaskSpecData { VkBool32 shadowPass; VkBool32 coneCull; };
+static constexpr auto ANO_TASK_SPEC_MAP = ano_vk_reflect_specialization_map<AnoTaskSpecData>();
+static_assert(ano_vk_specialization_map_valid<AnoTaskSpecData>(ANO_TASK_SPEC_MAP));
+static_assert(ANO_TASK_SPEC_MAP.count == 2 && sizeof(AnoTaskSpecData) == sizeof(TaskStageStorage::data));
+
 // Load flat.task and fill a TASK stage with the {shadowPass, coneCull} specialization
 bool ano_pipeline_task_stage(VulkanContext* ctx, VkBool32 shadowPass, VkBool32 coneCull,
                              TaskStageStorage* store, VkShaderModule* outModule,
@@ -134,11 +141,11 @@ bool ano_pipeline_task_stage(VulkanContext* ctx, VkBool32 shadowPass, VkBool32 c
 	ano_aligned_free(code.data);
 	if (*outModule == NULL) return false;
 
-	store->entries[0] = (VkSpecializationMapEntry){ .constantID = 0, .offset = 0, .size = sizeof(VkBool32) };
-	store->entries[1] = (VkSpecializationMapEntry){ .constantID = 1, .offset = sizeof(VkBool32), .size = sizeof(VkBool32) };
+	store->entries[0] = ANO_TASK_SPEC_MAP.entries[0];
+	store->entries[1] = ANO_TASK_SPEC_MAP.entries[1];
 	store->data[0] = shadowPass;
 	store->data[1] = coneCull;
-	store->spec = (VkSpecializationInfo){ .mapEntryCount = 2, .pMapEntries = store->entries,
+	store->spec = (VkSpecializationInfo){ .mapEntryCount = ANO_TASK_SPEC_MAP.count, .pMapEntries = store->entries,
 		.dataSize = sizeof(store->data), .pData = store->data };
 
 	return ano_pipeline_stage(VK_SHADER_STAGE_TASK_BIT_EXT, *outModule, &store->spec, stage);
@@ -151,37 +158,43 @@ bool ano_pipeline_task_stage(VulkanContext* ctx, VkBool32 shadowPass, VkBool32 c
 
 // The juicy part
 
+// Annotation tag -> graphics builder entry point.
+template<AnoGraphicsInitFn Fn>
+static bool ano_pipeline_graphics_init(VulkanContext* ctx, RendererState* state, PipelinePrototype* proto)
+{
+	if constexpr (Fn == AnoGraphicsInitFn::flat)
+		return ano_pipeline_flat_init(ctx, state, proto);
+	else if constexpr (Fn == AnoGraphicsInitFn::flat_twosided)
+		return ano_pipeline_flat_twosided_init(ctx, state, proto);
+	else if constexpr (Fn == AnoGraphicsInitFn::flat_masked)
+		return ano_pipeline_flat_masked_init(ctx, state, proto);
+	else if constexpr (Fn == AnoGraphicsInitFn::transmission)
+		return ano_pipeline_transmission_init(ctx, state, proto);
+	else if constexpr (Fn == AnoGraphicsInitFn::additive)
+		return ano_pipeline_additive_init(ctx, state, proto);
+	else
+		static_assert(Fn != Fn, "graphics init tag without a builder entry point");
+}
+
 bool ano_vk_init_pipelines(VulkanContext* ctx, RendererState* state)
 {
-	if (!ano_pipeline_flat_init(ctx, state, &state->prototypes[PIPELINE_FLAT]))
-	{
-		return false;
+	static constexpr auto enumerators =
+		std::define_static_array(std::meta::enumerators_of(^^PipelineType));
+	template for (constexpr auto enumerator : enumerators) {
+		constexpr auto inits = std::define_static_array(
+			std::meta::annotations_of_with_type(enumerator, ^^AnoGraphicsPipelineInit));
+		if constexpr (!inits.empty()) {
+			constexpr PipelineType type = [:enumerator:];
+			constexpr auto init = std::meta::extract<AnoGraphicsPipelineInit>(inits[0]);
+			if (!ano_pipeline_graphics_init<init.init>(ctx, state, &state->prototypes[type]))
+				return false;
+		}
 	}
 
-	if (!ano_pipeline_flat_twosided_init(ctx, state, &state->prototypes[PIPELINE_FLAT_TWOSIDED]))
-	{
+	if (!ano_vk_init_compute(ctx, state))
 		return false;
-	}
 
-	if (!ano_pipeline_flat_masked_init(ctx, state, &state->prototypes[PIPELINE_FLAT_MASKED]))
-	{
-		return false;
-	}
-
-	if (!ano_pipeline_transmission_init(ctx, state, &state->prototypes[PIPELINE_TRANSMISSION]))
-	{
-		return false;
-	}
-
-	if (!ano_pipeline_additive_init(ctx, state, &state->prototypes[PIPELINE_ADDITIVE]))
-	{
-		return false;
-	}
-
-    if (!ano_vk_init_compute(ctx, state))
-        return false;
-
-    return true;
+	return true;
 }
 
 

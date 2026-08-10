@@ -40,11 +40,12 @@ ANO_RESULT_TYPE(AnoTextureResult,
 
 // Sample interpretations for one image. Both bits -> one mutable-format image, one allocation.
 typedef enum TextureUsageBits {
-	TEXTURE_USE_NONE  = 0,
 	TEXTURE_USE_COLOR = 1u << 0,   // sRGB view
 	TEXTURE_USE_DATA  = 1u << 1,   // UNORM view
 } TextureUsageBits;
 typedef uint32_t TextureUsageFlags;   // PbrFeatureFlags idiom, components.h:157
+// Empty mask 〜 zero is not a bit, so it lives outside the reflected enum.
+constexpr TextureUsageFlags TEXTURE_USE_NONE = 0u;
 
 // One constructed texture.
 // srgbView non-null iff COLOR built; unormView iff DATA; BUILT carries >= 1 view.

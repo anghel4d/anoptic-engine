@@ -6,7 +6,37 @@
 #include "transmission.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "vulkan_backend/pipeline_registry.h"
+#include "graphics_contract.h"
 #include <stdlib.h>
+
+// Opaque-lane deltas for the shared graphics ladder; the blended variant (index 1) is
+// minted by the explicit mutations between the create calls.
+static consteval AnoGraphicsPipelineContract transmission_contract()
+{
+	return {
+		.cullMode = VK_CULL_MODE_NONE,
+		.msaaFromContext = true,
+		.minSampleShading = 1.0f,
+		.depthTest = VK_TRUE,
+		.depthWrite = VK_TRUE,
+		.depthCompare = VK_COMPARE_OP_LESS,
+		.maxDepthBounds = 1.0f,
+		.logicOp = VK_LOGIC_OP_COPY,
+		.colorAttachmentCount = 1,
+		.blend = {
+			{ .blendEnable = VK_FALSE,
+			  .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+			  .colorBlendOp = VK_BLEND_OP_ADD,
+			  .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+			  .alphaBlendOp = VK_BLEND_OP_ADD,
+			  .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT },
+		},
+		.colorFormats = { ANO_HDR_COLOR_FORMAT }, // HDR target
+		.depthFormatFromState = true,
+		.staticViewport = true,
+		.meshCapable = true,
+	};
+}
 
 // Transmission lane: opaque (index 0) + blended (index 1) variants.
 // Cache refuse -> VK_NULL_HANDLE. Commit-last on implementationCount.
@@ -79,118 +109,27 @@ bool ano_pipeline_transmission_init(VulkanContext* ctx, RendererState* state, Pi
 	VkPipelineShaderStageCreateInfo* stageList = useTask ? shaderStages : &shaderStages[1];
 	uint32_t stageListCount = useTask ? 3u : 2u;
 
-	VkViewport viewport = {};
-	viewport.x = 0.0f;
-	viewport.y = 0.0f;
-	viewport.width = (float) state->imageExtent.width;
-	viewport.height = (float) state->imageExtent.height;
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-
-	VkRect2D scissor = {};
-	scissor.offset = (VkOffset2D){0, 0};
-	scissor.extent = state->imageExtent;
-
-	VkPipelineViewportStateCreateInfo viewportState = {};
-	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewportState.viewportCount = 1;
-	viewportState.pViewports = &viewport;
-	viewportState.scissorCount = 1;
-	viewportState.pScissors = &scissor;
-
-	VkPipelineRasterizationStateCreateInfo rasterizer = {};
-	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.depthClampEnable = VK_FALSE;
-	rasterizer.rasterizerDiscardEnable = VK_FALSE;
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
-	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	rasterizer.depthBiasEnable = VK_FALSE;
-	rasterizer.depthBiasConstantFactor = 0.0f;
-	rasterizer.depthBiasClamp = 0.0f;
-	rasterizer.depthBiasSlopeFactor = 0.0f;
-
-	VkPipelineMultisampleStateCreateInfo multisampling = {};
-	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisampling.sampleShadingEnable = VK_FALSE;
-	multisampling.rasterizationSamples = ctx->msaaSamples;
-	multisampling.minSampleShading = 1.0f;
-	multisampling.pSampleMask = NULL;
-	multisampling.alphaToCoverageEnable = VK_FALSE;
-	multisampling.alphaToOneEnable = VK_FALSE;
-
-	VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
-	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	colorBlendAttachment.blendEnable = VK_FALSE;
-	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-
-	VkPipelineColorBlendStateCreateInfo colorBlending = {};
-	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlending.logicOpEnable = VK_FALSE;
-	colorBlending.logicOp = VK_LOGIC_OP_COPY;
-	colorBlending.attachmentCount = 1;
-	colorBlending.pAttachments = &colorBlendAttachment;
-	colorBlending.blendConstants[0] = 0.0f;
-	colorBlending.blendConstants[1] = 0.0f;
-	colorBlending.blendConstants[2] = 0.0f;
-	colorBlending.blendConstants[3] = 0.0f;
-
-	VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-	VkPipelineDynamicStateCreateInfo dynamicState = {};
-	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicState.dynamicStateCount = 2;
-	dynamicState.pDynamicStates = dynamicStates;
-
-	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
-	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_TRUE;
-	depthStencil.depthWriteEnable = VK_TRUE;
-	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-	depthStencil.depthBoundsTestEnable = VK_FALSE;
-	depthStencil.minDepthBounds = 0.0f;
-	depthStencil.maxDepthBounds = 1.0f;
-	depthStencil.stencilTestEnable = VK_FALSE;
-
-	VkFormat colorFormat = ANO_HDR_COLOR_FORMAT; // HDR target
-	VkFormat depthFormat = state->depthFormat;
-
-	VkPipelineRenderingCreateInfo renderingInfo = {};
-	renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	renderingInfo.colorAttachmentCount = 1;
-	renderingInfo.pColorAttachmentFormats = &colorFormat;
-	renderingInfo.depthAttachmentFormat = depthFormat;
-
 	// Fallback vertex: pull + triangle list.
-	VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
-	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	constexpr auto contract = ano_graphics_frame_contract_checked<PIPELINE_TRANSMISSION, transmission_contract()>();
+	GraphicsPipelineStorage store;
+	ano_graphics_pipeline_materialize(contract, useMesh, &store);
 
-	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
-	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-	inputAssembly.primitiveRestartEnable = VK_FALSE;
+	// Runtime patches: extent, MSAA sample count, depth format, stages, layout.
+	store.viewport.width = (float) state->imageExtent.width;
+	store.viewport.height = (float) state->imageExtent.height;
+	store.scissor.extent = state->imageExtent;
+	store.multisampling.rasterizationSamples = ctx->msaaSamples;
+	store.rendering.depthAttachmentFormat = state->depthFormat;
 
-	VkGraphicsPipelineCreateInfo pipelineInfo = {};
-	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineInfo.pNext = &renderingInfo;
+	// Variant mutations below write through these; the create calls read store.pipelineInfo.
+	VkPipelineDepthStencilStateCreateInfo& depthStencil = store.depthStencil;
+	VkPipelineColorBlendAttachmentState& colorBlendAttachment = store.blendAttachments[0];
+	VkPipelineColorBlendStateCreateInfo& colorBlending = store.colorBlending;
+
+	VkGraphicsPipelineCreateInfo& pipelineInfo = store.pipelineInfo;
 	pipelineInfo.stageCount = stageListCount;
 	pipelineInfo.pStages = stageList;
-	pipelineInfo.pVertexInputState = useMesh ? NULL : &vertexInputInfo;
-	pipelineInfo.pInputAssemblyState = useMesh ? NULL : &inputAssembly;
-	pipelineInfo.pViewportState = &viewportState;
-	pipelineInfo.pRasterizationState = &rasterizer;
-	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pDepthStencilState = &depthStencil;
-	pipelineInfo.pColorBlendState = &colorBlending;
-	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = proto->layout;
-	pipelineInfo.renderPass = VK_NULL_HANDLE;
-	pipelineInfo.subpass = 0;
 
 	// Opaque variant (index 0)
 	if (vkCreateGraphicsPipelines(ctx->device, proto->cache, 1, &pipelineInfo, NULL, &proto->implementations[0].pipeline) != VK_SUCCESS) return false;

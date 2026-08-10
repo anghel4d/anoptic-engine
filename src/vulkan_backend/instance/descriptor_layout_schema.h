@@ -241,4 +241,107 @@ static_assert(ANO_VK_BINDLESS_BINDINGS.count == 1 &&
 	ANO_VK_BINDLESS_BINDINGS.values[0].descriptorCount == 0 &&
 	ANO_VK_BINDLESS_BINDINGS.values[0].bindingFlags == ANO_VK_BINDLESS_BINDING_FLAGS);
 
+// Shared-pool plan 〜 one named entry per consumer set of a descriptor pool.
+// setsPerFrame carries the multiplicity (per-frame, per-view, per-view-per-mip, fixed
+// count) already folded to sets/frame; optionalTail marks trailing runtime-conditional
+// bindings the create site adds as an explicit runtime delta, never the consteval totals.
+struct AnoVkPoolPlanEntry final {
+	const AnoVkDescriptorBindingSpec* bindings;
+	uint32_t bindingCount;
+	uint32_t setsPerFrame;
+	uint32_t optionalTail;
+};
+
+template<size_t Count>
+consteval AnoVkPoolPlanEntry ano_vk_pool_entry(
+	const AnoVkDescriptorBindingTable<Count>& table, uint32_t setsPerFrame,
+	uint32_t optionalTail = 0)
+{
+	return { table.values, table.count, setsPerFrame, optionalTail };
+}
+
+template<size_t TypeCount>
+struct AnoVkPoolPlan final {
+	VkDescriptorPoolSize sizes[TypeCount];
+	uint32_t maxSets;
+	static constexpr uint32_t poolSizeCount = (uint32_t)TypeCount;
+};
+
+// Demand side: descriptors of one type across all entries, sets/frame units, skipping
+// each entry's optionalTail. Twin of ano_vk_plan_pool for the >= coverage asserts.
+template<size_t EntryCount>
+consteval uint32_t ano_vk_pool_type_demand(
+	const AnoVkPoolPlanEntry (&entries)[EntryCount], VkDescriptorType type)
+{
+	uint32_t demand = 0;
+	for (size_t e = 0; e < EntryCount; ++e)
+		for (uint32_t b = 0; b + entries[e].optionalTail < entries[e].bindingCount; ++b)
+			if (entries[e].bindings[b].descriptorType == type)
+				demand += entries[e].bindings[b].descriptorCount * entries[e].setsPerFrame;
+	return demand;
+}
+
+// Consumed bindings no pool over typeOrder can serve: variable-count (0) bindings and
+// types absent from typeOrder. A valid plan has zero.
+template<size_t TypeCount, size_t EntryCount>
+consteval uint32_t ano_vk_pool_unplannable(
+	const VkDescriptorType (&typeOrder)[TypeCount],
+	const AnoVkPoolPlanEntry (&entries)[EntryCount])
+{
+	uint32_t unplannable = 0;
+	for (size_t e = 0; e < EntryCount; ++e)
+		for (uint32_t b = 0; b + entries[e].optionalTail < entries[e].bindingCount; ++b) {
+			const AnoVkDescriptorBindingSpec& spec = entries[e].bindings[b];
+			bool typed = false;
+			for (size_t t = 0; t < TypeCount; ++t)
+				typed |= typeOrder[t] == spec.descriptorType;
+			if (!typed || spec.descriptorCount == 0)
+				++unplannable;
+		}
+	return unplannable;
+}
+
+// Sets/frame planned over one reflected binding table; identity is the table's values
+// pointer. Per-consumer coverage twin for the create-site asserts.
+template<size_t EntryCount, size_t Count>
+consteval uint32_t ano_vk_pool_planned_sets(
+	const AnoVkPoolPlanEntry (&entries)[EntryCount],
+	const AnoVkDescriptorBindingTable<Count>& table)
+{
+	uint32_t sets = 0;
+	for (size_t e = 0; e < EntryCount; ++e)
+		if (entries[e].bindings == table.values)
+			sets += entries[e].setsPerFrame;
+	return sets;
+}
+
+// Total planned sets/frame across all entries.
+template<size_t EntryCount>
+consteval uint32_t ano_vk_pool_total_sets(const AnoVkPoolPlanEntry (&entries)[EntryCount])
+{
+	uint32_t sets = 0;
+	for (size_t e = 0; e < EntryCount; ++e)
+		sets += entries[e].setsPerFrame;
+	return sets;
+}
+
+// Fold the plan: per type framesInFlight * (per-frame demand + reserve[type]);
+// maxSets = framesInFlight * (planned sets + reserveSets). Reserves are named slack;
+// validation only requires totals >= demand.
+template<size_t TypeCount, size_t EntryCount>
+consteval AnoVkPoolPlan<TypeCount> ano_vk_plan_pool(
+	const VkDescriptorType (&typeOrder)[TypeCount],
+	const AnoVkPoolPlanEntry (&entries)[EntryCount],
+	uint32_t framesInFlight, const uint32_t (&reserve)[TypeCount], uint32_t reserveSets)
+{
+	AnoVkPoolPlan<TypeCount> plan{};
+	for (size_t t = 0; t < TypeCount; ++t) {
+		plan.sizes[t].type = typeOrder[t];
+		plan.sizes[t].descriptorCount =
+			framesInFlight * (ano_vk_pool_type_demand(entries, typeOrder[t]) + reserve[t]);
+	}
+	plan.maxSets = framesInFlight * (ano_vk_pool_total_sets(entries) + reserveSets);
+	return plan;
+}
+
 #endif

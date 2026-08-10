@@ -9,11 +9,53 @@
 #include "vulkan_backend/instance/descriptor_layout_schema.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "flat.h"
+#include "graphics_contract.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
 
 #include <vulkan/vulkan.h>
+
+// Depth-only caster lane deltas for the shared graphics ladder.
+static consteval AnoGraphicsPipelineContract shadow_depth_contract()
+{
+	return {
+		// NONE: one partition mixes both sidedness lanes' casters.
+		.cullMode = VK_CULL_MODE_NONE,
+		// No rasterizer depth bias.
+		.msaaFromContext = false, // single-sample shadow atlas
+		.depthTest = VK_TRUE,
+		.depthWrite = VK_TRUE,
+		.depthCompare = VK_COMPARE_OP_LESS,
+		.maxDepthBounds = 1.0f,
+		// Two CDF-stats color attachments (MRT sublayers), blending disabled. Blur reuses statsBlend[0].
+		.colorAttachmentCount = 2,
+		.blend = {
+			{ .blendEnable = VK_FALSE,
+			  .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT },
+			{ .blendEnable = VK_FALSE,
+			  .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT },
+		},
+		// Two CDF stats color targets (MRT sublayers) + transient depth. Blur reuses statsFormat[0].
+		.colorFormats = { ANO_SHADOW_STATS_FORMAT, ANO_SHADOW_STATS_FORMAT },
+		.depthFormat = ANO_SHADOW_TRANSIENT_DEPTH_FORMAT,
+		.meshCapable = true,
+	};
+}
+
+// Fullscreen moment-prefilter deltas: single stats target, no depth.
+static consteval AnoGraphicsPipelineContract shadow_blur_contract()
+{
+	return {
+		.cullMode = VK_CULL_MODE_NONE,
+		.colorAttachmentCount = 1,
+		.blend = {
+			{ .blendEnable = VK_FALSE,
+			  .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT },
+		},
+		.colorFormats = { ANO_SHADOW_STATS_FORMAT },
+	};
+}
 
 // Dynamic shadow depth pipeline: depth-only FLAT geometry variant + shadowPass spec constant.
 // Run after ano_vk_init_pipelines.
@@ -78,77 +120,15 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 		|| !ano_pipeline_stage(VK_SHADER_STAGE_FRAGMENT_BIT, fragModule, NULL, &stages[2]))
 		return false;
 
-	VkPipelineViewportStateCreateInfo viewportState = {};
-	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewportState.viewportCount = 1;
-	viewportState.scissorCount = 1;
+	constexpr auto contract = ano_graphics_contract_checked<shadow_depth_contract()>();
+	GraphicsPipelineStorage store;
+	ano_graphics_pipeline_materialize(contract, useMesh, &store);
 
-	VkPipelineRasterizationStateCreateInfo rasterizer = {};
-	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	// NONE: one partition mixes both sidedness lanes' casters.
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
-	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	rasterizer.lineWidth = 1.0f;
-	// No rasterizer depth bias.
-
-	VkPipelineMultisampleStateCreateInfo multisampling = {};
-	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // single-sample shadow atlas
-
-	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
-	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_TRUE;
-	depthStencil.depthWriteEnable = VK_TRUE;
-	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-	depthStencil.maxDepthBounds = 1.0f;
-
-	// Two CDF-stats color attachments (MRT sublayers), blending disabled. Blur reuses statsBlend[0].
-	VkPipelineColorBlendAttachmentState statsBlend[2] = {};
-	for (int i = 0; i < 2; i++) {
-		statsBlend[i].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-		statsBlend[i].blendEnable = VK_FALSE;
-	}
-	VkPipelineColorBlendStateCreateInfo colorBlending = {};
-	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlending.attachmentCount = 2;
-	colorBlending.pAttachments = statsBlend;
-
-	VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-	VkPipelineDynamicStateCreateInfo dynamicState = {};
-	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicState.dynamicStateCount = 2;
-	dynamicState.pDynamicStates = dynamicStates;
-
-	VkPipelineVertexInputStateCreateInfo vertexInput = {};
-	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
-	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-	// Two CDF stats color targets (MRT sublayers) + transient depth. Blur reuses statsFormat[0].
-	VkFormat statsFormat[2] = { ANO_SHADOW_STATS_FORMAT, ANO_SHADOW_STATS_FORMAT };
-	VkPipelineRenderingCreateInfo renderingInfo = {};
-	renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	renderingInfo.colorAttachmentCount = 2;
-	renderingInfo.pColorAttachmentFormats = statsFormat;
-	renderingInfo.depthAttachmentFormat = ANO_SHADOW_TRANSIENT_DEPTH_FORMAT;
-
-	VkGraphicsPipelineCreateInfo pipelineInfo = {};
-	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineInfo.pNext = &renderingInfo;
+	// Runtime patches: stages, layout.
+	VkGraphicsPipelineCreateInfo& pipelineInfo = store.pipelineInfo;
 	pipelineInfo.stageCount = useTask ? 3 : 2;
 	pipelineInfo.pStages = useTask ? stages : &stages[1];
-	pipelineInfo.pVertexInputState = useMesh ? NULL : &vertexInput;
-	pipelineInfo.pInputAssemblyState = useMesh ? NULL : &inputAssembly;
-	pipelineInfo.pViewportState = &viewportState;
-	pipelineInfo.pRasterizationState = &rasterizer;
-	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pDepthStencilState = &depthStencil;
-	pipelineInfo.pColorBlendState = &colorBlending;
-	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state->prototypes[PIPELINE_FLAT].layout; // flat's sets 0/1/2 + push
-	pipelineInfo.renderPass = VK_NULL_HANDLE;
 
 	VkResult r = vkCreateGraphicsPipelines(ctx->device, state->shadowCache, 1, &pipelineInfo, NULL, &state->shadowPipeline);
 
@@ -226,41 +206,14 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 		|| !ano_pipeline_stage(VK_SHADER_STAGE_FRAGMENT_BIT, blurFrag, NULL, &blurStages[1]))
 		return false;
 
-	VkPipelineVertexInputStateCreateInfo blurVertexInput = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-	VkPipelineInputAssemblyStateCreateInfo blurIA = { .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
-	VkPipelineViewportStateCreateInfo blurVP = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		.viewportCount = 1, .scissorCount = 1 };
-	VkPipelineRasterizationStateCreateInfo blurRaster = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-		.polygonMode = VK_POLYGON_MODE_FILL, .cullMode = VK_CULL_MODE_NONE, .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE, .lineWidth = 1.0f };
-	VkPipelineMultisampleStateCreateInfo blurMS = { .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT };
-	VkPipelineColorBlendAttachmentState blurBlend = {};
-	blurBlend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
-	                         | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	VkPipelineColorBlendStateCreateInfo blurCB = { .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		.attachmentCount = 1, .pAttachments = &blurBlend };
-	VkPipelineDepthStencilStateCreateInfo blurDS = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		.depthTestEnable = VK_FALSE, .depthWriteEnable = VK_FALSE };
-	VkDynamicState blurDynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-	VkPipelineDynamicStateCreateInfo blurDyn = { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = 2, .pDynamicStates = blurDynamicStates };
-	VkFormat blurFormat = ANO_SHADOW_STATS_FORMAT;
-	VkPipelineRenderingCreateInfo blurRendering = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-		.colorAttachmentCount = 1, .pColorAttachmentFormats = &blurFormat };
+	constexpr auto blurContract = ano_graphics_contract_checked<shadow_blur_contract()>();
+	GraphicsPipelineStorage blurStore;
+	ano_graphics_pipeline_materialize(blurContract, false, &blurStore);
 
-	VkGraphicsPipelineCreateInfo blurPipeline = { .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, .pNext = &blurRendering };
+	// Runtime patches: stages, layout.
+	VkGraphicsPipelineCreateInfo& blurPipeline = blurStore.pipelineInfo;
 	blurPipeline.stageCount = 2; blurPipeline.pStages = blurStages;
-	blurPipeline.pVertexInputState = &blurVertexInput;
-	blurPipeline.pInputAssemblyState = &blurIA;
-	blurPipeline.pViewportState = &blurVP;
-	blurPipeline.pRasterizationState = &blurRaster;
-	blurPipeline.pMultisampleState = &blurMS;
-	blurPipeline.pDepthStencilState = &blurDS;
-	blurPipeline.pColorBlendState = &blurCB;
-	blurPipeline.pDynamicState = &blurDyn;
 	blurPipeline.layout = state->shadowBlurLayout;
-	blurPipeline.renderPass = VK_NULL_HANDLE;
 
 	return vkCreateGraphicsPipelines(ctx->device, state->shadowCache, 1, &blurPipeline, NULL,
 	                                 &state->shadowBlurPipeline) == VK_SUCCESS;

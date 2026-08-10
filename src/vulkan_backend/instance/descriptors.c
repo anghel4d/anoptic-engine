@@ -18,6 +18,7 @@
 #endif
 
 #include "instanceInit.h"
+#include "descriptor_layout_schema.h"
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/text_raster.h"
 
@@ -28,34 +29,87 @@ static inline uint32_t global_set_samplers(const RendererState* state)
 	return state->taskCull ? 1u : 0u;
 }
 
+// Shared-pool plan: one entry per consumer of globalDescriptorPool, sets/frame folded
+// over the reflected ANO_VK_*_BINDINGS. External consumers (text raster set + tonemap-
+// layout text overlay set, text_raster.c:804) are named entries here too. Global's
+// optional tail (task-cull Hi-Z sampler) enters only as the runtime delta below.
+// Per-view sets (global, light-cull, tonemap) x ANO_VIEW_COUNT; cull/update/scatter one/frame.
+// SSBO/frame: cull bind9 frustums + shadowsetup 5 + shadow geom 2; cull bind10 sort-key; global 12/view (bind12 LightRuntime) + lightsetup 3; text 3; UI 7.
+// Samplers/frame: tonemap/view + 4 shadow (atlas+blurX/Y+spare); Hi-Z (pyramid+depth)/mip;
+// cull bind11 pyramids/view; global bind13 pyramid/view (task-cull only); +1 text overlay tonemap (text_raster.c:912).
+// Hi-Z build set binding 1: one r32f storage-image dest per mip per view per frame.
+// + 1/frame: the text overlay raster destination.
+static constexpr AnoVkPoolPlanEntry g_sharedPoolPlan[] = {
+	ano_vk_pool_entry(ANO_VK_GLOBAL_BINDINGS, ANO_VIEW_COUNT, AnoVkGlobalSetSchema::optionalTail),
+	ano_vk_pool_entry(ANO_VK_CULL_BINDINGS<ANO_VIEW_COUNT>, 1u),
+	ano_vk_pool_entry(ANO_VK_UPDATE_BINDINGS, 1u),
+	ano_vk_pool_entry(ANO_VK_SCATTER_BINDINGS, 1u), // scatter binding 1 xform ring slice
+	ano_vk_pool_entry(ANO_VK_LIGHT_SETUP_BINDINGS, 1u),
+	ano_vk_pool_entry(ANO_VK_LIGHT_CULL_BINDINGS, ANO_VIEW_COUNT),
+	ano_vk_pool_entry(ANO_VK_TONEMAP_BINDINGS, ANO_VIEW_COUNT + 1u), // +1: text overlay set, text_raster.c:804
+	ano_vk_pool_entry(ANO_VK_HIZ_BINDINGS, ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS),
+	ano_vk_pool_entry(ANO_VK_SHADOW_SETUP_BINDINGS, 1u),
+	// +1u shadow geom set binding 3 (packed sampling viewProjs read as UBO).
+	ano_vk_pool_entry(ANO_VK_SHADOW_GEOMETRY_BINDINGS, 1u),
+	ano_vk_pool_entry(ANO_VK_SHADOW_BLUR_BINDINGS, 2u),
+	ano_vk_pool_entry(ANO_VK_TEXT_RASTER_BINDINGS, 1u),
+};
+
+enum : uint32_t { poolUbo, poolSsbo, poolDynSsbo, poolSampler, poolImage, poolTypeCount };
+static constexpr VkDescriptorType g_sharedPoolTypes[poolTypeCount] = {
+	VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+	VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+	VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+};
+// Named slack keeping pool contents identical to the historical hand-sums:
+// +2 UBO, +3 SSBO, +1 sampler (the shadow "spare"), +1 set.
+static constexpr uint32_t g_sharedPoolReserve[poolTypeCount] = { 2u, 3u, 0u, 1u, 0u };
+static constexpr uint32_t g_sharedPoolReserveSets = 1u;
+static constexpr auto g_sharedPool = ano_vk_plan_pool(g_sharedPoolTypes, g_sharedPoolPlan,
+	(uint32_t)MAX_FRAMES_IN_FLIGHT, g_sharedPoolReserve, g_sharedPoolReserveSets);
+
+// consteval-validate: every consumed binding is plannable (type in pool, fixed count);
+// per-consumer multiplicities match the allocation batches below and text_raster.c:804;
+// totals cover demand; maxSets is exactly the planned sets (+reserve).
+static_assert(ano_vk_pool_unplannable(g_sharedPoolTypes, g_sharedPoolPlan) == 0);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_GLOBAL_BINDINGS) == ANO_VIEW_COUNT);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_CULL_BINDINGS<ANO_VIEW_COUNT>) == 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_UPDATE_BINDINGS) == 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_SCATTER_BINDINGS) == 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_LIGHT_SETUP_BINDINGS) == 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_LIGHT_CULL_BINDINGS) == ANO_VIEW_COUNT);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_TONEMAP_BINDINGS) == ANO_VIEW_COUNT + 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_HIZ_BINDINGS) == ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_SHADOW_SETUP_BINDINGS) == 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_SHADOW_GEOMETRY_BINDINGS) == 1u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_SHADOW_BLUR_BINDINGS) == 2u);
+static_assert(ano_vk_pool_planned_sets(g_sharedPoolPlan, ANO_VK_TEXT_RASTER_BINDINGS) == 1u);
+static_assert([]() consteval {
+	for (uint32_t t = 0; t < poolTypeCount; ++t)
+		if (g_sharedPool.sizes[t].descriptorCount < (uint32_t)MAX_FRAMES_IN_FLIGHT
+			* ano_vk_pool_type_demand(g_sharedPoolPlan, g_sharedPoolTypes[t]))
+			return false;
+	return true;
+}());
+static_assert(g_sharedPool.maxSets == (uint32_t)MAX_FRAMES_IN_FLIGHT
+	* (ano_vk_pool_total_sets(g_sharedPoolPlan) + g_sharedPoolReserveSets));
+
 bool createDescriptorPool(VulkanContext* ctx, RendererState* state)
 { // Central to init
-	// Per-view sets (global, light-cull, tonemap) x ANO_VIEW_COUNT; cull/update/scatter one/frame.
-	VkDescriptorPoolSize poolSize[5] = {};
-	poolSize[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	// +1u shadow geom set binding 3 (packed sampling viewProjs read as UBO).
-	poolSize[0].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * (2u * ANO_VIEW_COUNT + 4u + 1u);
-	// SSBO/frame: cull bind9 frustums + shadowsetup 5 + shadow geom 2; cull bind10 sort-key; global 12/view (bind12 LightRuntime) + lightsetup 3; text 3; UI 7.
-	poolSize[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	poolSize[1].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * (16u * ANO_VIEW_COUNT + 16u + 7u + 1u + 3u + 3u + 1u + 7u);
-	poolSize[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
-	poolSize[2].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * 1; // scatter binding 1 xform ring slice
-	poolSize[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	// Samplers/frame: tonemap/view + 4 shadow (atlas+blurX/Y+spare); Hi-Z (pyramid+depth)/mip;
-	// cull bind11 pyramids/view; global bind13 pyramid/view (task-cull only); +1 text overlay tonemap (text_raster.c:912).
-	poolSize[3].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * (ANO_VIEW_COUNT + 4u + 2u * ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS
-		+ ANO_VIEW_COUNT + global_set_samplers(state) * ANO_VIEW_COUNT + 1u);
-	// Hi-Z build set binding 1: one r32f storage-image dest per mip per view per frame.
-	// + 1/frame: the text overlay raster destination.
-	poolSize[4].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-	poolSize[4].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT * (ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS + 1u);
+	VkDescriptorPoolSize poolSize[poolTypeCount];
+	for (uint32_t i = 0; i < poolTypeCount; ++i)
+		poolSize[i] = g_sharedPool.sizes[i];
+	// Runtime delta on the consteval plan: global bind13 pyramid/view (task-cull only).
+	poolSize[poolSampler].descriptorCount +=
+		(uint32_t)MAX_FRAMES_IN_FLIGHT * global_set_samplers(state) * ANO_VIEW_COUNT;
 
 	VkDescriptorPoolCreateInfo poolInfo = {};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 5;
+	poolInfo.poolSizeCount = poolTypeCount;
 	poolInfo.pPoolSizes = poolSize;
-	// maxSets/frame: blur(2) + (global+light-cull+tonemap)/view + cull/update/scatter/shadow(2) + Hi-Z mips + lightsetup + text(2).
-	poolInfo.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT * (3u * ANO_VIEW_COUNT + 9u + ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS + 2u); // +1 lightsetup, +2 text overlay
+	poolInfo.maxSets = g_sharedPool.maxSets;
 
 	if (vkCreateDescriptorPool(ctx->device, &poolInfo, NULL, &(rendererState.globalDescriptorPool)) != VK_SUCCESS)
 	{

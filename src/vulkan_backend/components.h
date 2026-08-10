@@ -8,6 +8,8 @@
 
 #include <vulkan/vulkan.h>
 #include "gpu_alloc.h"
+#include <meta>
+#include <stddef.h>
 
 /* Enums */
 
@@ -83,30 +85,158 @@ struct AnoPipelineSpec final {
 };
 struct AnoPipelineSentinel final {};
 
+// Companion init contracts, reflected by instance/{pipeline,layouts}.c and pipelines/compute.c.
+// Graphics: which builder entry point mints the prototype, and whether its material set is the bindless layout.
+enum class AnoGraphicsInitFn : uint8_t { flat, flat_twosided, flat_masked, transmission, additive, count };
+struct AnoGraphicsPipelineInit final {
+    AnoGraphicsInitFn init;
+    bool bindlessMaterialSet;
+};
+
+// Compute: descriptor-set-layout class + push-constant byte size + specialization tag.
+// external 〜 prototype minted outside ano_vk_init_compute (text_raster.c owns PIPELINE_COMPUTE_TEXTRASTER).
+enum class AnoComputeSetLayout : uint8_t {
+    update, scatter, cull, hiz, lightcull, lightsetup, shadow_setup, external
+};
+enum class AnoComputeSpecialization : uint8_t { none, mesh_shader, hiz };
+struct AnoComputePipelineContract final {
+    AnoComputeSetLayout layoutClass;
+    uint32_t pushConstantSize;
+    AnoComputeSpecialization specialization;
+};
+
 typedef enum PipelineType
 {
-    PIPELINE_FLAT [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 3, 0, ANO_PBR_FLAT_FEATURES, AnoShaderFamily::flat}]] = 0,
+    PIPELINE_FLAT [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 3, 0, ANO_PBR_FLAT_FEATURES, AnoShaderFamily::flat}]]
+        [[=AnoGraphicsPipelineInit{AnoGraphicsInitFn::flat, true}]] = 0,
     PIPELINE_PARTICLE [[=AnoPipelineSpec{AnoPipelineKind::skeleton, AnoPipelineSchedule::none, 0, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::none}]],
     PIPELINE_SDF_COMPOSITE [[=AnoPipelineSpec{AnoPipelineKind::skeleton, AnoPipelineSchedule::none, 0, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::none}]],
     PIPELINE_UI [[=AnoPipelineSpec{AnoPipelineKind::skeleton, AnoPipelineSchedule::none, 0, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::none}]],
-    PIPELINE_TRANSMISSION [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 2, 1, ANO_PBR_TRANSMISSION_FEATURES, AnoShaderFamily::transmission}]],
-    PIPELINE_ADDITIVE [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 1, 2, ANO_PBR_ADDITIVE_FEATURES, AnoShaderFamily::additive}]],
-    PIPELINE_FLAT_TWOSIDED [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 3, 3, ANO_PBR_FLAT_FEATURES | PBR_FEATURE_DOUBLE_SIDED, AnoShaderFamily::flat}]],
-    PIPELINE_FLAT_MASKED [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 3, 4, ANO_PBR_FLAT_FEATURES | PBR_FEATURE_DOUBLE_SIDED | PBR_FEATURE_ALPHA_MODE_MASK, AnoShaderFamily::flat_masked}]],
-    PIPELINE_COMPUTE_CULL [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::cull}]],
-    PIPELINE_COMPUTE_UPDATE [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::update}]],
-    PIPELINE_COMPUTE_SCATTER [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::scatter}]],
-    PIPELINE_COMPUTE_TPSORT [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::explicit_path, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::tpsort}]],
+    PIPELINE_TRANSMISSION [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 2, 1, ANO_PBR_TRANSMISSION_FEATURES, AnoShaderFamily::transmission}]]
+        [[=AnoGraphicsPipelineInit{AnoGraphicsInitFn::transmission, true}]],
+    PIPELINE_ADDITIVE [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 1, 2, ANO_PBR_ADDITIVE_FEATURES, AnoShaderFamily::additive}]]
+        [[=AnoGraphicsPipelineInit{AnoGraphicsInitFn::additive, true}]],
+    PIPELINE_FLAT_TWOSIDED [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 3, 3, ANO_PBR_FLAT_FEATURES | PBR_FEATURE_DOUBLE_SIDED, AnoShaderFamily::flat}]]
+        [[=AnoGraphicsPipelineInit{AnoGraphicsInitFn::flat_twosided, true}]],
+    PIPELINE_FLAT_MASKED [[=AnoPipelineSpec{AnoPipelineKind::graphics, AnoPipelineSchedule::frame, 3, 4, ANO_PBR_FLAT_FEATURES | PBR_FEATURE_DOUBLE_SIDED | PBR_FEATURE_ALPHA_MODE_MASK, AnoShaderFamily::flat_masked}]]
+        [[=AnoGraphicsPipelineInit{AnoGraphicsInitFn::flat_masked, true}]],
+    PIPELINE_COMPUTE_CULL [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::cull}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::cull, 0, AnoComputeSpecialization::mesh_shader}]],
+    PIPELINE_COMPUTE_UPDATE [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::update}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::update, sizeof(uint32_t), AnoComputeSpecialization::none}]],
+    PIPELINE_COMPUTE_SCATTER [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::scatter}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::scatter, sizeof(uint32_t) /* streamCount */, AnoComputeSpecialization::none}]],
+    // Compute Transparency-Sort Pipeline. Reuses the cull descriptor set layout; shares useMeshShader spec constant.
+    PIPELINE_COMPUTE_TPSORT [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::explicit_path, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::tpsort}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::cull, 0, AnoComputeSpecialization::mesh_shader}]],
     // Skeleton slots: buffers/prototype table size for them, no pipeline created yet
     PIPELINE_DECAL [[=AnoPipelineSpec{AnoPipelineKind::skeleton, AnoPipelineSchedule::none, 0, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::none}]],
     PIPELINE_SKINNED [[=AnoPipelineSpec{AnoPipelineKind::skeleton, AnoPipelineSchedule::none, 0, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::none}]],
-    PIPELINE_COMPUTE_LIGHTCULL [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::lightcull}]],
-    PIPELINE_COMPUTE_SHADOWSETUP [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::shadowsetup}]],
-    PIPELINE_COMPUTE_LIGHTSETUP [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::lightsetup}]],
-    PIPELINE_COMPUTE_HIZ [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::explicit_path, 2, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::hiz}]],
-    PIPELINE_COMPUTE_TEXTRASTER [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::explicit_path, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::textraster}]],
+    PIPELINE_COMPUTE_LIGHTCULL [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::lightcull}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::lightcull, 0, AnoComputeSpecialization::none}]],
+    PIPELINE_COMPUTE_SHADOWSETUP [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::shadowsetup}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::shadow_setup, 0, AnoComputeSpecialization::none}]],
+    PIPELINE_COMPUTE_LIGHTSETUP [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::frame, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::lightsetup}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::lightsetup, sizeof(uint32_t) /* lightCount */, AnoComputeSpecialization::none}]],
+    // Push constant 24 B: { int srcMip; ivec2 dstSize; ivec2 srcSize; }
+    PIPELINE_COMPUTE_HIZ [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::explicit_path, 2, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::hiz}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::hiz, 24, AnoComputeSpecialization::hiz}]],
+    PIPELINE_COMPUTE_TEXTRASTER [[=AnoPipelineSpec{AnoPipelineKind::compute, AnoPipelineSchedule::explicit_path, 1, ANO_NO_DRAW_SLOT, PBR_FEATURE_NONE, AnoShaderFamily::textraster}]]
+        [[=AnoComputePipelineContract{AnoComputeSetLayout::external, 0, AnoComputeSpecialization::none}]],
     PIPELINE_TYPE_COUNT [[=AnoPipelineSentinel{}]]
 } PipelineType;
+
+// Exactly one init contract per active enumerator, none on skeletons or the sentinel;
+// one builder per graphics prototype; compute contracts stay inside layout limits.
+consteval bool ano_validate_pipeline_init_contracts()
+{
+    static constexpr auto enumerators =
+        std::define_static_array(std::meta::enumerators_of(^^PipelineType));
+    bool builderSeen[static_cast<size_t>(AnoGraphicsInitFn::count)] = {};
+    template for (constexpr auto enumerator : enumerators) {
+        constexpr auto specs = std::define_static_array(
+            std::meta::annotations_of_with_type(enumerator, ^^AnoPipelineSpec));
+        constexpr auto inits = std::define_static_array(
+            std::meta::annotations_of_with_type(enumerator, ^^AnoGraphicsPipelineInit));
+        constexpr auto contracts = std::define_static_array(
+            std::meta::annotations_of_with_type(enumerator, ^^AnoComputePipelineContract));
+        if constexpr (specs.empty()) {
+            static_assert(inits.empty() && contracts.empty(),
+                "placeholder enumerators carry no init contract");
+        } else {
+            constexpr AnoPipelineSpec spec = std::meta::extract<AnoPipelineSpec>(specs[0]);
+            constexpr bool graphicsActive =
+                spec.kind == AnoPipelineKind::graphics && spec.implementationCount > 0;
+            constexpr bool computeActive =
+                spec.kind == AnoPipelineKind::compute && spec.implementationCount > 0;
+            static_assert(inits.size() == (graphicsActive ? 1u : 0u),
+                "active graphics enumerators carry exactly one AnoGraphicsPipelineInit");
+            static_assert(contracts.size() == (computeActive ? 1u : 0u),
+                "active compute enumerators carry exactly one AnoComputePipelineContract");
+            if constexpr (graphicsActive) {
+                constexpr auto builder = static_cast<size_t>(
+                    std::meta::extract<AnoGraphicsPipelineInit>(inits[0]).init);
+                static_assert(builder < static_cast<size_t>(AnoGraphicsInitFn::count));
+                if (builderSeen[builder])
+                    __builtin_abort();
+                builderSeen[builder] = true;
+            }
+            if constexpr (computeActive) {
+                constexpr auto contract =
+                    std::meta::extract<AnoComputePipelineContract>(contracts[0]);
+                static_assert(contract.pushConstantSize % sizeof(uint32_t) == 0 &&
+                    contract.pushConstantSize <= 128);
+                static_assert((contract.specialization == AnoComputeSpecialization::hiz) ==
+                    (spec.shader == AnoShaderFamily::hiz));
+                static_assert(contract.layoutClass != AnoComputeSetLayout::external ||
+                    (contract.pushConstantSize == 0 &&
+                     contract.specialization == AnoComputeSpecialization::none));
+            }
+        }
+    }
+    return true;
+}
+static_assert(ano_validate_pipeline_init_contracts());
+
+// VkSpecializationMapEntry table reflected from the spec-data struct's own members:
+// constantID FirstConstantId..FirstConstantId+N-1 in member order, offset/size from the layout.
+template<size_t Count>
+struct AnoVkSpecializationMap final {
+    VkSpecializationMapEntry entries[Count];
+    static constexpr uint32_t count = (uint32_t)Count;
+};
+
+template<class Data, uint32_t FirstConstantId = 0>
+consteval auto ano_vk_reflect_specialization_map()
+{
+    static constexpr auto members = std::define_static_array(std::meta::nonstatic_data_members_of(
+        ^^Data, std::meta::access_context::unchecked()));
+    static_assert(members.size() > 0);
+    AnoVkSpecializationMap<members.size()> result{};
+    uint32_t at = 0;
+    template for (constexpr auto member : members) {
+        result.entries[at] = {
+            .constantID = FirstConstantId + at,
+            .offset = (uint32_t)std::meta::offset_of(member).bytes,
+            .size = std::meta::size_of(std::meta::type_of(member)),
+        };
+        ++at;
+    }
+    return result;
+}
+
+// Contiguous IDs, padding-free offsets, total == sizeof(Data): pData can be the struct itself.
+template<class Data, uint32_t FirstConstantId = 0, size_t Count>
+consteval bool ano_vk_specialization_map_valid(const AnoVkSpecializationMap<Count>& map)
+{
+    uint32_t offset = 0;
+    for (uint32_t i = 0; i < Count; ++i) {
+        if (map.entries[i].constantID != FirstConstantId + i || map.entries[i].offset != offset)
+            return false;
+        offset += (uint32_t)map.entries[i].size;
+    }
+    return offset == sizeof(Data);
+}
 
 uint32_t ano_draw_pipeline_count(void);         // number of drawing types == per-camera-view draw-slot stride
 uint32_t ano_draw_slot_of(PipelineType type);   // enum -> draw slot, ANO_NO_DRAW_SLOT if it never draws

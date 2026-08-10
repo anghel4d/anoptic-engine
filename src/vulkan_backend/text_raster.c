@@ -33,25 +33,6 @@
 // Frame-data capacity: ~21k glyph instances, rewritten wholesale on text change.
 #define ANO_TEXT_FRAME_BYTES (1u << 20)
 
-// Push-constant block shared with textraster.comp (68 B, the shader may declare a
-// prefix). The ui counts stay 0 with no UI compose.
-typedef struct TextRasterPush {
-    uint32_t instanceCount;
-    uint32_t flags;
-    uint32_t extentW;
-    uint32_t extentH;
-    uint32_t originX; // dispatch region offset, pixels (tile-aligned)
-    uint32_t originY;
-    uint32_t uiPrimCount;
-    uint32_t uiClipCount;
-    uint32_t uiPaintCount;
-    int32_t  uiTileOx; // UI tile grid (TILED only), origin/extent in TILES
-    int32_t  uiTileOy; // keyed on the UI bounds alone
-    uint32_t uiTileGx;
-    uint32_t uiTileGy;
-    float    textB[4]; // pending text px AABB: tiles outside skip the glyph walk
-} TextRasterPush;
-
 // Region split of one frame buffer: OSD/pending owns [0, ANO_TEXT_WORLD_FIRST),
 // world panel next, UI glyph labels from ANO_UI_GLYPH_FIRST.
 #define ANO_TEXT_WORLD_FIRST 8192u
@@ -61,15 +42,6 @@ static_assert(ANO_TEXT_WORLD_FIRST < ANO_UI_GLYPH_FIRST
                   && (ANO_UI_GLYPH_FIRST + ANO_UI_MAX_GLYPHS) * sizeof(AnoGlyphInstance)
                          <= ANO_TEXT_FRAME_BYTES,
               "frame-buffer regions must not overlap");
-
-// Push-constant block shared with textworld.vert/.frag (96 B).
-typedef struct TextWorldPush {
-    float    mvp[4][4];   // proj * view * model, this view
-    float    panel[4];    // panel pixel W,H | panel world W,H
-    float    viewport[2]; // this view's viewport W,H in screen px (quad pad scale)
-    uint32_t first;       // == ANO_TEXT_WORLD_FIRST
-    uint32_t count;
-} TextWorldPush;
 
 // World panel: text shaped in virtual pixel space, mapped onto a world-sized quad.
 #define ANO_TEXT_PANEL_PX_W   768.0f

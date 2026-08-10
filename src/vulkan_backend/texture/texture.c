@@ -20,6 +20,7 @@
 #endif
 
 #include <anoptic_log.h>
+#include <anoptic_meta.h>
 
 extern GpuAllocator textureAllocator;
 extern GpuAllocator stagingAllocator;
@@ -66,6 +67,15 @@ uint32_t bindless_register_texture(VulkanContext* ctx, BindlessTextureArray* bta
 	vkUpdateDescriptorSets(ctx->device, 1, &descriptorWrite, 0, NULL);
 
 	return index;
+}
+
+// in: format. out: barrier aspect mask 〜 D32 -> DEPTH, D32_S8/D24_S8 -> DEPTH|STENCIL, else COLOR.
+static constexpr VkImageAspectFlags ano_vk_format_aspects(VkFormat format)
+{
+	if (format == VK_FORMAT_D32_SFLOAT) return VK_IMAGE_ASPECT_DEPTH_BIT;
+	if (format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT)
+		return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	return VK_IMAGE_ASPECT_COLOR_BIT;
 }
 
 bool transitionImageLayout(VulkanContext* ctx, VkCommandBuffer cmd, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels)
@@ -135,18 +145,7 @@ bool transitionImageLayout(VulkanContext* ctx, VkCommandBuffer cmd, VkImage imag
 	}
 
 	// Aspect follows the format.
-	if (format == VK_FORMAT_D32_SFLOAT || hasStencilComponent(format))
-	{
-		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-		if (hasStencilComponent(format))
-		{
-			barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-		}
-	} else
-	{
-		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
+	barrier.subresourceRange.aspectMask = ano_vk_format_aspects(format);
 	
 	vkCmdPipelineBarrier(
 		commandBuffer,
@@ -384,8 +383,30 @@ static bool formatFiltersLinear(VulkanContext* ctx, VkFormat format)
 	return true;
 }
 
+// Valid usage mask 〜 reflected once from TextureUsageBits; a new bit widens both accept gates.
+static constexpr TextureUsageFlags textureUsageMask = ano::reflect_bit_flags<TextureUsageBits>();
+
+// View contract 〜 one row per usage bit: which view slot the bit builds, in what format.
+typedef struct TextureViewContract {
+	TextureUsageFlags bit;
+	VkFormat format;
+	const char* tag; // log noun
+} TextureViewContract;
+static constexpr TextureViewContract textureViewContract[2] = {
+	{ TEXTURE_USE_COLOR, VK_FORMAT_R8G8B8A8_SRGB,  "Colour" },
+	{ TEXTURE_USE_DATA,  VK_FORMAT_R8G8B8A8_UNORM, "Data" },
+};
+static_assert([] consteval {
+	uint32_t bits = 0;
+	for (const TextureViewContract& row : textureViewContract) {
+		if ((row.bit & (row.bit - 1u)) != 0u || (bits & row.bit) != 0u) return false;
+		bits |= row.bit;
+	}
+	return bits == textureUsageMask;
+}(), "texture view contract must cover each usage bit exactly once");
+
 // Mutable view list order: SRGB, UNORM.
-static const VkFormat textureViewFormats[2] = { VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_UNORM };
+static constexpr VkFormat textureViewFormats[2] = { textureViewContract[0].format, textureViewContract[1].format };
 
 // in: usage. out: create-time image/blit format. COLOR -> SRGB, else UNORM.
 static VkFormat textureBaseFormat(TextureUsageFlags usage)
@@ -399,6 +420,25 @@ static uint32_t textureViewFormatCount(TextureUsageFlags usage)
 	return ((usage & TEXTURE_USE_COLOR) && (usage & TEXTURE_USE_DATA)) ? 2u : 0u;
 }
 
+// in: usage, image, mips, view slots in contract row order, fileName or NULL (log flavour).
+// out: one view per set contract bit; false 〜 logged, partial views stay for the caller's fail path.
+static bool createUsageViews(VulkanContext* ctx, VkImage image, TextureUsageFlags usage, uint32_t mipLevels,
+				VkImageView* srgbView, VkImageView* unormView, const char* fileName)
+{
+	VkImageView* const views[2] = { srgbView, unormView };
+	for (uint32_t i = 0; i < 2u; ++i)
+	{
+		if (!(usage & textureViewContract[i].bit)) continue;
+		if (!createTextureImageView(ctx, image, views[i], textureViewContract[i].format, mipLevels))
+		{
+			if (fileName) ano_log(ANO_ERROR, "%s image view creation failure: %s", textureViewContract[i].tag, fileName);
+			else ano_log(ANO_ERROR, "%s image view creation failure!", textureViewContract[i].tag);
+			return false;
+		}
+	}
+	return true;
+}
+
 AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffer cmd, TexturePackage* pkg,
 				const unsigned char* pixels, uint32_t width, uint32_t height,
 				TextureUsageFlags usage, bool keepStaging)
@@ -406,8 +446,8 @@ AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffe
 	if (pkg == NULL) return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
 	*pkg = (TexturePackage){0}; // total before first acquisition
 	// Refuse unknown/empty usage; refuse borrowed cmd without keepStaging.
-	if ((usage & ~(TextureUsageFlags)(TEXTURE_USE_COLOR | TEXTURE_USE_DATA)) != 0u
-		|| (usage & (TEXTURE_USE_COLOR | TEXTURE_USE_DATA)) == 0u
+	if ((usage & ~textureUsageMask) != 0u
+		|| (usage & textureUsageMask) == 0u
 		|| (cmd != VK_NULL_HANDLE && !keepStaging))
 		return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
 
@@ -448,16 +488,8 @@ AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffe
 	}
 
 	// Views before any vkCmd*.
-	if ((usage & TEXTURE_USE_COLOR) && !createTextureImageView(ctx, image, &srgbView, VK_FORMAT_R8G8B8A8_SRGB, mipLevels))
-	{
-		ano_log(ANO_ERROR, "Colour image view creation failure!");
+	if (!createUsageViews(ctx, image, usage, mipLevels, &srgbView, &unormView, NULL))
 		goto fail;
-	}
-	if ((usage & TEXTURE_USE_DATA) && !createTextureImageView(ctx, image, &unormView, VK_FORMAT_R8G8B8A8_UNORM, mipLevels))
-	{
-		ano_log(ANO_ERROR, "Data image view creation failure!");
-		goto fail;
-	}
 
 	if (!transitionImageLayout(ctx, cmd, image, texFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels))
 	{
@@ -502,8 +534,8 @@ AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, Tex
 	if (pkg == NULL) return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
 	*pkg = (TexturePackage){0}; // total before first acquisition
 	// Refuse unknown/empty usage; refuse borrowed cmd without keepStaging.
-	if ((usage & ~(TextureUsageFlags)(TEXTURE_USE_COLOR | TEXTURE_USE_DATA)) != 0u
-		|| (usage & (TEXTURE_USE_COLOR | TEXTURE_USE_DATA)) == 0u
+	if ((usage & ~textureUsageMask) != 0u
+		|| (usage & textureUsageMask) == 0u
 		|| (cmd != VK_NULL_HANDLE && !keepStaging))
 		return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
 
@@ -558,16 +590,8 @@ AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, Tex
 	}
 
 	// Views before any vkCmd*.
-	if ((usage & TEXTURE_USE_COLOR) && !createTextureImageView(ctx, image, &srgbView, VK_FORMAT_R8G8B8A8_SRGB, texture.mipLevels))
-	{
-		ano_log(ANO_ERROR, "Colour image view creation failure: %s", fileName);
+	if (!createUsageViews(ctx, image, usage, texture.mipLevels, &srgbView, &unormView, fileName))
 		goto fail;
-	}
-	if ((usage & TEXTURE_USE_DATA) && !createTextureImageView(ctx, image, &unormView, VK_FORMAT_R8G8B8A8_UNORM, texture.mipLevels))
-	{
-		ano_log(ANO_ERROR, "Data image view creation failure: %s", fileName);
-		goto fail;
-	}
 
 	if (!transitionImageLayout(ctx, cmd, image, texFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, texture.mipLevels))
 	{

@@ -21,6 +21,8 @@
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/text_raster.h"
 
+#include "extension_contract.h"
+
 
 VkResult createInstance(VulkanContext* ctx) // Central component of the init process
 {
@@ -168,21 +170,24 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 
 
 
+// Instance-scope extension contracts, appended after the GLFW-required set.
+inline constexpr AnoVkExtensionContract ANO_VK_INSTANCE_EXTENSIONS[] = {
+	{ VK_EXT_DEBUG_UTILS_EXTENSION_NAME, AnoVkExtensionRule::debug_build },
+	// MoltenVK portability extension
+	{ VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, AnoVkExtensionRule::apple_platform },
+};
+
 const char** getRequiredExtensions(uint32_t* extensionsCount) // Returns extensions required by GLFW + optional validators
 {
 	uint32_t glfwExtensionCount = 0;
 	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
 	uint32_t totalExtensionCount = glfwExtensionCount;
-
-	#ifdef DEBUG_BUILD
-	totalExtensionCount += 1;
-	#endif
-
-	#ifdef __APPLE__
-	// MoltenVK portability extension
-	totalExtensionCount += 1;
-	#endif
+	for (const AnoVkExtensionContract& contract : ANO_VK_INSTANCE_EXTENSIONS)
+	{
+		if (ano_vk_extension_active(contract.rule))
+			totalExtensionCount += 1;
+	}
 
 	const char** extensions = static_cast<const char**>(calloc(totalExtensionCount, sizeof(char*)));
 
@@ -192,13 +197,11 @@ const char** getRequiredExtensions(uint32_t* extensionsCount) // Returns extensi
 		extensions[idx++] = glfwExtensions[i];
 	}
 
-	#ifdef DEBUG_BUILD
-	extensions[idx++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-	#endif
-
-	#ifdef __APPLE__
-	extensions[idx++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
-	#endif
+	for (const AnoVkExtensionContract& contract : ANO_VK_INSTANCE_EXTENSIONS)
+	{
+		if (ano_vk_extension_active(contract.rule))
+			extensions[idx++] = contract.name;
+	}
 
 	*extensionsCount = totalExtensionCount;
 

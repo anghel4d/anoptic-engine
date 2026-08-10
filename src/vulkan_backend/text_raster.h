@@ -16,6 +16,34 @@
 #define ANO_TEXT_RASTER_NODITHER 0x4u // skip the 1-LSB store dither (exact self-test compare)
 #define ANO_TEXT_RASTER_TILED    0x8u // UI prims come from per-tile lists, not the brute scan
 
+// Push-constant block shared with textraster.comp (68 B, the shader may declare a
+// prefix). The ui counts stay 0 with no UI compose.
+typedef struct TextRasterPush {
+    uint32_t instanceCount;
+    uint32_t flags;
+    uint32_t extentW;
+    uint32_t extentH;
+    uint32_t originX; // dispatch region offset, pixels (tile-aligned)
+    uint32_t originY;
+    uint32_t uiPrimCount;
+    uint32_t uiClipCount;
+    uint32_t uiPaintCount;
+    int32_t  uiTileOx; // UI tile grid (TILED only), origin/extent in TILES
+    int32_t  uiTileOy; // keyed on the UI bounds alone
+    uint32_t uiTileGx;
+    uint32_t uiTileGy;
+    float    textB[4]; // pending text px AABB: tiles outside skip the glyph walk
+} TextRasterPush;
+
+// Push-constant block shared with textworld.vert/.frag (96 B).
+typedef struct TextWorldPush {
+    float    mvp[4][4];   // proj * view * model, this view
+    float    panel[4];    // panel pixel W,H | panel world W,H
+    float    viewport[2]; // this view's viewport W,H in screen px (quad pad scale)
+    uint32_t first;       // == ANO_TEXT_WORLD_FIRST
+    uint32_t count;
+} TextWorldPush;
+
 // Render-thread init. Always true: failure logs and clears textOverlay.
 bool ano_vk_text_init(VulkanContext* ctx, RendererState* state);
 

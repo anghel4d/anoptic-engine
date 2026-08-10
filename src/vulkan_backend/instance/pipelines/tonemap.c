@@ -8,11 +8,29 @@
 #include <anoptic_log.h>
 #include "vulkan_backend/instance/descriptor_layout_schema.h"
 #include "vulkan_backend/instance/pipeline.h"
+#include "graphics_contract.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
 
 #include <vulkan/vulkan.h>
+
+// Fullscreen encode deltas for the shared graphics ladder.
+static consteval AnoGraphicsPipelineContract tonemap_contract()
+{
+	return {
+		.cullMode = VK_CULL_MODE_NONE,
+		// Writes single-sample swapchain directly, no MSAA.
+		.msaaFromContext = false,
+		.colorAttachmentCount = 1,
+		.blend = {
+			{ .blendEnable = VK_FALSE,
+			  .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT },
+		},
+		// Swapchain LDR format, no depth attachment.
+		.colorFormatFromState = true,
+	};
+}
 
 // Fullscreen tonemap pass: encodes the HDR resolve target to the swapchain.
 // in:  ctx, state (imageFormat = swapchain target format must be set)
@@ -66,72 +84,16 @@ bool ano_vk_init_tonemap(VulkanContext* ctx, RendererState* state)
 		return false;
 
 	// No vertex buffers, fullscreen triangle from gl_VertexIndex.
-	VkPipelineVertexInputStateCreateInfo vertexInput = {};
-	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	constexpr auto contract = ano_graphics_contract_checked<tonemap_contract()>();
+	GraphicsPipelineStorage store;
+	ano_graphics_pipeline_materialize(contract, false, &store);
 
-	VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
-	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-	VkPipelineViewportStateCreateInfo viewportState = {};
-	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewportState.viewportCount = 1;
-	viewportState.scissorCount = 1;
-
-	VkPipelineRasterizationStateCreateInfo rasterizer = {};
-	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
-	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	rasterizer.lineWidth = 1.0f;
-
-	// Writes single-sample swapchain directly, no MSAA.
-	VkPipelineMultisampleStateCreateInfo multisampling = {};
-	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-	VkPipelineColorBlendAttachmentState blendAttachment = {};
-	blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	blendAttachment.blendEnable = VK_FALSE;
-
-	VkPipelineColorBlendStateCreateInfo colorBlending = {};
-	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlending.attachmentCount = 1;
-	colorBlending.pAttachments = &blendAttachment;
-
-	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
-	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_FALSE;
-	depthStencil.depthWriteEnable = VK_FALSE;
-
-	VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-	VkPipelineDynamicStateCreateInfo dynamicState = {};
-	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-	dynamicState.dynamicStateCount = 2;
-	dynamicState.pDynamicStates = dynamicStates;
-
-	// Swapchain LDR format, no depth attachment.
-	VkFormat colorFormat = state->imageFormat;
-	VkPipelineRenderingCreateInfo renderingInfo = {};
-	renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	renderingInfo.colorAttachmentCount = 1;
-	renderingInfo.pColorAttachmentFormats = &colorFormat;
-
-	VkGraphicsPipelineCreateInfo pipelineInfo = {};
-	pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineInfo.pNext = &renderingInfo;
+	// Runtime patches: swapchain format, stages, layout.
+	store.colorFormats[0] = state->imageFormat;
+	VkGraphicsPipelineCreateInfo& pipelineInfo = store.pipelineInfo;
 	pipelineInfo.stageCount = 2;
 	pipelineInfo.pStages = stages;
-	pipelineInfo.pVertexInputState = &vertexInput;
-	pipelineInfo.pInputAssemblyState = &inputAssembly;
-	pipelineInfo.pViewportState = &viewportState;
-	pipelineInfo.pRasterizationState = &rasterizer;
-	pipelineInfo.pMultisampleState = &multisampling;
-	pipelineInfo.pDepthStencilState = &depthStencil;
-	pipelineInfo.pColorBlendState = &colorBlending;
-	pipelineInfo.pDynamicState = &dynamicState;
 	pipelineInfo.layout = state->tonemapLayout;
-	pipelineInfo.renderPass = VK_NULL_HANDLE;
 
 	VkResult r = vkCreateGraphicsPipelines(ctx->device, state->tonemapCache, 1, &pipelineInfo, NULL, &state->tonemapPipeline);
 	return r == VK_SUCCESS;

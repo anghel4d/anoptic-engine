@@ -8,9 +8,7 @@
 #include <anoptic_log.h>
 #include "pipeline.h"
 #include "descriptor_layout_schema.h"
-#include "pipelines/flat.h"
-#include "pipelines/transmission.h"
-#include "pipelines/additive.h"
+#include <meta>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -160,11 +158,19 @@ bool ano_vk_init_material_layouts(VulkanContext* ctx, RendererState* state)
 		return false;
 	}
 
-	state->prototypes[PIPELINE_FLAT].descriptorLayout = state->bindlessTextures.layout;
-	state->prototypes[PIPELINE_FLAT_TWOSIDED].descriptorLayout = state->bindlessTextures.layout;
-	state->prototypes[PIPELINE_FLAT_MASKED].descriptorLayout = state->bindlessTextures.layout;
-	state->prototypes[PIPELINE_TRANSMISSION].descriptorLayout = state->bindlessTextures.layout;
-	state->prototypes[PIPELINE_ADDITIVE].descriptorLayout = state->bindlessTextures.layout;
+	// Every graphics prototype whose init contract claims the bindless material set shares this layout.
+	static constexpr auto enumerators =
+		std::define_static_array(std::meta::enumerators_of(^^PipelineType));
+	template for (constexpr auto enumerator : enumerators) {
+		constexpr auto inits = std::define_static_array(
+			std::meta::annotations_of_with_type(enumerator, ^^AnoGraphicsPipelineInit));
+		if constexpr (!inits.empty()) {
+			if constexpr (std::meta::extract<AnoGraphicsPipelineInit>(inits[0]).bindlessMaterialSet) {
+				constexpr PipelineType type = [:enumerator:];
+				state->prototypes[type].descriptorLayout = state->bindlessTextures.layout;
+			}
+		}
+	}
 
 	return true;
 }

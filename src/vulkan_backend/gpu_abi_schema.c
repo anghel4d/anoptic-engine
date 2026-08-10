@@ -8,6 +8,7 @@
 #include <type_traits>
 
 #include "vulkan_backend/vulkanMaster.h"
+#include "vulkan_backend/text_raster.h"
 
 namespace ano::gpu_abi {
 
@@ -134,6 +135,39 @@ static constexpr char ano_ui_abi_glsl[] = {
 , 0
 };
 
+// UTF-8 shader comments carry bytes >= 0x80 〜 widen through unsigned char to dodge -Wnarrowing.
+template<size_t N>
+struct AnoGlslText final {
+    char data[N];
+};
+
+template<size_t N>
+consteval AnoGlslText<N> ano_gpu_glsl_text(const unsigned char (&bytes)[N])
+{
+    AnoGlslText<N> out = {};
+    for (size_t i = 0; i < N; ++i)
+        out.data[i] = static_cast<char>(bytes[i]);
+    return out;
+}
+
+static constexpr unsigned char ano_textraster_comp_bytes[] = {
+#embed "../../resources/shaders/textraster.comp"
+, 0
+};
+static constexpr auto ano_textraster_comp_glsl = ano_gpu_glsl_text(ano_textraster_comp_bytes);
+
+static constexpr unsigned char ano_textworld_vert_bytes[] = {
+#embed "../../resources/shaders/textworld.vert"
+, 0
+};
+static constexpr auto ano_textworld_vert_glsl = ano_gpu_glsl_text(ano_textworld_vert_bytes);
+
+static constexpr unsigned char ano_textworld_frag_bytes[] = {
+#embed "../../resources/shaders/textworld.frag"
+, 0
+};
+static constexpr auto ano_textworld_frag_glsl = ano_gpu_glsl_text(ano_textworld_frag_bytes);
+
 consteval uint32_t ano_gpu_align_up(uint32_t value, uint32_t alignment)
 {
     return (value + alignment - 1u) & ~(alignment - 1u);
@@ -186,13 +220,40 @@ consteval size_t ano_gpu_struct_body(std::string_view source, std::string_view w
     return std::string_view::npos;
 }
 
-consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view name, AnoGpuLayout layout)
+// Finds "layout(... push_constant ...) uniform <wanted> {"; returns the offset just past '{'.
+consteval size_t ano_gpu_push_body(std::string_view source, std::string_view wanted)
+{
+    AnoGpuCursor cursor = { source, 0 };
+    while (cursor.at < source.size()) {
+        const size_t before = cursor.at;
+        if (cursor.identifier() == "layout" && cursor.take('(')) {
+            bool push = false;
+            for (;;) {
+                cursor.skip();
+                if (cursor.at >= source.size())
+                    return std::string_view::npos;
+                if (cursor.take(')'))
+                    break;
+                const std::string_view token = cursor.identifier();
+                if (token == "push_constant")
+                    push = true;
+                if (token.empty())
+                    ++cursor.at;
+            }
+            if (push && cursor.identifier() == "uniform" &&
+                cursor.identifier() == wanted && cursor.take('{'))
+                return cursor.at;
+        }
+        if (cursor.at == before)
+            ++cursor.at;
+    }
+    return std::string_view::npos;
+}
+
+// in: body 〜 offset just past the opening '{'. named 〜 an instance identifier may precede ';'.
+consteval AnoGpuStruct ano_gpu_parse_body(std::string_view source, size_t body, AnoGpuLayout layout, bool named)
 {
     AnoGpuStruct result = {};
-    const size_t body = ano_gpu_struct_body(source, name);
-    if (body == std::string_view::npos)
-        return result;
-
     AnoGpuCursor cursor = { source, body };
     uint32_t offset = 0;
     uint32_t structAlignment = layout == AnoGpuLayout::std140 ? 16u : 1u;
@@ -237,8 +298,18 @@ consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view n
 
     result.alignment = structAlignment;
     result.size = ano_gpu_align_up(offset, structAlignment);
+    if (named)
+        cursor.identifier();
     result.valid = cursor.take(';');
     return result;
+}
+
+consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view name, AnoGpuLayout layout)
+{
+    const size_t body = ano_gpu_struct_body(source, name);
+    if (body == std::string_view::npos)
+        return {};
+    return ano_gpu_parse_body(source, body, layout, false);
 }
 
 template<class T>
@@ -314,6 +385,58 @@ consteval bool ano_gpu_schema_matches(std::string_view source, std::string_view 
     return valid;
 }
 
+// Push blocks flatten both sides to 4-byte scalar lanes 〜 GLSL may pack what C splits
+// (uvec2 extent <-> extentW/extentH) and may declare only a prefix of the C struct.
+// Every GLSL lane must match the C lane at the same index: same scalar, same byte offset.
+template<class T>
+consteval bool ano_gpu_push_matches(std::string_view source, std::string_view name)
+{
+    if (!std::is_standard_layout_v<T> || !std::is_trivially_copyable_v<T> || std::is_polymorphic_v<T>)
+        return false;
+
+    const size_t body = ano_gpu_push_body(source, name);
+    if (body == std::string_view::npos)
+        return false;
+    const AnoGpuStruct gpu = ano_gpu_parse_body(source, body, AnoGpuLayout::std430, true);
+    if (!gpu.valid || !gpu.count)
+        return false;
+
+    // GPU lanes; padded strides (field bytes != components * 4) are refused.
+    AnoGpuScalar laneScalar[128] = {};
+    uint32_t laneOffset[128] = {};
+    uint32_t laneCount = 0;
+    for (uint32_t i = 0; i < gpu.count; ++i) {
+        const AnoGpuField field = gpu.fields[i];
+        if (field.size != field.components * 4u ||
+            laneCount + field.components > sizeof(laneScalar) / sizeof(laneScalar[0]))
+            return false;
+        for (uint32_t c = 0; c < field.components; ++c) {
+            laneScalar[laneCount] = field.scalar;
+            laneOffset[laneCount] = field.offset + c * 4u;
+            ++laneCount;
+        }
+    }
+
+    static constexpr auto members = std::define_static_array(
+        std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked()));
+    uint32_t lane = 0;
+    bool valid = true;
+    template for (constexpr std::meta::info member : members) {
+        using Member = [:std::meta::type_of(member):];
+        constexpr AnoGpuType cpu = ano_gpu_cpp_type<Member>();
+        valid = valid && cpu.scalar != AnoGpuScalar::invalid && cpu.size == cpu.components * 4u;
+        for (uint32_t c = 0; c < cpu.components; ++c, ++lane) {
+            if (lane >= laneCount)
+                continue;
+            valid = valid &&
+                laneScalar[lane] == cpu.scalar &&
+                static_cast<uint64_t>(laneOffset[lane]) * 8u ==
+                    std::meta::offset_of(member).total_bits() + static_cast<uint64_t>(c) * 32u;
+        }
+    }
+    return valid && laneCount <= lane;
+}
+
 static_assert(ano_gpu_schema_matches<Vertex>(ano_gpu_abi_glsl, "PackedVertex"),
               "GPU ABI drift: Vertex <-> PackedVertex");
 static_assert(ano_gpu_schema_matches<GpuEntityInfo>(ano_gpu_abi_glsl, "EntityInfo"),
@@ -356,5 +479,11 @@ static_assert(ano_gpu_schema_matches<AnoUiPaint>(ano_ui_abi_glsl, "UiPaint"),
               "GPU ABI drift: AnoUiPaint <-> UiPaint");
 static_assert(ano_gpu_schema_matches<AnoUiStop>(ano_ui_abi_glsl, "UiStop"),
               "GPU ABI drift: AnoUiStop <-> UiStop");
+static_assert(ano_gpu_push_matches<TextRasterPush>(ano_textraster_comp_glsl.data, "TextRasterPush"),
+              "GPU ABI drift: TextRasterPush <-> textraster.comp");
+static_assert(ano_gpu_push_matches<TextWorldPush>(ano_textworld_vert_glsl.data, "TextWorldPush"),
+              "GPU ABI drift: TextWorldPush <-> textworld.vert");
+static_assert(ano_gpu_push_matches<TextWorldPush>(ano_textworld_frag_glsl.data, "TextWorldPush"),
+              "GPU ABI drift: TextWorldPush <-> textworld.frag");
 
 }
