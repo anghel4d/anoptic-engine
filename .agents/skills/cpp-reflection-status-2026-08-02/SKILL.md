@@ -1,6 +1,6 @@
 ---
 name: cpp-reflection-status-2026-08-02
-description: Timestamped, verified status and operating doctrine for adopted C++26 reflection on GCC 16.1. Use whenever Codex needs to determine which C++ reflection, std::meta, annotations, expansion statements, splicing, ordinary constexpr/consteval compile-time programming, static-data generation, aggregate generation, or reflection error-handling features are standardized and available; when designing reflection-driven code; when replacing template metaprogramming, traits, macros, X-macros, registries, or external generators; or when checking whether a proposed reflection technique works today.
+description: Manual, timestamped capability reference for adopted C++26 reflection on GCC 16.1. Invoke only when the user explicitly names $cpp-reflection-status-2026-08-02 or explicitly asks to load this status skill; do not infer invocation from mentions of reflection, std::meta, constexpr, consteval, annotations, generation, schemas, templates, registries, compiler support, or ordinary reflection implementation and review.
 ---
 
 # C++26 Reflection Status - 2026-08-02

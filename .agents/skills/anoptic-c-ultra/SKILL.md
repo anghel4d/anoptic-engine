@@ -1,6 +1,6 @@
 ---
 name: anoptic-c-ultra
-description: Apply Anoptic's safe, C-like C++26 doctrine to implementation, review, and architecture. Use for engine code, compile-time programming, reflection-driven generation, schemas, foreign APIs, safety, layout, and performance-sensitive C++ design.
+description: Manual Anoptic safe, C-like C++26 doctrine for implementation, review, and architecture. Invoke only when the user explicitly names $anoptic-c-ultra or explicitly asks to load this doctrine; do not infer invocation from ordinary engine, C++, constexpr, reflection, schema, safety, layout, or performance work.
 ---
 
 # Doctrine

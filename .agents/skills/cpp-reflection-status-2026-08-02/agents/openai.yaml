@@ -4,4 +4,4 @@ interface:
   default_prompt: "Use $cpp-reflection-status-2026-08-02 to solve this with ordinary constexpr/consteval computation and the strongest standardized, GCC-supported reflection and generation facilities."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false
