@@ -97,11 +97,13 @@
 !/.github/**/*.yml
 
 # Claude harness: shared settings, skills, hooks, tools, agents; settings.local.json stays local
+!/CLAUDE.md
 !/.claude/
 !/.claude/settings.json
 !/.claude/settings.json.bak
 !/.claude/skills/
 !/.claude/skills/**
+!/.claude/skills/**/SKILL.md
 !/.claude/hooks/
 !/.claude/hooks/**
 !/.claude/tools/
@@ -111,12 +113,15 @@
 !/.claude/agents/**/*.md
 
 # Codex harness: repository-owned skills
+!/AGENTS.md
 !/.agents/
 !/.agents/skills/
 !/.agents/skills/anoptic-c-ultra/
 !/.agents/skills/anoptic-c-ultra/**
+!/.agents/skills/anoptic-c-ultra/SKILL.md
 !/.agents/skills/cpp-reflection-status-2026-08-02/
 !/.agents/skills/cpp-reflection-status-2026-08-02/**
+!/.agents/skills/cpp-reflection-status-2026-08-02/SKILL.md
 
 # Junk the wide grants above must not readmit (parity with the pre-whitelist shapes)
 .DS_Store
@@ -158,10 +163,4 @@ Pipfile.lock
 poetry.lock
 llms.txt
 llms-full.txt
-CLAUDE.md
-AGENTS.md
 AGENTS.override.md
-SKILL.md
-!/.claude/skills/**/SKILL.md
-!/.agents/skills/anoptic-c-ultra/SKILL.md
-!/.agents/skills/cpp-reflection-status-2026-08-02/SKILL.md
