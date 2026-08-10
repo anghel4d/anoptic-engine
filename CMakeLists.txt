@@ -113,6 +113,7 @@ add_custom_target(ano_scrub
 
 option(ANOPTIC_TESTS "Build the Anoptic test suite" OFF)
 option(ANOPTIC_HEADLESS "Build without the Vulkan renderer" OFF)
+option(ANOPTIC_ENGINE_MUSIC "Start MusicGen in the graphical engine" OFF)
 set(ANOPTIC_SANITIZE "" CACHE STRING "Sanitizer for test builds: asan, tsan, or empty")
 
 # Sanitizer flags
@@ -330,6 +331,9 @@ endif()
 # anopticengine: links anoptic_render, or anoptic_core when headless.
 if(ANOPTIC_HEADLESS OR Vulkan_FOUND)
     add_executable(anopticengine ./src/engine/main.c)
+    if(ANOPTIC_ENGINE_MUSIC)
+        target_compile_definitions(anopticengine PRIVATE ANOPTIC_ENGINE_MUSIC=1)
+    endif()
     if(Vulkan_FOUND)
         target_link_libraries(anopticengine PRIVATE anoptic_render)
 

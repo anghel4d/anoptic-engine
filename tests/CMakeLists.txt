@@ -282,6 +282,33 @@ target_link_libraries(anotest_music PRIVATE anoptic_core)
 add_test(NAME anoptic_music COMMAND anotest_music)
 set_tests_properties(anoptic_music PROPERTIES TIMEOUT 120 LABELS "unit;concurrency")
 
+# Audio, synth, and MusicGen suites are manual opt-ins, like logbench. Keep every
+# executable built so the coverage cannot rot, but never run one from default ctest.
+set(ANO_OPTIONAL_AUDIO_SYNTH_TESTS
+        anoptic_audio
+        anoptic_audiotone
+        anoptic_audioscene
+        anoptic_audiodsp
+        anoptic_synth
+        anoptic_musichost
+        anoptic_synthlive
+        anoptic_musicdrive
+        anoptic_musicscene
+        anoptic_bridgebench
+        anoptic_audiomixbench
+        anoptic_synthscene
+        anoptic_music)
+set_tests_properties(${ANO_OPTIONAL_AUDIO_SYNTH_TESTS} PROPERTIES DISABLED TRUE)
+set_property(TEST
+        anoptic_audio
+        anoptic_audiodsp
+        anoptic_synth
+        anoptic_musichost
+        anoptic_synthlive
+        anoptic_musicdrive
+        anoptic_music
+        APPEND PROPERTY LABELS optional)
+
 # Testing for Vulkan Lifecycle
 if(TARGET anoptic_render)
     # Stage shaders/assets into this binary dir (vk tests resolve exe-relative, exes live here).

@@ -20,8 +20,8 @@
 #include <anoptic_render.h>
 #include <anoptic_text.h> // logic-side shaping over anoRenderTextBake()
 #include <anoptic_ui.h>
-// Composer runs INSIDE the audio callback (src/music/ANOPTIC_MUSICGEN.md).
-// Logic steers over the audio bridge; never touches the composer.
+// MusicGen is build-time opt-in through ANOPTIC_ENGINE_MUSIC. When enabled,
+// the composer runs inside the audio callback and logic only uses the bridge.
 #include <anoptic_audio.h>
 #include <anoptic_music.h>
 #include <anoptic_synth.h>
@@ -357,6 +357,7 @@ static AnoRenderSubmitResult submit_menu(AnoRenderBridge* bridge, const AnoFontB
 
 /* Music World */
 
+#if defined(ANOPTIC_ENGINE_MUSIC)
 // Main-thread bring-up before logic producer; teardown after join. No submit may race destruction.
 // Composer on audio thread (mixer callback), two bars ahead. Logic talks only through the audio bridge.
 
@@ -476,6 +477,7 @@ static void music_world_stop(bool drain)
 	g_synth = NULL;
 	g_music = NULL;
 }
+#endif
 
 /* Music Panel */
 
@@ -847,7 +849,7 @@ hudDone:
 	float    barVpH = 0.0f;          // bar layout height
 
 	// Music panel: layout + input. Steers via commands; listens on the audio bridge.
-	AnoAudioBridge* ab = anoAudioBridge(); // NULL if music_world_start failed
+	AnoAudioBridge* ab = anoAudioBridge(); // NULL when MusicGen is disabled or startup failed
 	MusicState mus = { .valence = 0.30f, .energy = 0.35f, .tension = 0.20f, .bar = -1 };
 	bool musicVisible = false, musicDirty = false, affectDirty = false, flashOn = false;
 	uint64_t musicRetryAt = 0; // OOM cooldown stamp
@@ -1160,16 +1162,20 @@ int main()
         return -1;
     }
 
+#if defined(ANOPTIC_ENGINE_MUSIC)
     // Audio world before the producer. false -> silent run.
     if (!music_world_start())
         ano_log(ANO_WARN, "Music: the audio world did not come up; running silent.");
+#endif
 
     // Logic/ECS master: sole render-command producer.
     anothread_t logicThread;
     if (ano_thread_create(&logicThread, NULL, anoLogicThreadMain, NULL) != 0)
     {
         ano_log(ANO_FATAL, "Failed to spawn logic thread.");
+#if defined(ANOPTIC_ENGINE_MUSIC)
         music_world_stop(true);
+#endif
         unInitVulkan();
         return -1;
     }
@@ -1185,8 +1191,10 @@ int main()
     atomic_store(&g_logicShouldStop, true);
     ano_thread_join(logicThread, NULL);
 
-    // Producer quiesced; only then destroy the audio bridge.
+    // Producer quiesced; only then destroy the optional audio bridge.
+#if defined(ANOPTIC_ENGINE_MUSIC)
     music_world_stop(true);
+#endif
 
     unInitVulkan();
 #else
