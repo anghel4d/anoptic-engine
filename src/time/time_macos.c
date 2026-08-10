@@ -9,6 +9,7 @@
 
 #if defined(__APPLE__)
 #include "anoptic_time.h"
+#include "time_scale.h"
 #include <mach/mach_time.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -60,16 +61,7 @@ uint64_t ano_timestamp_ticks() {
 
 // Convert raw mach ticks (value or delta) to nanoseconds, overflow-safe via the cached timebase.
 uint64_t ano_ticks_to_ns(uint64_t ticks) {
-
-    uint64_t freq = timebase_freq();
-
-    // Split into seconds and sub-seconds to scale without overflow.
-    uint64_t largePart = ticks / freq;    // Seconds
-    uint64_t smallPart = ticks % freq;    // Sub-seconds
-
-    // Recombine the two parts.
-    smallPart = smallPart * 1000000000LL / freq;
-    return smallPart + (largePart * 1000000000LL);
+    return ano::time_scale::ticks_to_ns(ticks, timebase_freq());
 }
 
 uint64_t ano_timestamp_raw() {

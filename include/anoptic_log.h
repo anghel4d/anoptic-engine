@@ -17,6 +17,21 @@
 #include <stdarg.h>
 
 #ifdef __cplusplus
+#define ANO_LOG_META(...) [[=__VA_ARGS__]]
+// Per-severity contract, reflected in src/log/log_core.c into the display/route/color tables.
+// pad: 5-char display cell. color: ANSI prefix, empty = uncolored. route: default when no sink named.
+// useStderr: terminal split, must equal (level >= ANO_ERROR).
+struct AnoLogLevelContract final {
+    char pad[6];
+    char color[8];
+    unsigned char route;
+    bool useStderr;
+};
+#else
+#define ANO_LOG_META(...)
+#endif
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -30,14 +45,6 @@ extern "C" {
 
 /* Types */
 
-// Severity ascending.
-typedef enum {
-    ANO_INFO = 0,
-    ANO_WARN,
-    ANO_ERROR,
-    ANO_FATAL
-} ano_loglevel_t;
-
 // Route: when-where a record lands.
 typedef enum {
     ANO_ROUTE_DEFAULT = 0,           // use the level's configured route
@@ -46,6 +53,14 @@ typedef enum {
     ANO_BOTH = ANO_FILE | ANO_TERM,
     ANO_NOW  = 1 << 2,              // sync: drain, write-through, fsync if file open
 } ano_logroute_t;
+
+// Severity ascending. ANO_LOG_META carries each level's contract (C sees a plain enum).
+typedef enum {
+    ANO_INFO  ANO_LOG_META(AnoLogLevelContract{"INFO ", "",           ANO_FILE,           false}) = 0,
+    ANO_WARN  ANO_LOG_META(AnoLogLevelContract{"WARN ", "\x1b[33m",   ANO_FILE,           false}),   // yellow
+    ANO_ERROR ANO_LOG_META(AnoLogLevelContract{"ERROR", "\x1b[31m",   ANO_FILE,           true}),    // red
+    ANO_FATAL ANO_LOG_META(AnoLogLevelContract{"FATAL", "\x1b[1;31m", ANO_BOTH | ANO_NOW, true})     // bold red
+} ano_loglevel_t;
 
 
 /* Lifecycle Functions */
@@ -94,6 +109,9 @@ void ano_log_flush(void);
     return static_cast<ano_logroute_t>(
         static_cast<unsigned>(left) | static_cast<unsigned>(right));
 }
+
+// Consteval format-plan compiler + typed callsite wrapper (C-invisible).
+#include <anoptic_log_plan.h>
 #endif
 
 
@@ -103,16 +121,32 @@ void ano_log_flush(void);
 // _rlog : level + route
 // _olog : level + callsite file/line
 // _rolog: level + route + callsite
+// C++: format LITERALS compile through ano::logplan::write (typed capture, plan-executing
+// drain); dynamic formats call ano_log_write directly. C keeps the variadic passthrough.
+#ifdef __cplusplus
+#define ano_log(level, fmt, ...)            (::ano::logplan::write<fmt>((level), ANO_ROUTE_DEFAULT, NULL, 0 __VA_OPT__(,) __VA_ARGS__))
+#define ano_rlog(level, route, fmt, ...)    (::ano::logplan::write<fmt>((level), (route), NULL, 0 __VA_OPT__(,) __VA_ARGS__))
+#define ano_olog(level, fmt, ...)           (::ano::logplan::write<fmt>((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
+#define ano_rolog(level, route, fmt, ...)   (::ano::logplan::write<fmt>((level), (route), __FILE_NAME__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
+#else
 #define ano_log(level, ...)                 ano_log_write((level), ANO_ROUTE_DEFAULT, NULL, 0, __VA_ARGS__)
 #define ano_rlog(level, route, ...)         ano_log_write((level), (route), NULL, 0, __VA_ARGS__)
 #define ano_olog(level, ...)                ano_log_write((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, __VA_ARGS__)
 #define ano_rolog(level, route, ...)        ano_log_write((level), (route), __FILE_NAME__, __LINE__, __VA_ARGS__)
+#endif
 
 #ifdef DEBUG_BUILD
+#ifdef __cplusplus
+#define ano_debug_log(level, fmt, ...)          (::ano::logplan::write<fmt>((level), ANO_ROUTE_DEFAULT, NULL, 0 __VA_OPT__(,) __VA_ARGS__))
+#define ano_debug_rlog(level, route, fmt, ...)  (::ano::logplan::write<fmt>((level), (route), NULL, 0 __VA_OPT__(,) __VA_ARGS__))
+#define ano_debug_olog(level, fmt, ...)         (::ano::logplan::write<fmt>((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
+#define ano_debug_rolog(level, route, fmt, ...) (::ano::logplan::write<fmt>((level), (route), __FILE_NAME__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
+#else
 #define ano_debug_log(level, ...)           ano_log_write((level), ANO_ROUTE_DEFAULT, NULL, 0, __VA_ARGS__)
 #define ano_debug_rlog(level, route, ...)   ano_log_write((level), (route), NULL, 0, __VA_ARGS__)
 #define ano_debug_olog(level, ...)          ano_log_write((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, __VA_ARGS__)
 #define ano_debug_rolog(level, route, ...)  ano_log_write((level), (route), __FILE_NAME__, __LINE__, __VA_ARGS__)
+#endif
 #else
 #define ano_debug_log(...)  ((void)0)
 #define ano_debug_rlog(...) ((void)0)

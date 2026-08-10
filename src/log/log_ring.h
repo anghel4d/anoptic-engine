@@ -24,9 +24,22 @@
 enum {
     ANO_LOG_COMMITTED = 1 << 0, // set on publish (committed tag nonzero even at len 0)
     ANO_LOG_DEFERRED  = 1 << 1, // body is deferred-format capture blob
-    ANO_LOG_TOFILE    = 1 << 2, // sink: batched to output file at drain
-    ANO_LOG_TOCON     = 1 << 3, // sink: echoed to terminal at drain
+    ANO_LOG_SINKSHIFT = 2,      // publish shifts the masked route field by this, as one unit
+    ANO_LOG_TOFILE    = ANO_FILE << ANO_LOG_SINKSHIFT,  // sink: batched to output file at drain
+    ANO_LOG_TOCON     = ANO_TERM << ANO_LOG_SINKSHIFT,  // sink: echoed to terminal at drain
+    ANO_LOG_PLANNED   = 1 << 4, // capture blob's format slot holds an ano::logplan::Plan*
 };
+
+// Sink bits derive from the public route bits; the mapping must be complete and collision-free.
+static_assert((ANO_BOTH << ANO_LOG_SINKSHIFT) == (ANO_LOG_TOFILE | ANO_LOG_TOCON),
+              "shifted route sink field lands on exactly the marker sink bits");
+static_assert((ANO_LOG_TOFILE & ANO_LOG_TOCON) == 0, "sink bits are distinct");
+static_assert(((ANO_LOG_TOFILE | ANO_LOG_TOCON)
+               & (ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_PLANNED)) == 0,
+              "sink bits never collide with COMMITTED/DEFERRED/PLANNED");
+static_assert((ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_TOFILE | ANO_LOG_TOCON
+               | ANO_LOG_PLANNED) <= 0xff,
+              "tag flags fit the marker's uint8_t flags field");
 
 // Entry head-line marker. Only `tag` is atomic (publish gate). timestamp/text ride its release/acquire.
 typedef struct {
@@ -57,6 +70,11 @@ typedef struct {
     char        *buf;   // N*ANO_CL bytes, cache-line aligned
 } log_ring_t;
 
+// tag/head/tail are the producer's only synchronization; a lock-backed atomic here would
+// serialize every publish. Proven lock-free, not assumed.
+static_assert(ano::atomic_always_lock_free<uint64_t>,
+              "logger tag/head/tail require lock-free Atomic<uint64_t>");
+
 // Lap for monotonic line position, low 32 bits. Drainer rejects stale tags without zeroing.
 static inline uint32_t log_cycle(const log_ring_t *r, uint64_t pos) { return (uint32_t)(pos >> r->shift); }
 
@@ -65,10 +83,15 @@ static inline uint32_t log_cycle(const log_ring_t *r, uint64_t pos) { return (ui
 
 // Cache lines for `len` text bytes, at least 1. Marker shares the head line.
 
-static inline uint64_t log_span(uint16_t len)
+static constexpr uint64_t log_span(uint16_t len)
 {
     return (ANO_LOG_HDR + (uint64_t)len + ANO_CL - 1) / ANO_CL;
 }
+
+// Max entry span in lines, derived from the producer's own formula.
+inline constexpr uint64_t ANO_LOG_MAX_SPAN = log_span(ANO_LOG_MSG_MAX);
+static_assert(ANO_LOG_RING_LINES >= ANO_LOG_MAX_SPAN,
+              "ring must hold at least one max-size entry");
 
 // Capacity in lines (N) and bytes.
 static inline uint64_t log_lines(const log_ring_t *r) { return r->mask + 1; }
@@ -89,6 +112,25 @@ static inline void log_write_body(const log_ring_t *r, uint64_t pos, const char 
         memcpy(body, src, len);
     } else {
         memcpy(body, src, toend);
+        memcpy(r->buf, src + toend, (size_t)len - toend);
+    }
+}
+
+// Copy `len` bytes into entry body at `pos` starting `off` bytes in, seam-aware.
+// Sibling of log_write_body for two-part records (header + captured args).
+static inline void log_write_body_at(const log_ring_t *r, uint64_t pos, uint32_t off,
+                                     const char *src, uint16_t len)
+{
+    char  *body  = (char *)log_marker_at(r, pos) + ANO_LOG_HDR;
+    size_t cap   = log_bytes(r);
+    size_t start = (size_t)(body - r->buf) + off;
+    if (start >= cap)
+        start -= cap;
+    size_t toend = cap - start;
+    if (len <= toend) {
+        memcpy(r->buf + start, src, len);
+    } else {
+        memcpy(r->buf + start, src, toend);
         memcpy(r->buf, src + toend, (size_t)len - toend);
     }
 }

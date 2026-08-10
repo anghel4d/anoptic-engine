@@ -27,7 +27,7 @@
 #define ANO_LOG_RING_ALIGN (ANO_LOG_RING_BYTES < (2u << 20) ? ANO_LOG_RING_BYTES : (2u << 20))
 
 static_assert((ANO_LOG_RING_BYTES & (ANO_LOG_RING_BYTES - 1)) == 0, "ring bytes must be a power of two");
-static_assert(ANO_LOG_RING_LINES >= 64, "ring must hold at least one max-size entry (64 lines)");
+// One-max-size-entry capacity is proven against log_span() itself in log_ring.h.
 
 // Drain batch: full ring text + <=16B prefix/record.
 // RESV = worst-case record (prefix + MSG_MAX + '\n'). Flush mid-pass when below RESV.

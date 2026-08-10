@@ -22,7 +22,17 @@ enum memory_order : int
     memory_order_seq_cst = __ATOMIC_SEQ_CST,
 };
 
+// The __atomic *_n builtins admit exactly the integer, boolean, enum, and pointer scalars;
+// anything else (structs, floats, over-wide types) must fail the contract, not the builtin.
 template<class T>
+concept atomic_builtin_admissible = requires(T *object, T value, T *expected) {
+    __atomic_load_n(object, __ATOMIC_RELAXED);
+    __atomic_store_n(object, value, __ATOMIC_RELAXED);
+    __atomic_exchange_n(object, value, __ATOMIC_RELAXED);
+    __atomic_compare_exchange_n(object, expected, value, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+};
+
+template<atomic_builtin_admissible T>
 struct Atomic final
 {
     using value_type = T;
@@ -35,30 +45,51 @@ struct Atomic final
     Atomic &operator=(const Atomic &) = delete;
 };
 
+// Layout contract, per instantiation: the wrapper must mirror T exactly.
+template<class T>
+consteval bool atomic_layout_contract()
+{
+    static_assert(__is_standard_layout(Atomic<T>), "Atomic<T> must stay standard-layout");
+    static_assert(__is_trivially_copyable(Atomic<T>), "Atomic<T> must stay trivially copyable");
+    static_assert(sizeof(Atomic<T>) == sizeof(T), "Atomic<T> must add no storage to T");
+    static_assert(alignof(Atomic<T>) == alignof(T), "Atomic<T> must keep T's alignment");
+    return true;
+}
+
+// Full accessor contract: admissible scalar + exact layout mirror. Checked on every instantiation.
+template<class T>
+concept atomic_contract = atomic_builtin_admissible<T> && atomic_layout_contract<T>();
+
+// True when __atomic ops on T are lock-free at T's natural alignment. Lock-backed atomics stay
+// legal in general; contention-sensitive users assert this predicate for their own types.
+template<class T>
+inline constexpr bool atomic_always_lock_free =
+    __atomic_always_lock_free(sizeof(T), static_cast<const T *>(nullptr));
+
 using atomic_bool = Atomic<bool>;
 using atomic_int = Atomic<int>;
 using atomic_uint = Atomic<unsigned>;
 
-template<class T>
+template<atomic_contract T>
 inline void atomic_init(Atomic<T> *object, typename Atomic<T>::value_type desired) noexcept
 {
     __atomic_store_n(&object->value, desired, __ATOMIC_RELAXED);
 }
 
-template<class T>
+template<atomic_contract T>
 [[nodiscard]] inline T atomic_load_explicit(const volatile Atomic<T> *object,
                                             memory_order order) noexcept
 {
     return __atomic_load_n(&object->value, static_cast<int>(order));
 }
 
-template<class T>
+template<atomic_contract T>
 [[nodiscard]] inline T atomic_load(const volatile Atomic<T> *object) noexcept
 {
     return atomic_load_explicit(object, memory_order_seq_cst);
 }
 
-template<class T>
+template<atomic_contract T>
 inline void atomic_store_explicit(volatile Atomic<T> *object,
                                   typename Atomic<T>::value_type desired,
                                   memory_order order) noexcept
@@ -66,21 +97,21 @@ inline void atomic_store_explicit(volatile Atomic<T> *object,
     __atomic_store_n(&object->value, desired, static_cast<int>(order));
 }
 
-template<class T>
+template<atomic_contract T>
 inline void atomic_store(volatile Atomic<T> *object,
                          typename Atomic<T>::value_type desired) noexcept
 {
     atomic_store_explicit(object, desired, memory_order_seq_cst);
 }
 
-template<class T>
+template<atomic_contract T>
 inline T atomic_exchange(volatile Atomic<T> *object,
                          typename Atomic<T>::value_type desired) noexcept
 {
     return __atomic_exchange_n(&object->value, desired, __ATOMIC_SEQ_CST);
 }
 
-template<class T>
+template<atomic_contract T>
 inline T atomic_fetch_add_explicit(volatile Atomic<T> *object,
                                    typename Atomic<T>::value_type operand,
                                    memory_order order) noexcept
@@ -88,14 +119,14 @@ inline T atomic_fetch_add_explicit(volatile Atomic<T> *object,
     return __atomic_fetch_add(&object->value, operand, static_cast<int>(order));
 }
 
-template<class T>
+template<atomic_contract T>
 inline T atomic_fetch_add(volatile Atomic<T> *object,
                           typename Atomic<T>::value_type operand) noexcept
 {
     return atomic_fetch_add_explicit(object, operand, memory_order_seq_cst);
 }
 
-template<class T>
+template<atomic_contract T>
 inline T atomic_fetch_sub_explicit(volatile Atomic<T> *object,
                                    typename Atomic<T>::value_type operand,
                                    memory_order order) noexcept
@@ -103,7 +134,7 @@ inline T atomic_fetch_sub_explicit(volatile Atomic<T> *object,
     return __atomic_fetch_sub(&object->value, operand, static_cast<int>(order));
 }
 
-template<class T>
+template<atomic_contract T>
 [[nodiscard]] inline bool atomic_compare_exchange_strong_explicit(
     volatile Atomic<T> *object, T *expected, typename Atomic<T>::value_type desired,
     memory_order success, memory_order failure) noexcept
@@ -112,7 +143,7 @@ template<class T>
                                        static_cast<int>(success), static_cast<int>(failure));
 }
 
-template<class T>
+template<atomic_contract T>
 [[nodiscard]] inline bool atomic_compare_exchange_weak_explicit(
     volatile Atomic<T> *object, T *expected, typename Atomic<T>::value_type desired,
     memory_order success, memory_order failure) noexcept
@@ -121,7 +152,7 @@ template<class T>
                                        static_cast<int>(success), static_cast<int>(failure));
 }
 
-template<class T>
+template<atomic_contract T>
 [[nodiscard]] inline bool atomic_compare_exchange_strong(
     volatile Atomic<T> *object, T *expected, typename Atomic<T>::value_type desired) noexcept
 {
@@ -134,10 +165,6 @@ inline void atomic_thread_fence(memory_order order) noexcept
     __atomic_thread_fence(static_cast<int>(order));
 }
 
-static_assert(__is_standard_layout(Atomic<unsigned>));
-static_assert(__is_trivially_copyable(Atomic<unsigned>));
-static_assert(sizeof(Atomic<unsigned>) == sizeof(unsigned));
-static_assert(alignof(Atomic<unsigned>) == alignof(unsigned));
 
 } // namespace ano
 

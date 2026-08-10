@@ -128,38 +128,53 @@ static void spawn_scene(AnoRenderBridge* bridge) {
 	spawn_box(bridge, &nextId, sunMarker);
 
 	// Scene lights: palette rows 0..5 (1 dir + 4 point + 1 spot = 26 static shadow frustums). Dir/spot aim via -col2.
-	uint32_t li = 0u;
-    { mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
-      x[2][0]=0.2f; x[2][1]=1.0f; x[2][2]=0.0f; // mostly down, slight +X in col2
-      RenderLightParams p = { .color={1.0f,0.96f,0.9f}, .intensity=2.5f, .range=0.0f, .type=RENDER_LIGHT_DIRECTIONAL, .castsShadow=1u };
-      spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,1.5f,1.2f,1}}; // warm point, orbits +Y
-	  RenderLightParams p = { .color={1.0f,0.95f,0.8f}, .intensity=5.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_ORBIT, 0.5f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{-2.0f,2.0f,-1.0f,1}};
-	  RenderLightParams p = { .color={0.4f,0.6f,1.0f}, .intensity=4.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.0f,0.5f,0.0f,1}};
-	  RenderLightParams p = { .color={1.0f,0.3f,0.3f}, .intensity=3.5f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0.0f,-1.0f,1.0f,1}};
-	  RenderLightParams p = { .color={0.3f,1.0f,0.8f}, .intensity=2.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0.0f,4.0f,0.0f,1}};
-	  x[2][0]=0.0f; x[2][1]=1.0f; x[2][2]=0.0f; // forward = -col2 = (0,-1,0)
-	  RenderLightParams p = { .color={1.0f,1.0f,1.0f}, .intensity=20.0f, .range=12.0f,
-	      .innerConeCos=0.966f, .outerConeCos=0.906f, .type=RENDER_LIGHT_SPOT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
+	struct SceneLight { float xform[4][4]; RenderLightParams p; AnoMotionType motion; float speed; };
+	static constexpr SceneLight sl[] = {
+		{ {{1,0,0,0},{0,1,0,0},{0.2f,1.0f,0.0f,0},{0,0,0,1}}, // mostly down, slight +X in col2
+		  { .color={1.0f,0.96f,0.9f}, .intensity=2.5f, .range=0.0f, .type=RENDER_LIGHT_DIRECTIONAL, .castsShadow=1u },
+		  ANO_MOTION_STATIC, 0.0f },
+		{ {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,1.5f,1.2f,1}}, // warm point, orbits +Y
+		  { .color={1.0f,0.95f,0.8f}, .intensity=5.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u },
+		  ANO_MOTION_ORBIT, 0.5f },
+		{ {{1,0,0,0},{0,1,0,0},{0,0,1,0},{-2.0f,2.0f,-1.0f,1}},
+		  { .color={0.4f,0.6f,1.0f}, .intensity=4.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u },
+		  ANO_MOTION_STATIC, 0.0f },
+		{ {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.0f,0.5f,0.0f,1}},
+		  { .color={1.0f,0.3f,0.3f}, .intensity=3.5f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u },
+		  ANO_MOTION_STATIC, 0.0f },
+		{ {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0.0f,-1.0f,1.0f,1}},
+		  { .color={0.3f,1.0f,0.8f}, .intensity=2.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u },
+		  ANO_MOTION_STATIC, 0.0f },
+		{ {{1,0,0,0},{0,1,0,0},{0.0f,1.0f,0.0f,0},{0.0f,4.0f,0.0f,1}}, // forward = -col2 = (0,-1,0)
+		  { .color={1.0f,1.0f,1.0f}, .intensity=20.0f, .range=12.0f,
+		    .innerConeCos=0.966f, .outerConeCos=0.906f, .type=RENDER_LIGHT_SPOT, .castsShadow=1u },
+		  ANO_MOTION_STATIC, 0.0f },
+	};
+	static_assert(sizeof(sl) / sizeof(sl[0]) == 6u, "scene light palette is rows 0..5");
+	static_assert([]{ for (auto const& d : sl) {
+			if (d.p.type != RENDER_LIGHT_DIRECTIONAL && d.p.type != RENDER_LIGHT_POINT && d.p.type != RENDER_LIGHT_SPOT) return false;
+			if ((d.p.type == RENDER_LIGHT_SPOT) != (d.p.innerConeCos != 0.0f && d.p.outerConeCos != 0.0f)) return false;
+		} return true; }(), "scene light rows: valid type; spot iff nonzero cone cosines");
+	for (uint32_t li = 0u; li < 6u; li++) {
+		mat4 x;
+		memcpy(x, sl[li].xform, sizeof(mat4));
+		spawn_light_entity(bridge, &nextId, x, li, &sl[li].p, sl[li].motion, sl[li].speed);
+	}
 
 	// Decorative candle lights: attach to first candle slot (non-casting). light_id = producer namespace.
 	uint32_t lid = 100u;
-	struct { float col[3], in, rng, inner, outer; RenderLightType type; float dir[3], ox, oy, oz; } cl[5] = {
+	static constexpr struct { float col[3], in, rng, inner, outer; RenderLightType type; float dir[3], ox, oy, oz; } cl[5] = {
 		{{1.0f,0.5f,0.15f}, 6.0f, 4.0f, 0,0, RENDER_LIGHT_POINT, {0,0,0},  0.6f,0.3f,0.0f},
 		{{0.2f,0.8f,1.0f},  6.0f, 4.0f, 0,0, RENDER_LIGHT_POINT, {0,0,0}, -0.6f,0.3f,0.0f},
 		{{1.0f,0.2f,0.8f},  5.0f, 4.0f, 0,0, RENDER_LIGHT_POINT, {0,0,0},  0.0f,0.8f,0.0f},
 		{{0.5f,1.0f,0.6f}, 12.0f, 6.0f, 0.95f,0.85f, RENDER_LIGHT_SPOT, { 0.7f,-0.7f,0.0f}, 0.0f,1.2f,0.0f},
 		{{1.0f,0.7f,0.3f}, 12.0f, 6.0f, 0.95f,0.85f, RENDER_LIGHT_SPOT, {-0.7f,-0.7f,0.0f}, 0.0f,1.2f,0.0f},
 	};
+	static_assert(sizeof(cl) / sizeof(cl[0]) == 5u, "five decorative candle lights");
+	static_assert([]{ for (auto const& d : cl) {
+			if (d.type != RENDER_LIGHT_POINT && d.type != RENDER_LIGHT_SPOT) return false;
+			if ((d.type == RENDER_LIGHT_SPOT) != (d.inner != 0.0f && d.outer != 0.0f)) return false;
+		} return true; }(), "candle rows: point or spot; spot iff nonzero cone cosines");
 	if (candleSlot != UINT32_MAX) // first candle primitive anchors attaches
 	for (int i = 0; i < 5; i++) {
 		RenderLightParams p = { .color={cl[i].col[0],cl[i].col[1],cl[i].col[2]}, .intensity=cl[i].in,

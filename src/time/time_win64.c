@@ -10,6 +10,7 @@
 #define WINVER       0x0A00
 #endif
 #include "anoptic_time.h"
+#include "time_scale.h"
 #include <windows.h>
 #include <time.h>
 #include <errno.h>
@@ -245,13 +246,7 @@ uint64_t ano_ticks_to_ns(uint64_t ticks) {
     freq = query_perf_freq();
 #endif
 
-    // Split into two parts to scale without overflow.
-    uint64_t largePart = ticks / freq;    // Seconds
-    uint64_t smallPart = ticks % freq;    // Sub-seconds
-
-    // Recombine the two parts.
-    smallPart = smallPart * 1000000000ULL / freq;
-    return smallPart + (largePart * 1000000000ULL);
+    return ano::time_scale::ticks_to_ns(ticks, freq);
 }
 
 uint64_t ano_timestamp_raw() {

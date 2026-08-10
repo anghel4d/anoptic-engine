@@ -9,6 +9,8 @@
 
 #include "log/log_ring.h"
 
+#include <anoptic_meta.h>
+
 #include <anoptic_threads.h>
 #include <anoptic_filesystem.h>
 #include <anoptic_time.h>
@@ -34,8 +36,46 @@
 
 /* Internal state. Only the ring is producer-shared. */
 
+// Severity contracts reflected off the ano_loglevel_t annotations (anoptic_log.h).
+static constexpr auto g_levelContracts =
+    ano::reflect_enum_contracts<ano_loglevel_t, AnoLogLevelContract>();
+static constexpr size_t LOG_LEVELS = g_levelContracts.count;
+static_assert(LOG_LEVELS == 4 && ANO_INFO == 0 && ANO_FATAL == LOG_LEVELS - 1,
+              "severities are dense ordinals [0, 4) indexing the 4-row tables");
+static_assert([] consteval {
+    for (const auto &c : g_levelContracts.values)
+        if ((c.route & ANO_BOTH) == 0)
+            return false;
+    return true;
+}(), "every default route names a sink");
+static_assert([] consteval {
+    for (size_t i = 0; i < LOG_LEVELS; ++i)
+        if (g_levelContracts.values[i].useStderr != (i >= (size_t)ANO_ERROR))
+            return false;
+    return true;
+}(), "terminal split follows level >= ANO_ERROR");
+static_assert([] consteval {
+    for (const auto &c : g_levelContracts.values) {
+        size_t n = 0;
+        while (c.pad[n] != '\0') ++n;
+        if (n != 5)
+            return false;
+    }
+    return true;
+}(), "display cells are exactly 5 bytes (format paths copy 5)");
+
 // Level names padded to 5.
-static const char   logPad[4][8] = {"INFO ", "WARN ", "ERROR", "FATAL"};
+struct LogLevelText final { char pad[4][8]; char color[4][8]; };
+static constexpr LogLevelText g_levelText = [] consteval {
+    LogLevelText t{};
+    for (size_t i = 0; i < LOG_LEVELS; ++i) {
+        const auto &c = g_levelContracts.values[i];
+        for (size_t j = 0; c.pad[j] != '\0'; ++j) t.pad[i][j] = c.pad[j];
+        for (size_t j = 0; c.color[j] != '\0'; ++j) t.color[i][j] = c.color[j];
+    }
+    return t;
+}();
+static constexpr auto &logPad = g_levelText.pad;
 
 static log_ring_t   g_ring;         // shared MPSC ring
 static atomic_bool  g_initialized;  // logger live (NOW / flush / config)
@@ -44,10 +84,10 @@ static atomic_int   g_minLevel = INT_MAX;
 
 // Per-level default routes when no sink named. Pre-init FATAL -> NOW stderr.
 static ANO_ATOMIC(uint8_t) g_routeDefault[4] = {
-    ANO_FILE,               // INFO
-    ANO_FILE,               // WARN
-    ANO_FILE,               // ERROR
-    ANO_BOTH | ANO_NOW,     // FATAL
+    g_levelContracts.values[ANO_INFO].route,    // INFO
+    g_levelContracts.values[ANO_WARN].route,    // WARN
+    g_levelContracts.values[ANO_ERROR].route,   // ERROR
+    g_levelContracts.values[ANO_FATAL].route,   // FATAL
 };
 
 static bool g_ttyOut, g_ttyErr;     // decided once at init
@@ -413,6 +453,138 @@ static int format_deferred(char *out, int cap, ano_loglevel_t level, const char 
     return (int)(p - out);
 }
 
+
+/* Compiled-plan rendering (ano::logplan): format_deferred semantics, parsing compiled away. */
+
+static_assert(ano::logplan::blob_cap == (int)ANO_LOG_MSG_MAX,
+              "wrapper capture blob mirrors ANO_LOG_MSG_MAX");
+
+// Execute a compiled plan against captured args `b`. Fast/spec paths, truncation, and arg
+// consumption mirror format_deferred byte-for-byte; only the format re-parse is gone.
+static int format_planned_core(char *out, int cap, ano_loglevel_t level,
+                               const char *file, int line,
+                               const ano::logplan::Plan *plan, const char *b)
+{
+    char *p = out, *end = out + cap;
+    memcpy(p, (unsigned)level <= ANO_FATAL ? logPad[level] : "?????", 5); p += 5;
+    *p++ = ' ';
+    if (file != NULL) {
+        size_t fl = strnlen(file, 256); memcpy(p, file, fl); p += fl;
+        *p++ = ':';
+        p = put_u32(p, (uint32_t)(line < 0 ? 0 : line));
+        *p++ = ':'; *p++ = ' '; *p++ = ' ';
+    }
+
+    for (uint32_t oi = 0; oi < plan->opCount; ++oi) {
+        const ano::logplan::Op *op = &plan->ops[oi];
+        if (op->litLen) {
+            size_t room = (size_t)(end - p);
+            size_t n = op->litLen <= room ? op->litLen : room;
+            memcpy(p, plan->lit + op->litOff, n); p += n;
+        }
+        if (op->conv == '\0')
+            continue;
+        const char pc  = op->conv;
+        const int  lng = op->lng;
+        if (op->plain && end - p > 1) {
+            if (pc == 'd' || pc == 'i') {
+                long long v;
+                if (lng >= 1) { memcpy(&v, b, 8); b += 8; } else { int iv; memcpy(&iv, b, 4); b += 4; v = iv; }
+                if (v < 0 && p < end) *p++ = '-';
+                unsigned long long m = v < 0 ? 0ull - (unsigned long long)v : (unsigned long long)v;
+                char *q = put_base10(p, end, m, digLo); if (q) p = q;
+            } else if (pc == 'c') {
+                int iv; memcpy(&iv, b, 4); b += 4; if (p < end) *p++ = (char)iv;
+            } else if (pc == 's') {
+                uint16_t sl; memcpy(&sl, b, 2); b += 2;
+                if (p + sl <= end) { memcpy(p, b, sl); p += sl; } b += (size_t)sl + 1;
+            } else {
+                unsigned long long v;
+                if (lng >= 1) { memcpy(&v, b, 8); b += 8; } else { unsigned uv; memcpy(&uv, b, 4); b += 4; v = uv; }
+                char *q = pc == 'o' ? put_base8(p, end, v, digLo)
+                        : pc == 'u' ? put_base10(p, end, v, digLo)
+                                    : put_base16(p, end, v, pc == 'X' ? digUp : digLo);
+                if (q) p = q;
+            }
+            continue;
+        }
+
+        // Fancy: prebuilt spec, or rebuild with '*' resolved (format_deferred's exact walk).
+        char specBuf[48];
+        const char *spec = op->spec;
+        if (spec == NULL) {
+            const char *f = plan->fmt + op->specOff;
+            int si = 0;
+            specBuf[si++] = '%';
+#define SPEC_PUT(ch) do { if (si < (int)sizeof specBuf - 2) specBuf[si++] = (ch); } while (0)
+            while (*f=='-'||*f=='+'||*f==' '||*f=='#'||*f=='0') SPEC_PUT(*f++);
+            if (*f == '*') {
+                int w; memcpy(&w, b, 4); b += 4; ++f;
+                if (w < 0) { SPEC_PUT('-'); w = -w; }
+                if (w != 0) { char *sp = put_u32(specBuf + si, (uint32_t)w); si = (int)(sp - specBuf); }
+            } else while (*f >= '0' && *f <= '9') SPEC_PUT(*f++);
+            if (*f == '.') {
+                ++f;
+                if (*f == '*') {
+                    int pr; memcpy(&pr, b, 4); b += 4; ++f;
+                    if (pr >= 0) { SPEC_PUT('.'); char *sp = put_u32(specBuf + si, (uint32_t)pr); si = (int)(sp - specBuf); }
+                } else { SPEC_PUT('.'); while (*f >= '0' && *f <= '9') SPEC_PUT(*f++); }
+            }
+            while (*f == 'l') SPEC_PUT(*f++);
+            if (*f == 'z' || *f == 't' || *f == 'j') SPEC_PUT(*f++);
+            while (*f == 'h') SPEC_PUT(*f++);
+            SPEC_PUT(*f); specBuf[si] = '\0';
+#undef SPEC_PUT
+            spec = specBuf;
+        }
+        int rem = (int)(end - p);
+        if (rem <= 1) break;
+
+        int wrote = 0;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+        switch (pc) {
+        case 'd': case 'i':
+            if (lng >= 2)      { long long v; memcpy(&v, b, 8); b += 8; wrote = snprintf(p, (size_t)rem, spec, v); }
+            else if (lng == 1) { long long v; memcpy(&v, b, 8); b += 8; wrote = snprintf(p, (size_t)rem, spec, (long)v); }
+            else               { int v; memcpy(&v, b, 4); b += 4;       wrote = snprintf(p, (size_t)rem, spec, v); }
+            break;
+        case 'u': case 'o': case 'x': case 'X':
+            if (lng >= 2)      { unsigned long long v; memcpy(&v, b, 8); b += 8; wrote = snprintf(p, (size_t)rem, spec, v); }
+            else if (lng == 1) { unsigned long long v; memcpy(&v, b, 8); b += 8; wrote = snprintf(p, (size_t)rem, spec, (unsigned long)v); }
+            else               { unsigned v; memcpy(&v, b, 4); b += 4;          wrote = snprintf(p, (size_t)rem, spec, v); }
+            break;
+        case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': case 'a': case 'A':
+            { double v; memcpy(&v, b, 8); b += 8; wrote = snprintf(p, (size_t)rem, spec, v); } break;
+        case 'c': { int v; memcpy(&v, b, 4); b += 4; wrote = snprintf(p, (size_t)rem, spec, v); } break;
+        case 'p': { void *v; memcpy(&v, b, 8); b += 8; wrote = snprintf(p, (size_t)rem, spec, v); } break;
+        case 's': { uint16_t sl; memcpy(&sl, b, 2); b += 2; const char *s = b; b += (size_t)sl + 1;
+                    wrote = snprintf(p, (size_t)rem, spec, s); } break;
+        default: break;
+        }
+#pragma GCC diagnostic pop
+        if (wrote < 0) wrote = 0;
+        if (wrote > rem - 1) wrote = rem - 1;
+        p += wrote;
+    }
+    return (int)(p - out);
+}
+
+// Drain-side entry: parse the deferred header, then execute the referenced plan.
+static int format_planned(char *out, int cap, ano_loglevel_t level, const char *blob)
+{
+    const char *b = blob;
+    uint16_t fl16; memcpy(&fl16, b, 2); b += 2;
+    const char *file = NULL;
+    int line = 0;
+    if (fl16 != FILE_NONE) {                       // captured copy, NUL-terminated in the blob
+        file = b; b += (size_t)fl16 + 1u;
+        memcpy(&line, b, sizeof line); b += sizeof line;
+    }
+    const ano::logplan::Plan *plan; memcpy(&plan, b, sizeof plan); b += sizeof plan;
+    return format_planned_core(out, cap, level, file, line, plan, b);
+}
+
 // Two digits (00-99) at p.
 static inline char *put2(char *p, int v)
 {
@@ -495,13 +667,10 @@ static void console_color_init(void)
 // ANSI color for level prefix, NULL if uncolored.
 static const char *ansi_for(ano_loglevel_t level)
 {
-    switch (level) {
-    case ANO_INFO:  return NULL;
-    case ANO_WARN:  return "\x1b[33m";      // yellow
-    case ANO_ERROR: return "\x1b[31m";      // red
-    case ANO_FATAL: return "\x1b[1;31m";    // bold red
-    }
-    return NULL;
+    if ((unsigned)level > ANO_FATAL)
+        return NULL;
+    const char *color = g_levelText.color[level];
+    return *color != '\0' ? color : NULL;
 }
 
 // Echo one record to terminal (ERROR+ stderr). First 5 body bytes = level name, colored on tty.
@@ -598,7 +767,12 @@ static uint64_t drain_and_emit(void)
         memcpy(g_batch + blen, g_drainHMS, 8); blen += 8;
         g_batch[blen++] = ' ';
         size_t bodyStart = blen;
-        if (v.flags & ANO_LOG_DEFERRED) {
+        if (v.flags & ANO_LOG_PLANNED) {
+            size_t room = ANO_LOG_BATCH_CAP - blen;
+            int dcap = room > ANO_LOG_MSG_MAX ? (int)ANO_LOG_MSG_MAX : (int)room;
+            blen += (size_t)format_planned(g_batch + blen, dcap, (ano_loglevel_t)v.level, body);
+        }
+        else if (v.flags & ANO_LOG_DEFERRED) {
             size_t room = ANO_LOG_BATCH_CAP - blen;
             int dcap = room > ANO_LOG_MSG_MAX ? (int)ANO_LOG_MSG_MAX : (int)room;
             blen += (size_t)format_deferred(g_batch + blen, dcap, (ano_loglevel_t)v.level, body);
@@ -738,7 +912,91 @@ static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, i
     // Sink bits: ANO_FILE/ANO_TERM (1|2) << 2 -> ANO_LOG_TOFILE/TOCON (4|8).
     log_word_t v = { .len = len, .level = (uint8_t)level,
                      .flags = (uint8_t)(ANO_LOG_COMMITTED | (deferred ? ANO_LOG_DEFERRED : 0)
-                                        | ((sinks & ANO_BOTH) << 2)),
+                                        | ((sinks & ANO_BOTH) << ANO_LOG_SINKSHIFT)),
+                     .cycle = log_cycle(&g_ring, pos) };
+    atomic_store_explicit(&m->tag, v.w, memory_order_release);  // publish whole record
+
+    if (atomic_load_explicit(&g_drainerParked, memory_order_seq_cst))
+        wake_drainer();
+    return waited ? 1 : 0;
+}
+
+// Compiled-plan submit: resolve route/gate like ano_log_vwrite, then publish a pre-captured
+// record whose format slot carries the plan pointer. Returns ano::logplan::submit_fallback
+// when the record must take the dynamic path (NOW route, or header + args overflow, exactly
+// where capture_deferred would bail). Publish loop mirrors log_buffered.
+int ano::logplan::submit(ano_loglevel_t level, ano_logroute_t route, const Plan *plan,
+                         const char *file, int line, const char *args, int argsLen) noexcept
+{
+    unsigned lvlIdx = (unsigned)level <= ANO_FATAL ? (unsigned)level : (unsigned)ANO_FATAL;
+    unsigned r      = (unsigned)route;
+    if ((r & ANO_BOTH) == 0)
+        r |= atomic_load_explicit(&g_routeDefault[lvlIdx], memory_order_relaxed);
+    if (r & ANO_NOW)
+        return submit_fallback;     // sync path stays eager; ano_log_write owns it
+    if ((int)level < atomic_load_explicit(&g_minLevel, memory_order_relaxed))
+        return 0;
+    uint8_t sinks = (uint8_t)r;
+
+    uint64_t ts = ano_timestamp_ticks();
+
+    // Header mirrors capture_deferred's, with the plan pointer in the format slot.
+    char hdr[2 + 256 + 1 + sizeof(int) + sizeof(void *)];
+    char *hp = hdr;
+    if (file != NULL) {
+        size_t fl = strnlen(file, 256);
+        uint16_t fl16 = (uint16_t)fl; memcpy(hp, &fl16, 2); hp += 2;
+        memcpy(hp, file, fl); hp += fl; *hp++ = '\0';
+        memcpy(hp, &line, sizeof line); hp += sizeof line;
+    } else {
+        uint16_t none = FILE_NONE; memcpy(hp, &none, 2); hp += 2;
+    }
+    memcpy(hp, &plan, sizeof plan); hp += sizeof plan;
+    int hl = (int)(hp - hdr);
+    if (hl + argsLen > (int)ANO_LOG_MSG_MAX)
+        return submit_fallback;     // capture_deferred would overflow the same record
+    uint16_t len  = (uint16_t)(hl + argsLen);
+    uint64_t need = log_span(len);
+
+    // Entry = marker + inline blob in reserved cache lines (log_buffered's loop).
+    uint64_t cap = log_lines(&g_ring);
+    uint64_t pos = atomic_load_explicit(&g_ring.tail, memory_order_relaxed);
+    uint64_t lastHead = 0;
+    uint64_t backoff = FULL_BACKOFF_MIN_NS;
+    uint32_t stall = 0;
+    bool waited = false;
+    for (;;) {
+        uint64_t hd = atomic_load_explicit(&g_ring.head, memory_order_acquire);
+        if ((pos + need) - hd > cap) {   // ring full
+            waited = true;
+            if (hd != lastHead) { lastHead = hd; stall = 0; backoff = FULL_BACKOFF_MIN_NS; }
+            else if (++stall > FULL_STALL_LIMIT) {
+                // Wedged: render via the plan and write through, like log_buffered's fallback.
+                char txt[ANO_LOG_MSG_MAX];
+                int tn = format_planned_core(txt, (int)sizeof txt, level, file, line, plan, args);
+                emit_one(level, ts, txt, (uint16_t)tn,
+                         (sinks & ANO_FILE) != 0, (sinks & ANO_TERM) != 0, false);
+                return 1;
+            }
+            if (atomic_load_explicit(&g_drainerParked, memory_order_seq_cst))
+                wake_drainer();
+            ano_busywait(backoff);
+            if (backoff < FULL_BACKOFF_MAX_NS) backoff <<= 1;
+            pos = atomic_load_explicit(&g_ring.tail, memory_order_relaxed);
+            continue;
+        }
+        if (atomic_compare_exchange_weak_explicit(&g_ring.tail, &pos, pos + need,
+                memory_order_relaxed, memory_order_relaxed))
+            break;
+    }
+
+    log_marker_t *m = log_marker_at(&g_ring, pos);
+    m->timestamp = ts;
+    log_write_body_at(&g_ring, pos, 0, hdr, (uint16_t)hl);
+    log_write_body_at(&g_ring, pos, (uint32_t)hl, args, (uint16_t)argsLen);
+    log_word_t v = { .len = len, .level = (uint8_t)level,
+                     .flags = (uint8_t)(ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_PLANNED
+                                        | ((sinks & ANO_BOTH) << ANO_LOG_SINKSHIFT)),
                      .cycle = log_cycle(&g_ring, pos) };
     atomic_store_explicit(&m->tag, v.w, memory_order_release);  // publish whole record
 

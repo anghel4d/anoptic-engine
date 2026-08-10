@@ -664,7 +664,9 @@ static int test_abuse_inputs(void)
     ano_log(ANO_INFO, "%d %s %x %o %c %u %ld 100%%",        // every common conversion at once
                  1, "two", 0xab, 64, 'Z', 5u, 6L);
     char emptyFormat[] = "";
-    ano_log(ANO_INFO, emptyFormat, 0);                        // empty format
+    // Non-literal format: the C++ ano_log macros compile only literals, so dynamic
+    // formats go through the public ano_log_write ABI 〜 exactly what this covers.
+    ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, emptyFormat, 0);  // empty format
     ano_log(ANO_INFO, "%s%s%s%s%s", "", "", "", "", "");    // five empty %s
     ano_log_flush();
 
