@@ -1,6 +1,6 @@
 ---
 name: anoptic-c-ultra
-description: Manual Anoptic safe, C-like C++26 doctrine for implementation, review, and architecture. Invoke only when the user explicitly names $anoptic-c-ultra or explicitly asks to load this doctrine; do not infer invocation from ordinary engine, C++, constexpr, reflection, schema, safety, layout, or performance work.
+description: Anoptic architecture doctrine. Use implicitly only for subsystem architecture, public API design, foreign ABI/layout design, or explicit C+Ultra conformance review. Do not invoke for routine implementation, local refactors, builds, tests, debugging, or merely because C++26, reflection, constexpr, or engine code is present.
 ---
 
 # Doctrine
