@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors
  *
  * SPDX-License-Identifier: LGPL-3.0
- * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */
+ * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Generates src/strings/ano_unicode_tables.h and ano_collate_tables.h from UCD.
@@ -558,7 +558,7 @@ static void emit_collate_tables(const char *version)
         "/* SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors\n"
         " *\n"
         " * SPDX-License-Identifier: LGPL-3.0\n"
-        " * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */\n"
+        " * Anoptic targets ISO C++26. */\n"
         "/*  == Anoptic Game Engine v0.0000001 == */\n"
         "\n"
         "// GENERATED FILE -- do not edit. tools/gen_unicode_tables.c from DUCET + UnicodeData %s.\n"
@@ -659,7 +659,7 @@ int main(void)
         "/* SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors\n"
         " *\n"
         " * SPDX-License-Identifier: LGPL-3.0\n"
-        " * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */\n"
+        " * Anoptic targets ISO C++26. */\n"
         "/*  == Anoptic Game Engine v0.0000001 == */\n"
         "\n"
         "// GENERATED FILE -- do not edit. tools/gen_unicode_tables.c from UCD %s.\n"

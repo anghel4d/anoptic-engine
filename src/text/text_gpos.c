@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors
  *
  * SPDX-License-Identifier: LGPL-3.0
- * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */
+ * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // GPOS PairPos kern reader. Raw GPOS bytes, every read bounds-checked. Malformed -> EIO (dense may be partial). Accumulates latn/DFLT 'kern' xAdvance into a dense FUnit matrix. FreeType-free.

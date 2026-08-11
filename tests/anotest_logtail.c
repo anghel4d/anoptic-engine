@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2023 Anoptic Game Engine Authors
  *
  * SPDX-License-Identifier: LGPL-3.0
- * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */
+ * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Tail-latency benchmark: per-call ano_log() percentiles (p50/p90/p99/p99.9).
