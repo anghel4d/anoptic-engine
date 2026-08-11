@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2023 Anoptic Game Engine Authors
  *
- * SPDX-License-Identifier: LGPL-3.0 */
+ * SPDX-License-Identifier: LGPL-3.0
+ * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Determinism kernel vs CPython 3.12 vectors (TECH_SPEC §8): Blake2b-8, MT19937, random/randint/choice/choices/shuffle/uniform/sample/gauss, banker's round.

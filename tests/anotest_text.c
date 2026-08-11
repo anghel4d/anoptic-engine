@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors
  *
- * SPDX-License-Identifier: LGPL-3.0 */
+ * SPDX-License-Identifier: LGPL-3.0
+ * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
 /* Coverage: lifecycle, bake math (binary16/monotone/cubic), Geist ASCII bake vs stream decoder + audit oracles, CPU ref raster vs FT (peak oracle, ghost sweep), shaper golden + penOut, multi-face Runic bake, style runs, GPOS PairPos (synthetic + Geist kern oracle).

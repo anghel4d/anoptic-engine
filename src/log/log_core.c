@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2023 Anoptic Game Engine Authors
  *
- * SPDX-License-Identifier: LGPL-3.0 */
+ * SPDX-License-Identifier: LGPL-3.0
+ * Anoptic targets ISO C++26. Compiler/library incompleteness disqualifies the toolchain; it does not constrain the architecture. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Lock-free MPSC ring logger. Producer: capture/format, CAS `tail`, copy, release-store `tag`. One owned consumer drains.
