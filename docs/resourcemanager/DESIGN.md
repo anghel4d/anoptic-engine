@@ -10,7 +10,11 @@ converted into engine-defined representations, packaged, loaded, realized by
 the responsible device module, and eventually retired. The same logical asset
 often has several representations: glTF source data, canonical mesh artifacts,
 packed bytes, CPU views, and renderer-owned GPU buffers can all describe one
-mesh at different points in its lifetime.
+mesh at different points in its lifetime. Every one of those representations is
+an addressable resource cell. The game-facing representation is conventional,
+not privileged: gameplay code may hold a typed reference to source bytes,
+decoded pixels, PCM samples, a canonical mesh, or a device-ready representation
+when that is the representation it actually needs.
 
 A resource manager is the engine subsystem that preserves the identity and
 dependency relationships of those logical assets while moving their typed
@@ -19,11 +23,14 @@ representations through the offline and runtime pipeline.
 | Term | Meaning |
 |---|---|
 | Source asset | Authoring input such as glTF/GLB, PNG/JPEG, OpenType, WAV, GLSL, an include file, or SPIR-V |
-| Artifact | A canonical typed product produced by import, migration, cooking, or transformation |
-| Semantic asset | The stable game-facing identity represented by `AssetRef<T>` independently of its current bytes or residency |
+| Resource cell | Any typed, independently addressable value in a resource route, including source bytes, parsed source structure, canonical data, cooked data, runtime-loadable data, and owner realization |
+| Artifact | A canonical typed resource cell produced by import, migration, cooking, or transformation |
+| Top-level asset | The editor- and game-facing cell conventionally used to enter a resource graph; it has no exclusive addressing privilege over cells below it |
+| Focused handle | A pointer-free `AssetRef<T>` naming a cell of reflected type `T` and, when derived by navigation, retaining the compact route context needed to return upward |
+| Provenance | The selected producing transform and its typed input handles, represented as a reflected sum of products |
 | Resident representation | A CPU view or an opaque renderer-, audio-, or text-owned slot ready for runtime use |
-| Residency goal | A request for a semantic asset at a representation, quality, and priority required by the current world |
-| Residency epoch | An immutable publication mapping stable asset identities to one mutually consistent generation of resident bindings |
+| Residency goal | A request for an addressable cell at a quality and priority required by the current world |
+| Residency epoch | An immutable publication mapping stable cell identities to one mutually consistent generation of values and resident bindings |
 
 The resource manager therefore spans two connected domains:
 
@@ -38,8 +45,8 @@ It is not merely a file cache or asynchronous loader. A complete resource
 manager also answers which transformations are legal, which dependencies form
 an atomic floor, which representation satisfies a platform, when a replacement
 generation may become visible, and when the previous generation is safe to
-destroy. It preserves stable semantic references while content, packaging,
-memory location, device objects, and quality levels change.
+destroy. It preserves stable typed references while content, packaging, memory
+location, device objects, and quality levels change.
 
 The resource manager does not absorb every subsystem that touches an asset.
 ECS owns mutable simulation state. The renderer owns Vulkan objects. The audio
@@ -126,6 +133,104 @@ typed definition of every resource, whose hot paths contain no reflection
 interpreter, and whose unsupported structural combinations cannot enter a
 successful build.
 
+### Addressable cells and composed routes
+
+RCRG has no single semantic layer. Each layer has the semantics appropriate to
+its consumer: a designer manipulates a room, an importer manipulates a glTF
+scene, a texture transform manipulates pixels, and a renderer manipulates an
+opaque GPU slot. All are cells in the same reflected graph and all are
+addressable through `AssetRef<T>`.
+
+A representative texture route is:
+
+```text
+AssetRef<Texture>                         editor/game-facing focus
+        |
+        v down()
+AssetRef<RuntimeTexture>                  runtime-loadable focus
+        |
+        v down()
+AssetRef<PixelImage>                      canonical pixel focus
+        |
+        v down(): selected provenance
+  +-----+----------------+----------------+
+  | ViaPng               | ViaJpeg        | ViaKtx2
+  v                      v                v
+AssetRef<PngFile>   AssetRef<JpegFile>   AssetRef<Ktx2File>
+  |                      |                |
+  +----------------------+----------------+
+                         v
+                  AssetRef<RawFile>
+```
+
+The branches under `PixelImage` are alternatives, not three values that must
+all exist. The cooked instance records which producer was selected. A model or
+scene may instead decompose into several required inputs or repeated members;
+the same reflected rule preserves that product or collection shape.
+
+For a cell `X` in one route:
+
+```text
+raw source --p--> X --q--> top-level asset
+```
+
+the complete computation is `q . p`. An `AssetRef<X>` is a typed focus at that
+factorization point. It is not an object pointer and does not contain a closure.
+`down()` moves the focus toward the actual inputs and provenance; `up()` moves
+the focus toward the particular result from which it was derived. Navigation
+returns handles and does not itself parse, load, realize, or copy a value.
+
+Primitive transform signatures determine the exact algebraic result of
+`down()`. If either `f` or `g` can produce `H`, while `k` requires two inputs:
+
+```haskell
+f :: A -> H
+g :: B -> H
+k :: (A, B) -> H
+
+data HProvenance
+  = ViaF (Ref A)
+  | ViaG (Ref B)
+  | ViaK (Ref A) (Ref B)
+```
+
+then the generated provenance for `H` is that closed sum of products. Producer
+alternatives form the sum. One producer's required inputs form the product.
+Optional and repeated inputs retain their optional and collection cardinality.
+The cooker stores the selected constructor as a compact transform ordinal plus
+its input cell identities; no runtime type erasure is introduced.
+
+Every handle returned by `down()` retains a compact route witness back to the
+specific result that produced it, like a typed zipper context. Its ordinary
+`up()` is therefore singular. Enumerating every consumer of a globally shared
+cell is a separate reverse-dependency query and may return several handles.
+Likewise, a standalone lower-level handle with no selected top-level context
+chooses an upward route explicitly when more than one route is legal.
+
+The reflected declarations generate a typed category: cell types are objects,
+transform functions are primitive morphisms, and legal routes are their
+composition. Products express jointly required inputs, sums express alternative
+producers, and collections express repeated cells. The compile-time program
+interprets that category as packed runtime data:
+
+| Reflected program | Packed runtime image |
+|---|---|
+| Cell type | Dense typed column and compile-time type ordinal |
+| Cell instance | Compact stable identity and column index |
+| Transform | Direct generated call |
+| Composed route | Compiled materialization plan |
+| Producer alternatives | Small generated tag |
+| Required or repeated inputs | Packed tuple or span of typed identities |
+| `up()` context | Compact route witness |
+| Forward consequences | Compile-time reachability mask plus packed instance edges |
+| Published graph version | Structurally shared immutable epoch |
+
+Runtime therefore pays for array indexing, compact tags, and direct calls. It
+does not chase virtual pointers, interpret a runtime object hierarchy, or walk
+reflection metadata. Addressability does not require permanent materialization:
+a cell may be absent until demanded, provided the active build profile retains
+the cell or a legal route capable of materializing it.
+
 ## Contract
 
 **Types and laws are compile-time. Asset instances and schedules are runtime.**
@@ -136,9 +241,9 @@ consumes immutable bindings.
 
 | Stage | Input | Output |
 |---|---|---|
-| C++ compilation | Resource types, fields, transform functions, annotations | Schemas, validators, transform type graph, direct typed operations, legal-route tables |
-| Asset cooking | Source assets, build settings, platform profiles | Content-addressed artifact DAG, manifest, packs, dependency graph |
-| Runtime | ECS and world demand, hardware capabilities, current residency | I/O and transform schedule, immutable residency epochs |
+| C++ compilation | Cell types, fields, transform functions, annotations | Schemas, validators, producer sums, input products, direct operations, navigation, legal routes, invalidation masks |
+| Asset cooking | Source assets, build settings, platform profiles | Content-addressed cell DAG, selected provenance, packed navigation, manifest, packs |
+| Runtime | Typed cell demand and edits, hardware capabilities, current residency | I/O and transform schedule, copy-on-write candidate, immutable residency epochs |
 
 C++ compilation never evaluates an asset-instance graph. The resource language
 uses reflected declarations directly and has no parallel template typelist or
@@ -190,13 +295,14 @@ owned by the resource manager.
 
 ## Resource language
 
-Artifact types and transformation functions are the declarations reflected by
-the resource compiler. An empty `Artifact` annotation marks a canonical type;
+Cell types and transformation functions are the declarations reflected by the
+resource compiler. An empty `Artifact` annotation marks an addressable cell;
 its reflected qualified identifier, member identifiers, declaration order, and
-exact member types define its identity and schema. Transform annotations carry
-only irreducible execution semantics such as executor, determinism, streaming
-granularity, and capabilities. Their input and output types come from the
-reflected function signature.
+exact member types define its identity and schema at that layer. Source-format,
+canonical, runtime-loadable, and owner-resident cells use the same mechanism.
+Transform annotations carry only irreducible execution semantics such as
+executor, determinism, streaming granularity, and capabilities. Their input
+product and output type come from the reflected function signature.
 
 One mandatory `consteval` operation scans and closes the supplied resource
 namespace:
@@ -212,8 +318,9 @@ separate algorithm language. It inspects artifact types, fields, transform
 functions, annotations, parameters, and return types, then invokes ordinary
 `constexpr` functions using normal loops, local values, containers, ranges, and
 graph algorithms. Those functions compute schemas, mappings, validation,
-dependency closure, route selection, capability matrices, and retained products.
-The actual semantic declarations are the sole source of structural truth.
+dependency closure, producer sums, navigation shapes, route selection,
+capability matrices, invalidation closure, and retained products. The actual
+cell and transform declarations are the sole source of structural truth.
 
 The resource compiler is one ordinary C++ constant-evaluation program.
 Templates parameterize a type or value only where an interface requires it;
@@ -243,6 +350,8 @@ expansion produce:
 - Bounds and overflow validation.
 - Dependency extraction.
 - Streaming-atom inventory.
+- Dense typed-column identity.
+- Pointer-free focused-handle operations.
 - Typed views.
 - Field names in compile-time diagnostics.
 
@@ -262,14 +371,19 @@ expansion produce:
 - Capability requirements.
 - Offline and runtime legality.
 - Determinism and cacheability.
+- The producer constructor and reflected input-product shape.
+- Direct `up()` and algebraic `down()` handle navigation.
+- Forward invalidation closure for copy-on-write publication.
 - Direct specialized dispatch.
 
-The compiled representation graph rejects cycles and invalid stage transitions,
-computes reachable source-to-resident routes, derives platform capability
-matrices, retains the Pareto-optimal transform paths, and emits the runtime
-dispatch tables and required executor bridges. Runtime selects among retained
-paths from hardware capabilities, current residency, and deadlines; it does not
-perform general graph search during gameplay.
+The compiled forward transform graph rejects production cycles and invalid
+stage transitions, computes reachable source-to-cell routes, derives platform
+capability matrices, retains the Pareto-optimal transform paths, and emits the
+runtime dispatch, navigation products, invalidation masks, and required
+executor bridges. Runtime selects among retained paths from hardware
+capabilities, current residency, and deadlines; it does not perform general
+graph search during gameplay. Generated reverse navigation does not turn a
+one-way transform into an inverse function; it follows retained provenance.
 
 ### Division of labor
 
@@ -296,13 +410,14 @@ architecture depends on C++26 reflection for all of the following at once:
   those declarations into the closed representation graph without a manual
   registry.
 - Ordinary `constexpr` graph algorithms compute fingerprints, migrations,
-  dependency closure, legal routes, capabilities, and retained paths over that
-  reflected structure.
+  dependency closure, producer sums, input products, legal routes,
+  capabilities, invalidation cones, and retained paths over that reflected
+  structure.
 - The `consteval` boundary rejects duplicate identities, malformed schemas,
   illegal ownership edges, missing migrations, cycles, and incomplete routes
   during translation.
-- Expansion statements and splicing emit direct field operations and exact
-  transform calls from the computed result.
+- Expansion statements and splicing emit direct field operations, exact
+  transform calls, and typed navigation from the computed result.
 - Reflection over ECS components emits typed `AssetRef<T>` demand extractors
   from the same resource language.
 
@@ -313,15 +428,24 @@ retain a general reflection interpreter or reconstruct the type graph.
 ### Compile-time and instance graphs
 
 The type graph is closed and small enough for constant evaluation. It contains
-artifact representations and their transforms. The asset-instance graph contains
-project content and belongs to the cooker and manifest.
+cell types, transform functions, producer alternatives, input cardinalities,
+and legal compositions. The asset-instance graph contains project content and
+belongs to the cooker and manifest. Each produced cell records the selected
+producer constructor and the identities of that producer's actual inputs.
+
+The type graph determines the shape of navigation and direct execution. The
+instance graph supplies compact indices, selected alternatives, collection
+extents, sharing, and current content. `down()` therefore has a statically
+closed result type while selecting the baked constructor at runtime. A focused
+result retains enough context for its singular `up()` without storing a pointer
+or a callable object.
 
 Adding an asset does not recompile the engine. Changing the meaning of an
 artifact or transform does.
 
 The cooker consumes compiler-produced schema descriptions and direct typed
 operations. It emits the content-addressed artifact DAG, dependency graph,
-manifest, and physical packs.
+cell provenance, packed navigation indices, manifest, and physical packs.
 
 ### Module boundary
 
@@ -332,17 +456,17 @@ compile-time interfaces.
 | Public header | Boundary |
 |---|---|
 | `anoptic_resources.h` | Stable IDs, content IDs, schema fingerprints, byte/range values, errors, and opaque runtime views |
-| `anoptic_resources_typed.h` | Resource annotations, `AssetRef<T>`, relative wire types, the reflection compiler, and direct typed operations |
+| `anoptic_resources_typed.h` | Resource annotations, `AssetRef<T>`, reflected `up()`/`down()` navigation, relative wire types, the reflection compiler, and direct typed operations |
 | `anoptic_resources_cook.h` | Import and cook requests, build profiles, diagnostics, incremental results, and CAS control |
-| `anoptic_resources_pack.h` | Vendor-neutral manifests, packs, queries, and range reads |
-| `anoptic_resources_runtime.h` | Residency goals, commit groups, manifest transactions, epoch acquisition, resolution, and retirement |
+| `anoptic_resources_pack.h` | Vendor-neutral manifests, cell provenance, packed navigation, packs, queries, and range reads |
+| `anoptic_resources_runtime.h` | Cell goals, focused navigation, copy-on-write transactions, commit groups, epoch acquisition, resolution, and retirement |
 | `anoptic_resources_ecs.h` | Reflected component demand, native prefab/world-cell schemas, bulk instantiation, and coordinated publication |
 | `anoptic_render_resources.h` | Render artifacts and transforms, opaque GPU slots, and the renderer-owned realization bridge |
 | `anoptic_audio_resources.h` | Audio artifacts and transforms, opaque audio slots, streaming adoption, and the mixer-owned realization bridge |
 | `anoptic_text_resources.h` | Font artifacts and transforms, opaque text slots, and the text-owned realization bridge |
 
 Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
-namespace `ano`; reflected semantic declarations live in the shared
+namespace `ano`; reflected cell declarations live in the shared
 `ano::asset_schema` namespace. C-compatible headers expose neither templates nor
 `std::meta::info`. The base header includes no owner extension.
 
@@ -365,23 +489,27 @@ The ECS graph and resource graph remain separate:
 ```text
 ECS graph                              Resource graph
 
-Entity                                 AssetId
-  `- MeshRenderer                        `- semantic artifact
-      |- AssetRef<Mesh>                     |- dependencies
-      `- AssetRef<Material>                 |- representations
-                                               `- resident bindings
+Entity                                 typed addressable cells
+  `- MeshRenderer                        `- AssetRef<Model>
+      |- AssetRef<Mesh>                      `- down(): source/canonical inputs
+      `- AssetRef<Material>                  `- up(): focused derived result
+                                               `- owner-resident binding
 ```
 
 The bridge is a typed stable reference:
 
 ```cpp
-template<class SemanticAsset>
+template<class Cell>
 struct AssetRef final {
     AnoAssetId id;
 };
 ```
 
-Persistent ECS components store `AssetRef<T>`. They do not store file paths,
+Every reflected cell type may be named by `AssetRef<T>` in the main loop, an
+editor, a tool, or an ECS component. Game code normally stores top-level cells,
+but the API does not prohibit a component from deliberately addressing pixels,
+PCM, source structure, or another lower representation. Persistent ECS
+components store stable `AssetRef<T>` values. They do not store file paths,
 resource pointers, content digests, backend handles, cache-entry addresses, or
 snapshot-local pointers.
 
@@ -413,19 +541,19 @@ behavioral demand.
 
 ## Residency epochs
 
-The runtime product is a structurally shared residency epoch containing immutable
-binding tables:
+The runtime product is a structurally shared residency epoch containing
+immutable typed cell tables and bindings:
 
 ```text
 Residency epoch
-|- artifact bindings
-|- CPU representation slots
-|- GPU representation slots
-|- audio representation slots
+|- packed typed cell columns
+|- selected producer tags and input spans
+|- CPU and owner-resident slots
+|- forward and focused-up navigation indices
 `- manifest root
 ```
 
-An `AssetId` indexes a dense typed binding table:
+The reflected type selects a dense column and an `AssetId` selects its row:
 
 ```cpp
 GpuMeshSlot slot = epoch.mesh_bindings[renderer.mesh.id.index()];
@@ -448,6 +576,37 @@ struct ResidentRenderable final {
 When bindings change, the resource system publishes a new epoch and a compact
 changed-ID list. Only affected derived bindings refresh. Persistent components
 remain unchanged.
+
+### Copy-on-write cell edits
+
+Every addressable cell is an edit focus. Editing does not mutate the published
+epoch. It creates a candidate epoch that structurally shares all existing
+columns, pages, provenance, and owner bindings until a write requires a copy.
+
+A cell edit proceeds as follows:
+
+1. Resolve the typed focus in the current epoch.
+2. Copy only the touched cell or containing storage page into a candidate.
+3. Validate the replacement with the generated operation for its reflected
+   type.
+4. Follow the compile-time forward reachability mask and packed instance edges
+   to invalidate the cell's upward consequence cone.
+5. Materialize demanded consequences through direct compiled transforms.
+6. Prepare affected renderer, audio, and text realizations privately through
+   their owner bridges.
+7. Publish the complete candidate epoch atomically and retire replaced storage
+   under the normal reader and owner safe-point rules.
+
+Provenance below the edited focus, unrelated branches, and unaffected pages
+remain shared. Editing raw WAV bytes may reparse and redecode the audio route;
+editing decoded PCM recomputes only its upward consumers and does not fabricate
+a replacement WAV. Editing pixels similarly recomputes declared mip,
+compression, and GPU consequences without reverse-encoding an authoring file.
+
+The reflected transform graph supplies the direction of recomputation. Generated
+`down()` navigation follows retained provenance and never implies an inverse
+transform. Cell editing, file replacement, and tool-driven hot reload use this
+same transaction mechanism rather than separate publication paths.
 
 ### Commit groups
 
@@ -524,10 +683,13 @@ do not confer resource ownership.
 
 ## Hot reload
 
-A stable `AssetRef<T>` remains unchanged while a new manifest maps its `AssetId`
-to replacement content. The runtime materializes the replacement, builds new
-bindings, publishes a new residency epoch, refreshes affected derived bindings,
-and retires the previous representation safely.
+A stable `AssetRef<T>` remains unchanged while a source-cell or intermediate-cell
+replacement creates a copy-on-write candidate. The runtime invalidates its
+reflected upward consequence cone, materializes the demanded replacement cells,
+builds owner bindings, publishes one new residency epoch, refreshes affected
+derived bindings, and retires the previous cells safely. A top-level asset and
+every addressable cell in its route therefore resolve to one coherent generation;
+no reader observes a mixture of old provenance and new consequences.
 
 Mutable ECS state remains intact. Semantic migration of mutable state belongs to
 the responsible ECS system rather than the resource manager.
@@ -545,27 +707,30 @@ manifest root so stable asset IDs resolve to the same content versions.
 
 ```text
 C++26 compile-time layer
-|- reflected artifact schemas
+|- reflected cell schemas
 |- reflected transform functions
 |- reflected AssetRef fields
-|- consteval type and transform graph
-|- generated validators and dependency extractors
-`- generated direct typed operations
+|- consteval category, route, and cardinality compilation
+|- generated sums of input products and focused navigation
+|- generated validators, invalidation, and dependency extractors
+`- generated direct typed operations and calls
 
 Offline content layer
 |- source assets
 |- cooker
-|- instance dependency DAG
+|- addressable cell-instance DAG
+|- selected producer constructors and input identities
 |- CAS
 |- manifest
 `- physical packs
 
 Runtime resource layer
 |- residency goals
+|- typed cell focus and navigation
 |- commit groups
 |- materialization scheduler
 |- execution-domain bridges
-|- immutable binding tables
+|- copy-on-write typed columns
 `- residency epochs
 
 ECS layer
@@ -576,11 +741,12 @@ ECS layer
 `- transient resolved bindings
 ```
 
-C++26 reflection compiles the closed language of artifact types,
-transformations, and ECS asset references. The offline cooker evaluates that
-language over content. ECS declares the desired semantic world. Runtime
-incrementally materializes and atomically publishes the cheapest residency
-epochs satisfying that world.
+C++26 reflection compiles the closed language of cell types, transformations,
+navigation, and ECS asset references. The offline cooker evaluates that
+language over content and records selected provenance. ECS declares the desired
+world. Runtime incrementally materializes and atomically publishes the cheapest
+residency epochs satisfying that world, while any layer remains explicitly
+addressable through its typed focus.
 
 ## Sources and prior art
 
@@ -618,6 +784,8 @@ not substitute specifications for Anoptic's public API.
 | [Nix content-addressed store objects](https://nix.dev/manual/nix/2.26/store/store-object/content-address) | Content identity incorporates an object's content and dependency references | Shipping manifests preserve stable semantic `AssetId` values separately from exact `ContentId` values. |
 | [FlatBuffers internals](https://flatbuffers.dev/internals/) and [schema evolution](https://flatbuffers.dev/evolution/) | Relative offsets, direct in-buffer access, explicit field identity, and constrained schema evolution | Reflected C++ declarations are the schema and generate the operations directly; there is no parallel IDL or external source-generation step. |
 | [Linux RCU](https://www.kernel.org/doc/html/latest/RCU/whatisRCU.html) | Readers consume an immutable publication while replaced state waits for safe reclamation | Residency epochs coordinate typed CPU, GPU, audio, text, manifest, and ECS bindings as commit groups. |
+| Haskell [`Control.Category`](https://hackage.haskell.org/package/base/docs/Control-Category.html) and [`Control.Arrow`](https://hackage.haskell.org/package/base/docs/Control-Arrow.html) | Typed computations compose; products, alternatives, and fan-out preserve dataflow shape | Reflection closes and compiles the category into direct C++ calls, generated algebraic provenance, and packed indices rather than retaining runtime function values. |
+| Huet's [functional zipper](https://doi.org/10.1017/S0956796897002864) | A location plus context gives a composable focus that can return to its enclosing value | An RCRG focus is a pointer-free typed cell identity plus compact baked route context in an immutable DAG; it is not a heap cursor or an assertion that transforms are reversible. |
 | [Bevy assets and handles](https://docs.rs/bevy/latest/bevy/asset/) | Typed handles separate entity/component references from asset storage | `AssetRef<T>` is a stable manifest identity; liveness and replacement belong to demand reconciliation and immutable epochs rather than handle reference counts. |
 
 ### Repository precedent
