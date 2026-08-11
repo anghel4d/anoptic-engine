@@ -78,7 +78,7 @@ static bool import_sources(const char *const *relativePaths,
     }
 
     AnoResourceMutableBytes cooked = {};
-    result = ano_resource_cook_owned(cooker, &cooked);
+    result = ano_resource_cook(cooker, &cooked);
     ano_resource_cooker_destroy(cooker);
     if (result != ANO_RESOURCE_OK) {
         ano_resource_cooked_pack_release(cooked);

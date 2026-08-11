@@ -46,12 +46,9 @@ AnoResourceError ano_resource_cooker_add(
     AnoResourceCooker *cooker, AnoAssetId asset, AnoResourceTypeId type,
     AnoResourceCommitGroupId commitGroup, AnoResourceBytes artifact);
 
-AnoResourceError ano_resource_cook(AnoResourceCooker *cooker,
-                                   AnoResourceMutableBytes output,
-                                   uint64_t *packSize);
 // Returns one owned pack allocation. ano_resource_cooked_pack_release releases it.
-AnoResourceError ano_resource_cook_owned(AnoResourceCooker *cooker,
-                                         AnoResourceMutableBytes *pack);
+AnoResourceError ano_resource_cook(AnoResourceCooker *cooker,
+                                   AnoResourceMutableBytes *pack);
 void ano_resource_cooked_pack_release(AnoResourceMutableBytes pack);
 void ano_resource_cooker_cancel(AnoResourceCooker *cooker);
 

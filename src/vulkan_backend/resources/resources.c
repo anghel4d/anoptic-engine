@@ -76,34 +76,6 @@ struct TransformEndpoints final {
     std::meta::info output;
 };
 
-struct MaterialSlotMatch final {
-    bool found;
-    schema::MaterialTextureSlot slot;
-};
-
-constexpr char folded(char value)
-{
-    return value >= 'A' && value <= 'Z'
-        ? static_cast<char>(value - 'A' + 'a') : value;
-}
-
-constexpr bool semantic_name_equal(std::string_view lhs,
-                                   std::string_view rhs)
-{
-    size_t left = 0;
-    size_t right = 0;
-    for (;;) {
-        while (left < lhs.size() && lhs[left] == '_')
-            ++left;
-        while (right < rhs.size() && rhs[right] == '_')
-            ++right;
-        if (left == lhs.size() || right == rhs.size())
-            return left == lhs.size() && right == rhs.size();
-        if (folded(lhs[left++]) != folded(rhs[right++]))
-            return false;
-    }
-}
-
 consteval TransformEndpoints transform_endpoints(std::meta::info declaration)
 {
     TransformEndpoints result = {};
@@ -124,52 +96,6 @@ consteval TransformEndpoints transform_endpoints(std::meta::info declaration)
     return result;
 }
 
-consteval MaterialSlotMatch material_slot(std::meta::info destination)
-{
-    constexpr std::string_view suffix = "Texture";
-    std::string_view name = std::meta::identifier_of(destination);
-    if (!name.ends_with(suffix))
-        return {false, schema::MaterialTextureSlot::baseColor};
-    name.remove_suffix(suffix.size());
-    static constexpr auto slots = std::define_static_array(
-        std::meta::enumerators_of(^^schema::MaterialTextureSlot));
-    template for (constexpr std::meta::info slot : slots)
-        if (semantic_name_equal(name, std::meta::identifier_of(slot)))
-            return {true, [:slot:]};
-    return {false, schema::MaterialTextureSlot::baseColor};
-}
-
-consteval schema::TextureUsage material_texture_usage(
-    schema::MaterialTextureSlot sought)
-{
-    static constexpr auto slots = std::define_static_array(
-        std::meta::enumerators_of(^^schema::MaterialTextureSlot));
-    template for (constexpr std::meta::info slot : slots) {
-        if (sought == [:slot:]) {
-            static constexpr auto annotations = std::define_static_array(
-                std::meta::annotations_of_with_type(
-                    slot, ^^schema::MaterialTextureUse));
-            static_assert(annotations.size() == 1);
-            return std::meta::extract<schema::MaterialTextureUse>(
-                annotations[0]).usage;
-        }
-    }
-    __builtin_abort();
-}
-
-consteval size_t material_slot_index(schema::MaterialTextureSlot sought)
-{
-    size_t index = 0;
-    static constexpr auto slots = std::define_static_array(
-        std::meta::enumerators_of(^^schema::MaterialTextureSlot));
-    template for (constexpr std::meta::info slot : slots) {
-        if (sought == [:slot:])
-            return index;
-        ++index;
-    }
-    __builtin_abort();
-}
-
 consteval bool material_slots_complete()
 {
     static constexpr auto slots = std::define_static_array(
@@ -180,7 +106,8 @@ consteval bool material_slots_complete()
     template for (constexpr std::meta::info slot : slots) {
         size_t matches = 0;
         template for (constexpr std::meta::info field : fields) {
-            constexpr MaterialSlotMatch match = material_slot(field);
+            constexpr schema::MaterialTextureSlotMatch match =
+                schema::material_texture_slot(field);
             if constexpr (match.found && match.slot == [:slot:])
                 ++matches;
         }
@@ -232,21 +159,6 @@ static_assert(static_cast<uint8_t>(schema::TextureUsage::color)
               && static_cast<uint8_t>(schema::TextureUsage::color_and_data)
                   == (TEXTURE_USE_COLOR | TEXTURE_USE_DATA));
 
-template<class Enum>
-constexpr uint32_t enum_ordinal(Enum value)
-{
-    static_assert(std::is_enum_v<Enum>);
-    uint32_t index = 0;
-    static constexpr auto values = std::define_static_array(
-        std::meta::enumerators_of(^^Enum));
-    template for (constexpr std::meta::info declaration : values) {
-        if (value == [:declaration:])
-            return index;
-        ++index;
-    }
-    return UINT32_MAX;
-}
-
 consteval PbrFeatureFlags pbr_named_feature(std::string_view source)
 {
     constexpr std::string_view prefix = "PBR_FEATURE_";
@@ -259,7 +171,7 @@ consteval PbrFeatureFlags pbr_named_feature(std::string_view source)
         if (!name.starts_with(prefix))
             continue;
         name.remove_prefix(prefix.size());
-        if (semantic_name_equal(source, name))
+        if (ano::detail::semantic_name_equal(source, name))
             return static_cast<PbrFeatureFlags>([:feature:]);
     }
     return PBR_FEATURE_NONE;
@@ -301,7 +213,7 @@ consteval PbrFeatureFlags pbr_texture_feature(
                     continue;
                 target.remove_prefix(prefix.size());
                 target.remove_suffix(std::string_view("_TEXTURE").size());
-                if (semantic_name_equal(name, target))
+                if (ano::detail::semantic_name_equal(name, target))
                     return static_cast<PbrFeatureFlags>([:feature:]);
             }
             return PBR_FEATURE_NONE;
@@ -320,7 +232,7 @@ void project_material_value(Destination& destination, const Source& source)
         destination = source ? 1u : 0u;
     else if constexpr (std::is_same_v<Destination, uint32_t>
                        && std::is_enum_v<Source>)
-        destination = enum_ordinal(source);
+        destination = static_cast<uint32_t>(ano::detail::enum_index(source));
 }
 
 template<size_t DestinationCount, size_t SourceCount>
@@ -759,7 +671,7 @@ PbrFeatureFlags material_features(const schema::Material& material)
         || material.emissiveFactor[2] > 0.0f)
         result |= PBR_FEATURE_EMISSIVE_FACTOR;
     result |= PBR_FEATURE_ALPHA_MODE_OPAQUE
-        << enum_ordinal(material.alphaMode);
+        << ano::detail::enum_index(material.alphaMode);
     if (material.doubleSided)
         result |= PBR_FEATURE_DOUBLE_SIDED;
     return result;
@@ -854,12 +766,13 @@ bool realize_material(const Material& material,
         std::meta::nonstatic_data_members_of(
             ^^MaterialData, std::meta::access_context::unchecked()));
     template for (constexpr std::meta::info field : fields) {
-        constexpr MaterialSlotMatch match = material_slot(field);
+        constexpr schema::MaterialTextureSlotMatch match =
+            schema::material_texture_slot(field);
         if constexpr (match.found) {
             using Field = [:std::meta::type_of(field):];
             static_assert(std::is_same_v<Field, uint32_t>);
             const MaterialTexture& use = material.textures[
-                material_slot_index(match.slot)];
+                ano::detail::enum_index(match.slot)];
             if (use.hasTransform || use.texCoord != 0)
                 return false;
             uint32_t slot = ANO_BINDLESS_NONE;
@@ -870,7 +783,7 @@ bool realize_material(const Material& material,
                     || texture->state != RenderBindingState::resident)
                     return false;
                 constexpr TextureUsage usage =
-                    material_texture_usage(match.slot);
+                    schema::material_texture_usage(match.slot);
                 if constexpr (usage == TextureUsage::color)
                     slot = texture->texture.colorSlot;
                 else if constexpr (usage == TextureUsage::data)
@@ -882,9 +795,9 @@ bool realize_material(const Material& material,
         }
     }
     destination.normalScale = material.textures[
-        material_slot_index(MaterialTextureSlot::normal)].scale;
+        ano::detail::enum_index(MaterialTextureSlot::normal)].scale;
     destination.occlusionStrength = material.textures[
-        material_slot_index(MaterialTextureSlot::occlusion)].strength;
+        ano::detail::enum_index(MaterialTextureSlot::occlusion)].strength;
 
     PbrFeatureFlags unsupported = PBR_FEATURE_NONE;
     const PbrFeatureFlags available =

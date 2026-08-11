@@ -19,11 +19,6 @@
 namespace ano::asset_schema {
 namespace {
 
-struct TextureSlotMatch final {
-    bool found;
-    MaterialTextureSlot slot;
-};
-
 struct ImportScratch final {
     bool *reachableNodes;
     bool *usedMeshes;
@@ -38,61 +33,6 @@ struct ImportScratch final {
     AnoAssetId defaultMaterial;
 };
 
-constexpr char folded(char value)
-{
-    return value >= 'A' && value <= 'Z'
-        ? static_cast<char>(value - 'A' + 'a') : value;
-}
-
-constexpr bool semantic_name_equal(std::string_view lhs,
-                                   std::string_view rhs)
-{
-    size_t left = 0;
-    size_t right = 0;
-    for (;;) {
-        while (left < lhs.size() && lhs[left] == '_')
-            ++left;
-        while (right < rhs.size() && rhs[right] == '_')
-            ++right;
-        if (left == lhs.size() || right == rhs.size())
-            return left == lhs.size() && right == rhs.size();
-        if (folded(lhs[left++]) != folded(rhs[right++]))
-            return false;
-    }
-}
-
-consteval TextureSlotMatch texture_slot(std::meta::info source)
-{
-    constexpr std::string_view suffix = "Texture";
-    std::string_view name = std::meta::identifier_of(source);
-    if (!name.ends_with(suffix))
-        return {false, MaterialTextureSlot::baseColor};
-    name.remove_suffix(suffix.size());
-    static constexpr auto slots = std::define_static_array(
-        std::meta::enumerators_of(^^MaterialTextureSlot));
-    template for (constexpr std::meta::info slot : slots)
-        if (semantic_name_equal(name, std::meta::identifier_of(slot)))
-            return {true, [:slot:]};
-    return {false, MaterialTextureSlot::baseColor};
-}
-
-consteval TextureUsage texture_usage(MaterialTextureSlot sought)
-{
-    static constexpr auto slots = std::define_static_array(
-        std::meta::enumerators_of(^^MaterialTextureSlot));
-    template for (constexpr std::meta::info slot : slots) {
-        if (sought == [:slot:]) {
-            static constexpr auto annotations = std::define_static_array(
-                std::meta::annotations_of_with_type(
-                    slot, ^^MaterialTextureUse));
-            static_assert(annotations.size() == 1,
-                          "every material texture slot declares its usage");
-            return std::meta::extract<MaterialTextureUse>(annotations[0]).usage;
-        }
-    }
-    __builtin_abort();
-}
-
 consteval MaterialFeature extension_feature(std::meta::info member)
 {
     constexpr std::string_view prefix = "KHR_materials_";
@@ -103,7 +43,8 @@ consteval MaterialFeature extension_feature(std::meta::info member)
     static constexpr auto features = std::define_static_array(
         std::meta::enumerators_of(^^MaterialFeature));
     template for (constexpr std::meta::info feature : features)
-        if (semantic_name_equal(name, std::meta::identifier_of(feature)))
+        if (ano::detail::semantic_name_equal(
+                name, std::meta::identifier_of(feature)))
             return [:feature:];
     __builtin_abort();
 }
@@ -117,7 +58,7 @@ consteval size_t texture_slot_count(std::meta::info sourceType,
     for (const std::meta::info field : fields) {
         if (std::meta::type_of(field) != ^^AnoGltfTextureInfo)
             continue;
-        const TextureSlotMatch match = texture_slot(field);
+        const MaterialTextureSlotMatch match = material_texture_slot(field);
         if (match.found && match.slot == sought)
             ++count;
     }
@@ -441,7 +382,8 @@ AnoResourceError mark_material_images(const AnoGltfData& data,
     auto mark = [&]<std::meta::info source>(const AnoGltfTextureInfo& info) {
         if (result != ANO_RESOURCE_OK || !ano_gltf_has_index(info.index))
             return;
-        constexpr TextureSlotMatch match = texture_slot(source);
+        constexpr MaterialTextureSlotMatch match =
+            material_texture_slot(source);
         if constexpr (!match.found) {
             result = ANO_RESOURCE_UNSUPPORTED;
         } else {
@@ -449,7 +391,7 @@ AnoResourceError mark_material_images(const AnoGltfData& data,
             result = texture_image(data, info, &image);
             if (result == ANO_RESOURCE_OK)
                 imageUsage[image] |= static_cast<uint8_t>(
-                    texture_usage(match.slot));
+                    material_texture_usage(match.slot));
         }
     };
     visit_texture_fields(material, mark);
@@ -556,12 +498,13 @@ AnoResourceError make_material(const AnoGltfData& data,
                               const AnoGltfTextureInfo& texture) {
         if (result != ANO_RESOURCE_OK)
             return;
-        constexpr TextureSlotMatch match = texture_slot(field);
+        constexpr MaterialTextureSlotMatch match =
+            material_texture_slot(field);
         if constexpr (!match.found) {
             if (ano_gltf_has_index(texture.index))
                 result = ANO_RESOURCE_UNSUPPORTED;
         } else {
-            material->textures[static_cast<size_t>(match.slot)] =
+            material->textures[ano::detail::enum_index(match.slot)] =
                 material_texture(data, texture, imageAssets, &result);
         }
     };

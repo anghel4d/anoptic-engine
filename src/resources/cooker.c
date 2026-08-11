@@ -31,16 +31,6 @@ struct AnoResourceCooker {
 
 namespace {
 
-bool allocation_size(uint64_t count, uint64_t width, size_t *bytes)
-{
-    uint64_t total = 0;
-    if (bytes == nullptr || !ano::detail::checked_multiply(count, width, &total)
-        || total > SIZE_MAX)
-        return false;
-    *bytes = static_cast<size_t>(total);
-    return true;
-}
-
 bool contains_asset(const AnoResourceCooker *cooker, AnoAssetId asset)
 {
     for (uint64_t i = 0; i < cooker->itemCount; ++i)
@@ -109,7 +99,8 @@ extern "C" AnoResourceError ano_resource_source_bind(
             ? 8 : cooker->sourceCapacity * 2;
         size_t bytes = 0;
         if (capacity < cooker->sourceCapacity
-            || !allocation_size(capacity, sizeof(SourceBinding), &bytes)) {
+            || !ano::detail::checked_allocation_size(
+                capacity, sizeof(SourceBinding), &bytes)) {
             mi_free(copy);
             return ANO_RESOURCE_OVERFLOW;
         }
@@ -126,18 +117,6 @@ extern "C" AnoResourceError ano_resource_source_bind(
 }
 
 extern "C" AnoResourceError ano_resource_cook(
-    AnoResourceCooker *cooker, AnoResourceMutableBytes output,
-    uint64_t *packSize)
-{
-    if (cooker == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    if (ano_resource_cooker_cancelled(cooker))
-        return ANO_RESOURCE_CANCELLED;
-    return ano_resource_pack_build(cooker->items, cooker->itemCount, output,
-                                   packSize);
-}
-
-extern "C" AnoResourceError ano_resource_cook_owned(
     AnoResourceCooker *cooker, AnoResourceMutableBytes *pack)
 {
     if (cooker == nullptr || pack == nullptr)
@@ -145,13 +124,7 @@ extern "C" AnoResourceError ano_resource_cook_owned(
     *pack = {};
     if (ano_resource_cooker_cancelled(cooker))
         return ANO_RESOURCE_CANCELLED;
-    uint8_t *bytes = nullptr;
-    uint64_t size = 0;
-    const AnoResourceError result = ano_resource_pack_build_owned(
-        cooker->items, cooker->itemCount, &bytes, &size);
-    if (result == ANO_RESOURCE_OK)
-        *pack = {.data = bytes, .size = size};
-    return result;
+    return ano_resource_pack_build(cooker->items, cooker->itemCount, pack);
 }
 
 extern "C" void ano_resource_cooked_pack_release(
@@ -270,7 +243,8 @@ AnoResourceError ano_resource_cooker_adopt(
             : cooker->itemCapacity * 2;
         size_t bytes = 0;
         if (capacity < cooker->itemCapacity
-            || !allocation_size(capacity, sizeof(AnoResourcePackItem), &bytes))
+            || !ano::detail::checked_allocation_size(
+                capacity, sizeof(AnoResourcePackItem), &bytes))
             return ANO_RESOURCE_OVERFLOW;
         void *grown = mi_realloc(cooker->items, bytes);
         if (grown == nullptr)

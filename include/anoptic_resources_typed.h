@@ -735,18 +735,71 @@ constexpr bool checked_multiply(uint64_t lhs, uint64_t rhs, uint64_t *result)
     return true;
 }
 
+constexpr bool checked_allocation_size(uint64_t count, uint64_t width,
+                                       size_t *bytes)
+{
+    uint64_t total = 0;
+    if (bytes == nullptr || !checked_multiply(count, width, &total)
+        || total > SIZE_MAX)
+        return false;
+    *bytes = static_cast<size_t>(total);
+    return true;
+}
+
+constexpr bool semantic_name_equal(std::string_view lhs,
+                                   std::string_view rhs)
+{
+    size_t left = 0;
+    size_t right = 0;
+    for (;;) {
+        while (left < lhs.size() && lhs[left] == '_')
+            ++left;
+        while (right < rhs.size() && rhs[right] == '_')
+            ++right;
+        if (left == lhs.size() || right == rhs.size())
+            return left == lhs.size() && right == rhs.size();
+        const auto folded = [](char value) constexpr {
+            return value >= 'A' && value <= 'Z'
+                ? static_cast<char>(value - 'A' + 'a') : value;
+        };
+        if (folded(lhs[left++]) != folded(rhs[right++]))
+            return false;
+    }
+}
+
+template<class Enum>
+constexpr size_t enum_index(Enum value)
+{
+    static_assert(std::is_enum_v<Enum>);
+    size_t index = 0;
+    static constexpr auto values =
+        std::define_static_array(std::meta::enumerators_of(^^Enum));
+    template for (constexpr std::meta::info declaration : values) {
+        if (value == [:declaration:])
+            return index;
+        ++index;
+    }
+    __builtin_abort();
+}
+
 constexpr bool byte_range(uint64_t size, uint64_t offset, uint64_t count)
 {
     return offset <= size && count <= size - offset;
 }
 
+constexpr bool bytes_equal(const uint8_t *lhs, const uint8_t *rhs,
+                           size_t count)
+{
+    for (size_t i = 0; i < count; ++i)
+        if (lhs[i] != rhs[i])
+            return false;
+    return true;
+}
+
 constexpr bool fingerprint_equal(const AnoSchemaFingerprint& lhs,
                                  const AnoSchemaFingerprint& rhs)
 {
-    for (size_t i = 0; i < sizeof(lhs.bytes); ++i)
-        if (lhs.bytes[i] != rhs.bytes[i])
-            return false;
-    return true;
+    return bytes_equal(lhs.bytes, rhs.bytes, sizeof(lhs.bytes));
 }
 
 constexpr uint64_t read_unsigned(const uint8_t *bytes, uint32_t width)

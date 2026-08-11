@@ -15,18 +15,11 @@
 
 #include "vulkan_backend/instance/instanceInit.h"
 
-#include "vulkan_backend/structs.h"
-
 #include "vulkan_backend/instance/pipeline.h"
 
 #include "vulkan_backend/vulkanConfig.h"
 
 #include "vulkan_backend/texture/texture.h"
-
-#if 0 // TODO(delete): displaced direct glTF renderer types.
-#include "render/gltf/ano_GltfParser.h"
-#endif
-
 
 /* Function Interfaces */
 

@@ -25,6 +25,30 @@ static int failures = 0;
     } \
 } while (0)
 
+struct TestArtifact final {
+    AnoAssetId asset;
+    AnoResourceTypeId type;
+    AnoResourceCommitGroupId commitGroup;
+    AnoResourceBytes bytes;
+};
+
+static AnoResourceError cook_artifacts(const TestArtifact *items,
+                                       uint64_t count,
+                                       AnoResourceMutableBytes *pack)
+{
+    AnoResourceCooker *cooker = nullptr;
+    AnoResourceError result = ano_resource_cooker_create(
+        {.firstDerivedAsset = {count + 2}}, &cooker);
+    for (uint64_t i = 0; i < count && result == ANO_RESOURCE_OK; ++i)
+        result = ano_resource_cooker_add(
+            cooker, items[i].asset, items[i].type, items[i].commitGroup,
+            items[i].bytes);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, pack);
+    ano_resource_cooker_destroy(cooker);
+    return result;
+}
+
 static uint64_t read_u64(const uint8_t *bytes)
 {
     uint64_t value = 0;
@@ -88,50 +112,40 @@ static void test_pack_round_trip(void)
 
     constexpr AnoResourceTypeId textureType = ano::resource_type_id<Texture>();
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    const AnoResourcePackItem scrambled[3] = {
+    const TestArtifact scrambled[3] = {
         {{3}, materialType, {2}, {materialBytes, material.size}},
         {{1}, textureType, {1}, {textureBytes, texture.size}},
         {{2}, textureType, {1}, {textureBytes, texture.size}},
     };
-    uint64_t required = 0;
-    CHECK(ano_resource_pack_build(scrambled, 3, {nullptr, 0}, &required)
-              == ANO_RESOURCE_BUFFER_TOO_SMALL
-          && required > material.size + texture.size,
-          "pack measurement reports deterministic storage");
-
-    uint8_t first[4096] = {};
-    uint64_t firstSize = sizeof(first);
-    CHECK(required <= sizeof(first)
-          && ano_resource_pack_build(scrambled, 3,
-                                     {first, sizeof(first)}, &firstSize)
-              == ANO_RESOURCE_OK
-          && firstSize == required,
+    AnoResourceMutableBytes first = {};
+    CHECK(cook_artifacts(scrambled, 3, &first) == ANO_RESOURCE_OK
+          && first.size > material.size + texture.size,
           "pack construction succeeds");
-    if (firstSize != required)
+    if (first.data == nullptr)
         return;
 
-    const AnoResourcePackItem ordered[3] = {
+    const TestArtifact ordered[3] = {
         {{1}, textureType, {1}, {textureBytes, texture.size}},
         {{2}, textureType, {1}, {textureBytes, texture.size}},
         {{3}, materialType, {2}, {materialBytes, material.size}},
     };
-    uint8_t second[4096];
-    memset(second, 0xa5, sizeof(second));
-    uint64_t secondSize = sizeof(second);
-    CHECK(ano_resource_pack_build(ordered, 3,
-                                  {second, sizeof(second)}, &secondSize)
-              == ANO_RESOURCE_OK
-          && secondSize == firstSize
-          && memcmp(first, second, static_cast<size_t>(firstSize)) == 0,
+    AnoResourceMutableBytes second = {};
+    CHECK(cook_artifacts(ordered, 3, &second) == ANO_RESOURCE_OK
+          && second.size == first.size
+          && memcmp(first.data, second.data, static_cast<size_t>(first.size))
+              == 0,
           "pack bytes ignore input order and destination history");
 
     AnoResourcePack *opened = nullptr;
-    CHECK(ano_resource_pack_open({first, firstSize}, &opened)
+    CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
               == ANO_RESOURCE_OK
           && opened != nullptr,
           "authenticated pack opens");
-    if (opened == nullptr)
+    if (opened == nullptr) {
+        ano_resource_cooked_pack_release(second);
+        ano_resource_cooked_pack_release(first);
         return;
+    }
     const AnoResourceManifest *manifest = ano_resource_pack_manifest(opened);
     CHECK(ano_resource_manifest_entry_count(manifest) == 3,
           "pack exposes its completely validated manifest");
@@ -186,19 +200,20 @@ static void test_pack_round_trip(void)
           "range read authenticates and copies canonical artifact bytes");
     ano_resource_pack_close(opened);
 
-    uint8_t hostile[4096] = {};
-    memcpy(hostile, first, static_cast<size_t>(firstSize));
-    hostile[64] ^= 1;
-    CHECK(ano_resource_pack_open({hostile, firstSize}, &opened)
+    first.data[64] ^= 1;
+    CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
               == ANO_RESOURCE_BAD_MANIFEST,
           "manifest authentication rejects modified bytes");
+    first.data[64] ^= 1;
 
-    memcpy(hostile, first, static_cast<size_t>(firstSize));
-    const uint64_t payloadOffset = read_u64(hostile + 24);
-    hostile[payloadOffset + firstTexture.packOffset] ^= 1;
-    CHECK(ano_resource_pack_open({hostile, firstSize}, &opened)
+    const uint64_t payloadOffset = read_u64(first.data + 24);
+    first.data[payloadOffset + firstTexture.packOffset] ^= 1;
+    CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
               == ANO_RESOURCE_BAD_PACK,
           "artifact authentication rejects modified payload bytes");
+    first.data[payloadOffset + firstTexture.packOffset] ^= 1;
+    ano_resource_cooked_pack_release(second);
+    ano_resource_cooked_pack_release(first);
 }
 
 static void test_pack_rejects_bad_closure(void)
@@ -211,30 +226,29 @@ static void test_pack_rejects_bad_closure(void)
         encode_material(materialBytes, sizeof(materialBytes), {1});
     constexpr AnoResourceTypeId textureType = ano::resource_type_id<Texture>();
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    uint64_t required = 0;
-
-    const AnoResourcePackItem wrongType = {
+    AnoResourceMutableBytes pack = {};
+    const TestArtifact wrongType = {
         {1}, materialType, {1}, {textureBytes, texture.size},
     };
-    CHECK(ano_resource_pack_build(&wrongType, 1, {nullptr, 0}, &required)
-              == ANO_RESOURCE_TYPE_MISMATCH,
+    CHECK(cook_artifacts(&wrongType, 1, &pack)
+              == ANO_RESOURCE_NON_CANONICAL,
           "builder rejects bytes presented as the wrong reflected type");
 
-    const AnoResourcePackItem missingTypedTarget = {
+    const TestArtifact missingTypedTarget = {
         {1}, materialType, {1}, {materialBytes, material.size},
     };
-    CHECK(ano_resource_pack_build(&missingTypedTarget, 1, {nullptr, 0},
-                                  &required)
+    CHECK(cook_artifacts(&missingTypedTarget, 1, &pack)
               == ANO_RESOURCE_BAD_MANIFEST,
           "builder rejects a dependency bound to the wrong manifest type");
 
-    const AnoResourcePackItem duplicate[2] = {
+    const TestArtifact duplicate[2] = {
         {{1}, textureType, {1}, {textureBytes, texture.size}},
         {{1}, textureType, {1}, {textureBytes, texture.size}},
     };
-    CHECK(ano_resource_pack_build(duplicate, 2, {nullptr, 0}, &required)
+    CHECK(cook_artifacts(duplicate, 2, &pack)
               == ANO_RESOURCE_DUPLICATE_ASSET,
           "builder rejects duplicate stable asset IDs");
+    ano_resource_cooked_pack_release(pack);
 }
 
 int main(void)

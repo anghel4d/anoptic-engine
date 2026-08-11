@@ -242,9 +242,8 @@ if(Vulkan_FOUND)
         endif()
     endforeach()
 
-    # Renderer module subdirectories
+    # Renderer module
     add_subdirectory(${CMAKE_SOURCE_DIR}/src/vulkan_backend)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/src/render)
 
     # Shaders compile to SPIR-V in the build tree, committed .spv are the no-compiler fallback.
     set(SHADER_SRC_DIR ${CMAKE_SOURCE_DIR}/resources/shaders)

@@ -207,7 +207,7 @@ AnoResourceError cook_startup_pack(
 
     AnoResourceMutableBytes cooked = {};
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook_owned(cooker, &cooked);
+        result = ano_resource_cook(cooker, &cooked);
     ano_resource_cooker_destroy(cooker);
     if (result != ANO_RESOURCE_OK) {
         ano_resource_cooked_pack_release(cooked);

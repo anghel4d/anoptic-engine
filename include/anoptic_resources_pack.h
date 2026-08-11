@@ -30,20 +30,6 @@ typedef struct AnoResourceManifestEntry {
     uint64_t dependencyCount;
 } AnoResourceManifestEntry;
 
-typedef struct AnoResourcePackItem {
-    AnoAssetId asset;
-    AnoResourceTypeId type;
-    AnoResourceCommitGroupId commitGroup;
-    AnoResourceBytes artifact;
-} AnoResourcePackItem;
-
-// Builds deterministic raw-atom pack bytes. Dependencies and schemas are
-// compiled from each reflected artifact declaration and canonical payload.
-AnoResourceError ano_resource_pack_build(const AnoResourcePackItem *items,
-                                         uint64_t itemCount,
-                                         AnoResourceMutableBytes output,
-                                         uint64_t *packSize);
-
 // Opening copies and completely validates canonical manifest bytes.
 AnoResourceError ano_resource_manifest_open(AnoResourceBytes bytes,
                                             AnoResourceManifest **manifest);

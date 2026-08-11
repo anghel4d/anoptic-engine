@@ -59,10 +59,6 @@ bool ano_resource_reload_has_changes(const AnoResourceReload *reload);
 AnoResourceError ano_resource_reload_commit(AnoResourceReload *reload);
 void ano_resource_reload_abort(AnoResourceReload *reload);
 
-// CPU-only convenience operation: prepare and immediately commit.
-AnoResourceError ano_resource_reload(AnoResourceManager *manager,
-                                     AnoResourceBytes packBytes);
-
 // Acquired epochs remain immutable and valid until their matching release.
 AnoResourceError ano_resource_epoch_acquire(
     AnoResourceManager *manager, const AnoResidencyEpoch **epoch);

@@ -625,6 +625,6 @@ not substitute specifications for Anoptic's public API.
 | Source | Established technique reused here |
 |---|---|
 | [`include/anogltf.h`](../../include/anogltf.h) | Typed annotations, stabilized reflection queries, expansion statements, spliced field access, generic structural parsing, and validation |
-| [`src/render/gltf/ano_GltfParser_reflect.c`](../../src/render/gltf/ano_GltfParser_reflect.c) | Reflected structural projection from imported glTF records into renderer-owned material data |
+| [`src/resources/import/gltf.c`](../../src/resources/import/gltf.c) | Reflected structural projection from imported glTF records into canonical render artifacts |
 | [`src/vulkan_backend/gpu_abi_schema.c`](../../src/vulkan_backend/gpu_abi_schema.c) | Reflection-driven GPU ABI inspection and validation |
 | [`src/vulkan_backend/frame/schema/attachment_graph.h`](../../src/vulkan_backend/frame/schema/attachment_graph.h) and [`mesh_rows.h`](../../src/vulkan_backend/frame/schema/mesh_rows.h) | Reflected render-graph contracts and direct generated structural projection |

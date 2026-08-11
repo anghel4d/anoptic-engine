@@ -198,7 +198,7 @@ Biggest *gap*: we parse glTF JSON at runtime with loose `malloc`/`free`; book wa
 
 **Anoptic.**
 - `ano_fs_gamepath`/`ano_fs_userpath` = §7.1.1 path API. **No async I/O yet** -- §7.1.3 thread+queue+semaphore+callback is the blueprint; early consumer of lock-free queue + `anoptic_threads`.
-- glTF path ([ano_GltfParser_reflect.c](../../src/render/gltf/ano_GltfParser_reflect.c), anogltf, scratch-heap staging) = runtime text-parse the book argues against. Scratch staging = **temporary load-time section** (§7.2.2); loose `malloc`/`free` (notes.md debt) = what §7.2 pushes offline.
+- glTF path ([gltf.c](../../src/resources/import/gltf.c), anogltf, scratch staging) = cook-time text parsing. Scratch staging = **temporary load-time section** (§7.2.2); canonical packs remove parsing from residency realization.
 
 **Verdict.**
 - ✅ Wrap FS + stripped-down path API match `ano_fs`.

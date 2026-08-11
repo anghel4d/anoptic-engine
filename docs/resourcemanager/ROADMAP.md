@@ -93,7 +93,7 @@ one all-purpose manager interface:
 | `anoptic_resources.h` | `ano_resource_error_string`, content identity, ID comparison and formatting |
 | `anoptic_resources_cook.h` | `ano_resource_cooker_create`, `ano_resource_cooker_destroy`, `ano_resource_import`, `ano_resource_cook`, `ano_resource_cooker_cancel` |
 | `anoptic_resources_pack.h` | `ano_resource_manifest_open`, `ano_resource_manifest_close`, `ano_resource_manifest_find`, `ano_resource_pack_open`, `ano_resource_pack_read`, `ano_resource_pack_close` |
-| `anoptic_resources_runtime.h` | `ano_resource_manager_create`, `ano_resource_manager_destroy`, `ano_resource_goal_set`, `ano_resource_goal_remove`, `ano_resource_reconcile`, `ano_resource_reload`, `ano_resource_epoch_acquire`, `ano_resource_epoch_resolve`, `ano_resource_epoch_release` |
+| `anoptic_resources_runtime.h` | `ano_resource_manager_create`, `ano_resource_manager_destroy`, `ano_resource_goal_set`, `ano_resource_goal_remove`, `ano_resource_reconcile`, transactional reload prepare/commit/abort, `ano_resource_epoch_acquire`, `ano_resource_epoch_resolve`, `ano_resource_epoch_release` |
 | `anoptic_resources_ecs.h` | Demand-delta submission, reflected component registration, world-cell instantiation, and coordinated epoch publication |
 | Owner extensions | Concrete connect/disconnect and owner-boundary functions for render, audio, and text; no generic user callback table |
 

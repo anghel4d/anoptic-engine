@@ -70,12 +70,7 @@ typedef struct AnoRenderBridge AnoRenderBridge;
 // Producer endpoint. Valid once initVulkan() has returned.
 AnoRenderBridge *anoRenderBridge(void);
 
-// ---------------------------------------------------------------------------
-// Loaded-asset query (render world owns assets; logic composes the scene)
-// ---------------------------------------------------------------------------
-// initVulkan loads glTF assets + fallback cube and assigns GPU mesh/material indices.
-// Logic queries primitives, assigns render_ids + motion, emits creates.
-// Valid after initVulkan(); read-only.
+// Resident scene queries. Logic composes instances from stable asset handles.
 
 // One spawnable primitive: GPU mesh + material + world transform (node-local under caller's root).
 typedef struct AnoRenderableDesc
@@ -87,11 +82,7 @@ typedef struct AnoRenderableDesc
     uint32_t resource_primitive;
 } AnoRenderableDesc;
 
-// Number of asset slots loaded at init (index space for the queries below).
-uint32_t anoRenderAssetCount(void);
-
-// Flatten asset `asset_id` at `root` into renderables. Returns TOTAL count; fills out[0..min(count,cap)).
-// Cap 0 or out NULL to size. Out-of-range asset_id returns 0.
+// Returns the total primitive count and fills out[0..min(count, cap)).
 uint32_t anoRenderAssetPrimitives(AnoAssetId asset, const mat4 root,
                                   AnoRenderableDesc *out, uint32_t cap);
 

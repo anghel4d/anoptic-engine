@@ -8,6 +8,13 @@ struct AnoResourceCookCheckpoint final {
     AnoAssetId nextDerivedAsset;
 };
 
+struct AnoResourcePackItem final {
+    AnoAssetId asset;
+    AnoResourceTypeId type;
+    AnoResourceCommitGroupId commitGroup;
+    AnoResourceBytes artifact;
+};
+
 AnoResourceCookCheckpoint ano_resource_cooker_checkpoint(
     const AnoResourceCooker *cooker);
 void ano_resource_cooker_rollback(AnoResourceCooker *cooker,
@@ -23,8 +30,8 @@ AnoResourceError ano_resource_cooker_adopt(
     AnoResourceCommitGroupId commitGroup, uint8_t *artifact,
     uint64_t artifactSize);
 bool ano_resource_cooker_cancelled(const AnoResourceCooker *cooker);
-AnoResourceError ano_resource_pack_build_owned(
+AnoResourceError ano_resource_pack_build(
     const AnoResourcePackItem *items, uint64_t itemCount,
-    uint8_t **output, uint64_t *packSize);
+    AnoResourceMutableBytes *pack);
 
 #endif // ANOPTICENGINE_COOKER_INTERNAL_H

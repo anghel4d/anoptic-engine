@@ -23,24 +23,6 @@ struct ResidencyBinding final {
     bool resident;
 };
 
-constexpr bool digest_equal(const uint8_t *lhs, const uint8_t *rhs)
-{
-    for (uint32_t i = 0; i < 32; ++i)
-        if (lhs[i] != rhs[i])
-            return false;
-    return true;
-}
-
-bool allocation_size(uint64_t count, uint64_t width, size_t *bytes)
-{
-    uint64_t total = 0;
-    if (bytes == nullptr || !ano::detail::checked_multiply(count, width, &total)
-        || total > SIZE_MAX)
-        return false;
-    *bytes = static_cast<size_t>(total);
-    return true;
-}
-
 } // namespace
 
 struct AnoResidencyEpoch {
@@ -85,6 +67,16 @@ void destroy_epoch(AnoResidencyEpoch *epoch)
     mi_free(epoch->arena);
     mi_free(epoch->bindings);
     mi_free(epoch);
+}
+
+void destroy_reload(AnoResourceReload *reload)
+{
+    if (reload == nullptr)
+        return;
+    ano_resource_epoch_release(reload->base);
+    ano_resource_epoch_release(reload->epoch);
+    ano_resource_pack_close(reload->pack);
+    mi_free(reload);
 }
 
 bool retain_epoch(AnoResidencyEpoch *epoch)
@@ -133,12 +125,14 @@ AnoResourceError build_epoch(
     size_t demandBytes = 0;
     size_t stackBytes = 0;
     size_t bindingBytes = 0;
-    if (!allocation_size(assetCount, sizeof(AnoResourceManifestEntry),
-                         &entryBytes)
-        || !allocation_size(assetCount, sizeof(uint8_t), &demandBytes)
-        || !allocation_size(assetCount, sizeof(uint64_t), &stackBytes)
-        || !allocation_size(assetCount, sizeof(ResidencyBinding),
-                            &bindingBytes))
+    if (!ano::detail::checked_allocation_size(
+            assetCount, sizeof(AnoResourceManifestEntry), &entryBytes)
+        || !ano::detail::checked_allocation_size(
+            assetCount, sizeof(uint8_t), &demandBytes)
+        || !ano::detail::checked_allocation_size(
+            assetCount, sizeof(uint64_t), &stackBytes)
+        || !ano::detail::checked_allocation_size(
+            assetCount, sizeof(ResidencyBinding), &bindingBytes))
         return ANO_RESOURCE_OVERFLOW;
 
     AnoResourceManifestEntry *entries = entryBytes == 0 ? nullptr
@@ -264,7 +258,8 @@ AnoResourceError build_epoch(
         compareCount = previous->bindingCount;
     size_t changedBytes = 0;
     if (result == ANO_RESOURCE_OK && recordChanges
-        && !allocation_size(compareCount, sizeof(AnoAssetId), &changedBytes))
+        && !ano::detail::checked_allocation_size(
+            compareCount, sizeof(AnoAssetId), &changedBytes))
         result = ANO_RESOURCE_OVERFLOW;
     if (result == ANO_RESOURCE_OK && changedBytes != 0) {
         candidate->changed =
@@ -285,8 +280,9 @@ AnoResourceError build_epoch(
         }
         const bool changed = hasOld != hasNew
             || (hasOld && hasNew
-                && (!digest_equal(previous->bindings[i].content.bytes,
-                                  candidate->bindings[i].content.bytes)
+                && (!ano::detail::bytes_equal(
+                        previous->bindings[i].content.bytes,
+                        candidate->bindings[i].content.bytes, 32)
                     || previous->bindings[i].resident
                         != candidate->bindings[i].resident));
         if (changed)
@@ -316,7 +312,8 @@ bool epoch_has_changes(const AnoResidencyEpoch *candidate,
                        const AnoResidencyEpoch *current)
 {
     return candidate->changedCount != 0
-        || !digest_equal(candidate->manifest.bytes, current->manifest.bytes);
+        || !ano::detail::bytes_equal(
+            candidate->manifest.bytes, current->manifest.bytes, 32);
 }
 
 AnoResourceError lock_manager(AnoResourceManager *manager)
@@ -422,7 +419,8 @@ extern "C" AnoResourceError ano_resource_goal_set(
                 : manager->goalCapacity * 2;
             size_t bytes = 0;
             if (capacity < manager->goalCapacity
-                || !allocation_size(capacity, sizeof(AnoResourceGoal), &bytes)) {
+                || !ano::detail::checked_allocation_size(
+                    capacity, sizeof(AnoResourceGoal), &bytes)) {
                 result = ANO_RESOURCE_OVERFLOW;
             } else {
                 void *grown = mi_realloc(manager->goals, bytes);
@@ -537,8 +535,7 @@ extern "C" AnoResourceError ano_resource_reload_prepare(
     ano_mutex_unlock(&manager->mutex);
     ano_resource_pack_close(candidatePack);
     if (result != ANO_RESOURCE_OK) {
-        ano_resource_epoch_release(prepared->epoch);
-        mi_free(prepared);
+        destroy_reload(prepared);
         return result;
     }
     *reload = prepared;
@@ -559,12 +556,7 @@ extern "C" bool ano_resource_reload_has_changes(
 
 extern "C" void ano_resource_reload_abort(AnoResourceReload *reload)
 {
-    if (reload == nullptr)
-        return;
-    ano_resource_epoch_release(reload->base);
-    ano_resource_epoch_release(reload->epoch);
-    ano_resource_pack_close(reload->pack);
-    mi_free(reload);
+    destroy_reload(reload);
 }
 
 extern "C" AnoResourceError ano_resource_reload_commit(
@@ -595,21 +587,8 @@ extern "C" AnoResourceError ano_resource_reload_commit(
     }
     ano_resource_pack_close(retiredPack);
     ano_resource_epoch_release(retiredEpoch);
-    ano_resource_epoch_release(reload->base);
-    ano_resource_epoch_release(reload->epoch);
-    ano_resource_pack_close(reload->pack);
-    mi_free(reload);
+    destroy_reload(reload);
     return result;
-}
-
-extern "C" AnoResourceError ano_resource_reload(
-    AnoResourceManager *manager, AnoResourceBytes packBytes)
-{
-    AnoResourceReload *reload = nullptr;
-    const AnoResourceError prepared = ano_resource_reload_prepare(
-        manager, packBytes, &reload);
-    return prepared == ANO_RESOURCE_OK
-        ? ano_resource_reload_commit(reload) : prepared;
 }
 
 extern "C" AnoResourceError ano_resource_epoch_acquire(
@@ -621,13 +600,9 @@ extern "C" AnoResourceError ano_resource_epoch_acquire(
     AnoResourceError result = lock_manager(manager);
     if (result != ANO_RESOURCE_OK)
         return result;
-    const uint64_t references = atomic_load_explicit(
-        &manager->current->references, memory_order_relaxed);
-    if (references == UINT64_MAX) {
+    if (!retain_epoch(manager->current)) {
         result = ANO_RESOURCE_OVERFLOW;
     } else {
-        atomic_fetch_add_explicit(&manager->current->references, UINT64_C(1),
-                                  memory_order_relaxed);
         *epoch = manager->current;
     }
     ano_mutex_unlock(&manager->mutex);

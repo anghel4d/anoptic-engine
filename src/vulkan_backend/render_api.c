@@ -16,13 +16,6 @@
 #include "vulkan_backend/resources/resources.h"
 
 static AnoRenderResidency *g_resourceResidency;
-static uint32_t g_assetCount;
-static uint32_t g_defaultMaterial;
-
-#if 0 // TODO(delete): displaced path-coupled ModelAsset registry.
-#define ANO_MAX_LOADED_ASSETS 16u
-static ModelAsset *g_assets[ANO_MAX_LOADED_ASSETS];
-#endif
 
 // Material SSBO row 0, claimed before any glTF parse.
 #define ANO_DEFAULT_MATERIAL_INDEX 0u
@@ -39,8 +32,6 @@ static_assert(ano::Data<decltype(LIGHTING_MODE_NAMES)>);
 
 } // namespace
 
-uint32_t anoRenderAssetCount(void) { return g_assetCount; }
-
 uint32_t anoRenderAssetPrimitives(AnoAssetId asset, const mat4 root,
                                   AnoRenderableDesc* out, uint32_t cap) {
     return ano_vk_resource_scene_primitives(
@@ -54,7 +45,9 @@ uint32_t anoRenderAssetLights(AnoAssetId asset, const mat4 root,
 }
 
 uint32_t anoRenderFallbackMesh(void)    { return FALLBACK_MESH_INDEX; }
-uint32_t anoRenderDefaultMaterial(void) { return g_defaultMaterial; }
+uint32_t anoRenderDefaultMaterial(void) {
+    return ano_vk_resource_default_material(g_resourceResidency);
+}
 uint32_t anoRenderStaticLightBase(void) { return ANO_STATIC_LIGHT_COUNT; }
 
 // Baked font for logic-side shaping (anoptic_render.h). NULL when the text stack is down.
@@ -158,7 +151,6 @@ static void register_default_material(void)
 bool ano_render_load_scene_assets(AnoResourceManager *resources)
 {
 	register_default_material();
-	g_defaultMaterial = ANO_DEFAULT_MATERIAL_INDEX;
 	const AnoResourceError realized = ano_vk_resource_residency_create(
 		resources, &g_resourceResidency);
 	if (realized != ANO_RESOURCE_OK) {
@@ -166,20 +158,7 @@ bool ano_render_load_scene_assets(AnoResourceManager *resources)
 		        ano_resource_error_string(realized));
 		return false;
 	}
-	g_assetCount = 5u;
-	g_defaultMaterial = ano_vk_resource_default_material(g_resourceResidency);
 	return true;
-}
-
-AnoResourceError ano_render_resources_reload(
-    AnoResourceManager *manager, AnoResourceBytes candidatePack)
-{
-    AnoResourceReload *reload = nullptr;
-    AnoResourceError result = ano_resource_reload_prepare(
-        manager, candidatePack, &reload);
-    if (result != ANO_RESOURCE_OK)
-        return result;
-    return ano_render_resources_publish_reload(reload);
 }
 
 AnoResourceError ano_render_resources_publish_reload(AnoResourceReload *reload)
@@ -215,7 +194,6 @@ AnoResourceError ano_render_resources_publish_reload(AnoResourceReload *reload)
         &rendererState, candidate, rendererState.frameIndex);
     AnoRenderResidency *retired = g_resourceResidency;
     g_resourceResidency = candidate;
-    g_defaultMaterial = ano_vk_resource_default_material(candidate);
     ano_vk_resource_residency_destroy(retired);
     return ANO_RESOURCE_OK;
 }
@@ -224,36 +202,4 @@ void ano_render_unload_scene_assets(void)
 {
 	ano_vk_resource_residency_destroy(g_resourceResidency);
 	g_resourceResidency = nullptr;
-	g_assetCount = 0;
-	g_defaultMaterial = ANO_DEFAULT_MATERIAL_INDEX;
 }
-
-#if 0 // TODO(delete): source parsing and Vulkan realization are compiled into RCRG.
-	// The former implementation called parseGltf() for Viking Room, the candle
-	// holder, and Sponza, then retained ModelAsset pointers in g_assets[].
-	// Load the scene's glTF assets into GPU memory. Load order is the asset_id namespace.
-	g_assets[0] = parseGltf(&ctx, "viking_room.gltf");
-	if (!g_assets[0])
-		ano_log(ANO_ERROR, "viking_room unavailable; continuing without it.");
-
-	g_assets[1] = parseGltf(&ctx, "GlassHurricaneCandleHolder.gltf");
-	if (!g_assets[1])
-		ano_log(ANO_ERROR, "GlassHurricaneCandleHolder unavailable; continuing without it.");
-
-	// Sponza: the scene environment, parsed under one node.
-	g_assets[2] = parseGltf(&ctx, "sponza/2.0/Sponza/glTF/Sponza.gltf");
-	if (!g_assets[2])
-		ano_log(ANO_WARN, "Warning: failed to parse Sponza glTF; continuing without it.");
-
-	g_assetCount = 3u;
-
-	// Default material for procedural renderables: the first asset's first primitive material.
-	if (g_assets[0])
-	{
-		mat4 ident = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
-		AnoRenderableDesc d0;
-		if (model_flatten(g_assets[0], ident, &d0, 1u) > 0u) g_defaultMaterial = d0.material_index;
-	}
-
-	return true;
-#endif

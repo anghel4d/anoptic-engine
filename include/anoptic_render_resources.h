@@ -12,8 +12,6 @@
 #include "anoptic_resources_cook.h"
 #include "anoptic_resources_runtime.h"
 
-extern "C" AnoResourceError ano_render_resources_reload(
-    AnoResourceManager *manager, AnoResourceBytes candidatePack);
 // Consumes a CPU-prepared transaction after renderer realization succeeds or
 // aborts it without changing the published epoch.
 extern "C" AnoResourceError ano_render_resources_publish_reload(
@@ -65,16 +63,8 @@ enum class MaterialFeature : uint8_t {
 
 consteval uint32_t material_feature_bit(MaterialFeature feature)
 {
-    static constexpr auto features =
-        std::define_static_array(std::meta::enumerators_of(^^MaterialFeature));
-    static_assert(features.size() <= 32);
-    uint32_t bit = 1;
-    template for (constexpr std::meta::info declaration : features) {
-        if (feature == [:declaration:])
-            return bit;
-        bit <<= 1;
-    }
-    __builtin_abort();
+    static_assert(std::meta::enumerators_of(^^MaterialFeature).size() <= 32);
+    return UINT32_C(1) << ano::detail::enum_index(feature);
 }
 
 struct MaterialTextureUse final {
@@ -102,6 +92,43 @@ enum class MaterialTextureSlot : uint8_t {
     diffuseTransmission [[=MaterialTextureUse{TextureUsage::data}]],
     diffuseTransmissionColor [[=MaterialTextureUse{TextureUsage::color}]],
 };
+
+struct MaterialTextureSlotMatch final {
+    bool found;
+    MaterialTextureSlot slot;
+};
+
+consteval MaterialTextureSlotMatch material_texture_slot(
+    std::meta::info member)
+{
+    constexpr std::string_view suffix = "Texture";
+    std::string_view name = std::meta::identifier_of(member);
+    if (!name.ends_with(suffix))
+        return {false, MaterialTextureSlot::baseColor};
+    name.remove_suffix(suffix.size());
+    static constexpr auto slots = std::define_static_array(
+        std::meta::enumerators_of(^^MaterialTextureSlot));
+    template for (constexpr std::meta::info slot : slots)
+        if (ano::detail::semantic_name_equal(
+                name, std::meta::identifier_of(slot)))
+            return {true, [:slot:]};
+    return {false, MaterialTextureSlot::baseColor};
+}
+
+consteval TextureUsage material_texture_usage(MaterialTextureSlot sought)
+{
+    static constexpr auto slots = std::define_static_array(
+        std::meta::enumerators_of(^^MaterialTextureSlot));
+    template for (constexpr std::meta::info slot : slots)
+        if (sought == [:slot:]) {
+            static constexpr auto annotations = std::define_static_array(
+                std::meta::annotations_of_with_type(
+                    slot, ^^MaterialTextureUse));
+            static_assert(annotations.size() == 1);
+            return std::meta::extract<MaterialTextureUse>(annotations[0]).usage;
+        }
+    __builtin_abort();
+}
 
 inline constexpr size_t materialTextureCount =
     std::meta::enumerators_of(^^MaterialTextureSlot).size();
