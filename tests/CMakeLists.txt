@@ -5,6 +5,23 @@ target_link_libraries(anotest_resources_language PRIVATE anoptic_core)
 add_test(NAME anoptic_resources_language COMMAND anotest_resources_language)
 set_tests_properties(anoptic_resources_language PROPERTIES TIMEOUT 30 LABELS "unit;resources")
 
+add_executable(anotest_resources_pack anotest_resources_pack.c)
+target_link_libraries(anotest_resources_pack PRIVATE anoptic_core)
+add_test(NAME anoptic_resources_pack COMMAND anotest_resources_pack)
+set_tests_properties(anoptic_resources_pack PROPERTIES TIMEOUT 30 LABELS "unit;resources")
+
+add_executable(anotest_resources_runtime anotest_resources_runtime.c)
+target_link_libraries(anotest_resources_runtime PRIVATE anoptic_core)
+add_test(NAME anoptic_resources_runtime COMMAND anotest_resources_runtime)
+set_tests_properties(anoptic_resources_runtime PROPERTIES TIMEOUT 30 LABELS "unit;resources")
+
+add_executable(anotest_resources_gltf anotest_resources_gltf.c)
+target_link_libraries(anotest_resources_gltf PRIVATE anoptic_core)
+target_compile_definitions(anotest_resources_gltf PRIVATE
+        ANO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(NAME anoptic_resources_gltf COMMAND anotest_resources_gltf)
+set_tests_properties(anoptic_resources_gltf PROPERTIES TIMEOUT 180 LABELS "integration;resources")
+
 add_test(NAME anoptic_resources_c_header
         COMMAND ${CMAKE_C_COMPILER} -std=c17 -I ${CMAKE_SOURCE_DIR}/include
                 -fsyntax-only ${CMAKE_CURRENT_SOURCE_DIR}/anotest_resources_c_header.c)

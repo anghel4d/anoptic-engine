@@ -10,7 +10,7 @@
 
 #include <stdbool.h>
 
-// Parse + register the scene's glTF assets into the loaded-asset registry. Always true (misses leave NULL slots).
-bool ano_render_load_scene_assets(void);
+bool ano_render_load_scene_assets(AnoResourceManager *resources);
+void ano_render_unload_scene_assets(void);
 
 #endif // ANO_RENDER_API_H

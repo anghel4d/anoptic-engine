@@ -85,6 +85,7 @@ void unInitVulkan() // A celebration
 			.semaphoreCount = n, .pSemaphores = sems, .pValues = last };
 		vkWaitSemaphores(ctx.device, &waitInfo, UINT64_MAX);
 	}
+	ano_render_unload_scene_assets();
 
 	// ECS<->render bridge teardown.
 	ano_render_bridge_destroy(&rendererState.bridge);
@@ -358,7 +359,7 @@ void drawFrame()
 }
 
 
-bool initVulkan() // Initializes Vulkan
+bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 {
 	renderUnrecoverable = false; // a fresh renderer, whatever the previous one latched
 
@@ -672,7 +673,7 @@ bool initVulkan() // Initializes Vulkan
 	}
 
 	// Parse + register the scene's glTF assets.
-	if (!ano_render_load_scene_assets())
+	if (resources != nullptr && !ano_render_load_scene_assets(resources))
 		return false;
 
 

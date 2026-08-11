@@ -136,6 +136,9 @@ void cleanupVulkan(VulkanContext* ctx) // Frees the initialized Vulkan parameter
 	if (rendererState.slotMotion)   { free(rendererState.slotMotion);   rendererState.slotMotion = NULL; }
 	if (rendererState.slotBasePose) { free(rendererState.slotBasePose); rendererState.slotBasePose = NULL; }
 	if (rendererState.slotMeshIdx)  { free(rendererState.slotMeshIdx);  rendererState.slotMeshIdx = NULL; }
+	if (rendererState.slotResourceAsset) { free(rendererState.slotResourceAsset); rendererState.slotResourceAsset = NULL; }
+	if (rendererState.slotResourcePrimitive) { free(rendererState.slotResourcePrimitive); rendererState.slotResourcePrimitive = NULL; }
+	if (rendererState.slotResourceRoot) { free(rendererState.slotResourceRoot); rendererState.slotResourceRoot = NULL; }
 	if (rendererState.slotMoverIdx) { free(rendererState.slotMoverIdx); rendererState.slotMoverIdx = NULL; }
 	if (rendererState.movers)       { free(rendererState.movers);       rendererState.movers = NULL; }
 	// Shadow config mirror (render-thread CPU copy)
@@ -272,4 +275,3 @@ void cleanupVulkan(VulkanContext* ctx) // Frees the initialized Vulkan parameter
 	}
 
 }
-

@@ -274,15 +274,24 @@ bool ensureEntityCapacity(RendererState* state, uint32_t required, uint32_t fram
         uint8_t*  nm = (uint8_t*)realloc(state->slotMotion, newCap);
         mat4*     np = (mat4*)realloc(state->slotBasePose, (size_t)newCap * sizeof(mat4));
         uint32_t* nx = (uint32_t*)realloc(state->slotMeshIdx, (size_t)newCap * sizeof(uint32_t));
+        AnoAssetId* na = (AnoAssetId*)realloc(state->slotResourceAsset, (size_t)newCap * sizeof(AnoAssetId));
+        uint32_t* nr = (uint32_t*)realloc(state->slotResourcePrimitive, (size_t)newCap * sizeof(uint32_t));
+        mat4* nt = (mat4*)realloc(state->slotResourceRoot, (size_t)newCap * sizeof(mat4));
         uint32_t* nv = (uint32_t*)realloc(state->slotMoverIdx, (size_t)newCap * sizeof(uint32_t));
         if (nm) state->slotMotion = nm;
         if (np) state->slotBasePose = np;
         if (nx) state->slotMeshIdx = nx;
+        if (na) state->slotResourceAsset = na;
+        if (nr) state->slotResourcePrimitive = nr;
+        if (nt) state->slotResourceRoot = nt;
         if (nv) state->slotMoverIdx = nv;
-        if (nm && np && nx && nv) {
+        if (nm && np && nx && na && nr && nt && nv) {
             memset(nm + oldMc, 0, newCap - oldMc);
             memset(np + oldMc, 0, (size_t)(newCap - oldMc) * sizeof(mat4));
             memset(nx + oldMc, 0xFF, (size_t)(newCap - oldMc) * sizeof(uint32_t)); // NO_MESH_INDEX
+            memset(na + oldMc, 0, (size_t)(newCap - oldMc) * sizeof(AnoAssetId));
+            memset(nr + oldMc, 0, (size_t)(newCap - oldMc) * sizeof(uint32_t));
+            memset(nt + oldMc, 0, (size_t)(newCap - oldMc) * sizeof(mat4));
             memset(nv + oldMc, 0xFF, (size_t)(newCap - oldMc) * sizeof(uint32_t)); // UNMAPPED
             state->slotMotionCap = newCap;
         } else {

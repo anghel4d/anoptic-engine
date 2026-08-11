@@ -23,7 +23,9 @@
 
 #include "vulkan_backend/texture/texture.h"
 
+#if 0 // TODO(delete): displaced direct glTF renderer types.
 #include "render/gltf/ano_GltfParser.h"
+#endif
 
 
 /* Function Interfaces */

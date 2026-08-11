@@ -14,7 +14,12 @@
 #include <string.h>
 
 using ano::asset_schema::Material;
+using ano::asset_schema::MaterialAlphaMode;
+using ano::asset_schema::MaterialTextureSlot;
 using ano::asset_schema::Mesh;
+using ano::asset_schema::Scene;
+using ano::asset_schema::SceneLight;
+using ano::asset_schema::SceneRenderable;
 using ano::asset_schema::Texture;
 using ano::asset_schema::Vertex;
 
@@ -67,10 +72,13 @@ bool transform(const Source&, uint32_t scratchSize, Output&) noexcept;
 
 static_assert(ano::compile_resource_language(^^ano::asset_schema));
 static_assert(ano::compile_resource_language(^^reflected_transform_probe));
-static_assert(ano::fixed_wire_size<Texture>() == 32);
-static_assert(ano::fixed_wire_size<Material>() == 92);
+static_assert(ano::fixed_wire_size<Texture>() == 30);
+static_assert(ano::fixed_wire_size<Material>() == 1037);
 static_assert(ano::fixed_wire_size<Vertex>() == 32);
 static_assert(ano::fixed_wire_size<Mesh>() == 64);
+static_assert(ano::fixed_wire_size<SceneRenderable>() == 72);
+static_assert(ano::fixed_wire_size<SceneLight>() == 94);
+static_assert(ano::fixed_wire_size<Scene>() == 32);
 static_assert(ano::resource_type_id<Texture>().value != 0);
 static_assert(ano::resource_type_id<Texture>().value
               != ano::resource_type_id<Material>().value);
@@ -87,27 +95,31 @@ static_assert(abcDigest.bytes[0] == 0xba && abcDigest.bytes[1] == 0x78
 
 constexpr Material make_material(void)
 {
-    return {
-        .baseColorFactor = {1.0f, 0.5f, 0.25f, 1.0f},
-        .emissiveFactor = {0.1f, 0.2f, 0.3f},
-        .metallicFactor = 0.75f,
-        .roughnessFactor = 0.4f,
-        .normalScale = 1.0f,
-        .occlusionStrength = 0.8f,
-        .alphaCutoff = 0.5f,
-        .flags = 3,
-        .baseColorTexture = {{11}},
-        .metallicRoughnessTexture = {{0}},
-        .normalTexture = {{12}},
-        .occlusionTexture = {{0}},
-        .emissiveTexture = {{0}},
-    };
+    Material material = {};
+    material.baseColorFactor[0] = 1.0f;
+    material.baseColorFactor[1] = 0.5f;
+    material.baseColorFactor[2] = 0.25f;
+    material.baseColorFactor[3] = 1.0f;
+    material.emissiveFactor[0] = 0.1f;
+    material.emissiveFactor[1] = 0.2f;
+    material.emissiveFactor[2] = 0.3f;
+    material.metallicFactor = 0.75f;
+    material.roughnessFactor = 0.4f;
+    material.textures[static_cast<size_t>(MaterialTextureSlot::normal)].scale = 1.0f;
+    material.textures[static_cast<size_t>(MaterialTextureSlot::occlusion)].strength = 0.8f;
+    material.alphaMode = MaterialAlphaMode::opaque;
+    material.alphaCutoff = 0.5f;
+    material.textures[static_cast<size_t>(MaterialTextureSlot::baseColor)]
+        .texture.id = {11};
+    material.textures[static_cast<size_t>(MaterialTextureSlot::normal)]
+        .texture.id = {12};
+    return material;
 }
 
 consteval bool material_constexpr_round_trip(void)
 {
     constexpr Material material = make_material();
-    uint8_t bytes[156] = {};
+    uint8_t bytes[1101] = {};
     const ano::EncodeResult encoded = ano::encode(
         ano::ArtifactSource<Material>{&material, {nullptr, 0}},
         {bytes, sizeof(bytes)});
@@ -117,13 +129,18 @@ consteval bool material_constexpr_round_trip(void)
         ano::decode<Material>({bytes, sizeof(bytes)});
     if (decoded.error != ANO_RESOURCE_OK
         || decoded.view.value.baseColorFactor[1] != 0.5f
-        || decoded.view.value.normalTexture.id.value != 12)
+        || decoded.view.value.textures[
+               static_cast<size_t>(MaterialTextureSlot::normal)]
+               .texture.id.value != 12)
         return false;
-    AnoAssetId dependencies[2] = {};
+    AnoResourceDependency dependencies[2] = {};
     const ano::DependencyResult extracted = ano::dependencies<Material>(
         {bytes, sizeof(bytes)}, dependencies, 2);
     return extracted.error == ANO_RESOURCE_OK && extracted.count == 2
-        && dependencies[0].value == 11 && dependencies[1].value == 12;
+        && dependencies[0].asset.value == 11
+        && dependencies[1].asset.value == 12
+        && dependencies[0].type.value == ano::resource_type_id<Texture>().value
+        && dependencies[1].type.value == ano::resource_type_id<Texture>().value;
 }
 
 static_assert(material_constexpr_round_trip());
@@ -223,11 +240,12 @@ static void test_mesh_canonical_artifact(void)
     ano::DependencyResult missing = ano::dependencies<Mesh>(artifact, nullptr, 0);
     CHECK(missing.error == ANO_RESOURCE_DEPENDENCY_CAPACITY && missing.count == 1,
           "dependency extraction reports required capacity");
-    AnoAssetId dependency = {};
+    AnoResourceDependency dependency = {};
     const ano::DependencyResult extracted =
         ano::dependencies<Mesh>(artifact, &dependency, 1);
     CHECK(extracted.error == ANO_RESOURCE_OK && extracted.count == 1
-          && dependency.value == mesh.material.id.value,
+          && dependency.asset.value == mesh.material.id.value
+          && dependency.type.value == ano::resource_type_id<Material>().value,
           "dependency extraction emits the typed material reference");
 
     uint8_t repeated[256];
@@ -287,7 +305,7 @@ static void test_mesh_canonical_artifact(void)
 static void test_material_canonical_artifact(void)
 {
     constexpr Material material = make_material();
-    uint8_t encoded[156] = {};
+    uint8_t encoded[1101] = {};
     const ano::EncodeResult result = ano::encode(
         ano::ArtifactSource<Material>{&material, {nullptr, 0}},
         {encoded, sizeof(encoded)});
@@ -297,14 +315,86 @@ static void test_material_canonical_artifact(void)
         ano::decode<Material>({encoded, result.size});
     CHECK(decoded.error == ANO_RESOURCE_OK
           && decoded.view.value.metallicFactor == material.metallicFactor
-          && decoded.view.value.baseColorTexture.id.value == 11,
+          && decoded.view.value.textures[
+               static_cast<size_t>(MaterialTextureSlot::baseColor)]
+               .texture.id.value == 11,
           "material canonical values decode directly");
-    AnoAssetId dependencies[2] = {};
+    AnoResourceDependency dependencies[2] = {};
     const ano::DependencyResult extracted = ano::dependencies<Material>(
         {encoded, result.size}, dependencies, 2);
     CHECK(extracted.error == ANO_RESOURCE_OK && extracted.count == 2
-          && dependencies[0].value == 11 && dependencies[1].value == 12,
+          && dependencies[0].asset.value == 11
+          && dependencies[1].asset.value == 12
+          && dependencies[0].type.value == ano::resource_type_id<Texture>().value
+          && dependencies[1].type.value == ano::resource_type_id<Texture>().value,
           "material texture dependencies follow reflected field order");
+
+    Material invalid = material;
+    invalid.alphaMode = static_cast<MaterialAlphaMode>(UINT8_MAX);
+    CHECK(ano::encode(ano::ArtifactSource<Material>{&invalid, {nullptr, 0}},
+                      {encoded, sizeof(encoded)}).error
+              == ANO_RESOURCE_NON_CANONICAL,
+          "encoder rejects values outside a reflected enum");
+
+    encoded[104] = UINT8_MAX;
+    CHECK(ano::validate<Material>({encoded, result.size})
+              == ANO_RESOURCE_NON_CANONICAL,
+          "decoder rejects values outside a reflected enum");
+}
+
+static void test_generated_artifact_dispatch(void)
+{
+    constexpr Material material = make_material();
+    uint8_t encoded[1101] = {};
+    const ano::EncodeResult result = ano::encode(
+        ano::ArtifactSource<Material>{&material, {nullptr, 0}},
+        {encoded, sizeof(encoded)});
+    CHECK(result.error == ANO_RESOURCE_OK,
+          "dispatch fixture encodes");
+
+    constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
+    AnoResourceSchema schema = {};
+    CHECK(ano_resource_artifact_schema(materialType, &schema) == ANO_RESOURCE_OK
+          && schema.type.value == materialType.value
+          && schema.fixedSize == ano::fixed_wire_size<Material>()
+          && fingerprint_equal(schema.fingerprint,
+                               ano::schema_fingerprint<Material>()),
+          "reflected universe generates schema dispatch");
+    CHECK(ano_resource_artifact_schema(materialType, nullptr)
+              == ANO_RESOURCE_INVALID_ARGUMENT,
+          "schema dispatch rejects a null output");
+    CHECK(ano_resource_artifact_schema({UINT64_MAX}, &schema)
+              == ANO_RESOURCE_TYPE_MISMATCH,
+          "schema dispatch rejects an unknown reflected type");
+
+    const AnoResourceBytes bytes = {encoded, result.size};
+    CHECK(ano_resource_validate_artifact(materialType, bytes)
+              == ANO_RESOURCE_OK,
+          "reflected universe generates validation dispatch");
+    CHECK(ano_resource_validate_artifact({UINT64_MAX}, bytes)
+              == ANO_RESOURCE_TYPE_MISMATCH,
+          "validation dispatch rejects an unknown reflected type");
+
+    AnoResourceDependency dependencies[2] = {};
+    uint64_t dependencyCount = 0;
+    CHECK(ano_resource_artifact_dependencies(
+              materialType, bytes, dependencies, 2, &dependencyCount)
+              == ANO_RESOURCE_OK
+          && dependencyCount == 2
+          && dependencies[0].asset.value == 11
+          && dependencies[1].asset.value == 12
+          && dependencies[0].type.value == ano::resource_type_id<Texture>().value
+          && dependencies[1].type.value == ano::resource_type_id<Texture>().value,
+          "reflected universe generates dependency dispatch");
+    CHECK(ano_resource_artifact_dependencies(
+              materialType, bytes, nullptr, 0, &dependencyCount)
+              == ANO_RESOURCE_DEPENDENCY_CAPACITY
+          && dependencyCount == 2,
+          "dependency dispatch reports required capacity");
+    CHECK(ano_resource_artifact_dependencies(
+              materialType, bytes, dependencies, 2, nullptr)
+              == ANO_RESOURCE_INVALID_ARGUMENT,
+          "dependency dispatch rejects a null count output");
 }
 
 static void test_sha256(void)
@@ -329,6 +419,7 @@ int main(void)
 {
     test_mesh_canonical_artifact();
     test_material_canonical_artifact();
+    test_generated_artifact_dispatch();
     test_sha256();
     if (failures == 0) {
         printf("anotest_resources_language: all checks passed\n");

@@ -88,8 +88,13 @@ bool createMotionBuffer(VulkanContext* ctx, RendererState* state, uint32_t maxEn
     state->slotMotion   = (uint8_t*)calloc(maxEntities, 1u);
     state->slotBasePose = (mat4*)calloc(maxEntities, sizeof(mat4));
     state->slotMeshIdx  = (uint32_t*)malloc((size_t)maxEntities * sizeof(uint32_t));
+    state->slotResourceAsset = (AnoAssetId*)calloc(maxEntities, sizeof(AnoAssetId));
+    state->slotResourcePrimitive = (uint32_t*)calloc(maxEntities, sizeof(uint32_t));
+    state->slotResourceRoot = (mat4*)calloc(maxEntities, sizeof(mat4));
     state->slotMoverIdx = (uint32_t*)malloc((size_t)maxEntities * sizeof(uint32_t));
-    if (!state->slotMotion || !state->slotBasePose || !state->slotMeshIdx || !state->slotMoverIdx)
+    if (!state->slotMotion || !state->slotBasePose || !state->slotMeshIdx
+        || !state->slotResourceAsset || !state->slotResourcePrimitive
+        || !state->slotResourceRoot || !state->slotMoverIdx)
         return false;
     memset(state->slotMeshIdx,  0xFF, (size_t)maxEntities * sizeof(uint32_t)); // NO_MESH_INDEX
     memset(state->slotMoverIdx, 0xFF, (size_t)maxEntities * sizeof(uint32_t)); // ANO_RENDER_SLOT_UNMAPPED

@@ -30,6 +30,7 @@ It is the bridge betwixt engine <===> renderer.
 #include <anoptic_math.h> // mat4, Vector4
 #include <anoptic_text.h> // AnoFontBake, AnoGlyphInstance (logic-side text shaping)
 #include <anoptic_ui.h>   // AnoUiPrim/Clip/Paint/Stop + builder (logic-side UI layout)
+#include <anoptic_resources_runtime.h>
 
 #ifdef __cplusplus
 #define ANO_RENDER_META(...) [[=__VA_ARGS__]]
@@ -47,7 +48,7 @@ extern "C" {
 // GLFW pins window + events to main thread (macOS-mandatory).
 
 // Bring up the render world (window, device, assets). false on failure.
-bool initVulkan(void);
+bool initVulkan(AnoResourceManager *resources);
 
 // A celebration. Tears the render world down; destroys the bridge.
 void unInitVulkan(void);
@@ -82,6 +83,8 @@ typedef struct AnoRenderableDesc
     mat4     transform;
     uint32_t mesh_index;
     uint32_t material_index;
+    AnoAssetId resource_asset;
+    uint32_t resource_primitive;
 } AnoRenderableDesc;
 
 // Number of asset slots loaded at init (index space for the queries below).
@@ -89,7 +92,8 @@ uint32_t anoRenderAssetCount(void);
 
 // Flatten asset `asset_id` at `root` into renderables. Returns TOTAL count; fills out[0..min(count,cap)).
 // Cap 0 or out NULL to size. Out-of-range asset_id returns 0.
-uint32_t anoRenderAssetPrimitives(uint32_t asset_id, const mat4 root, AnoRenderableDesc *out, uint32_t cap);
+uint32_t anoRenderAssetPrimitives(AnoAssetId asset, const mat4 root,
+                                  AnoRenderableDesc *out, uint32_t cap);
 
 // Fallback cube mesh index + default material for procedural renderables.
 uint32_t anoRenderFallbackMesh(void);
@@ -140,6 +144,16 @@ typedef struct RenderLightParams
     // STATIC row: CREATE-only grants; UPDATE 1 refreshes owned volumes; UPDATE 0 revokes.
     uint32_t        castsShadow;
 } RenderLightParams;
+
+typedef struct AnoSceneLightDesc
+{
+    mat4 transform;
+    RenderLightParams light;
+} AnoSceneLightDesc;
+
+// Flattens canonical scene lights below caller root. Returns the total count.
+uint32_t anoRenderAssetLights(AnoAssetId asset, const mat4 root,
+                              AnoSceneLightDesc *out, uint32_t cap);
 
 // Field mask for ano_render_light_update_fields. Unnamed fields preserved. ALL = full overwrite.
 enum {
@@ -353,6 +367,9 @@ typedef struct RenderCommand
     AnoMotionDescriptor motion ANO_RENDER_META(AnoRenderFieldUse{RFIELD_ANIM, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
     uint32_t mesh_index ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
     uint32_t material_index ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
+    AnoAssetId resource_asset ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
+    uint32_t resource_primitive ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
+    mat4 resource_root ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
     uint32_t          light_index;      // ANO_RENDER_NO_LIGHT if not a light
     RenderLightParams light ANO_RENDER_META(AnoRenderFieldUse{RFIELD_LIGHT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}); // also LIGHT_ATTACH/UPDATE
     uint32_t          light_id;         // RCMD_LIGHT_* : producer-owned logical light handle

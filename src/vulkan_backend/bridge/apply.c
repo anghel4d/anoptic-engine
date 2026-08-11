@@ -27,6 +27,8 @@ static void stage_command_fields(RendererState* s, const RenderCommand* c, uint3
     if (c->kind == RCMD_DESTROY) {
         GpuEntityInfo dead = { .meshIndex = NO_MESH_INDEX };
         slot_upload_stage(&s->culling.entity, f, slot, &dead);
+        if (slot < s->slotMotionCap)
+            s->slotResourceAsset[slot] = {0};
         return;
     }
 
@@ -49,7 +51,12 @@ static void stage_command_fields(RendererState* s, const RenderCommand* c, uint3
             .materialIndex = c->material_index,
         };
         slot_upload_stage(&s->culling.entity, f, slot, &entity);
-        if (slot < s->slotMotionCap) s->slotMeshIdx[slot] = c->mesh_index;
+        if (slot < s->slotMotionCap) {
+            s->slotMeshIdx[slot] = c->mesh_index;
+            s->slotResourceAsset[slot] = c->resource_asset;
+            s->slotResourcePrimitive[slot] = c->resource_primitive;
+            memcpy(s->slotResourceRoot[slot], c->resource_root, sizeof(mat4));
+        }
     }
     // Teleport/mesh swap refreshes bound; ANIM via shadow_track_motion.
     if ((fields & (RFIELD_TRANSFORM | RFIELD_MESH_MAT)) && !(fields & RFIELD_ANIM))
@@ -83,6 +90,55 @@ static void stage_command_fields(RendererState* s, const RenderCommand* c, uint3
             }
         }
     }
+}
+
+bool render_resource_epoch_compatible(
+    const RendererState *state, const AnoRenderResidency *residency)
+{
+    if (state == nullptr || residency == nullptr)
+        return false;
+    for (uint32_t slot = 0; slot < state->slots.slotHighWater; ++slot) {
+        if (slot >= state->slotMotionCap
+            || state->slotResourceAsset[slot].value == 0)
+            continue;
+        AnoRenderableDesc resolved = {};
+        if (!ano_vk_resource_scene_primitive(
+                residency, state->slotResourceAsset[slot],
+                state->slotResourcePrimitive[slot],
+                state->slotResourceRoot[slot], &resolved))
+            return false;
+    }
+    return true;
+}
+
+void render_apply_resource_epoch(
+    RendererState *state, const AnoRenderResidency *residency,
+    uint32_t frameIndex)
+{
+    for (uint32_t slot = 0; slot < state->slots.slotHighWater; ++slot) {
+        if (slot >= state->slotMotionCap
+            || state->slotResourceAsset[slot].value == 0)
+            continue;
+        AnoRenderableDesc resolved = {};
+        if (!ano_vk_resource_scene_primitive(
+                residency, state->slotResourceAsset[slot],
+                state->slotResourcePrimitive[slot],
+                state->slotResourceRoot[slot], &resolved))
+            continue;
+        RenderCommand command = {
+            .kind = RCMD_UPDATE,
+            .fields = RFIELD_TRANSFORM | RFIELD_MESH_MAT,
+            .mesh_index = resolved.mesh_index,
+            .material_index = resolved.material_index,
+            .resource_asset = resolved.resource_asset,
+            .resource_primitive = resolved.resource_primitive,
+        };
+        memcpy(command.transform, resolved.transform, sizeof(mat4));
+        memcpy(command.resource_root, state->slotResourceRoot[slot],
+               sizeof(mat4));
+        stage_command_fields(state, &command, slot, frameIndex);
+    }
+    state->shadowGlobalDirty = true;
 }
 
 
@@ -223,6 +279,7 @@ void render_apply_commands(RendererState* state, uint32_t frameIndex)
                 if (slot < state->slotMotionCap) {
                     memcpy(state->slotBasePose[slot], &b->transforms[e], sizeof(mat4));
                     state->slotMeshIdx[slot] = b->mesh[e];
+                    state->slotResourceAsset[slot] = {0};
                 }
                 slot_upload_stage(&state->initialTransformBuffer, frameIndex, slot, &b->transforms[e]);
                 slot_upload_stage(&state->motionBuffer, frameIndex, slot, &b->motion[e]);
@@ -252,6 +309,8 @@ void render_apply_commands(RendererState* state, uint32_t frameIndex)
                         memcpy(state->slotBasePose[slot], &u->transforms[e], sizeof(mat4));
                     if (u->fields & RFIELD_MESH_MAT)
                         state->slotMeshIdx[slot] = u->mesh[e];
+                    if (u->fields & RFIELD_MESH_MAT)
+                        state->slotResourceAsset[slot] = {0};
                 }
                 if (u->fields & RFIELD_TRANSFORM)
                     slot_upload_stage(&state->initialTransformBuffer, frameIndex, slot, &u->transforms[e]);
@@ -287,6 +346,8 @@ void render_apply_commands(RendererState* state, uint32_t frameIndex)
                 uint32_t slot = render_slots_resolve(&state->slots, rid);
                 if (slot == ANO_RENDER_SLOT_UNMAPPED) continue;
                 slot_upload_stage(&state->culling.entity, frameIndex, slot, &dead);
+                if (slot < state->slotMotionCap)
+                    state->slotResourceAsset[slot] = {0};
                 shadow_track_motion(state, slot, NULL); // untrack before recycle
                 cascade_detach_lights(state, rid, frameIndex); // disable lights riding this slot
                 render_slots_retire(&state->slots, rid, state->globalFrame);

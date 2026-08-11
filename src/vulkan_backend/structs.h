@@ -689,6 +689,9 @@ typedef struct RendererState
     // Swept-bound exposure: CPU mirrors of base pose + mesh index [slotMotionCap].
     mat4*                   slotBasePose;       // CPU mirror of staged base poses
     uint32_t*               slotMeshIdx;        // CPU mirror of staged mesh indices (NO_MESH_INDEX default)
+    AnoAssetId*             slotResourceAsset;
+    uint32_t*               slotResourcePrimitive;
+    mat4*                   slotResourceRoot;
     uint32_t*               slotMoverIdx;       // slot -> movers[] row, ANO_RENDER_SLOT_UNMAPPED if none
     MoverBound*             movers;             // compact live movers
     uint32_t                moverCount;

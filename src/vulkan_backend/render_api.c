@@ -6,17 +6,23 @@
 #include <anoptic_log.h>
 
 #include <anoptic_meta.h>
+#include <anoptic_render_resources.h>
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
 #include "vulkan_backend/components.h"
 #include "vulkan_backend/frame/frame.h"
+#include "vulkan_backend/bridge/bridge.h"
 #include "vulkan_backend/render_api.h"
+#include "vulkan_backend/resources/resources.h"
 
-// Loaded-asset registry. Failed parse leaves slot NULL. g_defaultMaterial = first asset mat or builtin.
+static AnoRenderResidency *g_resourceResidency;
+static uint32_t g_assetCount;
+static uint32_t g_defaultMaterial;
+
+#if 0 // TODO(delete): displaced path-coupled ModelAsset registry.
 #define ANO_MAX_LOADED_ASSETS 16u
-static ModelAsset* g_assets[ANO_MAX_LOADED_ASSETS];
-static uint32_t    g_assetCount;
-static uint32_t    g_defaultMaterial;
+static ModelAsset *g_assets[ANO_MAX_LOADED_ASSETS];
+#endif
 
 // Material SSBO row 0, claimed before any glTF parse.
 #define ANO_DEFAULT_MATERIAL_INDEX 0u
@@ -35,9 +41,16 @@ static_assert(ano::Data<decltype(LIGHTING_MODE_NAMES)>);
 
 uint32_t anoRenderAssetCount(void) { return g_assetCount; }
 
-uint32_t anoRenderAssetPrimitives(uint32_t asset_id, const mat4 root, AnoRenderableDesc* out, uint32_t cap) {
-    if (asset_id >= g_assetCount || g_assets[asset_id] == NULL) return 0u;
-    return model_flatten(g_assets[asset_id], root, out, cap);
+uint32_t anoRenderAssetPrimitives(AnoAssetId asset, const mat4 root,
+                                  AnoRenderableDesc* out, uint32_t cap) {
+    return ano_vk_resource_scene_primitives(
+        g_resourceResidency, asset, root, out, cap);
+}
+
+uint32_t anoRenderAssetLights(AnoAssetId asset, const mat4 root,
+                              AnoSceneLightDesc* out, uint32_t cap) {
+    return ano_vk_resource_scene_lights(
+        g_resourceResidency, asset, root, out, cap);
 }
 
 uint32_t anoRenderFallbackMesh(void)    { return FALLBACK_MESH_INDEX; }
@@ -129,8 +142,7 @@ bool ano_render_get_view_hiz_enable(uint32_t view) {
     return rendererState.hizEnable[view] != 0u;
 }
 
-// Claim material SSBO row 0 with stock white PBR (all FIF). No-op if absent or row 0 taken. Before first parseGltf.
-/// TODO: shim 〜 redo with asset manager.
+// Claim material SSBO row 0 with stock white PBR before resource realization.
 static void register_default_material(void)
 {
 	if (rendererState.materialBuffer.capacity == 0u || rendererState.materialBuffer.count != 0u)
@@ -143,14 +155,82 @@ static void register_default_material(void)
 	rendererState.materialBuffer.count = 1u;
 }
 
-// Parse the scene's glTF assets into the loaded-asset registry.
-// An unparsable asset leaves its slot NULL. Always returns true.
-bool ano_render_load_scene_assets(void)
+bool ano_render_load_scene_assets(AnoResourceManager *resources)
 {
-	// Row 0 before any parse. glTF materials allocate from row 1 up.
 	register_default_material();
 	g_defaultMaterial = ANO_DEFAULT_MATERIAL_INDEX;
+	const AnoResourceError realized = ano_vk_resource_residency_create(
+		resources, &g_resourceResidency);
+	if (realized != ANO_RESOURCE_OK) {
+		ano_log(ANO_ERROR, "Render residency realization failed: %s",
+		        ano_resource_error_string(realized));
+		return false;
+	}
+	g_assetCount = 5u;
+	g_defaultMaterial = ano_vk_resource_default_material(g_resourceResidency);
+	return true;
+}
 
+AnoResourceError ano_render_resources_reload(
+    AnoResourceManager *manager, AnoResourceBytes candidatePack)
+{
+    AnoResourceReload *reload = nullptr;
+    AnoResourceError result = ano_resource_reload_prepare(
+        manager, candidatePack, &reload);
+    if (result != ANO_RESOURCE_OK)
+        return result;
+    return ano_render_resources_publish_reload(reload);
+}
+
+AnoResourceError ano_render_resources_publish_reload(AnoResourceReload *reload)
+{
+    if (reload == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    AnoResourceError result = ANO_RESOURCE_OK;
+    if (!ano_resource_reload_has_changes(reload))
+        return ano_resource_reload_commit(reload);
+
+    AnoRenderResidency *candidate = nullptr;
+    result = ano_vk_resource_residency_create_from_epoch(
+        ano_resource_reload_epoch(reload), g_resourceResidency, &candidate);
+    if (result != ANO_RESOURCE_OK
+        || !render_resource_epoch_compatible(&rendererState, candidate)) {
+        ano_vk_resource_residency_destroy(candidate);
+        ano_resource_reload_abort(reload);
+        return result == ANO_RESOURCE_OK
+            ? ANO_RESOURCE_OWNER_REJECTED : result;
+    }
+    if (vkDeviceWaitIdle(ctx.device) != VK_SUCCESS) {
+        ano_vk_resource_residency_destroy(candidate);
+        ano_resource_reload_abort(reload);
+        return ANO_RESOURCE_OWNER_REJECTED;
+    }
+    result = ano_resource_reload_commit(reload);
+    if (result != ANO_RESOURCE_OK) {
+        ano_vk_resource_residency_destroy(candidate);
+        return result;
+    }
+
+    render_apply_resource_epoch(
+        &rendererState, candidate, rendererState.frameIndex);
+    AnoRenderResidency *retired = g_resourceResidency;
+    g_resourceResidency = candidate;
+    g_defaultMaterial = ano_vk_resource_default_material(candidate);
+    ano_vk_resource_residency_destroy(retired);
+    return ANO_RESOURCE_OK;
+}
+
+void ano_render_unload_scene_assets(void)
+{
+	ano_vk_resource_residency_destroy(g_resourceResidency);
+	g_resourceResidency = nullptr;
+	g_assetCount = 0;
+	g_defaultMaterial = ANO_DEFAULT_MATERIAL_INDEX;
+}
+
+#if 0 // TODO(delete): source parsing and Vulkan realization are compiled into RCRG.
+	// The former implementation called parseGltf() for Viking Room, the candle
+	// holder, and Sponza, then retained ModelAsset pointers in g_assets[].
 	// Load the scene's glTF assets into GPU memory. Load order is the asset_id namespace.
 	g_assets[0] = parseGltf(&ctx, "viking_room.gltf");
 	if (!g_assets[0])
@@ -176,4 +256,4 @@ bool ano_render_load_scene_assets(void)
 	}
 
 	return true;
-}
+#endif

@@ -17,6 +17,7 @@ target_sources(anoptic_render PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/bridge/apply.c
 	${CMAKE_CURRENT_SOURCE_DIR}/bridge/producer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/render_api.c
+	${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.c
 	${CMAKE_CURRENT_SOURCE_DIR}/components.c
 	${CMAKE_CURRENT_SOURCE_DIR}/instance/window.c
 	${CMAKE_CURRENT_SOURCE_DIR}/instance/instance.c

@@ -20,6 +20,10 @@ typedef struct AnoAssetId {
     uint64_t value;
 } AnoAssetId;
 
+typedef struct AnoResourceSourceId {
+    uint64_t value;
+} AnoResourceSourceId;
+
 typedef struct AnoContentId {
     uint8_t bytes[32];
 } AnoContentId;
@@ -36,9 +40,26 @@ typedef struct AnoResidencyEpochId {
     uint64_t value;
 } AnoResidencyEpochId;
 
+typedef struct AnoResourceGoalId {
+    uint64_t value;
+} AnoResourceGoalId;
+
+typedef struct AnoResourceCommitGroupId {
+    uint64_t value;
+} AnoResourceCommitGroupId;
+
+typedef struct AnoResourceQuality {
+    uint32_t level;
+} AnoResourceQuality;
+
 typedef struct AnoResourceTypeId {
     uint64_t value;
 } AnoResourceTypeId;
+
+typedef struct AnoResourceDependency {
+    AnoAssetId asset;
+    AnoResourceTypeId type;
+} AnoResourceDependency;
 
 typedef struct AnoResourceBytes {
     const uint8_t *data;
@@ -49,6 +70,12 @@ typedef struct AnoResourceMutableBytes {
     uint8_t *data;
     uint64_t size;
 } AnoResourceMutableBytes;
+
+typedef struct AnoResourceSchema {
+    AnoResourceTypeId type;
+    AnoSchemaFingerprint fingerprint;
+    uint64_t fixedSize;
+} AnoResourceSchema;
 
 typedef enum AnoResourceError {
     ANO_RESOURCE_OK = 0,
@@ -63,6 +90,15 @@ typedef enum AnoResourceError {
     ANO_RESOURCE_OUT_OF_BOUNDS,
     ANO_RESOURCE_MISALIGNED_SOURCE,
     ANO_RESOURCE_DEPENDENCY_CAPACITY,
+    ANO_RESOURCE_OUT_OF_MEMORY,
+    ANO_RESOURCE_IO_ERROR,
+    ANO_RESOURCE_NOT_FOUND,
+    ANO_RESOURCE_DUPLICATE_ASSET,
+    ANO_RESOURCE_BAD_MANIFEST,
+    ANO_RESOURCE_BAD_PACK,
+    ANO_RESOURCE_CANCELLED,
+    ANO_RESOURCE_UNSUPPORTED,
+    ANO_RESOURCE_OWNER_REJECTED,
     ANO_RESOURCE_ERROR_COUNT
 } AnoResourceError;
 
@@ -80,6 +116,14 @@ static inline bool ano_resource_type_id_equal(AnoResourceTypeId lhs,
 const char *ano_resource_error_string(AnoResourceError error);
 AnoResourceError ano_resource_content_id(AnoResourceBytes bytes,
                                          AnoContentId *contentId);
+AnoResourceError ano_resource_artifact_schema(AnoResourceTypeId type,
+                                              AnoResourceSchema *schema);
+AnoResourceError ano_resource_validate_artifact(AnoResourceTypeId type,
+                                                AnoResourceBytes bytes);
+AnoResourceError ano_resource_artifact_dependencies(
+    AnoResourceTypeId type, AnoResourceBytes bytes,
+    AnoResourceDependency *dependencies, uint64_t dependencyCapacity,
+    uint64_t *dependencyCount);
 
 #ifdef __cplusplus
 }

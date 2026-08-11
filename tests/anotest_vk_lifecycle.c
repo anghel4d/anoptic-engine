@@ -7,7 +7,7 @@ extern bool g_AnoVkNoSuitableGpu;
 
 int main() {
     printf("Starting Vulkan lifecycle test...\n");
-    bool result = initVulkan();
+    bool result = initVulkan(nullptr);
     if (!result) {
         if (g_AnoVkNoSuitableGpu) {
             printf("SKIP: no Vulkan device here can run the renderer.\n");

@@ -12,7 +12,7 @@ int main() {
     printf("Starting Vulkan Synchronization Primitives test...\n");
     g_ValidationErrors = 0;
 
-    if (!initVulkan()) {
+    if (!initVulkan(nullptr)) {
         if (g_AnoVkNoSuitableGpu) {
             printf("SKIP: no Vulkan device here can run the renderer.\n");
             return 77; // ctest SKIP_RETURN_CODE

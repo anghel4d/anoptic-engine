@@ -45,9 +45,31 @@ struct Transform final {
     bool deterministic;
 };
 
+struct Importer final {
+    char extension[16]{};
+    uint8_t length = 0;
+    bool deterministic = true;
+
+    template<size_t Count>
+    consteval Importer(const char (&sourceExtension)[Count],
+                       bool isDeterministic = true)
+        : length(static_cast<uint8_t>(Count - 1)),
+          deterministic(isDeterministic)
+    {
+        static_assert(Count > 2 && Count <= sizeof(extension) + 1);
+        for (size_t i = 0; i < Count - 1; ++i)
+            extension[i] = sourceExtension[i];
+    }
+};
+
 template<class SemanticAsset>
 struct AssetRef final {
     AnoAssetId id;
+};
+
+template<class SemanticAsset>
+struct SourceRef final {
+    AnoResourceSourceId id;
 };
 
 template<class Element>
@@ -266,6 +288,7 @@ enum class WireShape : uint8_t {
     invalid,
     boolean,
     integer,
+    enumeration,
     floating,
     array,
     assetRef,
@@ -315,6 +338,8 @@ consteval WireShape wire_shape(std::meta::info type)
         return WireShape::boolean;
     if (std::meta::is_integral_type(type))
         return WireShape::integer;
+    if (std::meta::is_enum_type(type))
+        return WireShape::enumeration;
     if (std::meta::is_floating_point_type(type))
         return WireShape::floating;
     if (std::meta::is_array_type(type))
@@ -355,9 +380,6 @@ consteval void validate_wire_type(std::meta::info type,
             || std::meta::is_member_pointer_type(type))
             reject("portable artifacts cannot contain pointers or references",
                    declaration);
-        if (std::meta::is_enum_type(type))
-            reject("portable enum fields require an explicit reflected wire mapping",
-                   declaration);
         reject("unsupported canonical field type", declaration);
     }
 
@@ -371,6 +393,16 @@ consteval void validate_wire_type(std::meta::info type,
         if (width != 1 && width != 2 && width != 4 && width != 8)
             reject("canonical integers must occupy 1, 2, 4, or 8 bytes",
                    declaration);
+        return;
+    }
+    if (shape == WireShape::enumeration) {
+        const std::meta::info underlying = std::meta::underlying_type(type);
+        const size_t width = std::meta::size_of(underlying);
+        if (width != 1 && width != 2 && width != 4 && width != 8)
+            reject("canonical enum storage must occupy 1, 2, 4, or 8 bytes",
+                   declaration);
+        if (std::meta::enumerators_of(type).empty())
+            reject("canonical enums require at least one enumerator", declaration);
         return;
     }
     if (shape == WireShape::floating) {
@@ -408,9 +440,8 @@ consteval void validate_wire_type(std::meta::info type,
         reject("canonical records must be complete", declaration);
     if (!std::meta::is_standard_layout_type(type)
         || !std::meta::is_trivially_copyable_type(type)
-        || !std::meta::is_aggregate_type(type)
-        || !std::meta::is_final_type(type))
-        reject("canonical records must be final standard-layout trivial aggregates",
+        || !std::meta::is_aggregate_type(type))
+        reject("canonical records must be standard-layout trivial aggregates",
                declaration);
     if (!std::meta::bases_of(type, std::meta::access_context::unchecked()).empty())
         reject("canonical records cannot have base classes", declaration);
@@ -429,6 +460,8 @@ consteval void validate_artifact(std::meta::info type)
     validate_artifact_marker(type);
     if (wire_shape(type) != WireShape::record)
         reject("artifact declarations must denote record types", type);
+    if (!std::meta::is_final_type(type))
+        reject("artifact declarations must be final", type);
     validate_wire_type(type, type);
 }
 
@@ -486,6 +519,7 @@ consteval uint64_t wire_size(std::meta::info type)
     type = std::meta::dealias(type);
     const WireShape shape = wire_shape(type);
     if (shape == WireShape::boolean || shape == WireShape::integer
+        || shape == WireShape::enumeration
         || shape == WireShape::floating)
         return std::meta::size_of(type);
     if (shape == WireShape::array)
@@ -517,6 +551,14 @@ consteval void hash_wire_type(Sha256& hash, std::meta::info type)
         hash_u8(hash, 'i');
         hash_u8(hash, static_cast<uint8_t>(std::meta::size_of(type)));
         hash_u8(hash, std::meta::is_signed_type(type) ? 1 : 0);
+        return;
+    }
+    if (shape == WireShape::enumeration) {
+        const std::meta::info underlying = std::meta::underlying_type(type);
+        hash_u8(hash, 'e');
+        hash_qualified_name(hash, type);
+        hash_u8(hash, static_cast<uint8_t>(std::meta::size_of(underlying)));
+        hash_u8(hash, std::meta::is_signed_type(underlying) ? 1 : 0);
         return;
     }
     if (shape == WireShape::floating) {
@@ -628,6 +670,55 @@ consteval void validate_transform(std::meta::info declaration)
                declaration);
 }
 
+consteval bool importer_extension_equal(const Importer& lhs,
+                                        const Importer& rhs)
+{
+    if (lhs.length != rhs.length)
+        return false;
+    for (uint8_t i = 0; i < lhs.length; ++i)
+        if (lhs.extension[i] != rhs.extension[i])
+            return false;
+    return true;
+}
+
+consteval void validate_importer(std::meta::info declaration)
+{
+    const auto annotations =
+        std::meta::annotations_of_with_type(declaration, ^^Importer);
+    if (annotations.empty())
+        reject("an importer requires at least one Importer annotation",
+               declaration);
+    if (!std::meta::is_function(declaration)
+        || !std::meta::is_noexcept(declaration)
+        || std::meta::return_type_of(declaration) != ^^AnoResourceError)
+        reject("resource importers must be noexcept functions returning AnoResourceError",
+               declaration);
+    const auto parameters = std::meta::parameters_of(declaration);
+    if (parameters.size() != 2)
+        reject("resource importers require a context and const request",
+               declaration);
+    const std::meta::info context = std::meta::type_of(parameters[0]);
+    const std::meta::info request = std::meta::type_of(parameters[1]);
+    if (!std::meta::is_lvalue_reference_type(context)
+        || std::meta::is_const_type(std::meta::remove_reference(context))
+        || !std::meta::is_lvalue_reference_type(request)
+        || !std::meta::is_const_type(std::meta::remove_reference(request)))
+        reject("resource importers require a mutable context reference and const request reference",
+               declaration);
+    for (const std::meta::info annotation : annotations) {
+        const Importer spec = std::meta::extract<Importer>(annotation);
+        if (spec.length < 2 || spec.extension[0] != '.')
+            reject("importer extensions begin with a dot", declaration);
+        for (uint8_t i = 1; i < spec.length; ++i) {
+            const char value = spec.extension[i];
+            if (!((value >= 'a' && value <= 'z')
+                  || (value >= '0' && value <= '9')))
+                reject("importer extensions use lowercase ASCII letters and digits",
+                       declaration);
+        }
+    }
+}
+
 constexpr bool checked_add(uint64_t lhs, uint64_t rhs, uint64_t *result)
 {
     if (result == nullptr || rhs > UINT64_MAX - lhs)
@@ -674,6 +765,18 @@ constexpr void write_unsigned(uint8_t *bytes, uint64_t value, uint32_t width)
 
 template<class Type>
 inline constexpr WireShape compiledWireShape = wire_shape(^^Type);
+
+template<class Enum>
+constexpr bool enum_value_valid(Enum value)
+{
+    static_assert(std::is_enum_v<Enum>);
+    static constexpr auto enumerators =
+        std::define_static_array(std::meta::enumerators_of(^^Enum));
+    template for (constexpr std::meta::info enumerator : enumerators)
+        if (value == [:enumerator:])
+            return true;
+    return false;
+}
 
 struct PlanContext final {
     AnoResourceBytes source;
@@ -821,6 +924,17 @@ constexpr void encode_value(const Type& value, uint64_t offset,
         const Unsigned bits = std::bit_cast<Unsigned>(value);
         write_unsigned(context.output.data + offset,
                        static_cast<uint64_t>(bits), sizeof(Type));
+    } else if constexpr (compiledWireShape<Type> == WireShape::enumeration) {
+        if (!enum_value_valid(value)) {
+            context.error = ANO_RESOURCE_NON_CANONICAL;
+            return;
+        }
+        using Underlying = std::underlying_type_t<Type>;
+        using Unsigned = std::make_unsigned_t<Underlying>;
+        const Unsigned bits = std::bit_cast<Unsigned>(
+            static_cast<Underlying>(value));
+        write_unsigned(context.output.data + offset,
+                       static_cast<uint64_t>(bits), sizeof(Underlying));
     } else if constexpr (compiledWireShape<Type> == WireShape::floating) {
         if constexpr (sizeof(Type) == 4) {
             write_unsigned(context.output.data + offset,
@@ -840,7 +954,7 @@ constexpr void encode_value(const Type& value, uint64_t offset,
 struct DecodeContext final {
     AnoResourceBytes bytes;
     uint64_t payloadCursor;
-    AnoAssetId *dependencies;
+    AnoResourceDependency *dependencies;
     uint64_t dependencyCapacity;
     uint64_t dependencyCount;
     bool collectDependencies;
@@ -883,9 +997,14 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
         if (output != nullptr)
             output->id = id;
         if (context.collectDependencies && id.value != 0) {
+            constexpr std::meta::info target = template_element(^^Type);
+            constexpr AnoResourceTypeId targetType = reflected_type_id(target);
             if (context.dependencies != nullptr
                 && context.dependencyCount < context.dependencyCapacity)
-                context.dependencies[context.dependencyCount] = id;
+                context.dependencies[context.dependencyCount] = {
+                    .asset = id,
+                    .type = targetType,
+                };
             ++context.dependencyCount;
         }
     } else if constexpr (compiledWireShape<Type> == WireShape::relativeSpan) {
@@ -936,6 +1055,18 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
             read_unsigned(context.bytes.data + offset, sizeof(Type)));
         if (output != nullptr)
             *output = std::bit_cast<Type>(bits);
+    } else if constexpr (compiledWireShape<Type> == WireShape::enumeration) {
+        using Underlying = std::underlying_type_t<Type>;
+        using Unsigned = std::make_unsigned_t<Underlying>;
+        const Unsigned bits = static_cast<Unsigned>(
+            read_unsigned(context.bytes.data + offset, sizeof(Underlying)));
+        const Type value = static_cast<Type>(std::bit_cast<Underlying>(bits));
+        if (!enum_value_valid(value)) {
+            context.error = ANO_RESOURCE_NON_CANONICAL;
+            return;
+        }
+        if (output != nullptr)
+            *output = value;
     } else if constexpr (compiledWireShape<Type> == WireShape::floating) {
         if (output != nullptr) {
             if constexpr (sizeof(Type) == 4)
@@ -955,7 +1086,7 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
 
 template<class Type>
 constexpr AnoResourceError decode_artifact(AnoResourceBytes bytes, Type *output,
-                                           AnoAssetId *dependencies,
+                                           AnoResourceDependency *dependencies,
                                            uint64_t dependencyCapacity,
                                            uint64_t *dependencyCount,
                                            bool collectDependencies)
@@ -1022,6 +1153,8 @@ consteval bool compile_resource_language(std::meta::info schemaNamespace)
         const std::meta::info declaration = declarations[i];
         const auto transformAnnotations =
             std::meta::annotations_of_with_type(declaration, ^^Transform);
+        const auto importerAnnotations =
+            std::meta::annotations_of_with_type(declaration, ^^Importer);
         if (detail::has_artifact_marker(declaration)) {
             detail::validate_artifact(declaration);
             const AnoResourceTypeId type = detail::reflected_type_id(declaration);
@@ -1034,6 +1167,34 @@ consteval bool compile_resource_language(std::meta::info schemaNamespace)
         }
         if (!transformAnnotations.empty())
             detail::validate_transform(declaration);
+        if (!importerAnnotations.empty()) {
+            detail::validate_importer(declaration);
+            for (size_t annotationIndex = 0;
+                 annotationIndex < importerAnnotations.size();
+                 ++annotationIndex) {
+                const Importer current = std::meta::extract<Importer>(
+                    importerAnnotations[annotationIndex]);
+                for (size_t priorAnnotation = 0;
+                     priorAnnotation < annotationIndex; ++priorAnnotation)
+                    if (detail::importer_extension_equal(
+                            current, std::meta::extract<Importer>(
+                                importerAnnotations[priorAnnotation])))
+                        detail::reject("duplicate importer extension claim",
+                                       declaration);
+                for (size_t priorDeclaration = 0;
+                     priorDeclaration < i; ++priorDeclaration) {
+                    const auto priorImporters =
+                        std::meta::annotations_of_with_type(
+                            declarations[priorDeclaration], ^^Importer);
+                    for (const std::meta::info prior : priorImporters)
+                        if (detail::importer_extension_equal(
+                                current,
+                                std::meta::extract<Importer>(prior)))
+                            detail::reject("duplicate importer extension claim",
+                                           declaration);
+                }
+            }
+        }
     }
 
     if (artifactCount == 0)
@@ -1142,7 +1303,7 @@ constexpr DecodeResult<Type> decode(AnoResourceBytes bytes)
 
 template<class Type>
 constexpr DependencyResult dependencies(AnoResourceBytes bytes,
-                                        AnoAssetId *output,
+                                        AnoResourceDependency *output,
                                         uint64_t capacity)
 {
     if (output == nullptr && capacity != 0)
@@ -1151,6 +1312,46 @@ constexpr DependencyResult dependencies(AnoResourceBytes bytes,
     const AnoResourceError error = detail::decode_artifact<Type>(
         bytes, nullptr, output, capacity, &count, true);
     return {error, count};
+}
+
+template<class Root, class Element>
+constexpr AnoResourceError resolve_span(const ArtifactView<Root>& view,
+                                        RelativeSpan<Element> span,
+                                        Element *output, uint64_t capacity)
+{
+    static_assert(!detail::wire_contains(^^Element, detail::WireShape::relativeSpan),
+                  "resolve_span returns fixed elements; nested spans remain views");
+    const AnoResourceError valid = validate<Root>(view.bytes);
+    if (valid != ANO_RESOURCE_OK)
+        return valid;
+    if (span.count > capacity)
+        return ANO_RESOURCE_BUFFER_TOO_SMALL;
+    if (span.count == 0)
+        return ANO_RESOURCE_OK;
+    if (output == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    uint64_t byteCount = 0;
+    if (!detail::checked_multiply(span.count,
+                                  detail::wire_size(^^Element), &byteCount)
+        || !detail::byte_range(view.bytes.size, span.offset, byteCount))
+        return ANO_RESOURCE_OUT_OF_BOUNDS;
+    detail::DecodeContext context = {
+        .bytes = view.bytes,
+        .payloadCursor = view.bytes.size,
+        .dependencies = nullptr,
+        .dependencyCapacity = 0,
+        .dependencyCount = 0,
+        .collectDependencies = false,
+        .error = ANO_RESOURCE_OK,
+    };
+    for (uint64_t i = 0; i < span.count; ++i) {
+        detail::decode_value(
+            span.offset + i * detail::wire_size(^^Element), context,
+            &output[i]);
+        if (context.error != ANO_RESOURCE_OK)
+            return context.error;
+    }
+    return ANO_RESOURCE_OK;
 }
 
 template<class Root, class Element>

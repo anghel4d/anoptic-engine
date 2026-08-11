@@ -1,0 +1,29 @@
+/* SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors
+ * SPDX-License-Identifier: LGPL-3.0 */
+
+#ifndef ANOPTICENGINE_VULKAN_RESOURCE_RESIDENCY_H
+#define ANOPTICENGINE_VULKAN_RESOURCE_RESIDENCY_H
+
+#include <anoptic_render.h>
+
+typedef struct AnoRenderResidency AnoRenderResidency;
+
+AnoResourceError ano_vk_resource_residency_create(
+    AnoResourceManager *manager, AnoRenderResidency **residency);
+AnoResourceError ano_vk_resource_residency_create_from_epoch(
+    const AnoResidencyEpoch *epoch, const AnoRenderResidency *previous,
+    AnoRenderResidency **residency);
+void ano_vk_resource_residency_destroy(AnoRenderResidency *residency);
+uint32_t ano_vk_resource_scene_primitives(
+    const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
+    AnoRenderableDesc *output, uint32_t capacity);
+bool ano_vk_resource_scene_primitive(
+    const AnoRenderResidency *residency, AnoAssetId asset,
+    uint32_t primitive, const mat4 root, AnoRenderableDesc *output);
+uint32_t ano_vk_resource_scene_lights(
+    const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
+    AnoSceneLightDesc *output, uint32_t capacity);
+uint32_t ano_vk_resource_default_material(
+    const AnoRenderResidency *residency);
+
+#endif

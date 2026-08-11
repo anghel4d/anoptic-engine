@@ -25,6 +25,7 @@
 #include <anoptic_audio.h>
 #include <anoptic_music.h>
 #include <anoptic_synth.h>
+#include <anoptic_render_resources.h>
 #include <vulkan/vulkan.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
@@ -39,6 +40,244 @@
 // Logic/ECS master: sole render-command producer (own thread; render world owns main).
 // main() sets g_logicShouldStop on close, joins before unInitVulkan() destroys the bridge.
 static atomic_bool g_logicShouldStop = false;
+static atomic_bool g_resourceReloadRequested = false;
+
+namespace {
+
+using ano::asset_schema::Scene;
+using ano::asset_schema::SceneLight;
+using ano::asset_schema::SceneLightType;
+
+inline constexpr ano::AssetRef<ano::asset_schema::Scene> VIKING_ROOM = {{1}};
+inline constexpr ano::AssetRef<ano::asset_schema::Scene> CANDLE_HOLDER = {{2}};
+inline constexpr ano::AssetRef<ano::asset_schema::Scene> SPONZA = {{3}};
+inline constexpr ano::AssetRef<ano::asset_schema::Scene> STATIC_LIGHTING = {{4}};
+inline constexpr ano::AssetRef<ano::asset_schema::Scene> CANDLE_LIGHTING = {{5}};
+inline constexpr ano::SourceRef<ano::asset_schema::Scene> VIKING_SOURCE = {{1}};
+inline constexpr ano::SourceRef<ano::asset_schema::Scene> CANDLE_SOURCE = {{2}};
+inline constexpr ano::SourceRef<ano::asset_schema::Scene> SPONZA_SOURCE = {{3}};
+inline constexpr AnoResourceCommitGroupId SCENE_GROUP = {1};
+
+struct StartupSources final {
+    const char *viking;
+    const char *candle;
+    const char *sponza;
+};
+
+inline constexpr StartupSources DEFAULT_SOURCES = {
+    "viking_room.gltf",
+    "GlassHurricaneCandleHolder.gltf",
+    "sponza/2.0/Sponza/glTF/Sponza.gltf",
+};
+
+inline constexpr SceneLight STATIC_LIGHTS[] = {
+    {{1,0,0,0, 0,1,0,0, .2f,1,0,0, 0,0,0,1},
+     {1.0f,.96f,.9f}, 2.5f, 0, 0, 0,
+     SceneLightType::directional, true},
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, 0,1.5f,1.2f,1},
+     {1.0f,.95f,.8f}, 5.0f, 10.0f, 0, 0,
+     SceneLightType::point, true},
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, -2.0f,2.0f,-1.0f,1},
+     {.4f,.6f,1.0f}, 4.0f, 10.0f, 0, 0,
+     SceneLightType::point, true},
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, 2.0f,.5f,0,1},
+     {1.0f,.3f,.3f}, 3.5f, 10.0f, 0, 0,
+     SceneLightType::point, true},
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, 0,-1.0f,1.0f,1},
+     {.3f,1.0f,.8f}, 2.0f, 10.0f, 0, 0,
+     SceneLightType::point, true},
+    {{1,0,0,0, 0,1,0,0, 0,1,0,0, 0,4.0f,0,1},
+     {1,1,1}, 20.0f, 12.0f, .2617994f, .4363323f,
+     SceneLightType::spot, true},
+};
+
+inline constexpr SceneLight CANDLE_LIGHTS[] = {
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, .6f,.3f,0,1},
+     {1.0f,.5f,.15f}, 6.0f, 4.0f, 0, 0,
+     SceneLightType::point, false},
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, -.6f,.3f,0,1},
+     {.2f,.8f,1.0f}, 6.0f, 4.0f, 0, 0,
+     SceneLightType::point, false},
+    {{1,0,0,0, 0,1,0,0, 0,0,1,0, 0,.8f,0,1},
+     {1.0f,.2f,.8f}, 5.0f, 4.0f, 0, 0,
+     SceneLightType::point, false},
+    {{1,0,0,0, 0,1,0,0, -.7f,.7f,0,0, 0,1.2f,0,1},
+     {.5f,1.0f,.6f}, 12.0f, 6.0f, .3175604f, .5548110f,
+     SceneLightType::spot, false},
+    {{1,0,0,0, 0,1,0,0, .7f,.7f,0,0, 0,1.2f,0,1},
+     {1.0f,.7f,.3f}, 12.0f, 6.0f, .3175604f, .5548110f,
+     SceneLightType::spot, false},
+};
+
+struct CookedPack final {
+    uint8_t *bytes;
+    uint64_t size;
+};
+
+enum ReloadWorkerState : uint32_t {
+    RELOAD_WORKER_IDLE,
+    RELOAD_WORKER_RUNNING,
+    RELOAD_WORKER_READY,
+};
+
+struct ReloadWorker final {
+    AnoResourceManager *manager;
+    StartupSources sources;
+    AnoResourceReload *reload;
+    AnoResourceError result;
+    anothread_t thread;
+    ANO_ATOMIC(uint32_t) state;
+};
+
+template<class Type>
+AnoResourceError add_artifact(
+    AnoResourceCooker *cooker, ano::AssetRef<Type> asset,
+    AnoResourceCommitGroupId group, ano::ArtifactSource<Type> source)
+{
+    const ano::EncodeResult measured = ano::encoded_size(source);
+    if (measured.error != ANO_RESOURCE_OK || measured.size > SIZE_MAX)
+        return measured.error == ANO_RESOURCE_OK
+            ? ANO_RESOURCE_OVERFLOW : measured.error;
+    uint8_t *bytes = static_cast<uint8_t *>(
+        malloc(static_cast<size_t>(measured.size)));
+    if (bytes == nullptr)
+        return ANO_RESOURCE_OUT_OF_MEMORY;
+    const ano::EncodeResult encoded = ano::encode(
+        source, {bytes, measured.size});
+    AnoResourceError result = encoded.error;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_add(
+            cooker, asset.id, ano::resource_type_id<Type>(), group,
+            {bytes, encoded.size});
+    free(bytes);
+    return result;
+}
+
+template<size_t Count>
+AnoResourceError add_lighting(
+    AnoResourceCooker *cooker, ano::AssetRef<Scene> asset,
+    const SceneLight (&lights)[Count])
+{
+    const Scene scene = {
+        .renderables = {0, 0},
+        .lights = {0, Count},
+    };
+    return add_artifact(
+        cooker, asset, SCENE_GROUP,
+        ano::ArtifactSource<Scene>{
+            &scene,
+            {reinterpret_cast<const uint8_t *>(lights), sizeof(lights)},
+        });
+}
+
+AnoResourceError cook_startup_pack(
+    const StartupSources& sources, CookedPack *pack)
+{
+    if (pack == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *pack = {};
+    AnoResourceCooker *cooker = nullptr;
+    AnoResourceError result = ano_resource_cooker_create(
+        {.firstDerivedAsset = {6}}, &cooker);
+    struct SourceImport final {
+        AnoResourceSourceId source;
+        const char *path;
+        AnoAssetId root;
+    };
+    const SourceImport imports[] = {
+        {VIKING_SOURCE.id, sources.viking, VIKING_ROOM.id},
+        {CANDLE_SOURCE.id, sources.candle, CANDLE_HOLDER.id},
+        {SPONZA_SOURCE.id, sources.sponza, SPONZA.id},
+    };
+    for (const SourceImport& source : imports) {
+        if (result == ANO_RESOURCE_OK)
+            result = ano_resource_source_bind(
+                cooker, source.source, source.path);
+        if (result == ANO_RESOURCE_OK) {
+            const AnoResourceImportRequest request = {
+                source.source, source.root, SCENE_GROUP,
+            };
+            result = ano_resource_import(cooker, &request);
+        }
+    }
+    if (result == ANO_RESOURCE_OK)
+        result = add_lighting(cooker, STATIC_LIGHTING, STATIC_LIGHTS);
+    if (result == ANO_RESOURCE_OK)
+        result = add_lighting(cooker, CANDLE_LIGHTING, CANDLE_LIGHTS);
+
+    AnoResourceMutableBytes cooked = {};
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook_owned(cooker, &cooked);
+    ano_resource_cooker_destroy(cooker);
+    if (result != ANO_RESOURCE_OK) {
+        ano_resource_cooked_pack_release(cooked);
+        return result;
+    }
+    *pack = {cooked.data, cooked.size};
+    return ANO_RESOURCE_OK;
+}
+
+AnoResourceManager *create_startup_resources()
+{
+    CookedPack pack = {};
+    AnoResourceError result = cook_startup_pack(DEFAULT_SOURCES, &pack);
+    AnoResourceManager *manager = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_manager_create({pack.bytes, pack.size}, &manager);
+    ano_resource_cooked_pack_release({pack.bytes, pack.size});
+    const AnoResourceGoal goals[] = {
+        {{1}, VIKING_ROOM.id, ano::resource_type_id<ano::asset_schema::Scene>(),
+         SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
+        {{2}, CANDLE_HOLDER.id, ano::resource_type_id<ano::asset_schema::Scene>(),
+         SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
+        {{3}, SPONZA.id, ano::resource_type_id<ano::asset_schema::Scene>(),
+         SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
+        {{4}, STATIC_LIGHTING.id, ano::resource_type_id<ano::asset_schema::Scene>(),
+         SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
+        {{5}, CANDLE_LIGHTING.id, ano::resource_type_id<ano::asset_schema::Scene>(),
+         SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
+    };
+    for (const AnoResourceGoal& goal : goals)
+        if (result == ANO_RESOURCE_OK)
+            result = ano_resource_goal_set(manager, goal);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_reconcile(manager);
+    if (result != ANO_RESOURCE_OK) {
+        ano_log(ANO_ERROR, "Startup resource graph failed: %s",
+                ano_resource_error_string(result));
+        ano_resource_manager_destroy(manager);
+        return nullptr;
+    }
+    return manager;
+}
+
+AnoResourceError prepare_startup_resources_reload(
+    AnoResourceManager *manager, const StartupSources& sources,
+    AnoResourceReload **reload)
+{
+    if (reload == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *reload = nullptr;
+    CookedPack pack = {};
+    AnoResourceError result = cook_startup_pack(sources, &pack);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_reload_prepare(
+            manager, {pack.bytes, pack.size}, reload);
+    ano_resource_cooked_pack_release({pack.bytes, pack.size});
+    return result;
+}
+
+void *prepare_reload_worker(void *argument)
+{
+    ReloadWorker& worker = *static_cast<ReloadWorker *>(argument);
+    worker.result = prepare_startup_resources_reload(
+        worker.manager, worker.sources, &worker.reload);
+    atomic_store_explicit(&worker.state, RELOAD_WORKER_READY,
+                          memory_order_release);
+    return nullptr;
+}
+
+} // namespace
 
 /* Scene Composition. Logic owns the scene. */
 
@@ -58,18 +297,23 @@ static atomic_bool g_logicShouldStop = false;
 // One renderable per primitive of asset_id at root. Shares motion (+ speed for spin/orbit).
 // Returns first render_id. Advances *nextId.
 #define SPAWN_ASSET_MAX_PRIMS 256u // max primitives per call
-static uint32_t spawn_asset(AnoRenderBridge* bridge, uint32_t* nextId, uint32_t asset_id,
+static uint32_t spawn_asset(
+                            AnoRenderBridge* bridge, uint32_t* nextId,
+                            ano::AssetRef<ano::asset_schema::Scene> asset,
                             const mat4 root, AnoMotionType motion, float speed) {
 	AnoRenderableDesc descs[SPAWN_ASSET_MAX_PRIMS];
-	uint32_t n = anoRenderAssetPrimitives(asset_id, root, descs, SPAWN_ASSET_MAX_PRIMS);
-	if (n == 0u) { ano_log(ANO_WARN, "Producer: asset %u has no primitives; nothing spawned.", asset_id); return UINT32_MAX; }
-	if (n > SPAWN_ASSET_MAX_PRIMS) { ano_log(ANO_WARN, "Producer: asset %u has %u primitives; spawning only the first %u.", asset_id, n, SPAWN_ASSET_MAX_PRIMS); n = SPAWN_ASSET_MAX_PRIMS; }
+	uint32_t n = anoRenderAssetPrimitives(asset.id, root, descs, SPAWN_ASSET_MAX_PRIMS);
+	if (n == 0u) { ano_log(ANO_WARN, "Producer: asset %llu has no primitives; nothing spawned.", (unsigned long long)asset.id.value); return UINT32_MAX; }
+	if (n > SPAWN_ASSET_MAX_PRIMS) { ano_log(ANO_WARN, "Producer: asset %llu has %u primitives; spawning only the first %u.", (unsigned long long)asset.id.value, n, SPAWN_ASSET_MAX_PRIMS); n = SPAWN_ASSET_MAX_PRIMS; }
 	uint32_t first = *nextId;
 	for (uint32_t i = 0; i < n; i++) {
 		RenderCommand c = { .kind = RCMD_CREATE, .render_id = (*nextId)++,
 			.mesh_index = descs[i].mesh_index, .material_index = descs[i].material_index,
+			.resource_asset = descs[i].resource_asset,
+			.resource_primitive = descs[i].resource_primitive,
 			.light_index = ANO_RENDER_NO_LIGHT };
 		memcpy(c.transform, descs[i].transform, sizeof(mat4));
+		memcpy(c.resource_root, root, sizeof(mat4));
 		c.motion.type = (uint32_t)motion;
 		if (motion == ANO_MOTION_SPIN || motion == ANO_MOTION_ORBIT) c.motion.p0.v[1] = speed; // about +Y
 		if (!submit_blocking(bridge, &c)) return UINT32_MAX; // shutdown mid-spawn
@@ -105,72 +349,71 @@ static uint32_t spawn_light_entity(AnoRenderBridge* bridge, uint32_t* nextId, co
 	return id;
 }
 
+static void spawn_static_lighting(AnoRenderBridge *bridge, uint32_t *nextId)
+{
+	mat4 identity = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
+	AnoSceneLightDesc lights[32];
+	uint32_t count = anoRenderAssetLights(
+		STATIC_LIGHTING.id, identity, lights, sizeof lights / sizeof *lights);
+	if (count > sizeof lights / sizeof *lights)
+		count = sizeof lights / sizeof *lights;
+	for (uint32_t i = 0; i < count; ++i)
+		spawn_light_entity(
+			bridge, nextId, lights[i].transform, i, &lights[i].light,
+			ANO_MOTION_STATIC, 0.0f);
+}
+
+static void attach_candle_lighting(AnoRenderBridge *bridge, uint32_t candleSlot)
+{
+	if (candleSlot == UINT32_MAX)
+		return;
+	mat4 identity = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
+	AnoSceneLightDesc lights[16];
+	uint32_t count = anoRenderAssetLights(
+		CANDLE_LIGHTING.id, identity, lights, sizeof lights / sizeof *lights);
+	if (count > sizeof lights / sizeof *lights)
+		count = sizeof lights / sizeof *lights;
+	for (uint32_t i = 0; i < count; ++i) {
+		RenderLightParams params = lights[i].light;
+		params.localDir[0] = -lights[i].transform[2][0];
+		params.localDir[1] = -lights[i].transform[2][1];
+		params.localDir[2] = -lights[i].transform[2][2];
+		const uint32_t id = 100u + i;
+		while (!ano_render_light_attach(
+				bridge, id, candleSlot, &params,
+				lights[i].transform[3][0], lights[i].transform[3][1],
+				lights[i].transform[3][2])) {
+			if (atomic_load(&g_logicShouldStop))
+				return;
+			ano_sleep(1000);
+		}
+	}
+}
+
 // Compose scene once. render_id + static light_index are the logic master's namespaces.
 static void spawn_scene(AnoRenderBridge* bridge) {
 	uint32_t nextId = 0u;
 
 	// Viking room: Z-up glTF -> Y-up (-90 X). Spins +Y at 1 rad/s.
 	mat4 vikingRoot = {{1,0,0,0},{0,0,-1,0},{0,1,0,0},{0,0,0,1}};
-	spawn_asset(bridge, &nextId, 0u, vikingRoot, ANO_MOTION_SPIN, 1.0f);
+	spawn_asset(bridge, &nextId, VIKING_ROOM, vikingRoot, ANO_MOTION_SPIN, 1.0f);
 
 	// Candle holders orbit +Y at 0.5 rad/s (r=2.0 / 2.2). First anchors decorative lights.
 	mat4 candle1 = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.0f,0,0,1}};
 	mat4 candle2 = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.2f,0,0,1}};
-	uint32_t candleSlot = spawn_asset(bridge, &nextId, 1u, candle1, ANO_MOTION_ORBIT, 0.5f);
-	spawn_asset(bridge, &nextId, 1u, candle2, ANO_MOTION_ORBIT, 0.5f);
+	uint32_t candleSlot = spawn_asset(bridge, &nextId, CANDLE_HOLDER, candle1, ANO_MOTION_ORBIT, 0.5f);
+	spawn_asset(bridge, &nextId, CANDLE_HOLDER, candle2, ANO_MOTION_ORBIT, 0.5f);
 
-	// Sponza (asset_id 2): environment, Y-up, static at identity. No-op if unregistered.
+	// Sponza environment, Y-up and static at identity.
 	mat4 sponzaRoot = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
-	spawn_asset(bridge, &nextId, 2u, sponzaRoot, ANO_MOTION_STATIC, 0.0f);
+	spawn_asset(bridge, &nextId, SPONZA, sponzaRoot, ANO_MOTION_STATIC, 0.0f);
 
 	// Sun-marker cube (static), decorative pose near overhead light aim.
 	mat4 sunMarker = {{0.2f,0,0,0},{0,0.2f,0,0},{0,0,0.2f,0},{2.59f,5.18f,1.55f,1}};
 	spawn_box(bridge, &nextId, sunMarker);
 
-	// Scene lights: palette rows 0..5 (1 dir + 4 point + 1 spot = 26 static shadow frustums). Dir/spot aim via -col2.
-	uint32_t li = 0u;
-    { mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
-      x[2][0]=0.2f; x[2][1]=1.0f; x[2][2]=0.0f; // mostly down, slight +X in col2
-      RenderLightParams p = { .color={1.0f,0.96f,0.9f}, .intensity=2.5f, .range=0.0f, .type=RENDER_LIGHT_DIRECTIONAL, .castsShadow=1u };
-      spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,1.5f,1.2f,1}}; // warm point, orbits +Y
-	  RenderLightParams p = { .color={1.0f,0.95f,0.8f}, .intensity=5.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_ORBIT, 0.5f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{-2.0f,2.0f,-1.0f,1}};
-	  RenderLightParams p = { .color={0.4f,0.6f,1.0f}, .intensity=4.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.0f,0.5f,0.0f,1}};
-	  RenderLightParams p = { .color={1.0f,0.3f,0.3f}, .intensity=3.5f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0.0f,-1.0f,1.0f,1}};
-	  RenderLightParams p = { .color={0.3f,1.0f,0.8f}, .intensity=2.0f, .range=10.0f, .type=RENDER_LIGHT_POINT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-	{ mat4 x = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0.0f,4.0f,0.0f,1}};
-	  x[2][0]=0.0f; x[2][1]=1.0f; x[2][2]=0.0f; // forward = -col2 = (0,-1,0)
-	  RenderLightParams p = { .color={1.0f,1.0f,1.0f}, .intensity=20.0f, .range=12.0f,
-	      .innerConeCos=0.966f, .outerConeCos=0.906f, .type=RENDER_LIGHT_SPOT, .castsShadow=1u };
-	  spawn_light_entity(bridge, &nextId, x, li++, &p, ANO_MOTION_STATIC, 0.0f); }
-
-	// Decorative candle lights: attach to first candle slot (non-casting). light_id = producer namespace.
-	uint32_t lid = 100u;
-	struct { float col[3], in, rng, inner, outer; RenderLightType type; float dir[3], ox, oy, oz; } cl[5] = {
-		{{1.0f,0.5f,0.15f}, 6.0f, 4.0f, 0,0, RENDER_LIGHT_POINT, {0,0,0},  0.6f,0.3f,0.0f},
-		{{0.2f,0.8f,1.0f},  6.0f, 4.0f, 0,0, RENDER_LIGHT_POINT, {0,0,0}, -0.6f,0.3f,0.0f},
-		{{1.0f,0.2f,0.8f},  5.0f, 4.0f, 0,0, RENDER_LIGHT_POINT, {0,0,0},  0.0f,0.8f,0.0f},
-		{{0.5f,1.0f,0.6f}, 12.0f, 6.0f, 0.95f,0.85f, RENDER_LIGHT_SPOT, { 0.7f,-0.7f,0.0f}, 0.0f,1.2f,0.0f},
-		{{1.0f,0.7f,0.3f}, 12.0f, 6.0f, 0.95f,0.85f, RENDER_LIGHT_SPOT, {-0.7f,-0.7f,0.0f}, 0.0f,1.2f,0.0f},
-	};
-	if (candleSlot != UINT32_MAX) // first candle primitive anchors attaches
-	for (int i = 0; i < 5; i++) {
-		RenderLightParams p = { .color={cl[i].col[0],cl[i].col[1],cl[i].col[2]}, .intensity=cl[i].in,
-			.range=cl[i].rng, .innerConeCos=cl[i].inner, .outerConeCos=cl[i].outer, .type=cl[i].type,
-			.localDir={cl[i].dir[0],cl[i].dir[1],cl[i].dir[2]} };
-		uint32_t id = lid++; // light_id stable across retries
-		while (!ano_render_light_attach(bridge, id, candleSlot, &p, cl[i].ox, cl[i].oy, cl[i].oz)) {
-			if (atomic_load(&g_logicShouldStop)) return; // shutdown: drop the rest
-			ano_sleep(1000); // ring full: retry
-		}
-	}
+	spawn_static_lighting(bridge, &nextId);
+	attach_candle_lighting(bridge, candleSlot);
 }
 
 /* HUD Text */
@@ -830,8 +1073,8 @@ hudDone:
 	bool     noticeCleared = false;
 
 	// Free-fly camera (logic): WASD + right-drag look. Fallback eye + pitch so first publish has no jump.
-	float    camEye[3] = { 0.0f, 0.9f, 3.5f };
-	float    camYaw = 0.0f, camPitch = -0.211f;
+	float    camEye[3] = { -4.0f, 1.13f, -0.31f };
+	float    camYaw = 1.5707963f, camPitch = -0.165f;
 	bool     inW = false, inA = false, inS = false, inD = false, inUp = false, inDown = false;
 	bool     looking = false, haveCursor = false;
 	float    prevCx = 0.0f, prevCy = 0.0f;
@@ -875,6 +1118,10 @@ hudDone:
 					case GLFW_KEY_D:            inD = down;    break;
 					case GLFW_KEY_SPACE:        inUp = down;   break;
 					case GLFW_KEY_LEFT_CONTROL: inDown = down; break;
+					case GLFW_KEY_F5:
+						if (ie->u.key.action == GLFW_PRESS)
+							atomic_store(&g_resourceReloadRequested, true);
+						break;
 					case GLFW_KEY_M:
 						if (ie->u.key.action == GLFW_PRESS) {
 							menuVisible = !menuVisible;
@@ -1118,10 +1365,8 @@ int main()
 {
     mi_version();
 
-    // Resolve assets relative to the executable, not the launch directory.
-    // Shaders resolve against ano_fs_gamepath() directly (loadFile in pipeline.c);
-    // only the CWD-relative asset loads (glTF, textures) need this.
-    // Interim shim until the Resource Manager owns asset paths.
+    // Source-provider bindings and shader paths are game-relative.
+    // The executable directory is the game's filesystem root.
     if (!ano_fs_chdir_gamepath())
         ano_rlog(ANO_WARN, ANO_TERM | ANO_NOW, "Warning: could not set the working directory to the executable's; "
                "assets will load relative to the current working directory.");
@@ -1154,11 +1399,17 @@ int main()
                 mainStack >> 10, (size_t)ANO_THREAD_STACK_SIZE >> 10);
 
 #ifndef HEADLESS_BUILD
+    AnoResourceManager *resources = create_startup_resources();
+    if (resources == nullptr) {
+        ano_log(ANO_FATAL, "Resource initialization failed.");
+        return -1;
+    }
     // GLFW + Vulkan on main (window/events pinned; mandatory on macOS).
     // initVulkan creates the bridge before the producer; no readiness handshake.
-    if (!initVulkan())
+    if (!initVulkan(resources))
     {
         ano_log(ANO_FATAL, "Vulkan initialization failed.");
+        ano_resource_manager_destroy(resources);
         return -1;
     }
 
@@ -1177,14 +1428,68 @@ int main()
         music_world_stop(true);
 #endif
         unInitVulkan();
+        ano_resource_manager_destroy(resources);
         return -1;
     }
 
     // Render loop (main): poll + draw. Logic feeds ECS->render concurrently.
+    bool replacementSourceActive = false;
+    ReloadWorker reloadWorker = {.manager = resources};
+    atomic_init(&reloadWorker.state, RELOAD_WORKER_IDLE);
     while (!anoShouldClose())
     {
         glfwPollEvents();
+        if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
+                == RELOAD_WORKER_READY) {
+            ano_thread_join(reloadWorker.thread, nullptr);
+            AnoResourceError reloaded = reloadWorker.result;
+            if (reloaded == ANO_RESOURCE_OK)
+                reloaded = ano_render_resources_publish_reload(
+                    reloadWorker.reload);
+            reloadWorker.reload = nullptr;
+            if (reloaded == ANO_RESOURCE_OK) {
+                const char *replacement = getenv(
+                    "ANO_VIKING_RELOAD_SOURCE");
+                if (replacement != nullptr && replacement[0] != '\0')
+                    replacementSourceActive = !replacementSourceActive;
+                ano_log(ANO_INFO, "Resource epoch reload committed.");
+            } else {
+                ano_log(ANO_ERROR, "Resource epoch reload rejected: %s",
+                        ano_resource_error_string(reloaded));
+            }
+            atomic_store_explicit(&reloadWorker.state, RELOAD_WORKER_IDLE,
+                                  memory_order_release);
+        }
+        if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
+                == RELOAD_WORKER_IDLE
+            && atomic_exchange(&g_resourceReloadRequested, false)) {
+            StartupSources selected = DEFAULT_SOURCES;
+            const char *replacement = getenv("ANO_VIKING_RELOAD_SOURCE");
+            if (replacement != nullptr && replacement[0] != '\0'
+                && !replacementSourceActive)
+                selected.viking = replacement;
+            reloadWorker.sources = selected;
+            reloadWorker.result = ANO_RESOURCE_OK;
+            reloadWorker.reload = nullptr;
+            atomic_store_explicit(&reloadWorker.state,
+                                  RELOAD_WORKER_RUNNING,
+                                  memory_order_release);
+            if (ano_thread_create(&reloadWorker.thread, nullptr,
+                                  prepare_reload_worker,
+                                  &reloadWorker) != 0) {
+                atomic_store_explicit(&reloadWorker.state,
+                                      RELOAD_WORKER_IDLE,
+                                      memory_order_release);
+                ano_log(ANO_ERROR, "Resource reload worker did not start.");
+            }
+        }
         drawFrame();
+    }
+
+    if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
+            != RELOAD_WORKER_IDLE) {
+        ano_thread_join(reloadWorker.thread, nullptr);
+        ano_resource_reload_abort(reloadWorker.reload);
     }
 
     // Stop producer FIRST and join. No submit races bridge destruction in unInitVulkan().
@@ -1197,6 +1502,7 @@ int main()
 #endif
 
     unInitVulkan();
+    ano_resource_manager_destroy(resources);
 #else
     // Headless engine: no renderer. Idle console loop.
     ano_rlog(ANO_INFO, ANO_TERM, "Anoptic Engine 〜 headless console mode.");
