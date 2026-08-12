@@ -8,6 +8,7 @@
 #include <anoptic_render_resources.h>
 
 #include "vulkan_backend/backend.h"
+#include "vulkan_backend/bridge/bridge.h"
 #include "vulkan_backend/components.h"
 #include "vulkan_backend/geometry.h"
 #include "vulkan_backend/gpu_alloc.h"
@@ -57,7 +58,6 @@ struct AnoRenderResidency {
     uint32_t sceneCapacity;
     VkCommandBuffer uploadCommands;
     VkFence uploadFence;
-    bool uploadSubmitted;
     VkBuffer *uploadStaging;
     uint32_t uploadStagingCount;
     uint32_t uploadStagingCapacity;
@@ -902,25 +902,24 @@ bool realize_mesh(const Mesh& mesh, RenderResourceContext& context,
         if (residency.uploadCommands == VK_NULL_HANDLE)
             residency.uploadCommands = beginSingleTimeCommands(&ctx);
         VkBuffer staging[ANO_MAX_LOD] = {};
-        uint32_t stagingCount = 0;
         const AnoLodConfig lod = ano_lod_config_default(
             ANO_DEFAULT_LOD_COUNT);
         valid = residency.uploadCommands != VK_NULL_HANDLE
             && reserve_upload_staging(residency, ANO_MAX_LOD);
         if (valid)
-            geometry_pool_record_chain(
-            &rendererState.globalGeometryPool, &stagingAllocator, ctx.device,
-            vertices, static_cast<uint32_t>(mesh.vertices.count), indices,
-            static_cast<uint32_t>(mesh.indices.count), &lod,
-            residency.uploadCommands, staging, ANO_MAX_LOD, &stagingCount,
-            &base, &produced);
+            base = geometry_pool_record_chain(
+                &rendererState.globalGeometryPool, &stagingAllocator,
+                ctx.device, vertices,
+                static_cast<uint32_t>(mesh.vertices.count), indices,
+                static_cast<uint32_t>(mesh.indices.count), &lod,
+                residency.uploadCommands, staging, &produced);
         valid = base != ANO_MESH_NONE && produced != 0;
         if (valid) {
-            for (uint32_t i = 0; i < stagingCount; ++i)
+            for (uint32_t i = 0; i < produced; ++i)
                 residency.uploadStaging[residency.uploadStagingCount++]
                     = staging[i];
         } else {
-            for (uint32_t i = 0; i < stagingCount; ++i)
+            for (uint32_t i = 0; i < produced; ++i)
                 vkDestroyBuffer(ctx.device, staging[i], nullptr);
         }
     }
@@ -998,6 +997,44 @@ bool realize_scene(const Scene& scene, RenderResourceContext& context,
 
 } // namespace ano::asset_schema
 
+static void release_upload_storage(AnoRenderResidency *residency)
+{
+    for (uint32_t i = 0; i < residency->uploadStagingCount; ++i)
+        vkDestroyBuffer(ctx.device, residency->uploadStaging[i], nullptr);
+    residency->uploadStagingCount = 0;
+    if (residency->uploadCommands != VK_NULL_HANDLE)
+        vkFreeCommandBuffers(ctx.device, rendererState.commandPool, 1,
+                             &residency->uploadCommands);
+    if (residency->uploadFence != VK_NULL_HANDLE)
+        vkDestroyFence(ctx.device, residency->uploadFence, nullptr);
+    residency->uploadCommands = VK_NULL_HANDLE;
+    residency->uploadFence = VK_NULL_HANDLE;
+    gpu_alloc_reset(&stagingAllocator);
+}
+
+static AnoResourceError submit_upload(AnoRenderResidency *residency)
+{
+    if (residency->uploadCommands == VK_NULL_HANDLE)
+        return ANO_RESOURCE_OK;
+    const VkFenceCreateInfo fenceInfo = {
+        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    };
+    const VkSubmitInfo submitInfo = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &residency->uploadCommands,
+    };
+    if (vkEndCommandBuffer(residency->uploadCommands) != VK_SUCCESS
+        || vkCreateFence(ctx.device, &fenceInfo, nullptr,
+                         &residency->uploadFence) != VK_SUCCESS
+        || vkQueueSubmit(ctx.graphicsQueue, 1, &submitInfo,
+                         residency->uploadFence) != VK_SUCCESS) {
+        release_upload_storage(residency);
+        return ANO_RESOURCE_OWNER_REJECTED;
+    }
+    return ANO_RESOURCE_OK;
+}
+
 AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     const AnoResidencyEpoch *epoch, const AnoRenderResidency *previous,
     AnoRenderResidency **residency)
@@ -1044,6 +1081,12 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
             result = realize_asset(
                 *created, {i + 1}, created->bindings[i].sourceType);
     }
+    if (result == ANO_RESOURCE_OK
+        && previous != nullptr
+        && !render_resource_epoch_compatible(&rendererState, created))
+        result = ANO_RESOURCE_OWNER_REJECTED;
+    if (result == ANO_RESOURCE_OK)
+        result = submit_upload(created);
     if (result != ANO_RESOURCE_OK) {
         ano_vk_resource_residency_destroy(created);
         return result;
@@ -1052,86 +1095,19 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     return ANO_RESOURCE_OK;
 }
 
-AnoResourceError ano_vk_resource_residency_submit(
+VkResult ano_vk_resource_residency_poll_upload(
     AnoRenderResidency *residency)
 {
     if (residency == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return VK_ERROR_INITIALIZATION_FAILED;
     if (residency->uploadCommands == VK_NULL_HANDLE)
-        return ANO_RESOURCE_OK;
-    if (residency->uploadSubmitted
-        || residency->uploadFence != VK_NULL_HANDLE)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    if (vkEndCommandBuffer(residency->uploadCommands) != VK_SUCCESS)
-        return ANO_RESOURCE_OWNER_REJECTED;
-
-    const VkFenceCreateInfo fenceInfo = {
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-    };
-    if (vkCreateFence(ctx.device, &fenceInfo, nullptr,
-                      &residency->uploadFence) != VK_SUCCESS)
-        return ANO_RESOURCE_OWNER_REJECTED;
-    const VkSubmitInfo submitInfo = {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &residency->uploadCommands,
-    };
-    if (vkQueueSubmit(ctx.graphicsQueue, 1, &submitInfo,
-                      residency->uploadFence) != VK_SUCCESS)
-        return ANO_RESOURCE_OWNER_REJECTED;
-    residency->uploadSubmitted = true;
-    return ANO_RESOURCE_OK;
-}
-
-AnoRenderResidencyUploadStatus ano_vk_resource_residency_upload_status(
-    const AnoRenderResidency *residency)
-{
-    if (residency == nullptr)
-        return ANO_RENDER_RESIDENCY_UPLOAD_REJECTED;
-    if (residency->uploadCommands == VK_NULL_HANDLE)
-        return ANO_RENDER_RESIDENCY_UPLOAD_READY;
-    if (!residency->uploadSubmitted
-        || residency->uploadFence == VK_NULL_HANDLE)
-        return ANO_RENDER_RESIDENCY_UPLOAD_PENDING;
-    const VkResult status = vkGetFenceStatus(ctx.device,
-                                             residency->uploadFence);
+        return VK_SUCCESS;
+    if (residency->uploadFence == VK_NULL_HANDLE)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    const VkResult status = vkGetFenceStatus(ctx.device, residency->uploadFence);
     if (status == VK_SUCCESS)
-        return ANO_RENDER_RESIDENCY_UPLOAD_READY;
-    return status == VK_NOT_READY
-        ? ANO_RENDER_RESIDENCY_UPLOAD_PENDING
-        : ANO_RENDER_RESIDENCY_UPLOAD_REJECTED;
-}
-
-static void release_upload_storage(AnoRenderResidency *residency)
-{
-    for (uint32_t i = 0; i < residency->uploadStagingCount; ++i)
-        vkDestroyBuffer(ctx.device, residency->uploadStaging[i], nullptr);
-    residency->uploadStagingCount = 0;
-    if (residency->uploadCommands != VK_NULL_HANDLE) {
-        vkFreeCommandBuffers(ctx.device, rendererState.commandPool, 1,
-                             &residency->uploadCommands);
-        residency->uploadCommands = VK_NULL_HANDLE;
-    }
-    if (residency->uploadFence != VK_NULL_HANDLE) {
-        vkDestroyFence(ctx.device, residency->uploadFence, nullptr);
-        residency->uploadFence = VK_NULL_HANDLE;
-    }
-    residency->uploadSubmitted = false;
-    gpu_alloc_reset(&stagingAllocator);
-}
-
-AnoResourceError ano_vk_resource_residency_finish_upload(
-    AnoRenderResidency *residency)
-{
-    if (residency == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    if (residency->uploadCommands == VK_NULL_HANDLE)
-        return ANO_RESOURCE_OK;
-    if (ano_vk_resource_residency_upload_status(residency)
-            != ANO_RENDER_RESIDENCY_UPLOAD_READY)
-        return ANO_RESOURCE_OWNER_REJECTED;
-    release_upload_storage(residency);
-    return ANO_RESOURCE_OK;
+        release_upload_storage(residency);
+    return status;
 }
 
 AnoResourceError ano_vk_resource_residency_wait_upload(
@@ -1141,13 +1117,13 @@ AnoResourceError ano_vk_resource_residency_wait_upload(
         return ANO_RESOURCE_INVALID_ARGUMENT;
     if (residency->uploadCommands == VK_NULL_HANDLE)
         return ANO_RESOURCE_OK;
-    if (!residency->uploadSubmitted
-        || residency->uploadFence == VK_NULL_HANDLE)
+    if (residency->uploadFence == VK_NULL_HANDLE)
         return ANO_RESOURCE_OWNER_REJECTED;
     if (vkWaitForFences(ctx.device, 1, &residency->uploadFence,
                         VK_TRUE, UINT64_MAX) != VK_SUCCESS)
         return ANO_RESOURCE_OWNER_REJECTED;
-    return ano_vk_resource_residency_finish_upload(residency);
+    release_upload_storage(residency);
+    return ANO_RESOURCE_OK;
 }
 
 AnoResourceError ano_vk_resource_residency_create(
@@ -1160,8 +1136,6 @@ AnoResourceError ano_vk_resource_residency_create(
     if (result == ANO_RESOURCE_OK)
         result = ano_vk_resource_residency_prepare_from_epoch(
             epoch, nullptr, residency);
-    if (result == ANO_RESOURCE_OK)
-        result = ano_vk_resource_residency_submit(*residency);
     if (result == ANO_RESOURCE_OK)
         result = ano_vk_resource_residency_wait_upload(*residency);
     if (result != ANO_RESOURCE_OK) {
@@ -1176,12 +1150,14 @@ void ano_vk_resource_residency_destroy(AnoRenderResidency *residency)
 {
     if (residency == nullptr)
         return;
-    if (residency->uploadSubmitted)
+    if (residency->uploadFence != VK_NULL_HANDLE) {
         (void)ano_vk_resource_residency_wait_upload(residency);
-    else if (residency->uploadCommands != VK_NULL_HANDLE
-             || residency->uploadFence != VK_NULL_HANDLE
-             || residency->uploadStagingCount != 0)
+        if (residency->uploadFence != VK_NULL_HANDLE)
+            release_upload_storage(residency);
+    } else if (residency->uploadCommands != VK_NULL_HANDLE
+               || residency->uploadStagingCount != 0) {
         release_upload_storage(residency);
+    }
     for (uint32_t i = 0; i < residency->sceneCount; ++i) {
         mi_free(residency->scenes[i].lights);
         mi_free(residency->scenes[i].renderables);

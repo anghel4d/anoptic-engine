@@ -21,8 +21,7 @@ static AnoRenderResidency *g_resourceResidency;
 
 struct AnoRenderResourcePublication {
     AnoResourceReload *reload;
-    AnoRenderResidency *candidate;
-    AnoRenderResidency *retired;
+    AnoRenderResidency *residency;
     uint64_t retireAfter;
     AnoRenderResourcePublication *next;
 };
@@ -197,16 +196,10 @@ AnoResourceError ano_render_resources_prepare_reload(
     if (ano_resource_reload_has_changes(reload)) {
         result = ano_vk_resource_residency_prepare_from_epoch(
             ano_resource_reload_epoch(reload), g_resourceResidency,
-            &prepared->candidate);
-        if (result == ANO_RESOURCE_OK
-            && !render_resource_epoch_compatible(
-                &rendererState, prepared->candidate))
-            result = ANO_RESOURCE_OWNER_REJECTED;
-        if (result == ANO_RESOURCE_OK)
-            result = ano_vk_resource_residency_submit(prepared->candidate);
+            &prepared->residency);
     }
     if (result != ANO_RESOURCE_OK) {
-        ano_vk_resource_residency_destroy(prepared->candidate);
+        ano_vk_resource_residency_destroy(prepared->residency);
         ano_resource_reload_abort(reload);
         mi_free(prepared);
         return result;
@@ -215,90 +208,60 @@ AnoResourceError ano_render_resources_prepare_reload(
     return ANO_RESOURCE_OK;
 }
 
-AnoRenderResourcePublicationStatus
-ano_render_resources_publication_status(
-    const AnoRenderResourcePublication *publication)
-{
-    if (publication == nullptr)
-        return ANO_RENDER_RESOURCE_PUBLICATION_REJECTED;
-    if (publication->candidate == nullptr)
-        return ANO_RENDER_RESOURCE_PUBLICATION_READY;
-    switch (ano_vk_resource_residency_upload_status(
-                publication->candidate)) {
-        case ANO_RENDER_RESIDENCY_UPLOAD_PENDING:
-            return ANO_RENDER_RESOURCE_PUBLICATION_UPLOADING;
-        case ANO_RENDER_RESIDENCY_UPLOAD_READY:
-            return ANO_RENDER_RESOURCE_PUBLICATION_READY;
-        case ANO_RENDER_RESIDENCY_UPLOAD_REJECTED:
-            return ANO_RENDER_RESOURCE_PUBLICATION_REJECTED;
-    }
-    return ANO_RENDER_RESOURCE_PUBLICATION_REJECTED;
-}
-
-AnoResourceError ano_render_resources_publish(
+void ano_render_resources_cancel_reload(
     AnoRenderResourcePublication *publication)
 {
     if (publication == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    if (ano_render_resources_publication_status(publication)
-            != ANO_RENDER_RESOURCE_PUBLICATION_READY)
-        return ANO_RESOURCE_OWNER_REJECTED;
-    AnoResourceError result = publication->candidate == nullptr
-        ? ANO_RESOURCE_OK
-        : ano_vk_resource_residency_finish_upload(publication->candidate);
-    if (result != ANO_RESOURCE_OK) {
-        ano_resource_reload_abort(publication->reload);
-        ano_vk_resource_residency_destroy(publication->candidate);
-        mi_free(publication);
-        return result;
-    }
-    result = ano_resource_reload_commit(publication->reload);
-    publication->reload = nullptr;
-    if (result != ANO_RESOURCE_OK) {
-        ano_vk_resource_residency_destroy(publication->candidate);
-        mi_free(publication);
-        return result;
-    }
-    if (publication->candidate == nullptr) {
-        mi_free(publication);
-        return ANO_RESOURCE_OK;
+        return;
+    ano_vk_resource_residency_destroy(publication->residency);
+    ano_resource_reload_abort(publication->reload);
+    mi_free(publication);
+}
+
+AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
+    AnoRenderResourcePublication **slot)
+{
+    if (slot == nullptr || *slot == nullptr)
+        return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
+    AnoRenderResourcePublication *publication = *slot;
+    const VkResult upload = publication->residency
+        ? ano_vk_resource_residency_poll_upload(publication->residency)
+        : VK_SUCCESS;
+    if (upload == VK_NOT_READY)
+        return ANO_RENDER_RESOURCE_RELOAD_PENDING;
+    *slot = nullptr;
+    if (upload != VK_SUCCESS) {
+        ano_render_resources_cancel_reload(publication);
+        return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
     }
 
-    publication->retired = g_resourceResidency;
-    g_resourceResidency = publication->candidate;
-    publication->candidate = nullptr;
+    const AnoResourceError result =
+        ano_resource_reload_commit(publication->reload);
+    publication->reload = nullptr;
+    if (result != ANO_RESOURCE_OK) {
+        ano_vk_resource_residency_destroy(publication->residency);
+        mi_free(publication);
+        return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
+    }
+    if (publication->residency == nullptr) {
+        mi_free(publication);
+        return ANO_RENDER_RESOURCE_RELOAD_COMMITTED;
+    }
+
+    AnoRenderResidency *retired = g_resourceResidency;
+    g_resourceResidency = publication->residency;
+    publication->residency = retired;
     g_resourceEpochPending = true;
     publication->retireAfter = rendererState.timelineOrdinal;
-    if (publication->retired == nullptr
+    if (retired == nullptr
         || rendererState.completedFrameSerial >= publication->retireAfter) {
-        ano_vk_resource_residency_destroy(publication->retired);
+        ano_vk_resource_residency_destroy(retired);
         mi_free(publication);
     } else {
         publication->next = g_retiredResidencies;
         g_retiredResidencies = publication;
     }
-    return ANO_RESOURCE_OK;
-}
-
-void ano_render_resources_discard(
-    AnoRenderResourcePublication *publication)
-{
-    if (publication == nullptr)
-        return;
-    if (publication->candidate != nullptr) {
-        if (ano_vk_resource_residency_upload_status(publication->candidate)
-                == ANO_RENDER_RESIDENCY_UPLOAD_PENDING)
-            (void)ano_vk_resource_residency_wait_upload(
-                publication->candidate);
-        else if (ano_vk_resource_residency_upload_status(
-                     publication->candidate)
-                 == ANO_RENDER_RESIDENCY_UPLOAD_READY)
-            (void)ano_vk_resource_residency_finish_upload(
-                publication->candidate);
-        ano_vk_resource_residency_destroy(publication->candidate);
-    }
-    ano_resource_reload_abort(publication->reload);
-    mi_free(publication);
+    return ANO_RENDER_RESOURCE_RELOAD_COMMITTED;
 }
 
 void ano_render_resources_apply_pending(uint32_t frameIndex)
@@ -320,7 +283,7 @@ void ano_render_resources_collect_retired(uint64_t completedFrameSerial)
             continue;
         }
         *link = entry->next;
-        ano_vk_resource_residency_destroy(entry->retired);
+        ano_vk_resource_residency_destroy(entry->residency);
         mi_free(entry);
     }
 }

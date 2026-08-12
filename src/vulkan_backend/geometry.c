@@ -160,34 +160,49 @@ void ano_vk_cleanup_geometry_pool(GeometryPool* pool, VkDevice device)
     pool->freeMeshIndices = NULL;
 }
 
-// Emit into a caller-reserved meshes[] slot. Caller owns slot lifetime. Reservations taken only after the last can't-fail point; false leaves the pool intact.
+typedef struct GeometryScratch {
+    ano_meshlet_t* meshlets;
+    uint32_t* vertices;
+    uint8_t* triangles;
+    ano_meshlet_bounds_gpu_t* bounds;
+    VkBuffer staging;
+} GeometryScratch;
+
+static void geometry_scratch_discard(VkDevice device, GeometryScratch* scratch)
+{
+    if (scratch->staging != VK_NULL_HANDLE)
+        vkDestroyBuffer(device, scratch->staging, NULL);
+    free(scratch->meshlets);
+    free(scratch->vertices);
+    free(scratch->triangles);
+    free(scratch->bounds);
+}
+
+// Emit into a caller-reserved meshes[] slot and record its copies.
 static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-                                     uint32_t transferFamily, VkQueue transferQueue,
                                      const Vertex* vertices, uint32_t vertexCount,
                                      const uint32_t* indices, uint32_t indexCount,
-                                     uint32_t meshIndex,
-                                     VkCommandBuffer borrowedCommand,
+                                     uint32_t meshIndex, VkCommandBuffer command,
                                      VkBuffer* retainedStaging)
 {
-    if (retainedStaging) *retainedStaging = VK_NULL_HANDLE;
-    // Standalone startup uploads may reuse occupied pool spans. A private
-    // publication records only fresh candidate spans and never idles the device.
-    if (borrowedCommand == VK_NULL_HANDLE)
-        vkDeviceWaitIdle(device);
-
     // Build meshlets and calculate bounds on the host
     size_t max_meshlets = ano_build_meshlets_bound(indexCount, 64, 126);
     if (max_meshlets == 0) return false;
 
-    ano_meshlet_t* meshlets = ano::allocate<ano_meshlet_t>(max_meshlets);
-    uint32_t* meshlet_vertices = ano::allocate<uint32_t>(max_meshlets * 64u);
-    uint8_t* meshlet_triangles = ano::allocate<uint8_t>(max_meshlets * 126u * 3u);
-    ano_meshlet_bounds_gpu_t* bounds = ano::allocate<ano_meshlet_bounds_gpu_t>(max_meshlets);
+    GeometryScratch scratch = {
+        .meshlets = ano::allocate<ano_meshlet_t>(max_meshlets),
+        .vertices = ano::allocate<uint32_t>(max_meshlets * 64u),
+        .triangles = ano::allocate<uint8_t>(max_meshlets * 126u * 3u),
+        .bounds = ano::allocate<ano_meshlet_bounds_gpu_t>(max_meshlets),
+    };
+    if (!scratch.meshlets || !scratch.vertices || !scratch.triangles
+        || !scratch.bounds) {
+        geometry_scratch_discard(device, &scratch);
+        return false;
+    }
 
     size_t meshlet_count = ano_build_meshlets(
-        meshlets,
-        meshlet_vertices,
-        meshlet_triangles,
+        scratch.meshlets, scratch.vertices, scratch.triangles,
         indices,
         indexCount,
         64,
@@ -195,21 +210,20 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
     );
 
     if (meshlet_count == 0) {
-        free(meshlets);
-        free(meshlet_vertices);
-        free(meshlet_triangles);
-        free(bounds);
+        geometry_scratch_discard(device, &scratch);
         return false;
     }
 
-    size_t unique_vertex_count = meshlets[meshlet_count - 1].vertex_offset + meshlets[meshlet_count - 1].vertex_count;
-    size_t local_indices_count = meshlets[meshlet_count - 1].triangle_offset + meshlets[meshlet_count - 1].triangle_count * 3;
+    size_t unique_vertex_count = scratch.meshlets[meshlet_count - 1].vertex_offset
+        + scratch.meshlets[meshlet_count - 1].vertex_count;
+    size_t local_indices_count = scratch.meshlets[meshlet_count - 1].triangle_offset
+        + scratch.meshlets[meshlet_count - 1].triangle_count * 3;
 
     for (size_t p = 0; p < meshlet_count; ++p) {
-        bounds[p] = ano_compute_meshlet_bounds(
-            meshlet_vertices + meshlets[p].vertex_offset,
-            meshlet_triangles + meshlets[p].triangle_offset,
-            meshlets[p].triangle_count,
+        scratch.bounds[p] = ano_compute_meshlet_bounds(
+            scratch.vertices + scratch.meshlets[p].vertex_offset,
+            scratch.triangles + scratch.meshlets[p].triangle_offset,
+            scratch.meshlets[p].triangle_count,
             (const float*)vertices,
             vertexCount,
             sizeof(Vertex)
@@ -235,82 +249,37 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE
     };
 
-    VkBuffer stagingBuffer;
-    if (vkCreateBuffer(device, &stagingInfo, NULL, &stagingBuffer) != VK_SUCCESS) {
-        free(meshlets);
-        free(meshlet_vertices);
-        free(meshlet_triangles);
-        free(bounds);
+    if (vkCreateBuffer(device, &stagingInfo, NULL, &scratch.staging)
+        != VK_SUCCESS) {
+        scratch.staging = VK_NULL_HANDLE;
+        geometry_scratch_discard(device, &scratch);
         return false;
     }
 
     VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(device, stagingBuffer, &memReqs);
+    vkGetBufferMemoryRequirements(device, scratch.staging, &memReqs);
 
     GpuAllocation stagingAlloc = gpu_alloc(alloc, memReqs, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (stagingAlloc.memory == VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, stagingBuffer, NULL);
-        free(meshlets);
-        free(meshlet_vertices);
-        free(meshlet_triangles);
-        free(bounds);
+    if (stagingAlloc.memory == VK_NULL_HANDLE
+        || vkBindBufferMemory(device, scratch.staging, stagingAlloc.memory,
+                              stagingAlloc.offset) != VK_SUCCESS) {
+        geometry_scratch_discard(device, &scratch);
         return false;
     }
-    vkBindBufferMemory(device, stagingBuffer, stagingAlloc.memory, stagingAlloc.offset);
 
     // Copy vertex and metadata data into the staging buffer
     char* mapped = (char*)stagingAlloc.mapped;
     memcpy(mapped, vertices, vertexSize);
     
     char* meta_ptr = mapped + vertexSize;
-    memcpy(meta_ptr, meshlets, meshlets_size);
-    memcpy(meta_ptr + meshlets_size, meshlet_vertices, unique_vertices_size);
-    memcpy(meta_ptr + meshlets_size + unique_vertices_size, meshlet_triangles, local_indices_count);
+    memcpy(meta_ptr, scratch.meshlets, meshlets_size);
+    memcpy(meta_ptr + meshlets_size, scratch.vertices, unique_vertices_size);
+    memcpy(meta_ptr + meshlets_size + unique_vertices_size, scratch.triangles, local_indices_count);
     if (local_triangles_size > local_indices_count) {
         memset(meta_ptr + meshlets_size + unique_vertices_size + local_indices_count, 0, local_triangles_size - local_indices_count);
     }
-    memcpy(meta_ptr + meshlets_size + unique_vertices_size + local_triangles_size, bounds, bounds_size);
+    memcpy(meta_ptr + meshlets_size + unique_vertices_size + local_triangles_size, scratch.bounds, bounds_size);
     memcpy(meta_ptr + meshlets_size + unique_vertices_size + local_triangles_size + bounds_size, indices, classic_indices_size);
-
-    VkCommandPool transientPool = VK_NULL_HANDLE;
-    VkCommandBuffer cmd = borrowedCommand;
-    if (cmd == VK_NULL_HANDLE) {
-        const VkCommandPoolCreateInfo poolInfo = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-            .queueFamilyIndex = transferFamily,
-        };
-        if (vkCreateCommandPool(device, &poolInfo, NULL,
-                                &transientPool) != VK_SUCCESS) {
-            vkDestroyBuffer(device, stagingBuffer, NULL);
-            free(meshlets);
-            free(meshlet_vertices);
-            free(meshlet_triangles);
-            free(bounds);
-            return false;
-        }
-        const VkCommandBufferAllocateInfo allocCmdInfo = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-            .commandPool = transientPool,
-            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-            .commandBufferCount = 1,
-        };
-        const VkCommandBufferBeginInfo beginInfo = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        };
-        if (vkAllocateCommandBuffers(device, &allocCmdInfo, &cmd)
-                != VK_SUCCESS
-            || vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
-            vkDestroyCommandPool(device, transientPool, NULL);
-            vkDestroyBuffer(device, stagingBuffer, NULL);
-            free(meshlets);
-            free(meshlet_vertices);
-            free(meshlet_triangles);
-            free(bounds);
-            return false;
-        }
-    }
 
     // Plan allocations
     uint32_t finalVertexOffset = (uint32_t)-1;
@@ -326,13 +295,7 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
         if ((VkDeviceSize)pool->vertexWriteOffset + vertexSize > pool->vertexCapacity) {
             ano_log(ANO_ERROR, "Error: Geometry mega-buffer vertex pool exhausted! Requested %llu, Capacity %llu",
                    (unsigned long long)(pool->vertexWriteOffset + vertexSize), (unsigned long long)pool->vertexCapacity);
-            vkDestroyBuffer(device, stagingBuffer, NULL);
-            if (transientPool != VK_NULL_HANDLE)
-                vkDestroyCommandPool(device, transientPool, NULL);
-            free(meshlets);
-            free(meshlet_vertices);
-            free(meshlet_triangles);
-            free(bounds);
+            geometry_scratch_discard(device, &scratch);
             return false; // pool exhausted
         }
         finalVertexOffset = pool->vertexWriteOffset;
@@ -351,13 +314,7 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
         if ((VkDeviceSize)pool->indexWriteOffset + total_metadata_size > pool->indexCapacity) {
             ano_log(ANO_ERROR, "Error: Geometry mega-buffer metadata pool exhausted! Requested %llu, Capacity %llu",
                    (unsigned long long)(pool->indexWriteOffset + total_metadata_size), (unsigned long long)pool->indexCapacity);
-            vkDestroyBuffer(device, stagingBuffer, NULL);
-            if (transientPool != VK_NULL_HANDLE)
-                vkDestroyCommandPool(device, transientPool, NULL);
-            free(meshlets);
-            free(meshlet_vertices);
-            free(meshlet_triangles);
-            free(bounds);
+            geometry_scratch_discard(device, &scratch);
             return false; // pool exhausted
         }
         finalIndexOffset = pool->indexWriteOffset;
@@ -388,42 +345,18 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
         .dstOffset = finalVertexOffset,
         .size = vertexSize
     };
-    vkCmdCopyBuffer(cmd, stagingBuffer, pool->vertexBuffer, 1, &copyRegion);
+    vkCmdCopyBuffer(command, scratch.staging, pool->vertexBuffer, 1, &copyRegion);
 
     VkBufferCopy indexCopyRegion = {
         .srcOffset = vertexSize,
         .dstOffset = finalIndexOffset,
         .size = total_metadata_size
     };
-    vkCmdCopyBuffer(cmd, stagingBuffer, pool->indexBuffer, 1, &indexCopyRegion); // Copy metadata
-
-    if (borrowedCommand == VK_NULL_HANDLE) {
-        vkEndCommandBuffer(cmd);
-        const VkSubmitInfo submitInfo = {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-            .commandBufferCount = 1,
-            .pCommandBuffers = &cmd,
-        };
-        const VkFenceCreateInfo fenceInfo = {
-            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        };
-        VkFence fence = VK_NULL_HANDLE;
-        vkCreateFence(device, &fenceInfo, NULL, &fence);
-        vkQueueSubmit(transferQueue, 1, &submitInfo, fence);
-        vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(device, fence, NULL);
-        vkFreeCommandBuffers(device, transientPool, 1, &cmd);
-        vkDestroyCommandPool(device, transientPool, NULL);
-        vkDestroyBuffer(device, stagingBuffer, NULL);
-    } else {
-        *retainedStaging = stagingBuffer;
-    }
-
-    // Cleanup host arrays. Borrowed-command staging remains owner-held.
-    free(meshlets);
-    free(meshlet_vertices);
-    free(meshlet_triangles);
-    free(bounds);
+    vkCmdCopyBuffer(command, scratch.staging, pool->indexBuffer, 1,
+                    &indexCopyRegion);
+    *retainedStaging = scratch.staging;
+    scratch.staging = VK_NULL_HANDLE;
+    geometry_scratch_discard(device, &scratch);
 
     // Register the mesh into the caller-owned slot.
     MeshRegion* mesh = &pool->meshes[meshIndex];
@@ -438,7 +371,7 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
     mesh->boundsOffset = finalIndexOffset + (uint32_t)(meshlets_size + unique_vertices_size + local_triangles_size);
     mesh->classicIndexOffset = finalIndexOffset + (uint32_t)(meshlets_size + unique_vertices_size + local_triangles_size + bounds_size);
     mesh->classicIndexCount = indexCount;
-    mesh->lodCount = 1u; // standalone by default; geometry_pool_upload_chain overrides the base's count
+    mesh->lodCount = 1u; // the chain recorder overrides its base
 
     // Calculate bounding sphere
     Vector3 minBounds = vertices[0].position;
@@ -467,41 +400,6 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
     mesh->boundingSphereRadius = sqrtf(maxDistSq);
 
     return true;
-}
-
-// Acquire one mesh slot then emit. Slot commits only on success; every refusal answers ANO_MESH_NONE.
-uint32_t geometry_pool_upload(GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-                              uint32_t transferFamily, VkQueue transferQueue,
-                              const Vertex* vertices, uint32_t vertexCount,
-                              const uint32_t* indices, uint32_t indexCount)
-{
-    bool recycled = pool->freeMeshIndexCount > 0;
-    uint32_t meshIndex;
-    if (recycled) {
-        meshIndex = pool->freeMeshIndices[pool->freeMeshIndexCount - 1];
-    } else {
-        // Cap at the fixed GPU row-buffer domain.
-        if (pool->meshCount >= ANO_MAX_MESHES) return ANO_MESH_NONE; // GPU buffers full
-        if (pool->meshCount >= pool->meshCapacity) {
-            uint32_t capacity = pool->meshCapacity == 0 ? 100u : pool->meshCapacity * 2u;
-            MeshRegion* meshes = ano::reallocate(pool->meshes, capacity);
-            if (!meshes) return ANO_MESH_NONE;
-            pool->meshes = meshes;
-            pool->meshCapacity = capacity;
-        }
-        meshIndex = pool->meshCount;
-    }
-
-    if (!geometry_pool_emit_level(pool, alloc, device, transferFamily,
-                                  transferQueue, vertices, vertexCount,
-                                  indices, indexCount, meshIndex,
-                                  VK_NULL_HANDLE, NULL))
-        return ANO_MESH_NONE; // slot acquisition not committed
-
-    if (recycled) pool->freeMeshIndexCount--;
-    else          pool->meshCount++;
-    geometry_pool_mark_gpu_dirty(pool, meshIndex);
-    return meshIndex;
 }
 
 // Default LOD: ratios 1, 1/2, 1/4, ...; 5% extent error. lodCount clamped to [1, ANO_MAX_LOD].
@@ -548,28 +446,25 @@ static uint32_t geometry_compact_level(const Vertex* srcVerts, uint32_t srcVerte
 // Cull bound from level 0 only. Truncates on stall/exhaust; releases unused reserved slots.
 // in: source mesh, config (NULL => one full level)
 // out: base / *out_lodCount; total failure => ANO_MESH_NONE + 0 (never the fallback slot)
-static uint32_t geometry_pool_upload_chain_impl(
+uint32_t geometry_pool_record_chain(
     GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-    uint32_t transferFamily, VkQueue transferQueue,
     const Vertex* vertices, uint32_t vertexCount,
     const uint32_t* indices, uint32_t indexCount,
-    const AnoLodConfig* config, VkCommandBuffer borrowedCommand,
-    VkBuffer* outStaging, uint32_t stagingCapacity,
-    uint32_t* outStagingCount, uint32_t* out_lodBase,
-    uint32_t* out_lodCount)
+    const AnoLodConfig* config, VkCommandBuffer command,
+    VkBuffer outStaging[ANO_MAX_LOD], uint32_t* out_lodCount)
 {
-    if (outStagingCount) *outStagingCount = 0;
+    if (command == VK_NULL_HANDLE || outStaging == NULL
+        || out_lodCount == NULL)
+        return ANO_MESH_NONE;
+    *out_lodCount = 0;
     uint32_t want = config ? config->lodCount : 1u;
     if (want < 1u) want = 1u;
     if (want > ANO_MAX_LOD) want = ANO_MAX_LOD;
     float targetError = config ? config->targetError : 0.0f;
 
     // Clamp chain to remaining ANO_MAX_MESHES slots; no room -> refuse.
-    if (pool->meshCount >= ANO_MAX_MESHES) {
-        if (out_lodBase)  *out_lodBase = ANO_MESH_NONE;
-        if (out_lodCount) *out_lodCount = 0u;
+    if (pool->meshCount >= ANO_MAX_MESHES)
         return ANO_MESH_NONE;
-    }
     if ((uint64_t)pool->meshCount + want > ANO_MAX_MESHES)
         want = (uint32_t)(ANO_MAX_MESHES - pool->meshCount);
 
@@ -579,11 +474,8 @@ static uint32_t geometry_pool_upload_chain_impl(
         while ((uint64_t)pool->meshCount + want > capacity)
             capacity = capacity == 0 ? 100u : capacity * 2u;
         MeshRegion* meshes = ano::reallocate(pool->meshes, capacity);
-        if (!meshes) {
-            if (out_lodBase)  *out_lodBase = ANO_MESH_NONE;
-            if (out_lodCount) *out_lodCount = 0u;
+        if (!meshes)
             return ANO_MESH_NONE;
-        }
         pool->meshes = meshes;
         pool->meshCapacity = capacity;
     }
@@ -629,18 +521,10 @@ static uint32_t geometry_pool_upload_chain_impl(
         }
         VkBuffer staging = VK_NULL_HANDLE;
         if (!geometry_pool_emit_level(
-                pool, alloc, device, transferFamily, transferQueue,
-                lvlVertices, lvlVertexCount, lvlIndices, lvlCount,
-                lodBase + lvl, borrowedCommand,
-                borrowedCommand == VK_NULL_HANDLE ? NULL : &staging))
+                pool, alloc, device, lvlVertices, lvlVertexCount,
+                lvlIndices, lvlCount, lodBase + lvl, command, &staging))
             break;  // pool exhausted: truncate
-        if (borrowedCommand != VK_NULL_HANDLE) {
-            if (produced >= stagingCapacity) {
-                vkDestroyBuffer(device, staging, NULL);
-                break;
-            }
-            outStaging[produced] = staging;
-        }
+        outStaging[produced] = staging;
         produced++;
     }
 
@@ -657,50 +541,8 @@ static uint32_t geometry_pool_upload_chain_impl(
             geometry_pool_mark_gpu_dirty(pool, lodBase + i);
     }
 
-    if (out_lodBase)  *out_lodBase = produced ? lodBase : ANO_MESH_NONE;
-    if (out_lodCount) *out_lodCount = produced;
-    if (outStagingCount) *outStagingCount = produced;
+    *out_lodCount = produced;
     return produced ? lodBase : ANO_MESH_NONE;
-}
-
-uint32_t geometry_pool_upload_chain(GeometryPool* pool, GpuAllocator* alloc,
-                                    VkDevice device,
-                                    uint32_t transferFamily,
-                                    VkQueue transferQueue,
-                                    const Vertex* vertices,
-                                    uint32_t vertexCount,
-                                    const uint32_t* indices,
-                                    uint32_t indexCount,
-                                    const AnoLodConfig* config,
-                                    uint32_t* out_lodBase,
-                                    uint32_t* out_lodCount)
-{
-    return geometry_pool_upload_chain_impl(
-        pool, alloc, device, transferFamily, transferQueue,
-        vertices, vertexCount, indices, indexCount, config,
-        VK_NULL_HANDLE, NULL, 0, NULL, out_lodBase, out_lodCount);
-}
-
-uint32_t geometry_pool_record_chain(
-    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-    const Vertex* vertices, uint32_t vertexCount,
-    const uint32_t* indices, uint32_t indexCount,
-    const AnoLodConfig* config, VkCommandBuffer command,
-    VkBuffer* out_staging, uint32_t stagingCapacity,
-    uint32_t* out_stagingCount, uint32_t* out_lodBase,
-    uint32_t* out_lodCount)
-{
-    if (command == VK_NULL_HANDLE || out_staging == NULL
-        || out_stagingCount == NULL || stagingCapacity < ANO_MAX_LOD) {
-        if (out_stagingCount) *out_stagingCount = 0;
-        if (out_lodBase) *out_lodBase = ANO_MESH_NONE;
-        if (out_lodCount) *out_lodCount = 0;
-        return ANO_MESH_NONE;
-    }
-    return geometry_pool_upload_chain_impl(
-        pool, alloc, device, 0, VK_NULL_HANDLE, vertices, vertexCount,
-        indices, indexCount, config, command, out_staging,
-        stagingCapacity, out_stagingCount, out_lodBase, out_lodCount);
 }
 
 void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex)
@@ -759,7 +601,7 @@ void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex)
     geometry_pool_mark_gpu_dirty(pool, meshIndex);
 }
 
-// Free contiguous LOD chain (all levels). Symmetric with geometry_pool_upload_chain.
+// Free a contiguous LOD chain.
 void geometry_pool_free_chain(GeometryPool* pool, uint32_t lodBase, uint32_t lodCount)
 {
     for (uint32_t i = 0; i < lodCount; ++i)

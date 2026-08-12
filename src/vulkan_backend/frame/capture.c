@@ -23,16 +23,15 @@ static bool capture_format_supported(VkFormat format)
 bool ano_frame_capture_request(VulkanContext *context, RendererState *state,
                                const char *path)
 {
-    if (context == nullptr || state == nullptr || path == nullptr
-        || path[0] == '\0' || !state->frameCaptureSupported
-        || !capture_format_supported(state->imageFormat)
-        || state->frameCaptureRequested || state->frameCaptureSubmitted)
+    if (context == nullptr || state == nullptr || path == nullptr)
         return false;
-    size_t pathLength = 0;
-    while (pathLength < sizeof(state->frameCapturePath)
-           && path[pathLength] != '\0')
-        ++pathLength;
-    if (pathLength == 0 || pathLength == sizeof(state->frameCapturePath))
+    FrameCapture *capture = &state->frameCapture;
+    if (path[0] == '\0' || !capture->supported
+        || !capture_format_supported(state->imageFormat)
+        || capture->status != FRAME_CAPTURE_IDLE)
+        return false;
+    const size_t pathLength = strlen(path);
+    if (pathLength >= sizeof(capture->path))
         return false;
 
     const VkDeviceSize required =
@@ -40,46 +39,39 @@ bool ano_frame_capture_request(VulkanContext *context, RendererState *state,
         * state->imageExtent.height * 4u;
     if (required == 0)
         return false;
-    if (state->frameCaptureCapacity < required) {
-        if (state->frameCaptureBuffer != VK_NULL_HANDLE)
-            vkDestroyBuffer(context->device, state->frameCaptureBuffer,
-                            nullptr);
-        state->frameCaptureBuffer = VK_NULL_HANDLE;
-        state->frameCaptureCapacity = 0;
-        state->frameCaptureMapped = nullptr;
+    if (capture->capacity < required) {
+        vkDestroyBuffer(context->device, capture->buffer, nullptr);
+        capture->buffer = VK_NULL_HANDLE;
+        capture->capacity = 0;
         if (!createDataBuffer(
                 context, &gpuAllocator, required,
                 VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
                     | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                &state->frameCaptureBuffer,
-                &state->frameCaptureAlloc))
+                &capture->buffer, &capture->allocation))
             return false;
-        state->frameCaptureCapacity = required;
-        state->frameCaptureMapped = static_cast<uint8_t *>(
-            state->frameCaptureAlloc.mapped);
+        capture->capacity = required;
     }
-    memcpy(state->frameCapturePath, path, pathLength + 1);
-    state->frameCaptureRequested = true;
+    memcpy(capture->path, path, pathLength + 1);
+    capture->status = FRAME_CAPTURE_REQUESTED;
     return true;
 }
 
 void ano_frame_capture_record(RendererState *state, VkCommandBuffer command,
                               uint32_t imageIndex)
 {
-    PerFrameResources *frame = &state->frames[state->frameIndex];
-    const bool capture = state->frameCaptureRequested
-        && state->frameCaptureBuffer != VK_NULL_HANDLE
+    const FrameCapture *capture = &state->frameCapture;
+    const bool requested = capture->status == FRAME_CAPTURE_REQUESTED
+        && capture->buffer != VK_NULL_HANDLE
         && imageIndex < state->imageCount;
-    frame->frameCaptureRecorded = capture;
 
     VkImageMemoryBarrier barrier = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstAccessMask = capture ? VK_ACCESS_TRANSFER_READ_BIT : 0u,
+        .dstAccessMask = requested ? VK_ACCESS_TRANSFER_READ_BIT : 0u,
         .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = capture ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
-                             : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .newLayout = requested ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+                               : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = state->images[imageIndex],
@@ -93,10 +85,10 @@ void ano_frame_capture_record(RendererState *state, VkCommandBuffer command,
     };
     vkCmdPipelineBarrier(
         command, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        capture ? VK_PIPELINE_STAGE_TRANSFER_BIT
-                : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        requested ? VK_PIPELINE_STAGE_TRANSFER_BIT
+                  : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
-    if (!capture)
+    if (!requested)
         return;
 
     const VkBufferImageCopy copy = {
@@ -116,7 +108,7 @@ void ano_frame_capture_record(RendererState *state, VkCommandBuffer command,
     };
     vkCmdCopyImageToBuffer(command, state->images[imageIndex],
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           state->frameCaptureBuffer, 1, &copy);
+                           capture->buffer, 1, &copy);
 
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -129,67 +121,59 @@ void ano_frame_capture_record(RendererState *state, VkCommandBuffer command,
 
 void ano_frame_capture_submitted(RendererState *state, uint32_t frameIndex)
 {
-    PerFrameResources *frame = &state->frames[frameIndex];
-    if (!frame->frameCaptureRecorded)
+    FrameCapture *capture = &state->frameCapture;
+    if (capture->status != FRAME_CAPTURE_REQUESTED)
         return;
-    state->frameCaptureRequested = false;
-    state->frameCaptureSubmitted = true;
-    state->frameCaptureFrame = frameIndex;
-    state->frameCaptureExtent = state->imageExtent;
-    state->frameCaptureFormat = state->imageFormat;
+    capture->status = FRAME_CAPTURE_SUBMITTED;
+    capture->frame = frameIndex;
 }
 
 static bool write_capture(const RendererState *state)
 {
-    FILE *file = fopen(state->frameCapturePath, "wb");
+    const FrameCapture *capture = &state->frameCapture;
+    FILE *file = fopen(capture->path, "wb");
     if (file == nullptr)
         return false;
-    const uint32_t width = state->frameCaptureExtent.width;
-    const uint32_t height = state->frameCaptureExtent.height;
-    bool ok = fprintf(file, "P6\n%u %u\n255\n", width, height) > 0;
-    uint8_t *row = static_cast<uint8_t *>(
-        mi_malloc(static_cast<size_t>(width) * 3u));
-    if (row == nullptr)
-        ok = false;
-    const bool bgra = state->frameCaptureFormat == VK_FORMAT_B8G8R8A8_UNORM
-        || state->frameCaptureFormat == VK_FORMAT_B8G8R8A8_SRGB;
-    for (uint32_t y = 0; y < height && ok; ++y) {
-        const uint8_t *source = state->frameCaptureMapped
-            + static_cast<size_t>(y) * width * 4u;
-        for (uint32_t x = 0; x < width; ++x) {
-            row[x * 3u + 0u] = source[x * 4u + (bgra ? 2u : 0u)];
-            row[x * 3u + 1u] = source[x * 4u + 1u];
-            row[x * 3u + 2u] = source[x * 4u + (bgra ? 0u : 2u)];
-        }
-        ok = fwrite(row, 1, static_cast<size_t>(width) * 3u, file)
-            == static_cast<size_t>(width) * 3u;
+    const uint32_t width = state->imageExtent.width;
+    const uint32_t height = state->imageExtent.height;
+    const size_t pixels = static_cast<size_t>(width) * height;
+    uint8_t *rgb = pixels > SIZE_MAX / 3u ? nullptr
+        : static_cast<uint8_t *>(mi_malloc(pixels * 3u));
+    const bool bgra = state->imageFormat == VK_FORMAT_B8G8R8A8_UNORM
+        || state->imageFormat == VK_FORMAT_B8G8R8A8_SRGB;
+    const uint8_t *mapped = static_cast<const uint8_t *>(
+        capture->allocation.mapped);
+    for (size_t i = 0; rgb != nullptr && i < pixels; ++i) {
+        rgb[i * 3u] = mapped[i * 4u + (bgra ? 2u : 0u)];
+        rgb[i * 3u + 1u] = mapped[i * 4u + 1u];
+        rgb[i * 3u + 2u] = mapped[i * 4u + (bgra ? 0u : 2u)];
     }
-    mi_free(row);
+    bool ok = rgb != nullptr
+        && fprintf(file, "P6\n%u %u\n255\n", width, height) > 0
+        && fwrite(rgb, 3u, pixels, file) == pixels;
+    mi_free(rgb);
     ok = fclose(file) == 0 && ok;
     return ok;
 }
 
 void ano_frame_capture_collect(RendererState *state, uint32_t frameIndex)
 {
-    if (!state->frameCaptureSubmitted
-        || state->frameCaptureFrame != frameIndex)
+    FrameCapture *capture = &state->frameCapture;
+    if (capture->status != FRAME_CAPTURE_SUBMITTED
+        || capture->frame != frameIndex)
         return;
-    state->frameCaptureSubmitted = false;
+    capture->status = FRAME_CAPTURE_IDLE;
     if (write_capture(state))
-        ano_log(ANO_INFO, "Frame captured to %s", state->frameCapturePath);
+        ano_log(ANO_INFO, "Frame captured to %s", capture->path);
     else
-        ano_log(ANO_ERROR, "Frame capture failed for %s",
-                state->frameCapturePath);
+        ano_log(ANO_ERROR, "Frame capture failed for %s", capture->path);
 }
 
 void ano_frame_capture_destroy(VulkanContext *context, RendererState *state)
 {
+    FrameCapture *capture = &state->frameCapture;
     if (context != nullptr && context->device != VK_NULL_HANDLE
-        && state->frameCaptureBuffer != VK_NULL_HANDLE)
-        vkDestroyBuffer(context->device, state->frameCaptureBuffer, nullptr);
-    state->frameCaptureBuffer = VK_NULL_HANDLE;
-    state->frameCaptureCapacity = 0;
-    state->frameCaptureMapped = nullptr;
-    state->frameCaptureRequested = false;
-    state->frameCaptureSubmitted = false;
+        && capture->buffer != VK_NULL_HANDLE)
+        vkDestroyBuffer(context->device, capture->buffer, nullptr);
+    *capture = {};
 }

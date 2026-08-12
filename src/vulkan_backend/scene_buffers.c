@@ -427,11 +427,21 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
         4, 1, 5, 1, 4, 0  // bottom
     };
 
-    uint32_t fallbackMeshIdx = geometry_pool_upload(&state->globalGeometryPool, &stagingAllocator,
-                                                    ctx->device,
-                                                    ctx->queueFamilyIndices.transferFamily,
-                                                    ctx->transferQueue,
-                                                    cubeVertices, 8, cubeIndices, 36);
+    VkCommandBuffer fallbackUpload = beginSingleTimeCommands(ctx);
+    VkBuffer fallbackStaging[ANO_MAX_LOD] = {};
+    uint32_t fallbackLods = 0;
+    uint32_t fallbackMeshIdx = fallbackUpload == VK_NULL_HANDLE
+        ? ANO_MESH_NONE
+        : geometry_pool_record_chain(
+            &state->globalGeometryPool, &stagingAllocator, ctx->device,
+            cubeVertices, 8, cubeIndices, 36, NULL, fallbackUpload,
+            fallbackStaging, &fallbackLods);
+    const bool fallbackUploaded = fallbackUpload != VK_NULL_HANDLE
+        && endSingleTimeCommandsChecked(ctx, fallbackUpload);
+    for (uint32_t i = 0; i < fallbackLods; ++i)
+        vkDestroyBuffer(ctx->device, fallbackStaging[i], NULL);
+    if (!fallbackUploaded)
+        fallbackMeshIdx = ANO_MESH_NONE;
 
     // Fallback must land at FALLBACK_MESH_INDEX; else unwind.
     if (fallbackMeshIdx != FALLBACK_MESH_INDEX) {

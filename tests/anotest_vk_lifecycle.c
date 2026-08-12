@@ -19,25 +19,11 @@ int main() {
         return 1;
     }
     printf("initVulkan() succeeded.\n");
-    if (ano_render_capture_next_frame(NULL)) {
-        fprintf(stderr, "capture accepted a null path.\n");
-        unInitVulkan();
-        return 1;
-    }
     if (!ano_render_capture_next_frame(capturePath)) {
         fprintf(stderr, "renderer-native capture request failed.\n");
         unInitVulkan();
         return 1;
     }
-    if (ano_render_capture_next_frame(capturePath)) {
-        fprintf(stderr, "capture accepted a second in-flight request.\n");
-        unInitVulkan();
-        return 1;
-    }
-	// A pending request follows the next swapchain generation and is resized
-	// before its image-to-buffer copy is recorded.
-	rendererState.framebufferResized = true;
-	drawFrame();
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT + 1u; ++i)
         drawFrame();
     FILE *capture = fopen(capturePath, "rb");

@@ -89,13 +89,6 @@ void ano_vk_cleanup_geometry_pool(GeometryPool* pool, VkDevice device);
 #define ANO_MESH_NONE 0xFFFFFFFFu
 static_assert(ANO_MESH_NONE >= ANO_MAX_MESHES, "mesh refusal fell inside the grantable slot domain");
 
-// Upload mesh into one pool slot (staging -> device-local).
-// out: meshes[] index, or ANO_MESH_NONE on full/fail. Slot commits only on success.
-[[nodiscard]] uint32_t geometry_pool_upload(GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-                                            uint32_t transferFamily, VkQueue transferQueue,
-                                            const Vertex* vertices, uint32_t vertexCount,
-                                            const uint32_t* indices, uint32_t indexCount);
-
 #define ANO_MAX_LOD 8u
 
 // Default LOD levels for glTF uploads (1 = no decimation). Clamp: ANO_MAX_LOD.
@@ -113,25 +106,14 @@ typedef struct AnoLodConfig
 // Default chain: ratios 1, 1/2, 1/4, ...; 5% extent error.
 AnoLodConfig ano_lod_config_default(uint32_t lodCount);
 
-// Upload contiguous LOD chain. Bounds LOD-invariant (full sphere). Truncates on stall/exhaust.
-// out: base index / *out_lodCount; ANO_MESH_NONE + *out_lodCount==0 on fail (both spellings). out_* may be NULL.
-uint32_t geometry_pool_upload_chain(GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-                                    uint32_t transferFamily, VkQueue transferQueue,
-                                    const Vertex* vertices, uint32_t vertexCount,
-                                    const uint32_t* indices, uint32_t indexCount,
-                                    const AnoLodConfig* config,
-                                    uint32_t* out_lodBase, uint32_t* out_lodCount);
-
 // Records a chain into a caller-owned graphics command buffer. Staging buffers
 // remain live in out_staging until that command buffer's completion fence.
-uint32_t geometry_pool_record_chain(
+[[nodiscard]] uint32_t geometry_pool_record_chain(
     GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
     const Vertex* vertices, uint32_t vertexCount,
     const uint32_t* indices, uint32_t indexCount,
     const AnoLodConfig* config, VkCommandBuffer command,
-    VkBuffer* out_staging, uint32_t stagingCapacity,
-    uint32_t* out_stagingCount, uint32_t* out_lodBase,
-    uint32_t* out_lodCount);
+    VkBuffer out_staging[ANO_MAX_LOD], uint32_t* out_lodCount);
 
 // Free a mesh region, adding its memory and index to the free lists
 void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex);

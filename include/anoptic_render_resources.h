@@ -15,25 +15,22 @@
 
 typedef struct AnoRenderResourcePublication AnoRenderResourcePublication;
 
-typedef enum AnoRenderResourcePublicationStatus {
-    ANO_RENDER_RESOURCE_PUBLICATION_UPLOADING,
-    ANO_RENDER_RESOURCE_PUBLICATION_READY,
-    ANO_RENDER_RESOURCE_PUBLICATION_REJECTED,
-} AnoRenderResourcePublicationStatus;
+typedef enum AnoRenderResourceReloadStatus {
+    ANO_RENDER_RESOURCE_RELOAD_PENDING,
+    ANO_RENDER_RESOURCE_RELOAD_COMMITTED,
+    ANO_RENDER_RESOURCE_RELOAD_REJECTED,
+} AnoRenderResourceReloadStatus;
 
 // Preparation takes ownership of reload. The published epoch remains unchanged
 // until a ready publication is committed at a render-frame boundary.
 extern "C" AnoResourceError ano_render_resources_prepare_reload(
     AnoResourceReload *reload, AnoRenderResourcePublication **publication);
-extern "C" AnoRenderResourcePublicationStatus
-ano_render_resources_publication_status(
-    const AnoRenderResourcePublication *publication);
-// Consumes a ready publication. A failed commit preserves the current epoch.
-extern "C" AnoResourceError ano_render_resources_publish(
-    AnoRenderResourcePublication *publication);
-// Consumes an unpublished candidate and preserves the current epoch. Submitted
-// owner work is retired before its private storage is released.
-extern "C" void ano_render_resources_discard(
+// Polls owner work and commits a ready candidate. A terminal result consumes
+// *publication and sets it to null; rejection preserves the current epoch.
+extern "C" AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
+    AnoRenderResourcePublication **publication);
+// Cancels and consumes an unpublished candidate.
+extern "C" void ano_render_resources_cancel_reload(
     AnoRenderResourcePublication *publication);
 
 namespace ano::asset_schema {

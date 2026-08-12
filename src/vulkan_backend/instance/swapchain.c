@@ -164,11 +164,11 @@ bool initSwapChain(VulkanContext* ctx, GLFWwindow* window, VkPresentModeKHR pref
     createInfo.imageColorSpace = support.format.colorSpace;
     createInfo.imageExtent = chosenExtent;
     createInfo.imageArrayLayers = 1; // Always 1 unless developing stereoscopic 3D
-    state->frameCaptureSupported =
+    state->frameCapture.supported =
         (support.capabilities.supportedUsageFlags
          & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-        | (state->frameCaptureSupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+        | (state->frameCapture.supported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 
     QueueFamilyIndices indices = ctx->queueFamilyIndices;
     uint32_t queueFamilyIndices[] = {indices.graphicsFamily, indices.presentFamily};
@@ -367,18 +367,19 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 {
 	// Wait for device idle
 	vkDeviceWaitIdle(ctx->device);
-	const bool captureRequested = rendererState.frameCaptureRequested;
-	char capturePath[sizeof(rendererState.frameCapturePath)] = {};
+	const bool captureRequested =
+		rendererState.frameCapture.status == FRAME_CAPTURE_REQUESTED;
+	char capturePath[sizeof(rendererState.frameCapture.path)] = {};
 	if (captureRequested) {
-		memcpy(capturePath, rendererState.frameCapturePath,
+		memcpy(capturePath, rendererState.frameCapture.path,
 		       sizeof(capturePath));
-		rendererState.frameCaptureRequested = false;
+		rendererState.frameCapture.status = FRAME_CAPTURE_IDLE;
 	}
 	rendererState.completedFrameSerial = rendererState.timelineOrdinal;
 	ano_render_resources_collect_retired(rendererState.completedFrameSerial);
-	if (rendererState.frameCaptureSubmitted)
+	if (rendererState.frameCapture.status == FRAME_CAPTURE_SUBMITTED)
 		ano_frame_capture_collect(&rendererState,
-			rendererState.frameCaptureFrame);
+			rendererState.frameCapture.frame);
 
 	// Do not recreate FIF semaphores on reinit (bugs).
 	// for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {

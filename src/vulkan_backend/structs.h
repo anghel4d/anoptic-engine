@@ -472,7 +472,6 @@ typedef struct PerFrameResources
     VkBuffer            pickReadback;
     GpuAllocation       pickReadbackAlloc;
     uint32_t*           pickReadbackMapped;
-    bool                frameCaptureRecorded;
 
     // Per-view resources (camera UBO, depth, HDR target, froxel lists, descriptor sets).
     ViewResources       views[ANO_VIEW_COUNT];
@@ -511,6 +510,22 @@ typedef struct PerFrameResources
     DeletionQueue       deletionQueue;
 } PerFrameResources;
 
+typedef enum FrameCaptureStatus {
+    FRAME_CAPTURE_IDLE,
+    FRAME_CAPTURE_REQUESTED,
+    FRAME_CAPTURE_SUBMITTED,
+} FrameCaptureStatus;
+
+typedef struct FrameCapture {
+    FrameCaptureStatus status;
+    bool supported;
+    uint32_t frame;
+    VkBuffer buffer;
+    GpuAllocation allocation;
+    VkDeviceSize capacity;
+    char path[1024];
+} FrameCapture;
+
 typedef struct RendererState
 {
     PerFrameResources       frames[MAX_FRAMES_IN_FLIGHT];
@@ -544,19 +559,8 @@ typedef struct RendererState
     uint32_t                viewCount;
     VkImageView*            views;
 
-    // One explicitly requested swapchain readback. The buffer is reused after
-    // its submitting frame fence completes.
-    bool                    frameCaptureSupported;
-    bool                    frameCaptureRequested;
-    bool                    frameCaptureSubmitted;
-    uint32_t                frameCaptureFrame;
-    VkBuffer                frameCaptureBuffer;
-    GpuAllocation           frameCaptureAlloc;
-    VkDeviceSize            frameCaptureCapacity;
-    uint8_t*                frameCaptureMapped;
-    VkExtent2D              frameCaptureExtent;
-    VkFormat                frameCaptureFormat;
-    char                    frameCapturePath[1024];
+    // One explicitly requested, fence-gated swapchain readback.
+    FrameCapture            frameCapture;
 
     // Command pool
     VkCommandPool           commandPool;

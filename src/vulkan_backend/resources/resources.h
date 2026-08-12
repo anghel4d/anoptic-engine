@@ -6,25 +6,16 @@
 #define ANOPTICENGINE_VULKAN_RESOURCE_RESIDENCY_H
 
 #include <anoptic_render.h>
+#include <vulkan/vulkan.h>
 
 typedef struct AnoRenderResidency AnoRenderResidency;
-
-typedef enum AnoRenderResidencyUploadStatus {
-    ANO_RENDER_RESIDENCY_UPLOAD_PENDING,
-    ANO_RENDER_RESIDENCY_UPLOAD_READY,
-    ANO_RENDER_RESIDENCY_UPLOAD_REJECTED,
-} AnoRenderResidencyUploadStatus;
 
 AnoResourceError ano_vk_resource_residency_create(
     AnoResourceManager *manager, AnoRenderResidency **residency);
 AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     const AnoResidencyEpoch *epoch, const AnoRenderResidency *previous,
     AnoRenderResidency **residency);
-AnoResourceError ano_vk_resource_residency_submit(
-    AnoRenderResidency *residency);
-AnoRenderResidencyUploadStatus ano_vk_resource_residency_upload_status(
-    const AnoRenderResidency *residency);
-AnoResourceError ano_vk_resource_residency_finish_upload(
+VkResult ano_vk_resource_residency_poll_upload(
     AnoRenderResidency *residency);
 AnoResourceError ano_vk_resource_residency_wait_upload(
     AnoRenderResidency *residency);
