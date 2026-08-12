@@ -185,6 +185,7 @@ file(GLOB HEADER_SOURCES CONFIGURE_DEPENDS
 # Same for single-header external dependencies.
 file(GLOB EXTERNAL_SOURCES CONFIGURE_DEPENDS
         "./external/jsmn/*.h"
+        "./external/plf_hive/*.h"
         "./external/stb/*.h"
 )
 
@@ -197,6 +198,7 @@ target_include_directories(anoptic_core PUBLIC
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/external/stb
         ${CMAKE_SOURCE_DIR}/external/jsmn
+        ${CMAKE_SOURCE_DIR}/external/plf_hive
 )
 
 target_link_libraries(anoptic_core PUBLIC ano::policy mimalloc-static Threads::Threads)

@@ -11,6 +11,7 @@ external/
 ├── jsmn/           # Minimal JSON parser (vendored header)
 ├── stb/            # Single-header libs (vendored; stb_image.h v2.30)
 ├── mimalloc/       # Allocator (submodule) — currently v2.3.2
+├── plf_hive/       # C++26 std::hive proposal reference implementation (submodule)
 └── external.md     # This file
 ```
 
@@ -23,6 +24,7 @@ Not under `external/`: Vulkan SDK (system), platform audio APIs (PipeWire/ALSA, 
 - **`jsmn/`**: [jsmn](https://github.com/zserge/jsmn) — vendored `jsmn.h` (MIT in-header).
 - **`stb/`**: [stb](https://github.com/nothings/stb) — vendored single-file headers (we use `stb_image`).
 - **`mimalloc/`**: [mimalloc](https://github.com/microsoft/mimalloc) — heaps + global override via `anoptic_memory.h`. Submodule.
+- **`plf_hive/`**: [plf::hive](https://github.com/mattreecebentley/plf_hive) — the reference implementation named by WG21 P0447R28. Submodule (zlib).
 
 ## Usage
 
@@ -36,7 +38,7 @@ Typical include style when a module is allowed to see the vendor header:
 
 ## Git Submodules
 
-Submodules today: `glfw`, `freetype`, `mimalloc`. Vendored (not submodules): `jsmn`, `stb`.
+Submodules today: `glfw`, `freetype`, `mimalloc`, `plf_hive`. Vendored (not submodules): `jsmn`, `stb`.
 
 Procedure:
 - **Adding a Submodule**:

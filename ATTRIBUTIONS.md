@@ -21,6 +21,12 @@ This project makes use of the following third-party libraries and SDKs. Layout a
 - **Path**: `external/mimalloc` (git submodule)
 - **License**: [MIT License](https://github.com/microsoft/mimalloc/blob/master/LICENSE)
 
+### plf::hive - C++26 `std::hive` reference implementation
+- **Description**: The reference implementation identified by WG21 P0447R28, used until the selected standard library ships `<hive>`.
+- **Source**: [plf_hive GitHub Repository](https://github.com/mattreecebentley/plf_hive)
+- **Path**: `external/plf_hive` (git submodule, commit `085899f55591e77d49ed168be4594200aa0f0c3a`)
+- **License**: [zlib License](https://github.com/mattreecebentley/plf_hive/blob/main/LICENSE.md)
+
 ### cgltf - historical v1.15 provenance
 - **Description**: The previous glTF loader and differential oracle. The first-party `anogltf` implementation retains cgltf-derived tokenizer and compatibility behavior.
 - **Source**: [cgltf GitHub Repository](https://github.com/jkuhlmann/cgltf)

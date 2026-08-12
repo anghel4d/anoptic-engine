@@ -89,6 +89,7 @@
 # Vendored submodules (gitlinks 〜 their own .gitignore governs their trees) and shim headers/notes
 !/external/
 !/external/**/
+!/external/plf_hive
 !/external/**/*.h
 !/external/**/*.md
 
