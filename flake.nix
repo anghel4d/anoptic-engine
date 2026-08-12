@@ -257,7 +257,12 @@
           postUnpack =
             injectSubmodule "mimalloc" mimalloc-src
             + injectSubmodule "freetype" freetype-src
-            + lib.optionalString renderer (injectSubmodule "glfw" glfw-src);
+            + lib.optionalString renderer (injectSubmodule "glfw" glfw-src)
+            + lib.optionalString tests ''
+              mkdir -p "$sourceRoot/assets"
+              cp -r ${anoptic-assets}/. "$sourceRoot/assets/"
+              chmod -R u+w "$sourceRoot/assets"
+            '';
 
           cmakeFlags = [
             "-DCMAKE_BUILD_TYPE=${buildType}"

@@ -1,0 +1,23 @@
+Checks: >
+  -*,
+  portability-restrict-system-includes
+
+WarningsAsErrors: 'portability-restrict-system-includes'
+HeaderFilterRegex: '(^|.*/)(src|include)/.*'
+
+CheckOptions:
+  - key: portability-restrict-system-includes.Includes
+    # C, platform, SDK, and project .h files are outside the C++ stdlib policy.
+    # ANO_STDLIB_WHITELIST_BEGIN
+    value: >-
+      -*,*.h,
+      -bits/*,-debug/*,-experimental/*,-ext/*,-parallel/*,-tr1/*,-backward/*,-__/*,
+      version,compare,initializer_list,new,coroutine,contracts,meta,
+      cstddef,cstdint,climits,cfloat,cstdarg,stdfloat,
+      type_traits,concepts,limits,bit,utility,source_location,ratio,numbers,
+      atomic,array,span,mdspan,string_view,optional,expected,
+      inplace_vector,simd,bitset,cassert,
+      stdbit.h,stdckdint.h,cstdalign,cstdbool,
+      hive,flat_map,flat_set,memory,ranges,algorithm,numeric,charconv,
+      variant,functional
+    # ANO_STDLIB_WHITELIST_END

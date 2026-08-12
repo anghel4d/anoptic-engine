@@ -1,5 +1,31 @@
 # Test executables link anoptic_core. Exit 0 = pass.
 
+add_test(NAME anoptic_stdlib_policy
+        COMMAND ${CMAKE_COMMAND}
+                -DANO_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                -DANO_POLICY_FILE=${CMAKE_SOURCE_DIR}/.clang-tidy
+                -P ${CMAKE_SOURCE_DIR}/cmake/CheckStdlibHeaders.cmake)
+set_tests_properties(anoptic_stdlib_policy PROPERTIES
+        TIMEOUT 30 LABELS "unit;policy")
+
+add_test(NAME anoptic_stdlib_policy_allows_span
+        COMMAND ${CMAKE_COMMAND}
+                -DANO_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                -DANO_POLICY_FILE=${CMAKE_SOURCE_DIR}/.clang-tidy
+                -DANO_POLICY_ROOTS=${CMAKE_CURRENT_SOURCE_DIR}/policy/stdlib_allowed.c
+                -P ${CMAKE_SOURCE_DIR}/cmake/CheckStdlibHeaders.cmake)
+set_tests_properties(anoptic_stdlib_policy_allows_span PROPERTIES
+        TIMEOUT 30 LABELS "unit;policy")
+
+add_test(NAME anoptic_stdlib_policy_denies_vector
+        COMMAND ${CMAKE_COMMAND}
+                -DANO_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                -DANO_POLICY_FILE=${CMAKE_SOURCE_DIR}/.clang-tidy
+                -DANO_POLICY_ROOTS=${CMAKE_CURRENT_SOURCE_DIR}/policy/stdlib_denied.c
+                -P ${CMAKE_SOURCE_DIR}/cmake/CheckStdlibHeaders.cmake)
+set_tests_properties(anoptic_stdlib_policy_denies_vector PROPERTIES
+        WILL_FAIL TRUE TIMEOUT 30 LABELS "unit;policy")
+
 add_executable(anotest_resources_language anotest_resources_language.c)
 target_link_libraries(anotest_resources_language PRIVATE anoptic_core)
 add_test(NAME anoptic_resources_language COMMAND anotest_resources_language)

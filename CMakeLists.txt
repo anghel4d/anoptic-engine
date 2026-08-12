@@ -55,6 +55,28 @@ message(STATUS "C++26 reflection: GCC ${CMAKE_CXX_COMPILER_VERSION} (-freflectio
 # Emit compile_commands.json for clangd.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# One policy target owns the C++26 language and no-runtime contract.
+add_library(ano_policy INTERFACE)
+add_library(ano::policy ALIAS ano_policy)
+target_compile_features(ano_policy INTERFACE cxx_std_26)
+target_compile_options(ano_policy INTERFACE
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-freflection>")
+target_link_options(ano_policy INTERFACE
+        "$<$<AND:$<LINK_LANGUAGE:CXX>,$<CXX_COMPILER_ID:Clang,GNU>>:-nostdlib++>")
+
+# .clang-tidy is the canonical whitelist; the build gate reads it directly.
+add_custom_target(ano_stdlib_policy ALL
+        COMMAND ${CMAKE_COMMAND}
+                -DANO_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+                -DANO_POLICY_FILE=${CMAKE_SOURCE_DIR}/.clang-tidy
+                -P ${CMAKE_SOURCE_DIR}/cmake/CheckStdlibHeaders.cmake
+        COMMENT "Checking the C++ standard-library header whitelist"
+        VERBATIM)
+add_custom_target(tidy)
+add_dependencies(tidy ano_stdlib_policy)
+
 # Build policy: whole builds, ThinLTO Release, modern linkers, static linking.
 
 # Keep diagnostics colored under Ninja.
@@ -168,6 +190,7 @@ file(GLOB EXTERNAL_SOURCES CONFIGURE_DEPENDS
 
 # anoptic_core: every module that builds and tests without a GPU
 add_library(anoptic_core STATIC ${HEADER_SOURCES} ${EXTERNAL_SOURCES})
+add_dependencies(anoptic_core ano_stdlib_policy)
 
 target_include_directories(anoptic_core PUBLIC
         ${CMAKE_SOURCE_DIR}/include
@@ -176,14 +199,10 @@ target_include_directories(anoptic_core PUBLIC
         ${CMAKE_SOURCE_DIR}/external/jsmn
 )
 
-target_link_libraries(anoptic_core PUBLIC mimalloc-static Threads::Threads)
+target_link_libraries(anoptic_core PUBLIC ano::policy mimalloc-static Threads::Threads)
 # PRIVATE: FreeType types stay out of public headers.
 target_link_libraries(anoptic_core PRIVATE freetype)
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_link_options(anoptic_core INTERFACE
-            "$<$<LINK_LANGUAGE:CXX>:-nostdlib++>")
-endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if(ANOPTIC_SANITIZE STREQUAL "")
         target_link_options(anoptic_core INTERFACE
@@ -356,6 +375,15 @@ if(ANOPTIC_HEADLESS OR Vulkan_FOUND)
         target_link_libraries(anopticengine PRIVATE anoptic_core)
     endif()
 
+    add_custom_command(TARGET anopticengine POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                    -DANO_BINARY=$<TARGET_FILE:anopticengine>
+                    -DANO_NM=${CMAKE_NM}
+                    -DANO_READELF=${CMAKE_READELF}
+                    -P ${CMAKE_SOURCE_DIR}/cmake/AuditSymbols.cmake
+            COMMENT "Auditing the engine for C++ runtime symbols"
+            VERBATIM)
+
     # Install: bin/anopticengine plus bin/resources/shaders.
     install(TARGETS anopticengine RUNTIME DESTINATION bin)
     if(Vulkan_FOUND)
@@ -403,15 +431,12 @@ function(ano_enable_cplus_ultra target)
         endif()
     endforeach()
 
+    target_link_libraries(${target} PRIVATE ano::policy)
     target_compile_options(${target} PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>"
-            "$<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>"
             "$<$<COMPILE_LANGUAGE:CXX>:-Werror=format>"
             "$<$<COMPILE_LANGUAGE:CXX>:-Werror=switch-enum>"
             "$<$<COMPILE_LANGUAGE:CXX>:-Werror=implicit-fallthrough>"
             "$<$<COMPILE_LANGUAGE:CXX>:-Werror=return-type>")
-    target_compile_options(${target} PRIVATE
-            "$<$<COMPILE_LANGUAGE:CXX>:-freflection>")
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(${target} PRIVATE
                 "$<$<COMPILE_LANGUAGE:CXX>:-Werror=c99-designator>"
