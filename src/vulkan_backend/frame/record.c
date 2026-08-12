@@ -5,8 +5,7 @@
 
 #include <stdint.h>
 #include <vulkan/vulkan.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
 #include "vulkan_backend/slot_upload.h"
@@ -144,7 +143,7 @@ bool recordCommandBuffer(uint32_t imageIndex)
 
 	if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
 	{
-		ano_olog(ANO_ERROR, "Failed to begin recording command buffer!");
+		ano::log(ano::origin, ano::Error, "Failed to begin recording command buffer!");
 		return false;
 	}
 
@@ -212,12 +211,12 @@ bool recordCommandBuffer(uint32_t imageIndex)
     // End prelude CB. Rest records into the main CB.
     if (rendererState.asyncLc) {
         if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-            ano_log(ANO_ERROR, "Failed to record prelude command buffer!");
+            ano::log(ano::Error, "Failed to record prelude command buffer!");
             return false;
         }
         cmd = rendererState.frames[rendererState.frameIndex].commandBuffer;
         if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS) {
-            ano_olog(ANO_ERROR, "Failed to begin recording command buffer!");
+            ano::log(ano::origin, ano::Error, "Failed to begin recording command buffer!");
             return false;
         }
     }
@@ -312,7 +311,7 @@ bool recordCommandBuffer(uint32_t imageIndex)
 
 	if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to record command buffer!");
+		ano::log(ano::Error, "Failed to record command buffer!");
 		return false;
 	}
 

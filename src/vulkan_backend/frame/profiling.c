@@ -4,7 +4,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <stdio.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 #include "vulkan_backend/vulkanMaster.h"
@@ -62,7 +62,7 @@ static void ano_print_profiling(void) {
 
     double frusta = g_shadowRenderFrames ? (double)g_shadowRenderAccum / (double)g_shadowRenderFrames : 0.0;
     // TODO: gate on a dedicated profiling build tag.
-    ano_log(ANO_INFO, "[profile mode=%s res=%ux%u] GPU ms: upload=%.3f compute=%.3f shadow=%.3f (frusta %.1f/%u) lighting=%.3f composite=%.3f total=%.3f"
+    ano::log(ano::Info, "[profile mode=%s res=%ux%u] GPU ms: upload=%.3f compute=%.3f shadow=%.3f (frusta %.1f/%u) lighting=%.3f composite=%.3f total=%.3f"
            " | VRAM MiB: gpu=%.1f tex=%.1f swap=%.1f staging=%.1f | shadowAtlas(resident)=%.1f",
            mn, rendererState.imageExtent.width, rendererState.imageExtent.height,
            up, cp, sh, frusta, ANO_SHADOW_FRUSTUM_COUNT, li, co, total, gpu, tex, swap, stg, atlas);
@@ -153,9 +153,9 @@ void anoperf_flush(anoperf_accumulator_t* acc) {
     uint64_t span = acc->prevUs - acc->startUs;   // == sum of dtUs, telescoped
     if (n > 0 && span > 0) {
         double fps = (double)n * 1e6 / (double)span;
-        ano_log(ANO_INFO, "[frame] %.1f fps  %.3f ms wall", fps, (double)span / (double)n / 1000.0);
+        ano::log(ano::Info, "[frame] %.1f fps  %.3f ms wall", fps, (double)span / (double)n / 1000.0);
         dt_sort(acc->dtUs, n);
-        ano_log(ANO_INFO, "[frametime] n=%u min=%.3f p50=%.3f p90=%.3f p99=%.3f p999=%.3f max=%.3f ms",
+        ano::log(ano::Info, "[frametime] n=%u min=%.3f p50=%.3f p90=%.3f p99=%.3f p999=%.3f max=%.3f ms",
                 n, (double)acc->dtUs[0] / 1000.0,
                 frametime_pct_ms(acc->dtUs, n, 0.50),
                 frametime_pct_ms(acc->dtUs, n, 0.90),

@@ -90,7 +90,7 @@ case ANOSTR_SID("point_light"):  add_point_light(entity, props);  break;
 case ANOSTR_SID("mesh"):         add_mesh(entity, props);         break;
 case ANOSTR_SID("rigid_body"):   add_rigid_body(entity, props);   break;
 default:
-    ano_log(ANO_WARN, "unknown component '%.*s'", anostr_fmt(typeName));
+    ano::log(ano::Warn, "unknown component '%.*s'", anostr_fmt(typeName));
 }
 ```
 
@@ -137,7 +137,7 @@ case ANOSTR_SID("graphics.width"):           cfg->width  = parse_u32(val); break
 case ANOSTR_SID("graphics.height"):          cfg->height = parse_u32(val); break;
 case ANOSTR_SID("graphics.fullscreen-mode"): cfg->fs     = parse_fs(val);  break;
 default:
-    ano_log(ANO_WARN, "config: unknown key '%.*s'", anostr_fmt(key));
+    ano::log(ano::Warn, "config: unknown key '%.*s'", anostr_fmt(key));
 }
 ```
 

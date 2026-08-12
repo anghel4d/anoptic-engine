@@ -10,9 +10,7 @@
 
 #include <math.h>
 #include <string.h>
-
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #define FX_TAU_F 6.28318530717958647692f
 
 using EffectKind = ano::EnumValue<AnoAudioEffectKind>;
@@ -63,7 +61,7 @@ bool ano_audio_fx_init(AnoAudioFx *fx, uint32_t kind, mi_heap_t *heap,
     fx->fs   = (float)sampleRate;
     const float fs = (float)sampleRate;
     if (!parsed)
-        ano_log(ANO_WARN, "audio: unknown effect kind %u; slot left empty.", kind);
+        ano::log(ano::Warn, "audio: unknown effect kind %u; slot left empty.", kind);
 
     switch (effect.get()) {
     case ANO_AUDIO_FX_NONE:
@@ -348,7 +346,7 @@ void ano_audio_fx_set(AnoAudioFx *fx, uint32_t paramId, float value)
             }
         });
     if (!applied)
-        ano_debug_log(ANO_WARN, "audio: FX_SET param %u does not belong to effect kind %u; dropped.",
+        ANO_DEBUG_LOG(ano::Warn, "audio: FX_SET param %u does not belong to effect kind %u; dropped.",
                       paramId, fx->kind);
 }
 

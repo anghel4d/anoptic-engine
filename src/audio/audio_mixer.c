@@ -10,8 +10,7 @@
 
 #include <math.h>
 #include <string.h>
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 #define ANO_AUDIO_TAU_F  6.28318530717958647692f // 2*pi
@@ -135,7 +134,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
     if constexpr (Kind == ACMD_SOURCE_PLAY) {
         const AnoAudioSourceDesc *d = &cmd->desc;
         if (d->bus >= mx->busCount) {
-            ano_debug_log(ANO_WARN, "audio: PLAY id %u names bus %u of %u; dropped.",
+            ANO_DEBUG_LOG(ano::Warn, "audio: PLAY id %u names bus %u of %u; dropped.",
                           cmd->source_id, d->bus, mx->busCount);
             return;
         }
@@ -143,12 +142,12 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
         if (d->kind == ANO_AUDIO_SOURCE_BUFFER) {
             buf = buffer_find(mx, d->buffer_id, ANO_AUDIO_BUF_LIVE);
             if (!buf) {
-                ano_debug_log(ANO_WARN, "audio: PLAY id %u names unknown buffer %u; dropped.",
+                ANO_DEBUG_LOG(ano::Warn, "audio: PLAY id %u names unknown buffer %u; dropped.",
                               cmd->source_id, d->buffer_id);
                 return;
             }
         } else if (d->kind != ANO_AUDIO_SOURCE_TONE) {
-            ano_debug_log(ANO_WARN, "audio: PLAY id %u has unsupported kind %u; dropped.",
+            ANO_DEBUG_LOG(ano::Warn, "audio: PLAY id %u has unsupported kind %u; dropped.",
                           cmd->source_id, d->kind);
             return;
         }
@@ -174,7 +173,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
                 AnoAudioEvent evt = { .kind = AEVT_CAPACITY };
                 ano_audio_emit_event(mx->bridge, &evt);
             }
-            ano_debug_log(ANO_WARN, "audio: voice pool full; PLAY id %u dropped.", cmd->source_id);
+            ANO_DEBUG_LOG(ano::Warn, "audio: voice pool full; PLAY id %u dropped.", cmd->source_id);
             return;
         }
 
@@ -191,7 +190,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
             slot->bufFrames   = buf->frames;
             slot->bufData     = buf->data;
             if (buf->channels == 2u && (slot->flags & ANO_AUDIO_SOURCE_POSITIONAL)) {
-                ano_debug_log(ANO_WARN, "audio: PLAY id %u: stereo buffers are not positional.",
+                ANO_DEBUG_LOG(ano::Warn, "audio: PLAY id %u: stereo buffers are not positional.",
                               cmd->source_id);
                 slot->flags &= ~(uint32_t)ANO_AUDIO_SOURCE_POSITIONAL;
             }
@@ -257,7 +256,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
         return;
     } else if constexpr (Kind == ACMD_BUS_SET) {
         if (cmd->bus >= mx->busCount) {
-            ano_debug_log(ANO_WARN, "audio: BUS_SET names bus %u of %u; dropped.", cmd->bus, mx->busCount);
+            ANO_DEBUG_LOG(ano::Warn, "audio: BUS_SET names bus %u of %u; dropped.", cmd->bus, mx->busCount);
             return;
         }
         AnoAudioBus *bus = &mx->buses[cmd->bus];
@@ -270,12 +269,12 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
         return;
     } else if constexpr (Kind == ACMD_FX_SET) {
         if (cmd->bus >= mx->busCount || cmd->fxSlot >= ANO_AUDIO_MAX_FX) {
-            ano_debug_log(ANO_WARN, "audio: FX_SET names bus %u slot %u; dropped.", cmd->bus, cmd->fxSlot);
+            ANO_DEBUG_LOG(ano::Warn, "audio: FX_SET names bus %u slot %u; dropped.", cmd->bus, cmd->fxSlot);
             return;
         }
         AnoAudioFx *fx = &mx->buses[cmd->bus].fx[cmd->fxSlot];
         if (fx->kind == ANO_AUDIO_FX_NONE) {
-            ano_debug_log(ANO_WARN, "audio: FX_SET on empty slot %u of bus %u; dropped.",
+            ANO_DEBUG_LOG(ano::Warn, "audio: FX_SET on empty slot %u of bus %u; dropped.",
                           cmd->fxSlot, cmd->bus);
             return;
         }
@@ -283,7 +282,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
         return;
     } else if constexpr (Kind == ACMD_BUFFER_REGISTER) {
         if (!mx->bridge) {
-            ano_debug_log(ANO_WARN, "audio: BUFFER_REGISTER ignored offline (use desc.buffers).");
+            ANO_DEBUG_LOG(ano::Warn, "audio: BUFFER_REGISTER ignored offline (use desc.buffers).");
             return;
         }
         if (!cmd->block)
@@ -291,13 +290,13 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
         const AnoAudioBlockHeader *h =
             static_cast<const AnoAudioBlockHeader *>(cmd->block);
         if (h->frames == 0u || h->channels < 1u || h->channels > 2u) {
-            ano_debug_log(ANO_WARN, "audio: buffer %u rejected (bad header).", cmd->source_id);
+            ANO_DEBUG_LOG(ano::Warn, "audio: buffer %u rejected (bad header).", cmd->source_id);
             buffer_reject(mx, cmd->source_id, cmd->block);
             return;
         }
         if (buffer_find(mx, cmd->source_id, ANO_AUDIO_BUF_LIVE)
             || buffer_find(mx, cmd->source_id, ANO_AUDIO_BUF_RETIRING)) {
-            ano_debug_log(ANO_WARN, "audio: buffer id %u already resident; rejected.", cmd->source_id);
+            ANO_DEBUG_LOG(ano::Warn, "audio: buffer id %u already resident; rejected.", cmd->source_id);
             buffer_reject(mx, cmd->source_id, cmd->block);
             return;
         }
@@ -311,7 +310,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
         if (!slot) {
             AnoAudioEvent evt = { .kind = AEVT_CAPACITY };
             ano_audio_emit_event(mx->bridge, &evt);
-            ano_debug_log(ANO_WARN, "audio: buffer table full; %u rejected.", cmd->source_id);
+            ANO_DEBUG_LOG(ano::Warn, "audio: buffer table full; %u rejected.", cmd->source_id);
             buffer_reject(mx, cmd->source_id, cmd->block);
             return;
         }
@@ -351,7 +350,7 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
     }
     });
     if (!known)
-        ano_debug_log(ANO_WARN, "audio: unknown command kind %u; dropped.", cmd->kind);
+        ANO_DEBUG_LOG(ano::Warn, "audio: unknown command kind %u; dropped.", cmd->kind);
 }
 
 /* Block rendering */

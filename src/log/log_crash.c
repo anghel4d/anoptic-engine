@@ -6,6 +6,7 @@
 // Calm blackbox: resolve CRASH.log path, Stage 4 look-back, hand off to platform Stage 1 hooks.
 
 #include <anoptic_log_crash.h>
+#include <ano/log.h>
 #include <anoptic_filesystem.h>
 
 #include "log/log_crash_internal.h"
@@ -20,9 +21,9 @@ static void investigate_previous_flight(const char *dir)
     char newest[MAXPATH];
     int n = bb_scan_suffix(dir, "_CRASH.log", newest);
     if (n == 1)
-        ano_rlog(ANO_WARN, ANO_BOTH, "blackbox: 1 crash log detected, %s/%s.", dir, newest);
+        ano::log(ano::Warn, ano::Both, "blackbox: 1 crash log detected, %s/%s.", dir, newest);
     else if (n > 1)
-        ano_rlog(ANO_WARN, ANO_BOTH, "blackbox: %d crash logs detected, newest %s/%s.", n, dir, newest);
+        ano::log(ano::Warn, ano::Both, "blackbox: %d crash logs detected, newest %s/%s.", n, dir, newest);
     const char *stamp = ano_fs_session_stamp();
     bb_prune_suffix(dir, "_CRASH.log", BB_KEEP_LOGS, stamp);
     bb_prune_suffix(dir, "_ano.log",   BB_KEEP_LOGS, stamp);

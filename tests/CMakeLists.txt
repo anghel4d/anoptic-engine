@@ -10,7 +10,7 @@ add_test(NAME anoptic_resources_c_header
                 -fsyntax-only ${CMAKE_CURRENT_SOURCE_DIR}/anotest_resources_c_header.c)
 set_tests_properties(anoptic_resources_c_header PROPERTIES TIMEOUT 30 LABELS "unit;resources")
 
-function(ano_add_resource_compile_failure name source expected)
+function(ano_add_compile_failure name source expected labels)
     add_test(NAME ${name}
             COMMAND ${CMAKE_COMMAND}
                     -DCXX=${CMAKE_CXX_COMPILER}
@@ -18,17 +18,22 @@ function(ano_add_resource_compile_failure name source expected)
                     -DINCLUDE_DIR=${CMAKE_SOURCE_DIR}/include
                     -DEXPECTED=${expected}
                     -P ${CMAKE_CURRENT_SOURCE_DIR}/expect_compile_failure.cmake)
-    set_tests_properties(${name} PROPERTIES TIMEOUT 30 LABELS "unit;resources;compile-fail")
+    set_tests_properties(${name} PROPERTIES TIMEOUT 30 LABELS "unit;compile-fail;${labels}")
 endfunction()
 
-ano_add_resource_compile_failure(anoptic_resources_reject_pointer
-        compile_fail/resources_pointer_field.c "cannot contain pointers or references")
-ano_add_resource_compile_failure(anoptic_resources_reject_incomplete
-        compile_fail/resources_incomplete_artifact.c "must denote complete types")
-ano_add_resource_compile_failure(anoptic_resources_reject_non_artifact_ref
-        compile_fail/resources_non_artifact_ref.c "exactly one Artifact annotation")
-ano_add_resource_compile_failure(anoptic_resources_reject_transform_values
-        compile_fail/resources_bad_transform_signature.c "must be lvalue references")
+ano_add_compile_failure(anoptic_resources_reject_pointer
+        compile_fail/resources_pointer_field.c "cannot contain pointers or references" resources)
+ano_add_compile_failure(anoptic_resources_reject_incomplete
+        compile_fail/resources_incomplete_artifact.c "must denote complete types" resources)
+ano_add_compile_failure(anoptic_resources_reject_non_artifact_ref
+        compile_fail/resources_non_artifact_ref.c "exactly one Artifact annotation" resources)
+ano_add_compile_failure(anoptic_resources_reject_transform_values
+        compile_fail/resources_bad_transform_signature.c "must be lvalue references" resources)
+
+ano_add_compile_failure(anoptic_log_reject_argument_type
+        compile_fail/log_argument_type.c "contract predicate is false" log)
+ano_add_compile_failure(anoptic_log_reject_argument_count
+        compile_fail/log_argument_count.c "contract predicate is false" log)
 
 # Testing for ``anoptic_time.h``
 add_executable(anotest_time anotest_time.c)

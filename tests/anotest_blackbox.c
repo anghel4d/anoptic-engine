@@ -15,6 +15,7 @@
 // required/forbidden substrings, sentinel counts. No args = parent, argv[1] = scenario. Exit 0 = pass.
 
 #include <anoptic_log_crash.h>
+#include <anoptic_log.h>
 #include <anoptic_filesystem.h>
 #include <anoptic_threads.h>
 #include <anoptic_time.h>
@@ -139,28 +140,28 @@ static void sc_thread_segv(void)
 static void sc_hailmary(void)
 {
     for (int i = 0; i < 32; i++)
-        ano_log(ANO_INFO, "hailmary-sentinel-%d", i);
+        ano::log(ano::Info, "hailmary-sentinel-%d", i);
     *(volatile int *)0 = 1;
 }
 
 static void sc_empty_ring(void)
 {
-    ano_log(ANO_INFO, "empty-ring-sentinel");
+    ano::log(ano::Info, "empty-ring-sentinel");
     ano_log_flush();                    // ring drained before the crash
     *(volatile int *)0 = 1;
 }
 
 static void sc_now_path(void)
 {
-    ano_rlog(ANO_FATAL, ANO_FILE | ANO_NOW, "fatal-now-sentinel");  // synchronous write + fsync
+    ano::log(ano::Fatal, ano::File | ano::Now, "fatal-now-sentinel");  // synchronous write + fsync
     *(volatile int *)0 = 1;
 }
 
 // Crash inside ano_log_write: strlen on wild %s.
 static void sc_midwrite(void)
 {
-    ano_log(ANO_INFO, "midwrite-sentinel-before");
-    ano_log(ANO_INFO, "%s", (const char *)16);
+    ano::log(ano::Info, "midwrite-sentinel-before");
+    ano::log(ano::Info, "%s", (const char *)16);
 }
 
 // Producer storm for contention/ring_full. Runs until death.
@@ -177,16 +178,16 @@ static void *spammer(void *arg)
     for (;;) {
         s ^= s << 13; s ^= s >> 17; s ^= s << 5;
         if (huge) {
-            ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, "%s", bigbuf);  // 4000 B entries: the ring pins full
+            ano_log_write(ano::Info, ano::DefaultRoute, NULL, 0, "%s", bigbuf);  // 4000 B entries: the ring pins full
         } else {
             int n = (int)(s % 100u) + 8;
             for (int i = 0; i < n; i++) buf[i] = (char)('!' + (int)((s + (uint32_t)i) % 90u));
             buf[n] = 0;
-            ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, "anotest", 1, "%s", buf);
-            ano_log_write(ANO_WARN, ANO_ROUTE_DEFAULT, NULL, 0,
+            ano_log_write(ano::Info, ano::DefaultRoute, "anotest", 1, "%s", buf);
+            ano_log_write(ano::Warn, ano::DefaultRoute, NULL, 0,
                           "mix=%d/%x/%s", (int)s, s, "alpha");
             if ((++it & 63u) == 0)
-                ano_log_write(ANO_ERROR, ANO_NOW | ANO_FILE, NULL, 0, "now-%u", it);  // NOW under storm
+                ano_log_write(ano::Error, ano::Now | ano::File, NULL, 0, "now-%u", it);  // NOW under storm
         }
     }
     return NULL;
@@ -219,7 +220,7 @@ static void sc_deadman(void)
     ano_sleep(5000);        // 5 ms idle: let the drainer park
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-    ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, (const char *)page, 7);
+    ano_log_write(ano::Info, ano::DefaultRoute, NULL, 0, (const char *)page, 7);
 #pragma GCC diagnostic pop
 #if defined(_WIN32)
     VirtualFree(page, 0, MEM_RELEASE);  // freed while the drainer is still waking
@@ -273,7 +274,7 @@ static void sc_double(void)
 
 static void sc_clean(void)
 {
-    ano_log(ANO_INFO, "clean-run-sentinel");
+    ano::log(ano::Info, "clean-run-sentinel");
     ano_log_flush();
     ano_log_cleanup();
 }

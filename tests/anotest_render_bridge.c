@@ -680,7 +680,7 @@ int main(void)
     test_single_threaded(heap);
 
     // ui_set drop WARN -> stderr NOW (no logger init).
-    ano_log_set_route(ANO_WARN, ANO_TERM | ANO_NOW);
+    ano_log_set_route(ano::Warn, ano::Term | ano::Now);
 
     test_accepted(heap);
     test_backpressure(heap);

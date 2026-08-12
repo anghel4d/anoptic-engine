@@ -8,8 +8,7 @@
 #include <vulkan/vulkan.h>
 #include <string.h>
 #include <anoptic_memory.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -141,7 +140,7 @@ bool initSwapChain(VulkanContext* ctx, GLFWwindow* window, VkPresentModeKHR pref
     SwapChainSupport support;
     if (!querySwapChainSupport(ctx->physicalDevice, ctx->surface, preferredMode, &support))
     {
-        ano_log(ANO_ERROR, "Failed to query swap chain support!");
+        ano::log(ano::Error, "Failed to query swap chain support!");
         return false;
     }
 
@@ -378,7 +377,7 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 	glfwGetFramebufferSize(window, &width, &height);
 	while (width == 0 || height == 0)
 	{
-		ano_debug_log(ANO_INFO, "Sleeping!");
+		ANO_DEBUG_LOG(ano::Info, "Sleeping!");
 		glfwGetFramebufferSize(window, &width, &height);
 		glfwWaitEvents();
 	}
@@ -396,20 +395,20 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 
 	if(rendererState.swapChain == VK_NULL_HANDLE)
 	{
-		ano_log(ANO_FATAL, "Swap chain re-creation error, exiting!");
+		ano::log(ano::Fatal, "Swap chain re-creation error, exiting!");
 		cleanupVulkan(ctx);
 		exit(1);
 	}
 	if (!createImageViews(ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "View group re-creation error, exiting!");
+		ano::log(ano::Fatal, "View group re-creation error, exiting!");
 		cleanupVulkan(ctx);
 		exit(1);
 	}
 
 	if (!createColorResourcesChecked(ctx))
 	{
-		ano_log(ANO_FATAL, "Colour target re-creation error, exiting!");
+		ano::log(ano::Fatal, "Colour target re-creation error, exiting!");
 		cleanupVulkan(ctx);
 		exit(1);
 	}
@@ -418,7 +417,7 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 	// leaves that field live.
 	if (!createDepthResources(ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Depth resources re-creation error, exiting!");
+		ano::log(ano::Fatal, "Depth resources re-creation error, exiting!");
 		cleanupVulkan(ctx);
 		exit(1);
 	}
@@ -426,7 +425,7 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 	// Hi-Z pyramid: recreate at new resolution, rebind per-mip sets
 	if (!createHiZResources(ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Hi-Z resources re-creation error, exiting!");
+		ano::log(ano::Fatal, "Hi-Z resources re-creation error, exiting!");
 		cleanupVulkan(ctx);
 		exit(1);
 	}
@@ -467,7 +466,7 @@ VkImageView createImageView(VkDevice device, VkImage image, VkFormat format, VkI
 	VkImageView imageView = VK_NULL_HANDLE;
 	if (vkCreateImageView(device, &viewInfo, NULL, &imageView) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to create image view!");
+		ano::log(ano::Error, "Failed to create image view!");
 		return VK_NULL_HANDLE;
 	}
 
@@ -485,7 +484,7 @@ bool createImageViews(VulkanContext* ctx, RendererState* state)
     VkImageView* views = (VkImageView*)malloc(state->imageCount * sizeof(VkImageView));
     if (views == NULL)
     {
-        ano_log(ANO_ERROR, "Failed to allocate %u swapchain image views!", state->imageCount);
+        ano::log(ano::Error, "Failed to allocate %u swapchain image views!", state->imageCount);
         return false;
     }
 

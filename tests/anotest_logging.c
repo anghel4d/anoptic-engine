@@ -130,10 +130,10 @@ static int test_roundtrip(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log(ANO_INFO, "hello %d", 7);
-    ano_log(ANO_WARN, "warn line");
-    ano_log(ANO_ERROR, "err %s", "x");
-    ano_olog(ANO_INFO, "origin line");
+    ano::log(ano::Info, "hello %d", 7);
+    ano::log(ano::Warn, "warn line");
+    ano::log(ano::Error, "err %s", "x");
+    ano::log(ano::origin, ano::Info, "origin line");
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -146,7 +146,7 @@ static int test_roundtrip(void)
         int origins = 0;
         for (char *s = c; (s = strstr(s, "anotest_logging.c:")) != NULL; s++)
             origins++;
-        CHECK(origins == 1, "roundtrip: only the olog line carries the file:line prefix");
+        CHECK(origins == 1, "roundtrip: only the origin-tagged line carries the file:line prefix");
         free(c);
     }
     return g_fail;
@@ -156,7 +156,7 @@ static int test_formatting(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log(ANO_INFO, "int=%d str=%s hex=%x width=%5d", 42, "abc", 255, 3);
+    ano::log(ano::Info, "int=%d str=%s hex=%x width=%5d", 42, "abc", 255, 3);
     ano_log_flush();
 
     char expect[256];
@@ -182,7 +182,7 @@ static int test_deferred_formatting(void)
     int  ne = 0;
 #define DCHK(...) do { \
         snprintf(exp[ne], sizeof exp[ne], __VA_ARGS__); \
-        ano_log(ANO_INFO, __VA_ARGS__); \
+        ano::log(ano::Info, __VA_ARGS__); \
         ne++; \
     } while (0)
 
@@ -289,7 +289,7 @@ static int test_accumulation_order(void)
     g_fail = 0;
     reset_output();
     for (int i = 0; i < 50; i++)
-        ano_log(ANO_INFO, "seq %d", i);
+        ano::log(ano::Info, "seq %d", i);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -308,11 +308,11 @@ static int test_level_gate(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log_set_level(ANO_ERROR);
-    ano_log(ANO_INFO, "gated info message");
-    ano_log(ANO_ERROR, "passing error message");
+    ano_log_set_level(ano::Error);
+    ano::log(ano::Info, "gated info message");
+    ano::log(ano::Error, "passing error message");
     ano_log_flush();
-    ano_log_set_level(ANO_INFO);
+    ano_log_set_level(ano::Info);
 
     char *c = slurp(LOG_PATH, NULL);
     CHECK(c != NULL, "gate: file readable");
@@ -336,7 +336,7 @@ static void *full_flooder(void *arg)
 {
     int id = (int)(intptr_t)arg;
     for (int i = 0; i < FULL_PER; i++)
-        if (ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        if (ano_log_write(ano::Info, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                           "flood t%d %d", id, i) == 1)
             atomic_fetch_add(&g_full_flushed, 1);
     return NULL;
@@ -371,8 +371,8 @@ static int test_immediate_order(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log(ANO_INFO, "buffered before immediate");
-    ano_log_write(ANO_ERROR, ANO_NOW, __FILE_NAME__, __LINE__, "immediate %d", 99);
+    ano::log(ano::Info, "buffered before immediate");
+    ano_log_write(ano::Error, ano::Now, __FILE_NAME__, __LINE__, "immediate %d", 99);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -393,10 +393,10 @@ static int test_routing(void)
 {
     g_fail = 0;
     reset_output();
-    ano_rlog(ANO_INFO, ANO_TERM, "route term only %d", 1);
-    ano_rlog(ANO_INFO, ANO_BOTH, "route both %d", 2);
-    ano_rlog(ANO_INFO, ANO_FILE, "route file only %d", 3);
-    ano_rlog(ANO_WARN, ANO_NOW, "route now default sink %d", 4);
+    ano::log(ano::Info, ano::Term, "route term only %d", 1);
+    ano::log(ano::Info, ano::Both, "route both %d", 2);
+    ano::log(ano::Info, ano::File, "route file only %d", 3);
+    ano::log(ano::Warn, ano::Now, "route now default sink %d", 4);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -411,10 +411,10 @@ static int test_routing(void)
     }
 
     // Rebind INFO to TERM-only, log, restore. File must not grow.
-    ano_log_set_route(ANO_INFO, ANO_TERM);
-    ano_log(ANO_INFO, "rerouted info line");
+    ano_log_set_route(ano::Info, ano::Term);
+    ano::log(ano::Info, "rerouted info line");
     ano_log_flush();
-    ano_log_set_route(ANO_INFO, ANO_FILE);
+    ano_log_set_route(ano::Info, ano::File);
     c = slurp(LOG_PATH, NULL);
     CHECK(c != NULL && strstr(c, "rerouted info line") == NULL,
           "routing: set_route override keeps INFO out of the file");
@@ -429,7 +429,7 @@ static int test_truncation(void)
     char big[6000];
     memset(big, 'A', sizeof big - 1);
     big[sizeof big - 1] = '\0';
-    ano_log(ANO_INFO, "%s", big);
+    ano::log(ano::Info, "%s", big);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -445,7 +445,7 @@ static int test_empty_message(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log(ANO_INFO, "%s", "");
+    ano::log(ano::Info, "%s", "");
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -462,7 +462,7 @@ static void *worker(void *arg)
 {
     int id = (int)(intptr_t)arg;
     for (int i = 0; i < MSGS_PER_THREAD; i++)
-        if (ano_log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        if (ano_log_write(ano::Error, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                           "worker %d msg %d", id, i) != 0)
             atomic_fetch_add(&g_worker_fail, 1);
     return NULL;
@@ -504,7 +504,7 @@ static void *c1_producer(void *arg)
 {
     int id = (int)(intptr_t)arg;
     for (int i = 0; i < C1_PER; i++)
-        ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        ano_log_write(ano::Info, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                       "c1 p%d %d", id, i);
     return NULL;
 }
@@ -563,7 +563,7 @@ static void *c2_worker(void *arg)
     int id = (int)(intptr_t)arg;
     for (int cyc = 0; cyc < C2_CYCLES; cyc++) {
         for (int i = 0; i < C2_BATCH; i++)
-            ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+            ano_log_write(ano::Info, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                           "c2 t%d c%d i%d", id, cyc, i);
         ano_log_flush();   // drain to empty: buffer state recycles back to 0
     }
@@ -604,7 +604,7 @@ static void *c3_producer(void *arg)
 {
     int id = (int)(intptr_t)arg;
     for (int i = 0; i < C3_OPS; i++)
-        ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        ano_log_write(ano::Info, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                       "c3 p%d %d", id, i);
     return NULL;
 }
@@ -614,7 +614,7 @@ static void *c3_thrasher(void *arg)
 {
     (void)arg;
     for (int n = 0; n < C3_OPS; n++) {
-        ano_log_set_level((n & 1) ? ANO_INFO : ANO_WARN);
+        ano_log_set_level((n & 1) ? ano::Info : ano::Warn);
         if (n % 50 == 0)
             ano_log_output_dir((n % 100 == 0) ? LOG_DIR : LOG_DIR_ALT);   // swap the output file mid-write
     }
@@ -636,9 +636,9 @@ static int test_contention_3_config_thrash(void)
     ano_thread_join(thr, NULL);
 
     // Restore config, confirm end-to-end.
-    ano_log_set_level(ANO_INFO);
+    ano_log_set_level(ano::Info);
     ano_log_output_dir(LOG_DIR);
-    ano_log(ANO_INFO, "c3 survived: %s", "yes");
+    ano::log(ano::Info, "c3 survived: %s", "yes");
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -659,20 +659,24 @@ static int test_abuse_inputs(void)
     reset_output();
 
     // C-string-scannable first (no embedded NUL).
-    ano_log(ANO_INFO, "multi\nline\nmessage");              // newlines inside one record
-    ano_log(ANO_INFO, "%9000d", 7);                         // width far past the cap: must clamp, not overflow
-    ano_log(ANO_INFO, "%d %s %x %o %c %u %ld 100%%",        // every common conversion at once
+    ano::log(ano::Info, "multi\nline\nmessage");              // newlines inside one record
+    ano::log(ano::Info, "%9000d", 7);                         // width far past the cap: must clamp, not overflow
+    ano::log(ano::Info, "%d %s %x %o %c %u %ld 100%%",        // every common conversion at once
                  1, "two", 0xab, 64, 'Z', 5u, 6L);
     char emptyFormat[] = "";
-    // Non-literal format: the C++ ano_log macros compile only literals, so dynamic
-    // formats go through the public ano_log_write ABI 〜 exactly what this covers.
-    ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, emptyFormat, 0);  // empty format
-    ano_log(ANO_INFO, "%s%s%s%s%s", "", "", "", "", "");    // five empty %s
+    // Non-literal formats bypass ano::log's consteval format boundary and use the
+    // public ano_log_write ABI 〜 exactly what this covers.
+    ano_log_write(ano::Info, ano::DefaultRoute, NULL, 0, emptyFormat, 0);  // empty format
+    ano::log(ano::Info, "%s%s%s%s%s", "", "", "", "", "");    // five empty %s
+    char nearPack[4069];
+    memset(nearPack, 'q', sizeof nearPack - 1);
+    nearPack[sizeof nearPack - 1] = '\0';
+    ano::log(ano::Info, "%s %p", nearPack, (void *)nearPack);
     ano_log_flush();
 
     size_t len1 = 0;
     char *c = slurp(LOG_PATH, &len1);
-    CHECK(c != NULL && len1 > 0, "abuse: survived pathological inputs, file non-empty");
+    CHECK(c != NULL && len1 > 4069, "abuse: survived pathological inputs, file non-empty");
     if (c) {
         CHECK(longest_line(c) <= 4096, "abuse: oversize width still clamped");
         CHECK(strstr(c, "two") != NULL, "abuse: multi-conversion line present");
@@ -680,7 +684,7 @@ static int test_abuse_inputs(void)
     }
 
     // Embedded NUL last: stored byte-for-byte. Only assert file grew.
-    ano_log(ANO_INFO, "a%cb", 0);
+    ano::log(ano::Info, "a%cb", 0);
     ano_log_flush();
     size_t len2 = 0;
     char *c2 = slurp(LOG_PATH, &len2);
@@ -695,21 +699,21 @@ static int test_abuse_config(void)
     reset_output();
 
     // Absurd-high level gates all.
-    ano_log_set_level((ano_loglevel_t)999);
-    ano_log(ANO_INFO, "gated by absurd level");
+    ano_log_set_level((ano::Level)999);
+    ano::log(ano::Info, "gated by absurd level");
     ano_log_flush();
     char *c = slurp(LOG_PATH, NULL);
     CHECK(c == NULL || strstr(c, "absurd level") == NULL, "abuse-config: absurd-high level gates all");
     free(c);
 
-    // Absurd-low level passes all.
-    ano_log_set_level((ano_loglevel_t)-1000);
-    ano_log(ANO_INFO, "passes with absurd-low level");
+    // Lowest valid level passes all.
+    ano_log_set_level(ano::Trace);
+    ano::log(ano::Info, "passes at trace level");
     ano_log_flush();
     c = slurp(LOG_PATH, NULL);
-    CHECK(c && strstr(c, "absurd-low"), "abuse-config: absurd-low level passes all");
+    CHECK(c && strstr(c, "trace level"), "abuse-config: trace level passes all");
     free(c);
-    ano_log_set_level(ANO_INFO);
+    ano_log_set_level(ano::Info);
     return g_fail;
 }
 
@@ -717,7 +721,7 @@ static int test_abuse_output_dir(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log(ANO_INFO, "before bad output_dir");
+    ano::log(ano::Info, "before bad output_dir");
     ano_log_flush();
 
     CHECK(ano_log_output_dir(NULL) == -1, "abuse-dir: NULL rejected");
@@ -730,7 +734,7 @@ static int test_abuse_output_dir(void)
     CHECK(ano_log_output_dir(longp) == -1, "abuse-dir: overlong path rejected");
 
     // Rejected switches leave working output intact.
-    ano_log(ANO_INFO, "after bad output_dir");
+    ano::log(ano::Info, "after bad output_dir");
     ano_log_flush();
     char *c = slurp(LOG_PATH, NULL);
     CHECK(c && strstr(c, "before bad output_dir") && strstr(c, "after bad output_dir"),
@@ -743,10 +747,10 @@ static int test_abuse_output_dir(void)
 static int test_lifecycle_guard(const char *when)
 {
     g_fail = 0;
-    int r = ano_log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+    int r = ano_log_write(ano::Error, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                           "%s enqueue", when);
-    ano_log_write(ANO_WARN, ANO_NOW, __FILE_NAME__, __LINE__, "%s immediate (expected on stderr)", when);
-    ano_log_set_level(ANO_WARN);
+    ano_log_write(ano::Warn, ano::Now, __FILE_NAME__, __LINE__, "%s immediate (expected on stderr)", when);
+    ano_log_set_level(ano::Warn);
     ano_log_flush();
     int dr = ano_log_output_dir("anywhere");
     CHECK(r == 0, "lifecycle: enqueue is a no-op (returns 0) when not live");
@@ -767,7 +771,7 @@ static int test_srcfile_literal(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, "ctrl_lit.c", 42,
+    ano_log_write(ano::Info, ano::DefaultRoute, "ctrl_lit.c", 42,
                   "control literal %d", 1);
     ano_log_flush();
 
@@ -788,7 +792,7 @@ static int test_srcfile_mutable_buffer(void)
     reset_output();
     char keep[32];
     strcpy(keep, "ctrl_keep.c");
-    ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, keep, 77, "control intact %d", 2);
+    ano_log_write(ano::Info, ano::DefaultRoute, keep, 77, "control intact %d", 2);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -808,12 +812,12 @@ static int test_srcfile_calltime_capture(void)
     reset_output();
 
     for (int i = 0; i < SRCFILE_BACKLOG; i++)
-        ano_log(ANO_INFO, "srcfile filler %d", i);
+        ano::log(ano::Info, "srcfile filler %d", i);
 
     static char buf[SRCFILE_TRIGGERS][24];
     for (unsigned k = 0; k < SRCFILE_TRIGGERS; k++) {
         snprintf(buf[k], sizeof buf[k], "live_%02u.c", k);
-        ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, buf[k], (int)(4200u + k),
+        ano_log_write(ano::Info, ano::DefaultRoute, buf[k], (int)(4200u + k),
                       "trig %u", k);
         memcpy(buf[k], "gone", 4);   // scribble: same length, call-time name destroyed
     }
@@ -850,17 +854,17 @@ static int test_visible_output(void)
     remove(VIS_PATH);
     ano_log_output_dir(VIS_DIR);
 
-    ano_log(ANO_INFO, "=== Anoptic logger showcase: this file is left on disk for you to read ===");
-    ano_debug_log(ANO_INFO, "a debug line (present only in a DEBUG build)");
-    ano_log(ANO_INFO, "formatted: int=%d str=%s hex=0x%x float=%.3f", 42, "hello", 255, 3.14159);
-    ano_olog(ANO_INFO, "an origin line carrying this call site's file:line");
-    ano_log(ANO_WARN, "a warning about something");
-    ano_log(ANO_ERROR, "an error with %d codes", 3);
-    ano_log(ANO_INFO, "a multi-line\nmessage that spans\nthree physical lines");
-    ano_log(ANO_INFO, "byte-transparent UTF-8: %s", "cafe \xE2\x98\x95 \xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E");
-    ano_log(ANO_FATAL, "a FATAL routed through the default BOTH|NOW route");
+    ano::log(ano::Info, "=== Anoptic logger showcase: this file is left on disk for you to read ===");
+    ANO_DEBUG_LOG(ano::Info, "a debug line (present only in a DEBUG build)");
+    ano::log(ano::Info, "formatted: int=%d str=%s hex=0x%x float=%.3f", 42, "hello", 255, 3.14159);
+    ano::log(ano::origin, ano::Info, "an origin line carrying this call site's file:line");
+    ano::log(ano::Warn, "a warning about something");
+    ano::log(ano::Error, "an error with %d codes", 3);
+    ano::log(ano::Info, "a multi-line\nmessage that spans\nthree physical lines");
+    ano::log(ano::Info, "byte-transparent UTF-8: %s", "cafe \xE2\x98\x95 \xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E");
+    ano::log(ano::Fatal, "a FATAL routed through the default BOTH|NOW route");
     for (int i = 1; i <= 5; i++)
-        ano_log(ANO_INFO, "counted line %d of 5", i);
+        ano::log(ano::Info, "counted line %d of 5", i);
     ano_log_flush();
 
     ano_log_output_dir(LOG_DIR);   // rebind off showcase file
@@ -884,7 +888,7 @@ static int test_edge_cap_boundary(void)
     char body[4096];
     memset(body, 'B', sizeof body - 1);
     body[sizeof body - 1] = '\0';
-    ano_log(ANO_INFO, "%s", body);
+    ano::log(ano::Info, "%s", body);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -904,7 +908,7 @@ static int test_edge_tiny_records(void)
     g_fail = 0;
     reset_output();
     for (int i = 0; i < TINY_COUNT; i++)
-        ano_log(ANO_INFO, "%c", 'a' + (i % 26));
+        ano::log(ano::Info, "%c", 'a' + (i % 26));
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -926,7 +930,7 @@ static int test_edge_ring_seam(void)
     int n = 0;
     for (int b = 0; b < SEAM_BATCHES; b++) {
         for (int i = 0; i < SEAM_PER; i++)
-            ano_log(ANO_INFO, "seam %d", n++);
+            ano::log(ano::Info, "seam %d", n++);
         ano_log_flush();   // mid-stream drain: write cursor laps the buffer
     }
 
@@ -951,8 +955,8 @@ static int test_edge_alternating_immediate(void)
     g_fail = 0;
     reset_output();
     for (int i = 0; i < ALT_PAIRS; i++) {
-        ano_log(ANO_INFO, "alt buffered %d", i);
-        ano_log_write(ANO_ERROR, ANO_NOW, __FILE_NAME__, __LINE__, "alt immediate %d", i);
+        ano::log(ano::Info, "alt buffered %d", i);
+        ano_log_write(ano::Error, ano::Now, __FILE_NAME__, __LINE__, "alt immediate %d", i);
     }
     ano_log_flush();
 
@@ -978,10 +982,10 @@ static int test_edge_output_dir_switch(void)
 
     for (int round = 0; round < 4; round++) {
         ano_log_output_dir(LOG_DIR);
-        ano_log(ANO_INFO, "switch primary r%d", round);
+        ano::log(ano::Info, "switch primary r%d", round);
         ano_log_flush();
         ano_log_output_dir(LOG_DIR_ALT);
-        ano_log(ANO_INFO, "switch alt r%d", round);
+        ano::log(ano::Info, "switch alt r%d", round);
         ano_log_flush();
     }
     ano_log_output_dir(LOG_DIR);
@@ -999,21 +1003,21 @@ static int test_edge_output_dir_switch(void)
     return g_fail;
 }
 
-// Churn level between records. INFO survives iff level <= ANO_INFO. Exact survivor count.
+// Churn level between records. INFO survives iff level <= ano::Info. Exact survivor count.
 static int test_edge_level_churn(void)
 {
     g_fail = 0;
     reset_output();
     int expect = 0;
     for (int i = 0; i < 100; i++) {
-        ano_loglevel_t lvl = (i & 1) ? ANO_ERROR : ANO_INFO;
+        ano::Level lvl = (i & 1) ? ano::Error : ano::Info;
         ano_log_set_level(lvl);
-        ano_log(ANO_INFO, "churn info %d", i);    // survives only when lvl == ANO_INFO (even i)
-        if (lvl <= ANO_INFO) expect++;
-        ano_log(ANO_ERROR, "churn error %d", i);  // ERROR >= every level set here, always survives
+        ano::log(ano::Info, "churn info %d", i);    // survives only when lvl == ano::Info (even i)
+        if (lvl <= ano::Info) expect++;
+        ano::log(ano::Error, "churn error %d", i);  // ERROR >= every level set here, always survives
         expect++;
     }
-    ano_log_set_level(ANO_INFO);
+    ano_log_set_level(ano::Info);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -1037,9 +1041,9 @@ static int test_edge_level_churn(void)
 static void *heavy_producer(void *arg)
 {
     int id = (int)(intptr_t)arg;
-    ano_loglevel_t lvls[3] = { ANO_INFO, ANO_WARN, ANO_ERROR };
+    ano::Level lvls[3] = { ano::Info, ano::Warn, ano::Error };
     for (int i = 0; i < HEAVY_PER; i++)
-        ano_log_write(lvls[i % 3], ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        ano_log_write(lvls[i % 3], ano::DefaultRoute, __FILE_NAME__, __LINE__,
                       "heavy p%d %d", id, i);
     return NULL;
 }
@@ -1059,7 +1063,7 @@ static int test_contention_heavy_mixed(void)
 {
     g_fail = 0;
     reset_output();
-    ano_log_set_level(ANO_INFO);
+    ano_log_set_level(ano::Info);
     atomic_store(&g_stop, false);
 
     anothread_t prod[HEAVY_PRODUCERS], flush[HEAVY_FLUSHERS];
@@ -1091,7 +1095,7 @@ static void *soak_producer(void *arg)
 {
     int id = (int)(intptr_t)arg;
     for (int i = 0; i < SOAK_PER; i++)
-        ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        ano_log_write(ano::Info, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                       "soak p%d %d", id, i);
     return NULL;
 }
@@ -1133,7 +1137,7 @@ static void *pj_producer(void *arg)
 {
     int id = (int)(intptr_t)arg;
     for (int i = 0; i < PJ_PER; i++)
-        ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+        ano_log_write(ano::Info, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                       "pj p%d %d", id, i);
     return NULL;
 }

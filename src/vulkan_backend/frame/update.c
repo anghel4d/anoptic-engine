@@ -5,7 +5,7 @@
 
 #include <math.h>
 #include <string.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 #include "vulkan_backend/vulkanMaster.h"
@@ -114,26 +114,26 @@ bool updateUniformBuffer(VulkanContext* ctx, RendererState* state)
 
 void printUniformTransferState()
 {
-	ano_debug_log(ANO_INFO, "=== Swap Chain Components ===");
-	ano_debug_log(ANO_INFO, "Image count: %d", rendererState.imageCount);
-	ano_debug_log(ANO_INFO, "Image extent: width = %d, height = %d", rendererState.imageExtent.width, rendererState.imageExtent.height);
+	ANO_DEBUG_LOG(ano::Info, "=== Swap Chain Components ===");
+	ANO_DEBUG_LOG(ano::Info, "Image count: %d", rendererState.imageCount);
+	ANO_DEBUG_LOG(ano::Info, "Image extent: width = %d, height = %d", rendererState.imageExtent.width, rendererState.imageExtent.height);
 	
-	ano_debug_log(ANO_INFO, "=== Buffer Components ===");
-	ano_debug_log(ANO_INFO, "Live render slots: %u", rendererState.slots.slotHighWater); // entities[] gone
+	ANO_DEBUG_LOG(ano::Info, "=== Buffer Components ===");
+	ANO_DEBUG_LOG(ano::Info, "Live render slots: %u", rendererState.slots.slotHighWater); // entities[] gone
 	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
-		ano_debug_log(ANO_INFO, "Uniform buffer %d (view 0): %p", i, (void*)rendererState.frames[i].views[0].uniformBuffer);
-		ano_debug_log(ANO_INFO, "Uniform alloc %d (view 0): %p", i, (void*)rendererState.frames[i].views[0].uniformAlloc.memory);
-		ano_debug_log(ANO_INFO, "Uniform buffer mapping %d (view 0): %p", i, rendererState.frames[i].views[0].uniformMapped);
+		ANO_DEBUG_LOG(ano::Info, "Uniform buffer %d (view 0): %p", i, (void*)rendererState.frames[i].views[0].uniformBuffer);
+		ANO_DEBUG_LOG(ano::Info, "Uniform alloc %d (view 0): %p", i, (void*)rendererState.frames[i].views[0].uniformAlloc.memory);
+		ANO_DEBUG_LOG(ano::Info, "Uniform buffer mapping %d (view 0): %p", i, rendererState.frames[i].views[0].uniformMapped);
 	}
 
-	ano_debug_log(ANO_INFO, "=== Synchronization Components ===");
-	ano_debug_log(ANO_INFO, "Current frame index: %d", rendererState.frameIndex);
+	ANO_DEBUG_LOG(ano::Info, "=== Synchronization Components ===");
+	ANO_DEBUG_LOG(ano::Info, "Current frame index: %d", rendererState.frameIndex);
 	for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 	{
-		ano_debug_log(ANO_INFO, "Frame %d submitted: %d", i, rendererState.frames[i].frameSubmitted);
+		ANO_DEBUG_LOG(ano::Info, "Frame %d submitted: %d", i, rendererState.frames[i].frameSubmitted);
 	}
-	ano_debug_log(ANO_INFO, "======================================");
+	ANO_DEBUG_LOG(ano::Info, "======================================");
 }
 
 void updateTransformBuffer(VulkanContext* ctx, RendererState* state, uint32_t frameIndex)

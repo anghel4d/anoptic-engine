@@ -6,8 +6,7 @@
 #include <anoptic_memory_typed.h>
 #include <string.h>
 #include <stdio.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 static void geometry_pool_release_mesh_registry(GeometryPool* pool)
 {
     free(pool->meshes);
@@ -309,7 +308,7 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
     }
     if (finalVertexOffset == (uint32_t)-1) {
         if ((VkDeviceSize)pool->vertexWriteOffset + vertexSize > pool->vertexCapacity) {
-            ano_log(ANO_ERROR, "Error: Geometry mega-buffer vertex pool exhausted! Requested %llu, Capacity %llu",
+            ano::log(ano::Error, "Error: Geometry mega-buffer vertex pool exhausted! Requested %llu, Capacity %llu",
                    (unsigned long long)(pool->vertexWriteOffset + vertexSize), (unsigned long long)pool->vertexCapacity);
             vkDestroyBuffer(device, stagingBuffer, NULL);
             vkDestroyCommandPool(device, transientPool, NULL);
@@ -333,7 +332,7 @@ static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc, Vk
     }
     if (finalIndexOffset == (uint32_t)-1) {
         if ((VkDeviceSize)pool->indexWriteOffset + total_metadata_size > pool->indexCapacity) {
-            ano_log(ANO_ERROR, "Error: Geometry mega-buffer metadata pool exhausted! Requested %llu, Capacity %llu",
+            ano::log(ano::Error, "Error: Geometry mega-buffer metadata pool exhausted! Requested %llu, Capacity %llu",
                    (unsigned long long)(pool->indexWriteOffset + total_metadata_size), (unsigned long long)pool->indexCapacity);
             vkDestroyBuffer(device, stagingBuffer, NULL);
             vkDestroyCommandPool(device, transientPool, NULL);

@@ -14,10 +14,7 @@
 
 #include <stdint.h>
 #include <string.h>
-
-#include <anoptic_log.h>
-
-
+#include <ano/log.h>
 // Events-ring element size (copied per push/pop). Cap at 32 B.
 static_assert(sizeof(RenderEvent) <= 32u, "RenderEvent grew past 32 bytes; revisit the events ring");
 
@@ -306,13 +303,13 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
         || (ui->paintCount > 0u && ui->paints == NULL)
         || (ui->stopCount  > 0u && ui->stops  == NULL)
         || (ui->curveCount > 0u && ui->curves == NULL)) {
-        ano_log(ANO_WARN, "UI bridge: ui_id %u dropped (per-block caps or a count over an absent table).", ui_id);
+        ano::log(ano::Warn, "UI bridge: ui_id %u dropped (per-block caps or a count over an absent table).", ui_id);
         return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
     }
     for (uint32_t i = 0; i < ui->primCount; i++) {
         if (!ui_prim_valid(&ui->prims[i], ui->clipCount, ui->paintCount, glyphCount,
                            ui->curves, ui->curveCount, ui->paints, ui->stopCount)) {
-            ano_log(ANO_WARN, "UI bridge: ui_id %u dropped (prim %u invalid).", ui_id, i);
+            ano::log(ano::Warn, "UI bridge: ui_id %u dropped (prim %u invalid).", ui_id, i);
             return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
         }
     }
@@ -426,7 +423,7 @@ void ano_render_publish_view(AnoRenderBridge *bridge, const AnoViewState *view)
     if (!view_pose_valid(view)) {
         if (!bridge->viewRejectWarned) {
             bridge->viewRejectWarned = true;
-            ano_log(ANO_WARN, "Render bridge: degenerate camera pose rejected at seq %llu "
+            ano::log(ano::Warn, "Render bridge: degenerate camera pose rejected at seq %llu "
                               "(coincident eye/center, zero or parallel up, bad fovY, or "
                               "non-finite field); previous pose stands.",
                     (unsigned long long)view->seq);

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Logger x strings stress: anostr_t through ano_log("%.*s", anostr_fmt(s)) under multi-producer fire.
+// Logger x strings stress: anostr_t through ano::log("%.*s", anostr_fmt(s)) under multi-producer fire.
 // Percentiles like anotest_logtail, plus oracles:
 //   - no loss: output lines == enqueued;
 //   - byte transparency: sentinel UTF-8 (あの Bjørn's Agda Gun) exact in file (%.*s on non-NUL inline).
@@ -104,7 +104,7 @@ static void *producer(void *p)
     for (int i = 0; i < a->count; i++) {
         anostr_t name = g_pool[rng_below(&rng, POOL_N)];
         uint64_t t0 = tick_now();
-        ano_log(ANO_INFO, "loot: %.*s x%d", anostr_fmt(name), i & 63);
+        ano::log(ano::Info, "loot: %.*s x%d", anostr_fmt(name), i & 63);
         bench_lat_add(&a->lat, tick_now() - t0);
     }
     return NULL;
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
 
     uint64_t expected = 0;
     for (int i = 0; i < 256; i++) {   // warm caches, branch predictors, the ring
-        ano_log(ANO_INFO, "warm %.*s", anostr_fmt(g_pool[i % POOL_N]));
+        ano::log(ano::Info, "warm %.*s", anostr_fmt(g_pool[i % POOL_N]));
         expected++;
     }
     ano_log_flush();
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
     // Sentinel: heap mixed-script + 12-byte non-NUL inline. Both must land byte-exact.
     anostr_t sentinel = anostr_lit(SENTINEL);
     anostr_t inl = anostr_lit("inline-12b!!");
-    ano_log(ANO_INFO, "sentinel: %.*s / %.*s", anostr_fmt(sentinel), anostr_fmt(inl));
+    ano::log(ano::Info, "sentinel: %.*s / %.*s", anostr_fmt(sentinel), anostr_fmt(inl));
     expected++;
 
     ano_log_cleanup();  // final drain + close, so the file below is complete

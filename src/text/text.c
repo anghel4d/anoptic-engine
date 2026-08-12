@@ -11,8 +11,7 @@
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
-
-#include "anoptic_log.h"
+#include <ano/log.h>
 #include "anoptic_memory.h"
 #include "anoptic_strings.h"
 
@@ -68,7 +67,7 @@ int ano_text_init(void)
     if (err != FT_Err_Ok)
     {
         const char *msg = FT_Error_String(err);
-        ano_log(ANO_ERROR, "text: FT_New_Library failed: %d (%s)", (int)err, msg ? msg : "?");
+        ano::log(ano::Error, "text: FT_New_Library failed: %d (%s)", (int)err, msg ? msg : "?");
         g_ftLibrary = NULL;
         mi_heap_destroy(g_textHeap);
         g_textHeap = NULL;
@@ -79,7 +78,7 @@ int ano_text_init(void)
 
     FT_Int maj = 0, min = 0, pat = 0;
     FT_Library_Version(g_ftLibrary, &maj, &min, &pat);
-    ano_log(ANO_INFO, "text: FreeType %d.%d.%d ready (module-heap backed)", maj, min, pat);
+    ano::log(ano::Info, "text: FreeType %d.%d.%d ready (module-heap backed)", maj, min, pat);
     return 0;
 }
 
@@ -137,7 +136,7 @@ AnoFontId ano_text_font_load(anostr_t path)
     }
     if (slot == ANO_TEXT_MAX_FONTS)
     {
-        ano_log(ANO_ERROR, "text: font registry full (%u faces), cannot load '%.*s'",
+        ano::log(ano::Error, "text: font registry full (%u faces), cannot load '%.*s'",
                       ANO_TEXT_MAX_FONTS, anostr_fmt(path));
         return 0;
     }
@@ -152,7 +151,7 @@ AnoFontId ano_text_font_load(anostr_t path)
     if (err != FT_Err_Ok)
     {
         const char *msg = FT_Error_String(err);
-        ano_log(ANO_ERROR, "text: FT_New_Face('%s') failed: %d (%s)", cpath, (int)err,
+        ano::log(ano::Error, "text: FT_New_Face('%s') failed: %d (%s)", cpath, (int)err,
                       msg ? msg : "?");
         mi_free(cpath);
         return 0;
@@ -160,14 +159,14 @@ AnoFontId ano_text_font_load(anostr_t path)
     if (!FT_IS_SCALABLE(face))
     {
         // Bake path consumes outlines only.
-        ano_log(ANO_ERROR, "text: '%s' is not a scalable outline face", cpath);
+        ano::log(ano::Error, "text: '%s' is not a scalable outline face", cpath);
         FT_Done_Face(face);
         mi_free(cpath);
         return 0;
     }
 
     g_faces[slot] = face;
-    ano_log(ANO_INFO, "text: loaded '%s' (%ld glyphs, upem %u)", cpath, (long)face->num_glyphs,
+    ano::log(ano::Info, "text: loaded '%s' (%ld glyphs, upem %u)", cpath, (long)face->num_glyphs,
                  (unsigned)face->units_per_EM);
     mi_free(cpath);
     return slot + 1u;

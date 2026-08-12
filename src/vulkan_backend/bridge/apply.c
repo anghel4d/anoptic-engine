@@ -4,7 +4,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <string.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_memory.h>
 
 #include "vulkan_backend/vulkanMaster.h"
@@ -70,12 +70,12 @@ static void stage_command_fields(RendererState* s, const RenderCommand* c, uint3
             uint32_t ownedType;
             if (!static_shadow_row_casts(s, c->light_index, &ownedType)) {
                 // Never granted or grant refused.
-                ano_log(ANO_ERROR, "Render bridge: static row %u raised castsShadow on UPDATE but owns "
+                ano::log(ano::Error, "Render bridge: static row %u raised castsShadow on UPDATE but owns "
                         "no shadow block; grants are CREATE-only, so the row stays shadowless. "
                         "Re-create it (budget permitting) to grant.", c->light_index);
             } else {
                 if (ownedType != (uint32_t)c->light.type)
-                    ano_log(ANO_ERROR, "Render bridge: static row %u UPDATE names light type %u, its "
+                    ano::log(ano::Error, "Render bridge: static row %u UPDATE names light type %u, its "
                             "shadow block holds %u; re-create the row to change type.",
                             c->light_index, (uint32_t)c->light.type, ownedType);
                 // Refresh owned volumes from restaged range; never grants.
@@ -121,7 +121,7 @@ static void stage_stream_frame(RendererState* state, uint32_t frameIndex)
         // Refuse bad type/row; entity lands unlit (NO_LIGHT).
         if (c->light_index != ANO_RENDER_NO_LIGHT &&
             ((uint32_t)c->light.type >= LIGHT_TYPE_COUNT || c->light_index >= ANO_STATIC_LIGHT_COUNT)) {
-            ano_log(ANO_ERROR, "Render bridge: light payload refused (row %u, type %u); entity lands unlit.",
+            ano::log(ano::Error, "Render bridge: light payload refused (row %u, type %u); entity lands unlit.",
                     c->light_index, (uint32_t)c->light.type);
             c->light_index = ANO_RENDER_NO_LIGHT;
         }
@@ -148,7 +148,7 @@ void render_apply_commands(RendererState* state, uint32_t frameIndex)
         // Refuse live-id CREATE before gate/grow; owns no block.
         if (cmd.kind == RCMD_CREATE &&
             render_slots_resolve(&state->slots, cmd.render_id) != ANO_RENDER_SLOT_UNMAPPED) {
-            ano_log(ANO_ERROR, "Render bridge: CREATE names live render_id %u; command dropped "
+            ano::log(ano::Error, "Render bridge: CREATE names live render_id %u; command dropped "
                     "(destroy it first to re-create).", cmd.render_id);
             continue;
         }
@@ -211,7 +211,7 @@ void render_apply_commands(RendererState* state, uint32_t frameIndex)
             // alloc_range refuses live/dup/cap/OOM atomically.
             uint32_t base = render_slots_alloc_range(&state->slots, b->render_ids, b->count);
             if (base == ANO_RENDER_SLOT_UNMAPPED) {
-                ano_log(ANO_ERROR, "Render bridge: BULK_CREATE refused (live id, duplicate in batch, "
+                ano::log(ano::Error, "Render bridge: BULK_CREATE refused (live id, duplicate in batch, "
                         "capacity, or OOM); batch dropped.");
                 ano_render_command_release(&cmd);
                 return;

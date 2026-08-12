@@ -53,23 +53,23 @@ typedef struct {
 } logger_api;
 
 // Adapter to ring write surface. DEBUG folds into INFO.
-static ano_loglevel_t map_level(log_types_t t)
+static ano::Level map_level(log_types_t t)
 {
     switch (t) {
     case LOG_DEBUG:
-    case LOG_INFO:   return ANO_INFO;
-    case LOG_WARN:  return ANO_WARN;
-    case LOG_ERROR: return ANO_ERROR;
-    case LOG_FATAL: return ANO_FATAL;
+    case LOG_INFO:   return ano::Info;
+    case LOG_WARN:  return ano::Warn;
+    case LOG_ERROR: return ano::Error;
+    case LOG_FATAL: return ano::Fatal;
     }
-    return ANO_INFO;
+    return ano::Info;
 }
 
 __attribute__((format(printf, 4, 5)))
 static int ring_enqueue(log_types_t level, const char *file, int line, const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
-    int r = ano_log_vwrite(map_level(level), ANO_ROUTE_DEFAULT, file, line, fmt, ap);
+    int r = ano_log_vwrite(map_level(level), ano::DefaultRoute, file, line, fmt, ap);
     va_end(ap);
     return r;
 }

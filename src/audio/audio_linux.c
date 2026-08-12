@@ -12,8 +12,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 /* ALSA fallback */
@@ -66,7 +65,7 @@ static void *alsa_main(void *arg)
                 if ((int)n == -EPIPE)
                     atomic_fetch_add_explicit(&mx->underruns, 1u, memory_order_relaxed);
                 if (st->pcm_recover(st->pcm, (int)n, 1) < 0) {
-                    ano_log(ANO_ERROR, "audio/alsa: unrecoverable write error: %s",
+                    ano::log(ano::Error, "audio/alsa: unrecoverable write error: %s",
                             st->strerr((int)n));
                     ano_sleep(10000);
                     break;
@@ -125,7 +124,7 @@ static bool alsa_start(AnoAudioMixer *mx)
         err = st->pcm_set_params(st->pcm, s16.format, s16.access,
                                  s16.channels, s16.sampleRate, 1, latencyUs);
         if (err < 0) {
-            ano_log(ANO_WARN, "audio/alsa: set_params failed: %s", st->strerr(err));
+            ano::log(ano::Warn, "audio/alsa: set_params failed: %s", st->strerr(err));
             goto fail_pcm;
         }
         st->sbuf = static_cast<int16_t *>(
@@ -148,7 +147,7 @@ static bool alsa_start(AnoAudioMixer *mx)
         mx->deviceState = NULL;
         goto fail_pcm;
     }
-    ano_log(ANO_INFO, "audio/alsa: device 'default' open, %s, latency request %u us.",
+    ano::log(ano::Info, "audio/alsa: device 'default' open, %s, latency request %u us.",
             ano_audio_sample_name(st->format.sample), latencyUs);
     return true;
 
@@ -363,7 +362,7 @@ static void pw_on_state_changed(void *data, int oldState, int newState, const ch
     AnoPipewireState *st = static_cast<AnoPipewireState *>(data);
     if (newState == ANO_PW_STATE_ERROR) {
         atomic_store_explicit(&st->error, 1, memory_order_release);
-        ano_log(ANO_ERROR, "audio/pipewire: stream error: %s", error ? error : "(none)");
+        ano::log(ano::Error, "audio/pipewire: stream error: %s", error ? error : "(none)");
     }
 }
 
@@ -470,14 +469,14 @@ static bool pw_start(AnoAudioMixer *mx)
         if (state >= ANO_PW_STATE_PAUSED)
             break;
         if (waited >= 2000u) {
-            ano_log(ANO_WARN, "audio/pipewire: stream stuck connecting; falling back.");
+            ano::log(ano::Warn, "audio/pipewire: stream stuck connecting; falling back.");
             goto fail_started;
         }
         ano_sleep(50000);
     }
 
     mx->deviceState = st;
-    ano_log(ANO_INFO, "audio/pipewire: stream up (lib %s), %s %s %s, requested quantum %s.",
+    ano::log(ano::Info, "audio/pipewire: stream up (lib %s), %s %s %s, requested quantum %s.",
             st->api.get_library_version(), ano_audio_sample_name(st->format.sample),
             ano_audio_layout_name(st->format.layout),
             ano_audio_interleave_name(st->format.interleave), latency);

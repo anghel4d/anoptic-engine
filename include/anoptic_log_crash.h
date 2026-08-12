@@ -28,7 +28,6 @@
 #ifndef ANOPTIC_LOG_CRASH_H
 #define ANOPTIC_LOG_CRASH_H
 
-#include "anoptic_log.h"
 
 #ifdef __cplusplus
 extern "C" {

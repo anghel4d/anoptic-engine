@@ -4,7 +4,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <string.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_memory.h>
 
 #include "vulkan_backend/vulkanMaster.h"
@@ -237,7 +237,7 @@ bool ensureEntityCapacity(RendererState* state, uint32_t required, uint32_t fram
     if (newCap < required) newCap = required;
     newCap = ((newCap + ENTITY_GROWTH_CHUNK - 1u) / ENTITY_GROWTH_CHUNK) * ENTITY_GROWTH_CHUNK;
     if (newCap < required) { // round-up overflow
-        ano_log(ANO_FATAL, "Fatal: entity capacity request %u exceeds addressable range.", required);
+        ano::log(ano::Fatal, "Fatal: entity capacity request %u exceeds addressable range.", required);
         return false;
     }
 
@@ -294,7 +294,7 @@ bool ensureEntityCapacity(RendererState* state, uint32_t required, uint32_t fram
         for (int i = 0; i < 4; i++) grown_discard(&devNew[i]);
         for (int i = 0; i < 4; i++)
             for (int f = 0; f < MAX_FRAMES_IN_FLIGHT; f++) grown_discard(&setNew[i][f]);
-        ano_log(ANO_FATAL, "Fatal: entity capacity growth %u -> %u failed (GPU out of memory?).", oldCap, newCap);
+        ano::log(ano::Fatal, "Fatal: entity capacity growth %u -> %u failed (GPU out of memory?).", oldCap, newCap);
         return false;
     }
 
@@ -326,6 +326,6 @@ bool ensureEntityCapacity(RendererState* state, uint32_t required, uint32_t fram
     if (state->frames[0].views[0].globalSet != VK_NULL_HANDLE)
         updateUboDescriptorSets(&ctx, state);
 
-    ano_log(ANO_INFO, "Entity capacity grown: %u -> %u slots.", oldCap, newCap);
+    ano::log(ano::Info, "Entity capacity grown: %u -> %u slots.", oldCap, newCap);
     return true;
 }

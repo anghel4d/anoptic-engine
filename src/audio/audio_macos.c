@@ -11,9 +11,7 @@
 
 #include "audio_internal.h"
 #include "audio_pull.h"
-
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 static_assert(static_cast<uint32_t>(kAudioFormatLinearPCM) == ANO_AUDIO_CORE_FORMAT_LINEAR_PCM);
 static_assert(static_cast<uint32_t>(kAudioFormatFlagIsFloat) == ANO_AUDIO_CORE_FLAG_FLOAT);
 static_assert(static_cast<uint32_t>(kAudioFormatFlagIsSignedInteger) ==
@@ -122,7 +120,7 @@ static bool coreaudio_start(AnoAudioMixer *mx)
     if (AudioOutputUnitStart(st->unit) != noErr)
         goto fail_published;
     st->started = true;
-    ano_log(ANO_INFO, "audio/coreaudio: default-output AUHAL up, %u Hz %s %s %s (unit converts).",
+    ano::log(ano::Info, "audio/coreaudio: default-output AUHAL up, %u Hz %s %s %s (unit converts).",
             mx->sampleRate, ano_audio_sample_name(format.sample),
             ano_audio_layout_name(format.layout), ano_audio_interleave_name(format.interleave));
     return true;

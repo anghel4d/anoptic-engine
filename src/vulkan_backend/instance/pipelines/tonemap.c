@@ -5,7 +5,7 @@
 
 #include <anoptic_memory.h>
 #include <anoptic_filesystem.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include "vulkan_backend/instance/descriptor_layout_schema.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "graphics_contract.h"
@@ -49,7 +49,7 @@ bool ano_vk_init_tonemap(VulkanContext* ctx, RendererState* state)
 	setLayoutInfo.pBindings = bindings;
 	if (vkCreateDescriptorSetLayout(ctx->device, &setLayoutInfo, NULL, &state->tonemapSetLayout) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create tonemap descriptor set layout!");
+		ano::log(ano::Fatal, "Failed to create tonemap descriptor set layout!");
 		return false;
 	}
 
@@ -59,7 +59,7 @@ bool ano_vk_init_tonemap(VulkanContext* ctx, RendererState* state)
 	layoutInfo.pSetLayouts = &state->tonemapSetLayout;
 	if (vkCreatePipelineLayout(ctx->device, &layoutInfo, NULL, &state->tonemapLayout) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create tonemap pipeline layout!");
+		ano::log(ano::Fatal, "Failed to create tonemap pipeline layout!");
 		return false;
 	}
 
@@ -105,7 +105,7 @@ bool ano_vk_init_tonemap(VulkanContext* ctx, RendererState* state)
 	vkDestroyShaderModule(ctx->device, fragModule, NULL);
 
 	if (!ok)
-		ano_log(ANO_FATAL, "Failed to create tonemap pipeline!");
+		ano::log(ano::Fatal, "Failed to create tonemap pipeline!");
 	return ok;
 
 }

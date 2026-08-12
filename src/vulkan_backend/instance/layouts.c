@@ -5,7 +5,7 @@
 
 #include <anoptic_memory.h>
 #include <anoptic_filesystem.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include "pipeline.h"
 #include "descriptor_layout_schema.h"
 #include <meta>
@@ -35,7 +35,7 @@ bool ano_vk_init_global_layout(VulkanContext* ctx, RendererState* state)
 
 	if (vkCreateDescriptorSetLayout(ctx->device, &layoutInfo, NULL, &state->globalSetLayout) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create global descriptor set layout!");
+		ano::log(ano::Fatal, "Failed to create global descriptor set layout!");
 		return false;
 	}
 
@@ -56,7 +56,7 @@ bool ano_vk_init_cull_layout(VulkanContext* ctx, RendererState* state)
 
 	if (vkCreateDescriptorSetLayout(ctx->device, &layoutInfo, NULL, &state->culling.setLayout) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create cull descriptor set layout!");
+		ano::log(ano::Fatal, "Failed to create cull descriptor set layout!");
 		return false;
 	}
 
@@ -71,7 +71,7 @@ bool ano_vk_init_cull_layout(VulkanContext* ctx, RendererState* state)
 	hizLayoutInfo.pBindings = hizBindings;
 	if (vkCreateDescriptorSetLayout(ctx->device, &hizLayoutInfo, NULL, &state->hizSetLayout) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create Hi-Z descriptor set layout!");
+		ano::log(ano::Fatal, "Failed to create Hi-Z descriptor set layout!");
 		return false;
 	}
 
@@ -129,7 +129,7 @@ bool ano_vk_init_material_layouts(VulkanContext* ctx, RendererState* state)
 
 	state->bindlessTextures.maxTextures = uabBudget < 4096u ? uabBudget : 4096u;
 	state->bindlessTextures.textureCount = 0;
-	ano_log(ANO_INFO, "Bindless texture array: maxTextures = %u (device update-after-bind limit %u)",
+	ano::log(ano::Info, "Bindless texture array: maxTextures = %u (device update-after-bind limit %u)",
 		state->bindlessTextures.maxTextures, uabLimit);
 
 	const auto& bindlessSpecs = ANO_VK_BINDLESS_BINDINGS;
@@ -154,7 +154,7 @@ bool ano_vk_init_material_layouts(VulkanContext* ctx, RendererState* state)
 
 	if (vkCreateDescriptorSetLayout(ctx->device, &layoutInfo, NULL, &state->bindlessTextures.layout) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create bindless texture descriptor set layout!");
+		ano::log(ano::Fatal, "Failed to create bindless texture descriptor set layout!");
 		return false;
 	}
 

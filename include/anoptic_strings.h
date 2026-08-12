@@ -123,7 +123,7 @@ static inline const char *anostr_bytes(const anostr_t *s)
 }
 
 // printf "%.*s" adapter (no anostr_to_cstr copy):
-//     ano_log(ANO_INFO, "loading %.*s", anostr_fmt(path));
+//     ano::log(ano::Info, "loading %.*s", anostr_fmt(path));
 #define anostr_fmt(s) (int)anostr_len((s)), anostr_bytes((const anostr_t[]){ (s) })
 
 

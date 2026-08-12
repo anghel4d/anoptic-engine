@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Tail-latency benchmark: per-call ano_log() percentiles (p50/p90/p99/p99.9).
+// Tail-latency benchmark: per-call ano::log() percentiles (p50/p90/p99/p99.9).
 // Calibrated rdtsc on x86-64, else ano_timestamp_ticks. P producers + owned drain thread.
 // DISABLED in CTest. Always exits 0. argv[1] = messages-per-producer.
 
@@ -66,7 +66,7 @@ static void *producer(void *p)
     prod_arg *a = static_cast<prod_arg *>(p);
     for (int i = 0; i < a->count; i++) {
         uint64_t t0 = tick_now();
-        ano_log(ANO_INFO, "tail bench thread %d message %d with payload", a->id, i);
+        ano::log(ano::Info, "tail bench thread %d message %d with payload", a->id, i);
         bench_lat_add(&a->lat, tick_now() - t0);
     }
     return NULL;
@@ -133,7 +133,7 @@ int main(int argc, char **argv)
     ano_log_output_dir(TAIL_DIR);
 
     for (int i = 0; i < 256; i++)   // warm caches + branch predictors
-        ano_log(ANO_INFO, "warm %d", i);
+        ano::log(ano::Info, "warm %d", i);
     ano_log_flush();
 
     for (int p = 0; p < NPOINTS; p++) {

@@ -2,8 +2,7 @@
  *
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include "vulkan_backend/instance/descriptor_layout_schema.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "vulkan_backend/pipeline_registry.h"
@@ -139,7 +138,7 @@ static bool compute_init(VulkanContext* ctx, RendererState* state)
     VkDescriptorSetLayout* setLayout = compute_class_set_layout<Contract.layoutClass>(ctx, state);
     if (setLayout == nullptr)
     {
-        ano_log(ANO_FATAL, "Failed to create %s descriptor set layout!", Name);
+        ano::log(ano::Fatal, "Failed to create %s descriptor set layout!", Name);
         return false;
     }
 
@@ -156,7 +155,7 @@ static bool compute_init(VulkanContext* ctx, RendererState* state)
     }
     if (vkCreatePipelineLayout(ctx->device, &layoutInfo, NULL, &state->prototypes[Type].layout) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to create %s pipeline layout!", Name);
+        ano::log(ano::Fatal, "Failed to create %s pipeline layout!", Name);
         return false;
     }
 

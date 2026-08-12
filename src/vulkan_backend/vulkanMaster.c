@@ -8,7 +8,7 @@
 #include <math.h>
 #include <vulkan/vulkan.h>
 #include <anoptic_memory.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 #include "vulkan_backend/vulkanMaster.h"
@@ -119,7 +119,7 @@ void unInitVulkan() // A celebration
 
 	#ifdef DEBUG_BUILD
 	// WARNING+ validation messages this run.
-	ano_log(ANO_INFO, "Validation messages (warning+) this run: %u", g_ValidationErrors);
+	ano::log(ano::Info, "Validation messages (warning+) this run: %u", g_ValidationErrors);
 	#endif
 }
 
@@ -139,7 +139,7 @@ void deferred_delete_resource(RendererState* state, DeletionResourceType type, u
         uint32_t capacity = q->capacity == 0 ? 64u : q->capacity * 2u;
         DeletionTask* tasks = static_cast<DeletionTask*>(realloc(q->tasks, capacity * sizeof(DeletionTask)));
         if (!tasks) {
-            ano_log(ANO_ERROR, "Host OOM: failed to grow deferred deletion queue.");
+            ano::log(ano::Error, "Host OOM: failed to grow deferred deletion queue.");
             return;
         }
         q->tasks = tasks;
@@ -181,7 +181,7 @@ static void latchRenderUnrecoverable(const char* site, VkResult result)
 {
 	if (renderUnrecoverable) return; // one diagnostic per renderer, not one per frame
 	renderUnrecoverable = true;
-	ano_log(ANO_FATAL, "Unrecoverable render failure at %s (VkResult %d); closing the window.",
+	ano::log(ano::Fatal, "Unrecoverable render failure at %s (VkResult %d); closing the window.",
 	        site, (int)result);
 	glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
@@ -198,7 +198,7 @@ static void dischargeAcquire(uint32_t frameIndex)
 	VkResult drained = vkQueueSubmit(ctx.graphicsQueue, 1, &drain, VK_NULL_HANDLE);
 	if (drained != VK_SUCCESS)
 	{ // the signal is still pending; a further acquire on it breaches VUID-...-semaphore-01779
-		ano_log(ANO_ERROR, "Failed to discharge the acquired image semaphore!");
+		ano::log(ano::Error, "Failed to discharge the acquired image semaphore!");
 		latchRenderUnrecoverable("acquire discharge", drained);
 		return;
 	}
@@ -250,7 +250,7 @@ void drawFrame()
 		return;
 	} else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) 
 	{
-		ano_log(ANO_ERROR, "Failed to acquire swap chain image!");
+		ano::log(ano::Error, "Failed to acquire swap chain image!");
 		latchRenderUnrecoverable("swapchain acquire", result); // nothing here re-creates surface or device
 		return;
 	}
@@ -348,7 +348,7 @@ void drawFrame()
 		return;
 	} else if (presentResult != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to present swap chain image!");
+		ano::log(ano::Error, "Failed to present swap chain image!");
 		latchRenderUnrecoverable("swapchain presentation", presentResult);
 		return;
 	}
@@ -370,9 +370,9 @@ bool initVulkan() // Initializes Vulkan
 		if (sscanf(resEnv, "%ux%u", &w, &h) == 2 && w >= 64 && h >= 64 && w <= 16384 && h <= 16384) {
 			initDimensions.width = w;
 			initDimensions.height = h;
-			ano_log(ANO_INFO, "Window size: %ux%u (ANO_RES)", w, h);
+			ano::log(ano::Info, "Window size: %ux%u (ANO_RES)", w, h);
 		} else {
-			ano_log(ANO_WARN, "ANO_RES \"%s\" invalid (want WxH, 64..16384); keeping %ux%u",
+			ano::log(ano::Warn, "ANO_RES \"%s\" invalid (want WxH, 64..16384); keeping %ux%u",
 			        resEnv, initDimensions.width, initDimensions.height);
 		}
 	}
@@ -388,7 +388,7 @@ bool initVulkan() // Initializes Vulkan
 
 	if (window == NULL)
 	{
-		ano_log(ANO_FATAL, "Window initialization failed.");
+		ano::log(ano::Fatal, "Window initialization failed.");
 		unInitVulkan();
 		return 0;
 	}
@@ -404,7 +404,7 @@ bool initVulkan() // Initializes Vulkan
 	// Initialize Vulkan
 	if (createInstance(&ctx) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create Vulkan instance!");
+		ano::log(ano::Fatal, "Failed to create Vulkan instance!");
 		unInitVulkan();
 		return false;
 	}
@@ -413,7 +413,7 @@ bool initVulkan() // Initializes Vulkan
 	// Create a window surface
 	if (createSurface(ctx.instance, window, &(ctx.surface)) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create window surface!");
+		ano::log(ano::Fatal, "Failed to create window surface!");
 		unInitVulkan();
 		return false;
 	}
@@ -426,7 +426,7 @@ bool initVulkan() // Initializes Vulkan
 	if (!pickPhysicalDevice(&ctx, &capabilities, &(ctx.queueFamilyIndices), preferredDevice))
 	{
 		g_AnoVkNoSuitableGpu = true;
-		ano_log(ANO_FATAL, "Quitting init: physical device failure!");
+		ano::log(ano::Fatal, "Quitting init: physical device failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -434,7 +434,7 @@ bool initVulkan() // Initializes Vulkan
 
 	if (createLogicalDevice(ctx.physicalDevice, &(ctx.device), &(ctx.graphicsQueue), &(ctx.computeQueue), &(ctx.transferQueue), &(ctx.presentQueue), &(ctx.queueFamilyIndices)) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Quitting init: logical device failure!");
+		ano::log(ano::Fatal, "Quitting init: logical device failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -446,35 +446,35 @@ bool initVulkan() // Initializes Vulkan
 	                      && ctx.queueFamilyIndices.computePresent
 	                      && ctx.queueFamilyIndices.computeFamily != ctx.queueFamilyIndices.graphicsFamily
 	                      && !getenv("ANO_FORCE_NO_ASYNC_HIZ");
-	ano_log(ANO_INFO, "Async Hi-Z build: %s", rendererState.asyncHiz ? "on (dedicated compute queue)" : "off (in-frame)");
+	ano::log(ano::Info, "Async Hi-Z build: %s", rendererState.asyncHiz ? "on (dedicated compute queue)" : "off (in-frame)");
 
 	// Async light-cull gate rides asyncHiz infrastructure.
 	// ANO_FORCE_NO_ASYNC_LC pins the in-frame light-cull.
 	rendererState.asyncLc = rendererState.asyncHiz && !getenv("ANO_FORCE_NO_ASYNC_LC");
-	ano_log(ANO_INFO, "Async light-cull: %s", rendererState.asyncLc ? "on (split submit, overlaps shadows)" : "off (in-frame)");
+	ano::log(ano::Info, "Async light-cull: %s", rendererState.asyncLc ? "on (split submit, overlaps shadows)" : "off (in-frame)");
 
 	// Task-shader meshlet cull gate.
 	// ANO_FORCE_NO_TASK pins direct mesh dispatch.
 	rendererState.taskCull = ctx.deviceCapabilities.meshShader
 	                      && ctx.deviceCapabilities.taskShader
 	                      && !getenv("ANO_FORCE_NO_TASK");
-	ano_log(ANO_INFO, "Task meshlet cull: %s", rendererState.taskCull ? "on (frustum+cone, Hi-Z with occlusion toggle)" : "off (direct mesh dispatch)");
+	ano::log(ano::Info, "Task meshlet cull: %s", rendererState.taskCull ? "on (frustum+cone, Hi-Z with occlusion toggle)" : "off (direct mesh dispatch)");
 
 	// Text overlay gate, cleared non-fatally on later font/bake failure.
 	// ANO_FORCE_NO_TEXT pins it off.
 	rendererState.textOverlay = !getenv("ANO_FORCE_NO_TEXT");
-	ano_log(ANO_INFO, "Text overlay: %s", rendererState.textOverlay ? "enabled (pending font init)" : "off (forced)");
+	ano::log(ano::Info, "Text overlay: %s", rendererState.textOverlay ? "enabled (pending font init)" : "off (forced)");
 
 	// Async text lane gate rides asyncHiz infrastructure.
 	// ANO_FORCE_NO_ASYNC_TEXT pins the in-frame raster.
 	rendererState.asyncText = rendererState.textOverlay && rendererState.asyncHiz
 	                       && !getenv("ANO_FORCE_NO_ASYNC_TEXT");
-	ano_log(ANO_INFO, "Async text raster: %s", rendererState.asyncText ? "on (lag-0 compute lane)" : "off (in-frame)");
+	ano::log(ano::Info, "Async text raster: %s", rendererState.asyncText ? "on (lag-0 compute lane)" : "off (in-frame)");
 
 	// UI overlay gate rides the text lane. ANO_FORCE_NO_UI pins compose off, the table
 	// buffers stay resident under textOverlay.
 	rendererState.uiOverlay = rendererState.textOverlay && !getenv("ANO_FORCE_NO_UI");
-	ano_log(ANO_INFO, "UI overlay: %s", rendererState.uiOverlay ? "enabled" : "off");
+	ano::log(ano::Info, "UI overlay: %s", rendererState.uiOverlay ? "enabled" : "off");
 
     // Mesh-shader entry points, loaded only on the mesh path.
     if (ctx.deviceCapabilities.meshShader) {
@@ -483,7 +483,7 @@ bool initVulkan() // Initializes Vulkan
         pfnVkCmdDrawMeshTasksIndirectCountEXT = (PFN_vkCmdDrawMeshTasksIndirectCountEXT)vkGetDeviceProcAddr(ctx.device, "vkCmdDrawMeshTasksIndirectCountEXT");
 
         if (!pfnVkCmdDrawMeshTasksEXT || !pfnVkCmdDrawMeshTasksIndirectEXT || !pfnVkCmdDrawMeshTasksIndirectCountEXT) {
-            ano_log(ANO_FATAL, "Failed to load mesh shader extension function pointers!");
+            ano::log(ano::Fatal, "Failed to load mesh shader extension function pointers!");
             unInitVulkan();
             return false;
         }
@@ -515,7 +515,7 @@ bool initVulkan() // Initializes Vulkan
 	                               ctx.device, ctx.queueFamilyIndices.graphicsFamily,
 	                               ctx.queueFamilyIndices.transferFamily,
 	                               MAX_FRAMES_IN_FLIGHT)) {
-		ano_log(ANO_FATAL, "Quitting init: geometry pool creation failure!");
+		ano::log(ano::Fatal, "Quitting init: geometry pool creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -523,14 +523,14 @@ bool initVulkan() // Initializes Vulkan
 	initSwapChain(&ctx, window, getChosenPresentMode(), VK_NULL_HANDLE, &rendererState); // Initialize a swap chain
 	if (rendererState.swapChain == NULL)
 	{
-		ano_log(ANO_FATAL, "Quitting init: swap chain failure.");
+		ano::log(ano::Fatal, "Quitting init: swap chain failure.");
 		unInitVulkan();
 		return false;
 	}
 	
 	if (!createImageViews(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: image view failure.");
+		ano::log(ano::Fatal, "Quitting init: image view failure.");
 		unInitVulkan();
 		return false;
 	}
@@ -538,7 +538,7 @@ bool initVulkan() // Initializes Vulkan
 	if (!createCommandPool(ctx.device, ctx.physicalDevice,
 						   ctx.surface, &(rendererState.commandPool)))
 	{
-		ano_log(ANO_FATAL, "Quitting init: command pool failure!");
+		ano::log(ano::Fatal, "Quitting init: command pool failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -551,7 +551,7 @@ bool initVulkan() // Initializes Vulkan
 			.queueFamilyIndex = ctx.queueFamilyIndices.computeFamily };
 		if (vkCreateCommandPool(ctx.device, &cpi, NULL, &rendererState.computeCommandPool) != VK_SUCCESS)
 		{
-			ano_log(ANO_FATAL, "Quitting init: compute command pool failure!");
+			ano::log(ano::Fatal, "Quitting init: compute command pool failure!");
 			unInitVulkan();
 			return false;
 		}
@@ -564,7 +564,7 @@ bool initVulkan() // Initializes Vulkan
 				|| (rendererState.asyncLc
 					&& vkAllocateCommandBuffers(ctx.device, &cai, &rendererState.frames[i].lightcullCommandBuffer) != VK_SUCCESS))
 			{
-				ano_log(ANO_FATAL, "Quitting init: compute command buffer allocation failure!");
+				ano::log(ano::Fatal, "Quitting init: compute command buffer allocation failure!");
 				unInitVulkan();
 				return false;
 			}
@@ -573,14 +573,14 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!createColorResourcesChecked(&ctx))
 	{
-		ano_log(ANO_FATAL, "Quitting init: colour target creation failure!");
+		ano::log(ano::Fatal, "Quitting init: colour target creation failure!");
 		unInitVulkan();
 		return false;
 	}
 
 	if(!createDepthResources(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: depth resource creation failure!");
+		ano::log(ano::Fatal, "Quitting init: depth resource creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -588,7 +588,7 @@ bool initVulkan() // Initializes Vulkan
 	// Hi-Z occlusion pyramid images, built each frame from depth.
 	if(!createHiZResources(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: Hi-Z resource creation failure!");
+		ano::log(ano::Fatal, "Quitting init: Hi-Z resource creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -597,19 +597,19 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!ano_vk_init_global_layout(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: global layout failure!");
+		ano::log(ano::Fatal, "Quitting init: global layout failure!");
 		unInitVulkan();
 		return false;
 	}
 	if (!ano_vk_init_cull_layout(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: cull layout failure!");
+		ano::log(ano::Fatal, "Quitting init: cull layout failure!");
 		unInitVulkan();
 		return false;
 	}
 	if (!ano_vk_init_material_layouts(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: material layouts failure!");
+		ano::log(ano::Fatal, "Quitting init: material layouts failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -622,14 +622,14 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!ano_vk_init_pipelines(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: pipeline failure!");
+		ano::log(ano::Fatal, "Quitting init: pipeline failure!");
 		unInitVulkan();
 		return false;
 	}
 
 	if (!ano_vk_init_tonemap(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: tonemap pipeline failure!");
+		ano::log(ano::Fatal, "Quitting init: tonemap pipeline failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -643,21 +643,21 @@ bool initVulkan() // Initializes Vulkan
 	// Depth-only shadow pipeline + compare sampler.
 	if (!ano_vk_init_shadow(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: shadow pipeline failure!");
+		ano::log(ano::Fatal, "Quitting init: shadow pipeline failure!");
 		unInitVulkan();
 		return false;
 	}
 
 	if(!createTextureSampler(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: texture sampler failure!");
+		ano::log(ano::Fatal, "Quitting init: texture sampler failure!");
 		unInitVulkan();
 		return false;
 	}
 
 	if (!createFallbackResources(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: fallback resources failure.");
+		ano::log(ano::Fatal, "Quitting init: fallback resources failure.");
 		unInitVulkan();
 		return false;
 	}
@@ -666,7 +666,7 @@ bool initVulkan() // Initializes Vulkan
 	uint32_t maxEntities = INITIAL_ENTITY_CAPACITY;
 	if (!ano_vk_create_scene_resources())
 	{
-		ano_log(ANO_FATAL, "Quitting init: buffer creation failure!");
+		ano::log(ano::Fatal, "Quitting init: buffer creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -683,7 +683,7 @@ bool initVulkan() // Initializes Vulkan
 	    // Events ring widened to 4096.
 	    !ano_render_bridge_init(&rendererState.bridge, rendererState.renderHeap, 4096, 4096))
 	{
-		ano_log(ANO_FATAL, "Quitting init: render bridge / slot authority failure!");
+		ano::log(ano::Fatal, "Quitting init: render bridge / slot authority failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -698,7 +698,7 @@ bool initVulkan() // Initializes Vulkan
 	    (size_t)rendererState.transformStream.ringSlices * STREAM_CAPACITY * sizeof(uint32_t)));
 	if (!rendererState.transformStream.idRing)
 	{
-		ano_log(ANO_FATAL, "Quitting init: stream id ring allocation failure!");
+		ano::log(ano::Fatal, "Quitting init: stream id ring allocation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -709,7 +709,7 @@ bool initVulkan() // Initializes Vulkan
 		VkCommandBuffer up = beginSingleTimeCommands(&ctx);
 		if (up == VK_NULL_HANDLE)
 		{ // Refused mint: nothing was allocated and nothing may be recorded into it
-			ano_log(ANO_FATAL, "Quitting init: transient command buffer failure!");
+			ano::log(ano::Fatal, "Quitting init: transient command buffer failure!");
 			unInitVulkan();
 			return false;
 		}
@@ -721,7 +721,7 @@ bool initVulkan() // Initializes Vulkan
 		                (VkDeviceSize)sizeof(ShadowLightInfo) * rendererState.shadowInfo.capacity, 0u);
 		if (!endSingleTimeCommandsChecked(&ctx, up))
 		{ // Unsubmitted fill: the palette and shadow rows below would read undefined device memory
-			ano_log(ANO_FATAL, "Quitting init: light/shadow buffer zero-fill failure!");
+			ano::log(ano::Fatal, "Quitting init: light/shadow buffer zero-fill failure!");
 			unInitVulkan();
 			return false;
 		}
@@ -729,7 +729,7 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!createUniformBuffers(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: uniform buffer creation failure!");
+		ano::log(ano::Fatal, "Quitting init: uniform buffer creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -738,7 +738,7 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!createDescriptorPool(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: UBO descriptor pool creation failure!");
+		ano::log(ano::Fatal, "Quitting init: UBO descriptor pool creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -746,7 +746,7 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!createDescriptorSets(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: UBO descriptor sets creation failure!");
+		ano::log(ano::Fatal, "Quitting init: UBO descriptor sets creation failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -762,7 +762,7 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!createCommandBuffer(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: command buffer failure!");
+		ano::log(ano::Fatal, "Quitting init: command buffer failure!");
 		unInitVulkan();
 		return false;
 	}
@@ -770,12 +770,12 @@ bool initVulkan() // Initializes Vulkan
 
 	if (!createSyncObjects(&ctx, &rendererState))
 	{
-		ano_log(ANO_FATAL, "Quitting init: sync failure!");
+		ano::log(ano::Fatal, "Quitting init: sync failure!");
 		unInitVulkan();
 		return false;
 	}
 
-	ano_log(ANO_INFO, "Instance creation complete!");
+	ano::log(ano::Info, "Instance creation complete!");
 
 	return true;
 }

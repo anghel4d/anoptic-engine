@@ -23,7 +23,7 @@
 #include <string.h>
 
 #include <anoptic_filesystem.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_strings.h>
 #include <anoptic_text.h>
 
@@ -196,7 +196,7 @@ void ano_vk_text_block_set(RendererState* state, uint32_t text_id, const RenderT
     }
     if (state->textBlockCount >= ANO_TEXT_MAX_BLOCKS)
     {
-        ano_log(ANO_WARN, "Text bridge: block registry full (%u); text_id %u dropped.",
+        ano::log(ano::Warn, "Text bridge: block registry full (%u); text_id %u dropped.",
                ANO_TEXT_MAX_BLOCKS, text_id);
         mi_free((void*)blk);
         return;
@@ -495,7 +495,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     if (state->textHeap == NULL || ano_text_init() != 0
         || (font = ano_text_font_load(anostr_view(fontPath, strlen(fontPath)))) == 0)
     {
-        ano_log(ANO_WARN, "Text overlay disabled: font load failed ('%s').", fontPath);
+        ano::log(ano::Warn, "Text overlay disabled: font load failed ('%s').", fontPath);
         state->textOverlay = false;
         state->asyncText = false;
         return true;
@@ -508,11 +508,11 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     snprintf(runePath, sizeof runePath, "%s/%s", game.str, ANO_TEXT_RUNE_FONT_REL);
     AnoFontId runeFont = ano_text_font_load(anostr_view(runePath, strlen(runePath)));
     if (runeFont == 0)
-        ano_log(ANO_WARN, "Text overlay: rune font missing ('%s'); Runic will not render.", runePath);
+        ano::log(ano::Warn, "Text overlay: rune font missing ('%s'); Runic will not render.", runePath);
     snprintf(greekPath, sizeof greekPath, "%s/%s", game.str, ANO_TEXT_GREEK_FONT_REL);
     AnoFontId greekFont = ano_text_font_load(anostr_view(greekPath, strlen(greekPath)));
     if (greekFont == 0)
-        ano_log(ANO_WARN, "Text overlay: greek font missing ('%s'); Greek will not render.", greekPath);
+        ano::log(ano::Warn, "Text overlay: greek font missing ('%s'); Greek will not render.", greekPath);
     AnoBakeRange ranges[6];
     uint32_t rangeCount = 0;
     ranges[rangeCount++] = (AnoBakeRange){ .font = font, .first = 0x0020, .last = 0x007E }; // ASCII
@@ -526,7 +526,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         ranges[rangeCount++] = (AnoBakeRange){ .font = greekFont, .first = 0x1F00, .last = 0x1FFF }; // Greek Extended (polytonic)
     if (ano_text_font_bake_ranges(ranges, rangeCount, state->textHeap, &state->textBake) != 0)
     {
-        ano_log(ANO_WARN, "Text overlay disabled: font bake failed.");
+        ano::log(ano::Warn, "Text overlay disabled: font bake failed.");
         state->textOverlay = false;
         state->asyncText = false;
         return true;
@@ -560,7 +560,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     if (!ok || !text_init_raster_pipeline(ctx, state) || !text_init_overlay_pipeline(ctx, state))
     {
         // Partially-created objects are handle-guarded in teardown.
-        ano_olog(ANO_WARN, "Text overlay disabled: GPU resource/pipeline creation failed.");
+        ano::log(ano::origin, ano::Warn, "Text overlay disabled: GPU resource/pipeline creation failed.");
         state->textOverlay = false;
         state->asyncText = false;
         state->textWorld = false;
@@ -572,7 +572,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     state->textWorld = getenv("ANO_FORCE_NO_TEXT_WORLD") == NULL;
     if (state->textWorld && !text_init_world_pipeline(ctx, state))
     {
-        ano_log(ANO_WARN, "Text overlay: world lane pipeline failed, disabled.");
+        ano::log(ano::Warn, "Text overlay: world lane pipeline failed, disabled.");
         state->textWorld = false;
     }
     if (state->textWorld)
@@ -621,7 +621,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
             asyncOk = vkAllocateCommandBuffers(ctx->device, &cai, &state->frames[i].textCommandBuffer) == VK_SUCCESS;
         if (!asyncOk)
         {
-            ano_log(ANO_WARN, "Text overlay: async lane objects failed, falling back in-frame.");
+            ano::log(ano::Warn, "Text overlay: async lane objects failed, falling back in-frame.");
             state->asyncText = false;
         }
     }
@@ -632,7 +632,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     state->textPending = ano::heap_allocate<AnoGlyphInstance>(state->textHeap, cap);
     if (state->textPending == NULL)
     {
-        ano_log(ANO_WARN, "Text overlay disabled: pending-text allocation failed.");
+        ano::log(ano::Warn, "Text overlay disabled: pending-text allocation failed.");
         state->textOverlay = false;
         state->asyncText = false;
         return true;
@@ -651,7 +651,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     }
     state->textFlags = (getenv("ANO_TEXT_OPAQUE") != NULL) ? ANO_TEXT_RASTER_OPAQUE : 0u;
 
-    ano_log(ANO_INFO, "Text overlay: on (%u glyphs, %u curve points, %.1f KiB static, %u instances, %s%s)",
+    ano::log(ano::Info, "Text overlay: on (%u glyphs, %u curve points, %.1f KiB static, %u instances, %s%s)",
            state->textBake.glyphCount, state->textBake.pointCount,
            (double)(curveBytes + glyphBytes) / 1024.0, state->textPendingCount,
            state->asyncText ? "async lane" : "in-frame",
@@ -712,7 +712,7 @@ void ano_vk_text_create_overlay(VulkanContext* ctx, RendererState* state)
                                shareFamilies, state->asyncText ? 2u : 0u, NULL, 0))
         {
             // Partial overlays are handle-guarded in destroy_overlay.
-            ano_log(ANO_WARN, "Text overlay disabled: overlay image creation failed.");
+            ano::log(ano::Warn, "Text overlay disabled: overlay image creation failed.");
             state->textOverlay = false;
             state->asyncText = false;
             state->textWorld = false;
@@ -723,7 +723,7 @@ void ano_vk_text_create_overlay(VulkanContext* ctx, RendererState* state)
         if (fr->textOverlayView == VK_NULL_HANDLE)
         {
             // Partial overlays are handle-guarded in destroy_overlay.
-            ano_log(ANO_WARN, "Text overlay disabled: overlay image view creation failed.");
+            ano::log(ano::Warn, "Text overlay disabled: overlay image view creation failed.");
             state->textOverlay = false;
             state->asyncText = false;
             state->textWorld = false;
@@ -733,7 +733,7 @@ void ano_vk_text_create_overlay(VulkanContext* ctx, RendererState* state)
         if (!transitionImageLayout(ctx, VK_NULL_HANDLE, fr->textOverlayImage, VK_FORMAT_R8G8B8A8_UNORM,
                                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1))
         {
-            ano_log(ANO_ERROR, "Failed to transition text overlay image layout!");
+            ano::log(ano::Error, "Failed to transition text overlay image layout!");
         }
     }
 }
@@ -783,7 +783,7 @@ void ano_vk_text_create_sets(VulkanContext* ctx, RendererState* state)
         allocInfo.pSetLayouts = setLayouts[s];
         if (vkAllocateDescriptorSets(ctx->device, &allocInfo, outSets[s]) != VK_SUCCESS)
         {
-            ano_olog(ANO_WARN, "Text overlay disabled: descriptor set allocation failed.");
+            ano::log(ano::origin, ano::Warn, "Text overlay disabled: descriptor set allocation failed.");
             state->textOverlay = false;
             return;
         }
@@ -994,7 +994,7 @@ void ano_vk_text_submit_async(VulkanContext* ctx, RendererState* state, uint32_t
     if (vkQueueSubmit(ctx->computeQueue, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS)
     {
         // Host-signal to keep the timeline monotonic.
-        ano_log(ANO_ERROR, "Failed to submit async text raster command buffer!");
+        ano::log(ano::Error, "Failed to submit async text raster command buffer!");
         VkSemaphoreSignalInfo signalInfo = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO,
             .semaphore = state->textTimeline, .value = ordinal };
         vkSignalSemaphore(ctx->device, &signalInfo);

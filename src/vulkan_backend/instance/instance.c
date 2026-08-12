@@ -10,8 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <anoptic_memory_typed.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -68,7 +67,7 @@ VkResult createInstance(VulkanContext* ctx) // Central component of the init pro
 	#ifdef DEBUG_BUILD
 	if (!checkValidationLayerSupport(validationLayers, validationCount))
 	{
-		ano_log(ANO_WARN, "Validation layers requested, but not available!");
+		ano::log(ano::Warn, "Validation layers requested, but not available!");
 	}
 	else
 	{
@@ -76,14 +75,14 @@ VkResult createInstance(VulkanContext* ctx) // Central component of the init pro
 		createInfo.ppEnabledLayerNames = validationLayers;
 		populateDebugMessengerCreateInfo(&debugCreateInfo);
 		createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
-		ano_log(ANO_INFO, "Enabled validation layers!");
+		ano::log(ano::Info, "Enabled validation layers!");
 	}
 	#endif
 
     VkResult result = vkCreateInstance(&createInfo, NULL, &(ctx->instance));
 	if (result != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create Vulkan instance! Error code: %d", result);
+		ano::log(ano::Fatal, "Failed to create Vulkan instance! Error code: %d", result);
 		free(extensions);
 		return result;
 	}
@@ -112,11 +111,11 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback( // Validation messenger cal
 	}
 	// Route by layer severity
 	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-		ano_log(ANO_ERROR, "Validation layer: %s", pCallbackData->pMessage);
+		ano::log(ano::Error, "Validation layer: %s", pCallbackData->pMessage);
 	else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-		ano_log(ANO_WARN, "Validation layer: %s", pCallbackData->pMessage);
+		ano::log(ano::Warn, "Validation layer: %s", pCallbackData->pMessage);
 	else
-		ano_debug_log(ANO_INFO, "Validation layer: %s", pCallbackData->pMessage);
+		ANO_DEBUG_LOG(ano::Info, "Validation layer: %s", pCallbackData->pMessage);
 
 	if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
 	{
@@ -155,7 +154,7 @@ void setupDebugMessenger(VkInstance* instance, VkDebugUtilsMessengerEXT* debugMe
 	populateDebugMessengerCreateInfo(&createInfo);
 	if (CreateDebugUtilsMessengerEXT(*instance, &createInfo, NULL, debugMessenger) != VK_SUCCESS)
 	{
-		ano_log(ANO_WARN, "Failed to set up debug messenger!");
+		ano::log(ano::Warn, "Failed to set up debug messenger!");
 	}
 }
 
@@ -212,7 +211,7 @@ VkResult createSurface(VkInstance instance, GLFWwindow* window, VkSurfaceKHR* su
 {
 	if (glfwCreateWindowSurface(instance, window, NULL, surface) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create window surface!");
+		ano::log(ano::Fatal, "Failed to create window surface!");
 		return VK_ERROR_INITIALIZATION_FAILED;
 	}
 
@@ -233,7 +232,7 @@ bool checkValidationLayerSupport(const char* validationLayers[], size_t validati
 
 	for (uint32_t z = 0; z < availableLayerCount; z++) 
 	{
-		ano_debug_log(ANO_INFO, "Layer %u: %s", z, availableLayers[z].layerName);
+		ANO_DEBUG_LOG(ano::Info, "Layer %u: %s", z, availableLayers[z].layerName);
 	}
 
 	for(size_t i = 0; i < validationCount; i++) 

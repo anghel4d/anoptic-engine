@@ -18,8 +18,7 @@
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_meta.h>
 
 extern GpuAllocator textureAllocator;
@@ -39,11 +38,11 @@ uint32_t bindless_register_texture(VulkanContext* ctx, BindlessTextureArray* bta
 { // out: granted slot, or ANO_BINDLESS_NONE.
 	// Null view/sampler: refuse before bump.
 	if (view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
-		ano_log(ANO_ERROR, "ERROR: Bindless registration refused an absent view or sampler!");
+		ano::log(ano::Error, "ERROR: Bindless registration refused an absent view or sampler!");
 		return ANO_BINDLESS_NONE;
 	}
 	if (bta->textureCount >= bta->maxTextures) {
-		ano_log(ANO_ERROR, "ERROR: Bindless texture array full!");
+		ano::log(ano::Error, "ERROR: Bindless texture array full!");
 		return ANO_BINDLESS_NONE;
 	}
 
@@ -140,7 +139,7 @@ bool transitionImageLayout(VulkanContext* ctx, VkCommandBuffer cmd, VkImage imag
 		destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 	} else
 	{
-		ano_log(ANO_ERROR, "Unsupported layout transition!");
+		ano::log(ano::Error, "Unsupported layout transition!");
 		return false;
 	}
 
@@ -239,7 +238,7 @@ bool createImageShared(VulkanContext* ctx, GpuAllocator* allocator, uint32_t wid
 	// Every refusal below is total: *image VK_NULL_HANDLE, *imageAlloc the empty allocation.
 	if (vkCreateImage(ctx->device, &imageInfo, NULL, image) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to create image!");
+		ano::log(ano::Error, "Failed to create image!");
 		*image = VK_NULL_HANDLE; // driver leaves it undefined on error
 		*imageAlloc = (GpuAllocation){0};
 		return false;
@@ -258,7 +257,7 @@ bool createImageShared(VulkanContext* ctx, GpuAllocator* allocator, uint32_t wid
 	// Bind fail: destroy image; arena not reclaimed.
 	if (vkBindImageMemory(ctx->device, *image, imageAlloc->memory, imageAlloc->offset) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to bind image memory!");
+		ano::log(ano::Error, "Failed to bind image memory!");
 		vkDestroyImage(ctx->device, *image, NULL);
 		*image = VK_NULL_HANDLE;
 		*imageAlloc = (GpuAllocation){0};
@@ -288,7 +287,7 @@ static bool formatFiltersLinear(VulkanContext* ctx, VkFormat format)
 	// Filtering only when mipLevels > 1.
 	if (mipLevels > 1 && !formatFiltersLinear(ctx, imageFormat))
 	{ // TODO software-generation fallback
-		ano_log(ANO_ERROR, "Texture image does not support bilinear filtering!");
+		ano::log(ano::Error, "Texture image does not support bilinear filtering!");
 		return false;
 	}
 
@@ -311,7 +310,7 @@ static bool formatFiltersLinear(VulkanContext* ctx, VkFormat format)
 
 	for (uint32_t i = 1; i < mipLevels; i++)
 	{
-		ano_debug_log(ANO_INFO, "Mip dimensions at level %d: %d,	%d", i, mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1);
+		ANO_DEBUG_LOG(ano::Info, "Mip dimensions at level %d: %d,	%d", i, mipWidth > 1 ? mipWidth / 2 : 1, mipHeight > 1 ? mipHeight / 2 : 1);
 		barrier.subresourceRange.baseMipLevel = i - 1;
 		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -431,8 +430,8 @@ static bool createUsageViews(VulkanContext* ctx, VkImage image, TextureUsageFlag
 		if (!(usage & textureViewContract[i].bit)) continue;
 		if (!createTextureImageView(ctx, image, views[i], textureViewContract[i].format, mipLevels))
 		{
-			if (fileName) ano_log(ANO_ERROR, "%s image view creation failure: %s", textureViewContract[i].tag, fileName);
-			else ano_log(ANO_ERROR, "%s image view creation failure!", textureViewContract[i].tag);
+			if (fileName) ano::log(ano::Error, "%s image view creation failure: %s", textureViewContract[i].tag, fileName);
+			else ano::log(ano::Error, "%s image view creation failure!", textureViewContract[i].tag);
 			return false;
 		}
 	}
@@ -463,7 +462,7 @@ AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffe
 	if (pixels == NULL || !(width >= 1) || !(height >= 1) ||
 		!((VkDeviceSize)width * height <= UINT64_MAX / 4u))
 	{
-		ano_log(ANO_ERROR, "Pixel upload outside the domain: %ux%u", width, height);
+		ano::log(ano::Error, "Pixel upload outside the domain: %ux%u", width, height);
 		code = ANO_TEXTURE_SOURCE;
 		goto fail;
 	}
@@ -473,7 +472,7 @@ AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffe
 
 	if (!createDataBuffer(ctx, &stagingAllocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging, &stagingAlloc))
 	{
-		ano_log(ANO_ERROR, "Staging buffer creation failure!");
+		ano::log(ano::Error, "Staging buffer creation failure!");
 		goto fail;
 	}
 
@@ -483,7 +482,7 @@ AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffe
 					VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					&image, &alloc, false, NULL, 0, textureViewFormats, textureViewFormatCount(usage)))
 	{
-		ano_log(ANO_ERROR, "Image creation failure!");
+		ano::log(ano::Error, "Image creation failure!");
 		goto fail;
 	}
 
@@ -493,19 +492,19 @@ AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffe
 
 	if (!transitionImageLayout(ctx, cmd, image, texFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mipLevels))
 	{
-		ano_olog(ANO_ERROR, "Layout transition failure!");
+		ano::log(ano::origin, ano::Error, "Layout transition failure!");
 		goto fail;
 	}
 
 	if (!copyBufferToImage(ctx, cmd, staging, image, width, height))
 	{
-		ano_log(ANO_ERROR, "Pixel upload failure!");
+		ano::log(ano::Error, "Pixel upload failure!");
 		goto fail;
 	}
 
 	if (!transitionImageLayout(ctx, cmd, image, texFormat, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, mipLevels))
 	{
-		ano_olog(ANO_ERROR, "Layout transition failure!");
+		ano::log(ano::origin, ano::Error, "Layout transition failure!");
 		goto fail;
 	}
 
@@ -551,7 +550,7 @@ AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, Tex
 	texture = readTexture8bit(fileName);
 	if (!texture.pixels || !(texture.texWidth >= 1) || !(texture.texHeight >= 1))
 	{
-		ano_log(ANO_ERROR, "Failed to load texture image: %s", fileName);
+		ano::log(ano::Error, "Failed to load texture image: %s", fileName);
 		code = ANO_TEXTURE_SOURCE;
 		goto fail;
 	}
@@ -564,15 +563,15 @@ AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, Tex
 	// No linear filter -> single mip.
 	if (texture.mipLevels > 1 && !formatFiltersLinear(ctx, texFormat))
 	{
-		ano_log(ANO_WARN, "Format lacks linear filtering; loading %s with a single mip.", fileName);
+		ano::log(ano::Warn, "Format lacks linear filtering; loading %s with a single mip.", fileName);
 		texture.mipLevels = 1;
 	}
 
-	ano_debug_log(ANO_INFO, "Texture mip levels: %d", texture.mipLevels);
+	ANO_DEBUG_LOG(ano::Info, "Texture mip levels: %d", texture.mipLevels);
 
 	if (!createDataBuffer(ctx, &stagingAllocator, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &staging, &stagingAlloc))
 	{
-		ano_log(ANO_ERROR, "Staging buffer creation failure: %s", fileName);
+		ano::log(ano::Error, "Staging buffer creation failure: %s", fileName);
 		goto fail;
 	}
 
@@ -585,7 +584,7 @@ AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, Tex
 					VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					&image, &alloc, false, NULL, 0, textureViewFormats, textureViewFormatCount(usage)))
 	{
-		ano_log(ANO_ERROR, "Image creation failure: %s", fileName);
+		ano::log(ano::Error, "Image creation failure: %s", fileName);
 		goto fail;
 	}
 
@@ -595,20 +594,20 @@ AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, Tex
 
 	if (!transitionImageLayout(ctx, cmd, image, texFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, texture.mipLevels))
 	{
-		ano_log(ANO_ERROR, "Layout transition failure: %s", fileName);
+		ano::log(ano::Error, "Layout transition failure: %s", fileName);
 		goto fail;
 	}
 
 	if (!copyBufferToImage(ctx, cmd, staging, image, (uint32_t) texture.texWidth, (uint32_t) texture.texHeight))
 	{
-		ano_log(ANO_ERROR, "Pixel upload failure: %s", fileName);
+		ano::log(ano::Error, "Pixel upload failure: %s", fileName);
 		goto fail;
 	}
 
 	// Leaves chain in SHADER_READ_ONLY_OPTIMAL.
 	if (!generateMipmaps(ctx, cmd, image, texFormat, texture.texWidth, texture.texHeight, texture.mipLevels))
 	{
-		ano_log(ANO_ERROR, "Mip chain generation failure: %s", fileName);
+		ano::log(ano::Error, "Mip chain generation failure: %s", fileName);
 		goto fail;
 	}
 
@@ -665,7 +664,7 @@ bool createTextureSampler(VulkanContext* ctx, RendererState* state)
 	samplerInfo.maxLod = 20.0f; // 524K texture cap
 	if (vkCreateSampler(ctx->device, &samplerInfo, NULL, &state->textureSampler) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create texture sampler!");
+		ano::log(ano::Fatal, "Failed to create texture sampler!");
 		return false;
 	}
 	return true;

@@ -8,6 +8,7 @@
 // Full ring: producer waits (backoff + wake); stall wedge write-through. Never drops. Stop producers before ano_log_cleanup.
 
 #include "log/log_ring.h"
+#include <anoptic_log.h>
 
 #include <anoptic_meta.h>
 
@@ -36,24 +37,26 @@
 
 /* Internal state. Only the ring is producer-shared. */
 
-// Severity contracts reflected off the ano_loglevel_t annotations (anoptic_log.h).
+// Severity contracts reflected off the ano::Level annotations.
 static constexpr auto g_levelContracts =
-    ano::reflect_enum_contracts<ano_loglevel_t, AnoLogLevelContract>();
+    ano::reflect_enum_contracts<ano::Level, ano::LevelContract>();
 static constexpr size_t LOG_LEVELS = g_levelContracts.count;
-static_assert(LOG_LEVELS == 4 && ANO_INFO == 0 && ANO_FATAL == LOG_LEVELS - 1,
-              "severities are dense ordinals [0, 4) indexing the 4-row tables");
+static constexpr size_t level_index(ano::Level level) { return static_cast<size_t>(level); }
+static_assert(LOG_LEVELS == 6 && level_index(ano::Trace) == 0
+              && level_index(ano::Fatal) == LOG_LEVELS - 1,
+              "severities are dense ordinals [0, 6) indexing the six-row tables");
 static_assert([] consteval {
     for (const auto &c : g_levelContracts.values)
-        if ((c.route & ANO_BOTH) == 0)
+        if ((c.route.sink_mask & ano::Both.sink_mask) == 0)
             return false;
     return true;
 }(), "every default route names a sink");
 static_assert([] consteval {
     for (size_t i = 0; i < LOG_LEVELS; ++i)
-        if (g_levelContracts.values[i].useStderr != (i >= (size_t)ANO_ERROR))
+        if (g_levelContracts.values[i].useStderr != (i >= level_index(ano::Error)))
             return false;
     return true;
-}(), "terminal split follows level >= ANO_ERROR");
+}(), "terminal split follows level >= ano::Error");
 static_assert([] consteval {
     for (const auto &c : g_levelContracts.values) {
         size_t n = 0;
@@ -65,7 +68,7 @@ static_assert([] consteval {
 }(), "display cells are exactly 5 bytes (format paths copy 5)");
 
 // Level names padded to 5.
-struct LogLevelText final { char pad[4][8]; char color[4][8]; };
+struct LogLevelText final { char pad[LOG_LEVELS][8]; char color[LOG_LEVELS][8]; };
 static constexpr LogLevelText g_levelText = [] consteval {
     LogLevelText t{};
     for (size_t i = 0; i < LOG_LEVELS; ++i) {
@@ -83,11 +86,13 @@ static atomic_bool  g_initialized;  // logger live (NOW / flush / config)
 static atomic_int   g_minLevel = INT_MAX;
 
 // Per-level default routes when no sink named. Pre-init FATAL -> NOW stderr.
-static ANO_ATOMIC(uint8_t) g_routeDefault[4] = {
-    g_levelContracts.values[ANO_INFO].route,    // INFO
-    g_levelContracts.values[ANO_WARN].route,    // WARN
-    g_levelContracts.values[ANO_ERROR].route,   // ERROR
-    g_levelContracts.values[ANO_FATAL].route,   // FATAL
+static ANO_ATOMIC(uint8_t) g_routeDefault[LOG_LEVELS] = {
+    g_levelContracts.values[level_index(ano::Trace)].route.sink_mask,
+    g_levelContracts.values[level_index(ano::Debug)].route.sink_mask,
+    g_levelContracts.values[level_index(ano::Info)].route.sink_mask,
+    g_levelContracts.values[level_index(ano::Warn)].route.sink_mask,
+    g_levelContracts.values[level_index(ano::Error)].route.sink_mask,
+    g_levelContracts.values[level_index(ano::Fatal)].route.sink_mask,
 };
 
 static bool g_ttyOut, g_ttyErr;     // decided once at init
@@ -231,11 +236,11 @@ static int fast_format(char *out, int cap, const char *fmt, va_list ap)
 // Compose "<LEVEL> <file>:<line>:  <message>" into out (no time, no newline). NULL file omits callsite.
 // Length clamped to cap-1. Prefix hand-rolled; message via fast_format / vsnprintf. format(printf, 6, 0).
 __attribute__((format(ANO_PRINTF_FORMAT_KIND, 6, 0)))
-static int format_line(char *out, int cap, ano_loglevel_t level,
+static int format_line(char *out, int cap, ano::Level level,
                        const char *file, int line, const char *fmt, va_list ap)
 {
     char *p = out;
-    memcpy(p, (unsigned)level <= ANO_FATAL ? logPad[level] : "?????", 5);  // fixed 5, no strlen/pad
+    memcpy(p, level_index(level) < LOG_LEVELS ? logPad[level_index(level)] : "?????", 5); // fixed 5, no strlen/pad
     p += 5;
     *p++ = ' ';
     if (file != NULL) {
@@ -337,7 +342,7 @@ static int capture_deferred(char *out, int cap, const char *file, int line, cons
 }
 
 // Render capture blob at drain. Re-parse fmt, resolve '*', snprintf from captured values. Returns bytes.
-static int format_deferred(char *out, int cap, ano_loglevel_t level, const char *blob)
+static int format_deferred(char *out, int cap, ano::Level level, const char *blob)
 {
     const char *b = blob;
     uint16_t fl16; memcpy(&fl16, b, 2); b += 2;
@@ -350,7 +355,7 @@ static int format_deferred(char *out, int cap, ano_loglevel_t level, const char 
     const char *fmt;  memcpy(&fmt,  b, sizeof fmt);  b += sizeof fmt;
 
     char *p = out, *end = out + cap;
-    memcpy(p, (unsigned)level <= ANO_FATAL ? logPad[level] : "?????", 5); p += 5;
+    memcpy(p, level_index(level) < LOG_LEVELS ? logPad[level_index(level)] : "?????", 5); p += 5;
     *p++ = ' ';
     if (file != NULL) {
         size_t fl = strnlen(file, 256); memcpy(p, file, fl); p += fl;
@@ -454,19 +459,19 @@ static int format_deferred(char *out, int cap, ano_loglevel_t level, const char 
 }
 
 
-/* Compiled-plan rendering (ano::logplan): format_deferred semantics, parsing compiled away. */
+/* Typed-plan rendering (ano::detail): format_deferred semantics, parsing compiled away. */
 
-static_assert(ano::logplan::blob_cap == (int)ANO_LOG_MSG_MAX,
-              "wrapper capture blob mirrors ANO_LOG_MSG_MAX");
+static_assert(ano::detail::arg_pack_capacity <= (size_t)ANO_LOG_MSG_MAX,
+              "typed producer capture fits the logger message budget");
 
-// Execute a compiled plan against captured args `b`. Fast/spec paths, truncation, and arg
+// Execute a typed plan against captured args `b`. Fast/spec paths, truncation, and arg
 // consumption mirror format_deferred byte-for-byte; only the format re-parse is gone.
-static int format_planned_core(char *out, int cap, ano_loglevel_t level,
+static int format_typed_core(char *out, int cap, ano::Level level,
                                const char *file, int line,
-                               const ano::logplan::Plan *plan, const char *b)
+                               const ano::detail::Plan *plan, const char *b)
 {
     char *p = out, *end = out + cap;
-    memcpy(p, (unsigned)level <= ANO_FATAL ? logPad[level] : "?????", 5); p += 5;
+    memcpy(p, level_index(level) < LOG_LEVELS ? logPad[level_index(level)] : "?????", 5); p += 5;
     *p++ = ' ';
     if (file != NULL) {
         size_t fl = strnlen(file, 256); memcpy(p, file, fl); p += fl;
@@ -476,7 +481,7 @@ static int format_planned_core(char *out, int cap, ano_loglevel_t level,
     }
 
     for (uint32_t oi = 0; oi < plan->opCount; ++oi) {
-        const ano::logplan::Op *op = &plan->ops[oi];
+        const ano::detail::Op *op = &plan->ops[oi];
         if (op->litLen) {
             size_t room = (size_t)(end - p);
             size_t n = op->litLen <= room ? op->litLen : room;
@@ -530,8 +535,14 @@ static int format_planned_core(char *out, int cap, ano_loglevel_t level,
                     if (pr >= 0) { SPEC_PUT('.'); char *sp = put_u32(specBuf + si, (uint32_t)pr); si = (int)(sp - specBuf); }
                 } else { SPEC_PUT('.'); while (*f >= '0' && *f <= '9') SPEC_PUT(*f++); }
             }
-            while (*f == 'l') SPEC_PUT(*f++);
-            if (*f == 'z' || *f == 't' || *f == 'j') SPEC_PUT(*f++);
+            if (*f == 'l') {
+                while (*f == 'l') ++f;
+                SPEC_PUT('l');
+                if (lng >= 2) SPEC_PUT('l');
+            } else if (*f == 'z' || *f == 't' || *f == 'j') {
+                ++f;
+                SPEC_PUT('l'); SPEC_PUT('l');
+            }
             while (*f == 'h') SPEC_PUT(*f++);
             SPEC_PUT(*f); specBuf[si] = '\0';
 #undef SPEC_PUT
@@ -571,7 +582,7 @@ static int format_planned_core(char *out, int cap, ano_loglevel_t level,
 }
 
 // Drain-side entry: parse the deferred header, then execute the referenced plan.
-static int format_planned(char *out, int cap, ano_loglevel_t level, const char *blob)
+static int format_typed(char *out, int cap, ano::Level level, const char *blob)
 {
     const char *b = blob;
     uint16_t fl16; memcpy(&fl16, b, 2); b += 2;
@@ -581,8 +592,8 @@ static int format_planned(char *out, int cap, ano_loglevel_t level, const char *
         file = b; b += (size_t)fl16 + 1u;
         memcpy(&line, b, sizeof line); b += sizeof line;
     }
-    const ano::logplan::Plan *plan; memcpy(&plan, b, sizeof plan); b += sizeof plan;
-    return format_planned_core(out, cap, level, file, line, plan, b);
+    const ano::detail::Plan *plan; memcpy(&plan, b, sizeof plan); b += sizeof plan;
+    return format_typed_core(out, cap, level, file, line, plan, b);
 }
 
 // Two digits (00-99) at p.
@@ -665,18 +676,18 @@ static void console_color_init(void)
 }
 
 // ANSI color for level prefix, NULL if uncolored.
-static const char *ansi_for(ano_loglevel_t level)
+static const char *ansi_for(ano::Level level)
 {
-    if ((unsigned)level > ANO_FATAL)
+    if (level_index(level) >= LOG_LEVELS)
         return NULL;
-    const char *color = g_levelText.color[level];
+    const char *color = g_levelText.color[level_index(level)];
     return *color != '\0' ? color : NULL;
 }
 
 // Echo one record to terminal (ERROR+ stderr). First 5 body bytes = level name, colored on tty.
-static void echo_console(ano_loglevel_t level, const char *hms, const char *body, size_t len)
+static void echo_console(ano::Level level, const char *hms, const char *body, size_t len)
 {
-    FILE *stream = level >= ANO_ERROR ? stderr : stdout;
+    FILE *stream = level >= ano::Error ? stderr : stdout;
     const char *color = (stream == stderr ? g_ttyErr : g_ttyOut) ? ansi_for(level) : NULL;
     fwrite(hms, 1, 8, stream);
     fputc(' ', stream);
@@ -704,7 +715,7 @@ static void write_batch(const char *data, size_t len)
 }
 
 // Write one record straight through (NOW / full-ring wedge). `sync` fsyncs the file.
-static void emit_one(ano_loglevel_t level, uint64_t raw_ts, const char *text, uint16_t len,
+static void emit_one(ano::Level level, uint64_t raw_ts, const char *text, uint16_t len,
                      bool toFile, bool toCon, bool sync)
 {
     char out[ANO_LOG_MSG_MAX + ANO_LOG_TIME_RESV + 2];
@@ -723,7 +734,7 @@ static void emit_one(ano_loglevel_t level, uint64_t raw_ts, const char *text, ui
         if (!g_haveFile) fflush(stdout);
     }
     if (echoed)
-        fflush(level >= ANO_ERROR ? stderr : stdout);
+        fflush(level >= ano::Error ? stderr : stdout);
     ano_mutex_unlock(&g_outFileMtx);
 }
 
@@ -767,24 +778,24 @@ static uint64_t drain_and_emit(void)
         memcpy(g_batch + blen, g_drainHMS, 8); blen += 8;
         g_batch[blen++] = ' ';
         size_t bodyStart = blen;
-        if (v.flags & ANO_LOG_PLANNED) {
+        if (v.flags & ANO_LOG_TYPED) {
             size_t room = ANO_LOG_BATCH_CAP - blen;
             int dcap = room > ANO_LOG_MSG_MAX ? (int)ANO_LOG_MSG_MAX : (int)room;
-            blen += (size_t)format_planned(g_batch + blen, dcap, (ano_loglevel_t)v.level, body);
+            blen += (size_t)format_typed(g_batch + blen, dcap, (ano::Level)v.level, body);
         }
         else if (v.flags & ANO_LOG_DEFERRED) {
             size_t room = ANO_LOG_BATCH_CAP - blen;
             int dcap = room > ANO_LOG_MSG_MAX ? (int)ANO_LOG_MSG_MAX : (int)room;
-            blen += (size_t)format_deferred(g_batch + blen, dcap, (ano_loglevel_t)v.level, body);
+            blen += (size_t)format_deferred(g_batch + blen, dcap, (ano::Level)v.level, body);
         }
         else {
             memcpy(g_batch + blen, body, v.len); blen += v.len;
         }
         if (v.flags & ANO_LOG_TOCON) {
             ano_mutex_lock(&g_outFileMtx);
-            echo_console((ano_loglevel_t)v.level, g_drainHMS, g_batch + bodyStart, blen - bodyStart);
+            echo_console((ano::Level)v.level, g_drainHMS, g_batch + bodyStart, blen - bodyStart);
             ano_mutex_unlock(&g_outFileMtx);
-            if ((ano_loglevel_t)v.level >= ANO_ERROR) conErr = true; else conOut = true;
+            if ((ano::Level)v.level >= ano::Error) conErr = true; else conOut = true;
         }
         if (v.flags & ANO_LOG_TOFILE)
             g_batch[blen++] = '\n';
@@ -854,7 +865,7 @@ static void *drainer_main(void *arg)
 
 // Buffered: capture or eager-format, publish to ring. Drainer routes by sink bits on tag.
 __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 0)))
-static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, int line,
+static int log_buffered(ano::Level level, uint8_t sinks, const char *file, int line,
                         const char *fmt, va_list args)
 {
     uint64_t ts = ano_timestamp_ticks();
@@ -884,7 +895,8 @@ static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, i
             waited = true;
             if (hd != lastHead) { lastHead = hd; stall = 0; backoff = FULL_BACKOFF_MIN_NS; }
             else if (++stall > FULL_STALL_LIMIT) {
-                bool toFile = (sinks & ANO_FILE) != 0, toCon = (sinks & ANO_TERM) != 0;
+                bool toFile = (sinks & ano::File.sink_mask) != 0;
+                bool toCon = (sinks & ano::Term.sink_mask) != 0;
                 if (deferred) {
                     char txt[ANO_LOG_MSG_MAX];
                     int tn = format_deferred(txt, (int)sizeof txt, level, blob);
@@ -909,10 +921,10 @@ static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, i
     log_marker_t *m = log_marker_at(&g_ring, pos);
     m->timestamp = ts;
     log_write_body(&g_ring, pos, blob, len);
-    // Sink bits: ANO_FILE/ANO_TERM (1|2) << 2 -> ANO_LOG_TOFILE/TOCON (4|8).
+    // Public sink bits shift as one unit into ANO_LOG_TOFILE/TOCON.
     log_word_t v = { .len = len, .level = (uint8_t)level,
                      .flags = (uint8_t)(ANO_LOG_COMMITTED | (deferred ? ANO_LOG_DEFERRED : 0)
-                                        | ((sinks & ANO_BOTH) << ANO_LOG_SINKSHIFT)),
+                                        | ((sinks & ano::Both.sink_mask) << ANO_LOG_SINKSHIFT)),
                      .cycle = log_cycle(&g_ring, pos) };
     atomic_store_explicit(&m->tag, v.w, memory_order_release);  // publish whole record
 
@@ -921,67 +933,108 @@ static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, i
     return waited ? 1 : 0;
 }
 
-// Compiled-plan submit: resolve route/gate like ano_log_vwrite, then publish a pre-captured
-// record whose format slot carries the plan pointer. Returns ano::logplan::submit_fallback
-// when the record must take the dynamic path (NOW route, or header + args overflow, exactly
-// where capture_deferred would bail). Publish loop mirrors log_buffered.
-int ano::logplan::submit(ano_loglevel_t level, ano_logroute_t route, const Plan *plan,
-                         const char *file, int line, const char *args, int argsLen) noexcept
+// Resolve the level's default sinks and runtime gate before producer-side capture.
+ano::Route ano::detail::prepare(ano::Level level, ano::Route route) noexcept
 {
-    unsigned lvlIdx = (unsigned)level <= ANO_FATAL ? (unsigned)level : (unsigned)ANO_FATAL;
-    unsigned r      = (unsigned)route;
-    if ((r & ANO_BOTH) == 0)
-        r |= atomic_load_explicit(&g_routeDefault[lvlIdx], memory_order_relaxed);
-    if (r & ANO_NOW)
-        return submit_fallback;     // sync path stays eager; ano_log_write owns it
-    if ((int)level < atomic_load_explicit(&g_minLevel, memory_order_relaxed))
-        return 0;
-    uint8_t sinks = (uint8_t)r;
+    unsigned lvlIdx = level_index(level) < LOG_LEVELS
+        ? static_cast<unsigned>(level_index(level))
+        : static_cast<unsigned>(level_index(ano::Fatal));
+    unsigned selected = route.sink_mask;
+    if ((selected & ano::Both.sink_mask) == 0)
+        selected |= atomic_load_explicit(&g_routeDefault[lvlIdx], memory_order_relaxed);
+    if ((selected & ano::Now.sink_mask) == 0
+        && static_cast<int>(level) < atomic_load_explicit(&g_minLevel, memory_order_relaxed))
+        return ano::DefaultRoute;
+    return ano::Route{static_cast<uint8_t>(selected)};
+}
 
-    uint64_t ts = ano_timestamp_ticks();
-
-    // Header mirrors capture_deferred's, with the plan pointer in the format slot.
-    char hdr[2 + 256 + 1 + sizeof(int) + sizeof(void *)];
-    char *hp = hdr;
-    if (file != NULL) {
-        size_t fl = strnlen(file, 256);
-        uint16_t fl16 = (uint16_t)fl; memcpy(hp, &fl16, 2); hp += 2;
-        memcpy(hp, file, fl); hp += fl; *hp++ = '\0';
-        memcpy(hp, &line, sizeof line); hp += sizeof line;
-    } else {
-        uint16_t none = FILE_NONE; memcpy(hp, &none, 2); hp += 2;
+// Publish an already validated, typed capture. `route` is resolved and gated by prepare().
+void ano::detail::emit(ano::Level level, ano::Route route,
+                       const ano::detail::Plan &plan, const ano::detail::ArgPack &args,
+                       const std::source_location *origin) noexcept
+{
+    const unsigned selected = route.sink_mask;
+    const uint8_t sinks = static_cast<uint8_t>(selected);
+    const char *file = NULL;
+    int line = 0;
+    if (origin != NULL) {
+        file = origin->file_name();
+        for (const char *scan = file; *scan != '\0'; ++scan)
+            if (*scan == '/' || *scan == '\\')
+                file = scan + 1;
+        line = static_cast<int>(origin->line());
     }
-    memcpy(hp, &plan, sizeof plan); hp += sizeof plan;
-    int hl = (int)(hp - hdr);
-    if (hl + argsLen > (int)ANO_LOG_MSG_MAX)
-        return submit_fallback;     // capture_deferred would overflow the same record
-    uint16_t len  = (uint16_t)(hl + argsLen);
-    uint64_t need = log_span(len);
 
-    // Entry = marker + inline blob in reserved cache lines (log_buffered's loop).
-    uint64_t cap = log_lines(&g_ring);
+    const uint64_t ts = ano_timestamp_ticks();
+    if ((selected & ano::Now.sink_mask) != 0) {
+        char text[ANO_LOG_MSG_MAX];
+        const int textLen = format_typed_core(text, static_cast<int>(sizeof text),
+                                              level, file, line, &plan, args.bytes);
+        if (!atomic_load_explicit(&g_initialized, memory_order_relaxed)) {
+            fprintf(stderr, "%.*s\n", textLen, text);
+            return;
+        }
+        drain();
+        emit_one(level, ts, text, static_cast<uint16_t>(textLen),
+                 (sinks & ano::File.sink_mask) != 0,
+                 (sinks & ano::Term.sink_mask) != 0, true);
+        return;
+    }
+
+    char header[2 + 256 + 1 + sizeof(int) + sizeof(void *)];
+    char *head = header;
+    if (file != NULL) {
+        const size_t fileLen = strnlen(file, 256);
+        const uint16_t storedFileLen = static_cast<uint16_t>(fileLen);
+        memcpy(head, &storedFileLen, 2); head += 2;
+        memcpy(head, file, fileLen); head += fileLen; *head++ = '\0';
+        memcpy(head, &line, sizeof line); head += sizeof line;
+    } else {
+        const uint16_t none = FILE_NONE;
+        memcpy(head, &none, 2); head += 2;
+    }
+    const ano::detail::Plan *planAddress = &plan;
+    memcpy(head, &planAddress, sizeof planAddress); head += sizeof planAddress;
+    const int headerLen = static_cast<int>(head - header);
+
+    if (headerLen + args.size > static_cast<int>(ANO_LOG_MSG_MAX)) {
+        char text[ANO_LOG_MSG_MAX];
+        const int textLen = format_typed_core(text, static_cast<int>(sizeof text),
+                                              level, file, line, &plan, args.bytes);
+        emit_one(level, ts, text, static_cast<uint16_t>(textLen),
+                 (sinks & ano::File.sink_mask) != 0,
+                 (sinks & ano::Term.sink_mask) != 0, false);
+        return;
+    }
+
+    const uint16_t len = static_cast<uint16_t>(headerLen + args.size);
+    const uint64_t need = log_span(len);
+    const uint64_t cap = log_lines(&g_ring);
     uint64_t pos = atomic_load_explicit(&g_ring.tail, memory_order_relaxed);
     uint64_t lastHead = 0;
     uint64_t backoff = FULL_BACKOFF_MIN_NS;
     uint32_t stall = 0;
-    bool waited = false;
     for (;;) {
-        uint64_t hd = atomic_load_explicit(&g_ring.head, memory_order_acquire);
-        if ((pos + need) - hd > cap) {   // ring full
-            waited = true;
-            if (hd != lastHead) { lastHead = hd; stall = 0; backoff = FULL_BACKOFF_MIN_NS; }
-            else if (++stall > FULL_STALL_LIMIT) {
-                // Wedged: render via the plan and write through, like log_buffered's fallback.
-                char txt[ANO_LOG_MSG_MAX];
-                int tn = format_planned_core(txt, (int)sizeof txt, level, file, line, plan, args);
-                emit_one(level, ts, txt, (uint16_t)tn,
-                         (sinks & ANO_FILE) != 0, (sinks & ANO_TERM) != 0, false);
-                return 1;
+        const uint64_t currentHead = atomic_load_explicit(&g_ring.head, memory_order_acquire);
+        if ((pos + need) - currentHead > cap) {
+            if (currentHead != lastHead) {
+                lastHead = currentHead;
+                stall = 0;
+                backoff = FULL_BACKOFF_MIN_NS;
+            } else if (++stall > FULL_STALL_LIMIT) {
+                char text[ANO_LOG_MSG_MAX];
+                const int textLen = format_typed_core(text, static_cast<int>(sizeof text),
+                                                      level, file, line, &plan, args.bytes);
+                emit_one(level, ts, text, static_cast<uint16_t>(textLen),
+                         (sinks & ano::File.sink_mask) != 0,
+                         (sinks & ano::Term.sink_mask) != 0, false);
+                return;
             }
             if (atomic_load_explicit(&g_drainerParked, memory_order_seq_cst))
                 wake_drainer();
             ano_busywait(backoff);
-            if (backoff < FULL_BACKOFF_MAX_NS) backoff <<= 1;
+            if (backoff < FULL_BACKOFF_MAX_NS)
+                backoff <<= 1;
             pos = atomic_load_explicit(&g_ring.tail, memory_order_relaxed);
             continue;
         }
@@ -990,24 +1043,26 @@ int ano::logplan::submit(ano_loglevel_t level, ano_logroute_t route, const Plan 
             break;
     }
 
-    log_marker_t *m = log_marker_at(&g_ring, pos);
-    m->timestamp = ts;
-    log_write_body_at(&g_ring, pos, 0, hdr, (uint16_t)hl);
-    log_write_body_at(&g_ring, pos, (uint32_t)hl, args, (uint16_t)argsLen);
-    log_word_t v = { .len = len, .level = (uint8_t)level,
-                     .flags = (uint8_t)(ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_PLANNED
-                                        | ((sinks & ANO_BOTH) << ANO_LOG_SINKSHIFT)),
-                     .cycle = log_cycle(&g_ring, pos) };
-    atomic_store_explicit(&m->tag, v.w, memory_order_release);  // publish whole record
-
+    log_marker_t *marker = log_marker_at(&g_ring, pos);
+    marker->timestamp = ts;
+    log_write_body_at(&g_ring, pos, 0, header, static_cast<uint16_t>(headerLen));
+    log_write_body_at(&g_ring, pos, static_cast<uint32_t>(headerLen),
+                      args.bytes, args.size);
+    const log_word_t value = {
+        .len = len,
+        .level = static_cast<uint8_t>(level),
+        .flags = static_cast<uint8_t>(ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_TYPED
+                                      | ((sinks & ano::Both.sink_mask) << ANO_LOG_SINKSHIFT)),
+        .cycle = log_cycle(&g_ring, pos),
+    };
+    atomic_store_explicit(&marker->tag, value.w, memory_order_release);
     if (atomic_load_explicit(&g_drainerParked, memory_order_seq_cst))
         wake_drainer();
-    return waited ? 1 : 0;
 }
 
 // NOW: eager format, drain for order, write-through + fsync if file open. Bypasses ring, skips severity gate.
 __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 0)))
-static int log_now(ano_loglevel_t level, uint8_t sinks, const char *file, int line,
+static int log_now(ano::Level level, uint8_t sinks, const char *file, int line,
                    const char *fmt, va_list args)
 {
     char blob[ANO_LOG_MSG_MAX];
@@ -1021,28 +1076,26 @@ static int log_now(ano_loglevel_t level, uint8_t sinks, const char *file, int li
     }
     drain();
     emit_one(level, ano_timestamp_ticks(), blob, (uint16_t)n,
-             (sinks & ANO_FILE) != 0, (sinks & ANO_TERM) != 0, /*sync*/true);
+             (sinks & ano::File.sink_mask) != 0,
+             (sinks & ano::Term.sink_mask) != 0, /*sync*/true);
     return 0;
 }
 
 
 /* Public interface */
 
-int ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
+int ano_log_vwrite(ano::Level level, ano::Route route,
                    const char *file, int line, const char *fmt, va_list args)
 {
-    unsigned lvlIdx = (unsigned)level <= ANO_FATAL ? (unsigned)level : (unsigned)ANO_FATAL;
-    unsigned r      = (unsigned)route;
-    if ((r & ANO_BOTH) == 0)
-        r |= atomic_load_explicit(&g_routeDefault[lvlIdx], memory_order_relaxed);
-    if (r & ANO_NOW)
-        return log_now(level, (uint8_t)r, file, line, fmt, args);
-    if ((int)level < atomic_load_explicit(&g_minLevel, memory_order_relaxed))
+    const ano::Route selected = ano::detail::prepare(level, route);
+    if (selected.sink_mask == 0)
         return 0;
-    return log_buffered(level, (uint8_t)r, file, line, fmt, args);
+    if ((selected.sink_mask & ano::Now.sink_mask) != 0)
+        return log_now(level, selected.sink_mask, file, line, fmt, args);
+    return log_buffered(level, selected.sink_mask, file, line, fmt, args);
 }
 
-int ano_log_write(ano_loglevel_t level, ano_logroute_t route,
+int ano_log_write(ano::Level level, ano::Route route,
                   const char *file, int line, const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
@@ -1051,11 +1104,13 @@ int ano_log_write(ano_loglevel_t level, ano_logroute_t route,
     return rc;
 }
 
-void ano_log_set_route(ano_loglevel_t level, ano_logroute_t route)
+void ano_log_set_route(ano::Level level, ano::Route route)
 {
-    if ((unsigned)level > ANO_FATAL || (route & ANO_BOTH) == 0)
+    if (level_index(level) >= LOG_LEVELS
+        || (route.sink_mask & ano::Both.sink_mask) == 0)
         return;
-    atomic_store_explicit(&g_routeDefault[level], (uint8_t)route, memory_order_relaxed);
+    atomic_store_explicit(&g_routeDefault[level_index(level)], route.sink_mask,
+                          memory_order_relaxed);
 }
 
 int ano_log_output_dir(const char *directoryPath)
@@ -1079,7 +1134,7 @@ int ano_log_output_dir(const char *directoryPath)
     return 0;
 }
 
-void ano_log_set_level(ano_loglevel_t min)
+void ano_log_set_level(ano::Level min)
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         atomic_store_explicit(&g_minLevel, (int)min, memory_order_relaxed);
@@ -1157,7 +1212,7 @@ int ano_log_init(void)
     }
 
     // Open severity gate last.
-    atomic_store_explicit(&g_minLevel, ANO_INFO, memory_order_relaxed);
+    atomic_store_explicit(&g_minLevel, static_cast<int>(ano::Info), memory_order_relaxed);
     return 0;
 }
 

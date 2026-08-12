@@ -7,8 +7,7 @@
 
 #ifndef ANOPTICENGINE_LOG_CORE_H
 #define ANOPTICENGINE_LOG_CORE_H
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_memory.h>   // ANO_CACHE_LINE
 
 // Stored line + wall-clock prefix = 4096. MSG_MAX = stored cap, TIME_RESV = prefix budget.

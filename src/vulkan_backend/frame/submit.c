@@ -5,8 +5,7 @@
 
 #include <stdint.h>
 #include <vulkan/vulkan.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
 #include "vulkan_backend/frame/frame.h"
@@ -46,7 +45,7 @@ bool ano_frame_submit(uint64_t ordinal)
 		submitInfo.pSignalSemaphores = signalSemaphores;
 		if (vkQueueSubmit(ctx.graphicsQueue, 1, &submitInfo, rendererState.frames[rendererState.frameIndex].frameFence) != VK_SUCCESS)
 		{
-			ano_log(ANO_ERROR, "Failed to submit draw command buffer!");
+			ano::log(ano::Error, "Failed to submit draw command buffer!");
 			return false;
 		}
 	}
@@ -97,7 +96,7 @@ bool ano_frame_submit(uint64_t ordinal)
 
 		if (vkQueueSubmit(ctx.graphicsQueue, 2, submits, rendererState.frames[rendererState.frameIndex].frameFence) != VK_SUCCESS)
 		{
-			ano_log(ANO_ERROR, "Failed to submit draw command buffers!");
+			ano::log(ano::Error, "Failed to submit draw command buffers!");
 			return false;
 		}
 
@@ -113,7 +112,7 @@ bool ano_frame_submit(uint64_t ordinal)
 		if (vkQueueSubmit(ctx.computeQueue, 1, &lcSubmit, VK_NULL_HANDLE) != VK_SUCCESS)
 		{
 			// Force-signal to keep the timeline monotonic.
-			ano_log(ANO_ERROR, "Failed to submit async light-cull command buffer!");
+			ano::log(ano::Error, "Failed to submit async light-cull command buffer!");
 			VkSemaphoreSignalInfo signalInfo = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO,
 				.semaphore = rendererState.lcTimeline, .value = ordinal };
 			vkSignalSemaphore(ctx.device, &signalInfo);
@@ -135,7 +134,7 @@ bool ano_frame_submit(uint64_t ordinal)
 		if (vkQueueSubmit(ctx.computeQueue, 1, &hizSubmit, VK_NULL_HANDLE) != VK_SUCCESS)
 		{
 			// Force-signal to keep the timeline monotonic.
-			ano_log(ANO_ERROR, "Failed to submit async Hi-Z command buffer!");
+			ano::log(ano::Error, "Failed to submit async Hi-Z command buffer!");
 			VkSemaphoreSignalInfo signalInfo = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO,
 				.semaphore = rendererState.hizTimeline, .value = ordinal };
 			vkSignalSemaphore(ctx.device, &signalInfo);

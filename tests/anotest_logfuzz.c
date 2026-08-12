@@ -71,28 +71,28 @@ static void formatter_case(test_rng *s)
     const char *sv = strs[rng_below(s, sizeof strs / sizeof strs[0])];
 
     switch (rng_below(s, 18)) {
-    case 0:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt d=%d", i); break;
-    case 1:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt u=%u", u); break;
-    case 2:  ano_log_write(ANO_WARN,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt x=%x", u); break;
-    case 3:  ano_log_write(ANO_WARN,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt X=%X", u); break;
-    case 4:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt o=%o", u); break;
-    case 5:  ano_log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt lld=%lld", ll); break;
-    case 6:  ano_log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt llu=%llu", ull); break;
-    case 7:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt f=%.3f", d); break;
-    case 8:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt e=%e", d); break;
-    case 9:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt g=%g", d); break;
-    case 10: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt c=%c", ch); break;
-    case 11: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt s=[%s]", sv); break;
-    case 12: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt wd=[%*d]", w, i); break;
-    case 13: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt pf=[%.*f]", pr, d); break;
-    case 14: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt wpf=[%*.*f]", w, pr, d); break;
-    case 15: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt mix=%d/%s/%x", i, sv, u); break;
-    case 16: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt zpd=[%05d]", i); break;
-    case 17: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt ws=[%-8.3s]", sv); break;
+    case 0:  ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt d=%d", i); break;
+    case 1:  ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt u=%u", u); break;
+    case 2:  ano_log_write(ano::Warn,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt x=%x", u); break;
+    case 3:  ano_log_write(ano::Warn,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt X=%X", u); break;
+    case 4:  ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt o=%o", u); break;
+    case 5:  ano_log_write(ano::Error, ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt lld=%lld", ll); break;
+    case 6:  ano_log_write(ano::Error, ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt llu=%llu", ull); break;
+    case 7:  ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt f=%.3f", d); break;
+    case 8:  ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt e=%e", d); break;
+    case 9:  ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt g=%g", d); break;
+    case 10: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt c=%c", ch); break;
+    case 11: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt s=[%s]", sv); break;
+    case 12: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt wd=[%*d]", w, i); break;
+    case 13: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt pf=[%.*f]", pr, d); break;
+    case 14: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt wpf=[%*.*f]", w, pr, d); break;
+    case 15: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt mix=%d/%s/%x", i, sv, u); break;
+    case 16: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt zpd=[%05d]", i); break;
+    case 17: ano_log_write(ano::Info,  ano::DefaultRoute, __FILE_NAME__, __LINE__, "fmt ws=[%-8.3s]", sv); break;
     }
 }
 
-static const ano_loglevel_t LEVELS[] = { ANO_INFO, ANO_WARN, ANO_ERROR };
+static const ano::Level LEVELS[] = { ano::Info, ano::Warn, ano::Error };
 
 static void *producer(void *arg)
 {
@@ -103,7 +103,7 @@ static void *producer(void *arg)
 
     for (int it = 0; it < g_iters && !atomic_load_explicit(&g_stop, memory_order_relaxed); it++) {
         uint32_t pick = rng_below(&s, 100);
-        ano_loglevel_t lvl = LEVELS[rng_below(&s, sizeof LEVELS / sizeof LEVELS[0])];
+        ano::Level lvl = LEVELS[rng_below(&s, sizeof LEVELS / sizeof LEVELS[0])];
 
         if (pick < 2) {
             // Occasional DIR_A/DIR_B swap. Enqueues nothing.
@@ -111,7 +111,7 @@ static void *producer(void *arg)
         } else if (pick < 5) {
             // Occasional NOW route. FILE named explicitly, so one file line and no echo.
             rng_fill_printable(&s, content, 1, MAX_CONTENT);
-            ano_log_write(lvl, ANO_NOW | ANO_FILE, __FILE_NAME__, __LINE__, "%s", content);
+            ano_log_write(lvl, ano::Now | ano::File, __FILE_NAME__, __LINE__, "%s", content);
             local++;
         } else if (pick < 45) {
             // Deferred formatter via fixed literal + typed args.
@@ -120,7 +120,7 @@ static void *producer(void *arg)
         } else {
             // Variable-length random CONTENT, logged safely as "%s".
             rng_fill_printable(&s, content, 1, MAX_CONTENT);
-            if (ano_log_write(lvl, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+            if (ano_log_write(lvl, ano::DefaultRoute, __FILE_NAME__, __LINE__,
                               "%s", content) < 0)
                 atomic_fetch_add(&g_worker_fail, 1);   // never expected: 0 or 1 only
             local++;
@@ -158,7 +158,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "logfuzz: ano_log_init failed\n");
         return 1;
     }
-    ano_log_set_level(ANO_INFO);    // gate open: nothing dropped by severity, counts stay exact
+    ano_log_set_level(ano::Info);    // gate open: nothing dropped by severity, counts stay exact
     ano_log_output_dir(DIR_A);
 
     atomic_store(&g_enqueued, 0);

@@ -5,8 +5,7 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
 #include "vulkan_backend/gpu_alloc.h"
@@ -112,12 +111,12 @@ bool createShadowResources(VulkanContext* ctx, RendererState* state) {
     for (uint32_t s = 0; s < ANO_SHADOW_FRUSTUM_COUNT; s++) state->shadowLayerValid[s] = false;
     state->shadowGlobalDirty = false;
     if (state->shadowCacheMode)
-        ano_log(ANO_INFO, "Shadow cache: %s", state->shadowCacheMode == 1u ? "OFF (every frame dirty)" : "FREEZE");
+        ano::log(ano::Info, "Shadow cache: %s", state->shadowCacheMode == 1u ? "OFF (every frame dirty)" : "FREEZE");
     // Swept-bound motion exposure: per-frustum caster volumes start uninstalled.
     state->sweptExposure = getenv("ANO_FORCE_NO_SWEPT") == NULL;
     state->sweptPoisoned = false;
     if (!state->sweptExposure)
-        ano_log(ANO_INFO, "Shadow cache: swept motion exposure OFF (any mover dirties every frustum)");
+        ano::log(ano::Info, "Shadow cache: swept motion exposure OFF (any mover dirties every frustum)");
     for (uint32_t s = 0; s < ANO_SHADOW_FRUSTUM_COUNT; s++) {
         state->shadowVolume[s].parentSlot = ANO_RENDER_SLOT_UNMAPPED;
         state->shadowExposed[s] = 0u;
@@ -128,7 +127,7 @@ bool createShadowResources(VulkanContext* ctx, RendererState* state) {
     const char* budgetEnv = getenv("ANO_SHADOW_BUDGET");
     state->shadowRenderBudget = budgetEnv ? (uint32_t)atoi(budgetEnv) : 0u;
     if (state->shadowRenderBudget)
-        ano_log(ANO_INFO, "Shadow cache: content re-render budget %u/frame (matrix-dirty exempt)",
+        ano::log(ano::Info, "Shadow cache: content re-render budget %u/frame (matrix-dirty exempt)",
                state->shadowRenderBudget);
 
     // Transient nearest-occluder depth (never sampled): one image across FIF, one slice per frustum.

@@ -10,8 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <anoptic_memory_typed.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -33,7 +32,7 @@ bool createCommandPool(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfa
 	
 	if (vkCreateCommandPool(device, &poolInfo, NULL, commandPool) != VK_SUCCESS) 
 	{
-		ano_log(ANO_FATAL, "Failed to create command pool!");
+		ano::log(ano::Fatal, "Failed to create command pool!");
 		return false;
 	}
 	return true;
@@ -61,7 +60,7 @@ bool createDataBufferShared(VulkanContext* ctx, GpuAllocator* allocator, VkDevic
 
 	if (vkCreateBuffer(ctx->device, &bufferInfo, NULL, buffer) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to create data buffer!");
+		ano::log(ano::Error, "Failed to create data buffer!");
 		*buffer = VK_NULL_HANDLE;
 		return false;
 	}
@@ -101,7 +100,7 @@ bool createUniformBuffers(VulkanContext* ctx, RendererState* state)
 			if (!createDataBufferShared(ctx, &gpuAllocator, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 				 state->asyncLc, &(rendererState.frames[i].views[v].uniformBuffer), &alloc))
 			{
-				ano_log(ANO_FATAL, "Failed to create uniform buffer!");
+				ano::log(ano::Fatal, "Failed to create uniform buffer!");
 				return false;
 			}
 
@@ -114,10 +113,10 @@ bool createUniformBuffers(VulkanContext* ctx, RendererState* state)
 
 void printMatrix(float mat[4][4])
 { // Debug matrix dump
-	ano_debug_log(ANO_INFO, "Matrix:");
+	ANO_DEBUG_LOG(ano::Info, "Matrix:");
 	for (int i = 0; i < 4; i++)
 	{
-		ano_debug_log(ANO_INFO, "%f %f %f %f", mat[i][0], mat[i][1], mat[i][2], mat[i][3]);
+		ANO_DEBUG_LOG(ano::Info, "%f %f %f %f", mat[i][0], mat[i][1], mat[i][2], mat[i][3]);
 	}
 }
 
@@ -196,7 +195,7 @@ uint32_t findMemoryType(VulkanContext* ctx, uint32_t typeFilter, VkMemoryPropert
 		}
 	}
 	
-	ano_log(ANO_ERROR, "Failed to find suitable memory type!");
+	ano::log(ano::Error, "Failed to find suitable memory type!");
 	return UINT32_MAX;
 }
 
@@ -209,7 +208,7 @@ bool stagingTransfer(VulkanContext* ctx, const void* data, VkBuffer dstBuffer, V
 
 	if (!createDataBuffer(ctx, &stagingAllocator, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, properties, &stagingBuffer, &stagingAlloc)) 
 	{
-		ano_log(ANO_ERROR, "Failed to create staging buffer!");
+		ano::log(ano::Error, "Failed to create staging buffer!");
 		return false;
 	}
 
@@ -221,7 +220,7 @@ bool stagingTransfer(VulkanContext* ctx, const void* data, VkBuffer dstBuffer, V
 	bool copied = copyBuffer(ctx, stagingBuffer, dstBuffer, bufferSize);
 	if (!copied)
 	{
-		ano_log(ANO_ERROR, "Failed to copy buffers!");
+		ano::log(ano::Error, "Failed to copy buffers!");
 	}
 
 	// Cleanup staging buffer
@@ -241,7 +240,7 @@ VkCommandBuffer beginSingleTimeCommands(VulkanContext* ctx)
 	VkCommandBuffer commandBuffer;
 	if (vkAllocateCommandBuffers(ctx->device, &allocInfo, &commandBuffer) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to allocate a transient command buffer!");
+		ano::log(ano::Error, "Failed to allocate a transient command buffer!");
 		return VK_NULL_HANDLE;
 	}
 
@@ -251,7 +250,7 @@ VkCommandBuffer beginSingleTimeCommands(VulkanContext* ctx)
 
 	if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
 	{
-		ano_log(ANO_ERROR, "Failed to begin a transient command buffer!");
+		ano::log(ano::Error, "Failed to begin a transient command buffer!");
 		vkFreeCommandBuffers(ctx->device, rendererState.commandPool, 1, &commandBuffer);
 		return VK_NULL_HANDLE;
 	}
@@ -322,14 +321,14 @@ bool createCommandBuffer(VulkanContext* ctx, RendererState* state)
 	{
 		if (vkAllocateCommandBuffers(ctx->device, &allocInfo, &(rendererState.frames[i].commandBuffer)) != VK_SUCCESS)
 		{
-			ano_log(ANO_FATAL, "Failed to allocate command buffers!");
+			ano::log(ano::Fatal, "Failed to allocate command buffers!");
 			return false;
 		}
 		// Async light-cull prelude CB, submitted ahead of main.
 		if (state->asyncLc
 			&& vkAllocateCommandBuffers(ctx->device, &allocInfo, &(rendererState.frames[i].preludeCommandBuffer)) != VK_SUCCESS)
 		{
-			ano_log(ANO_FATAL, "Failed to allocate prelude command buffers!");
+			ano::log(ano::Fatal, "Failed to allocate prelude command buffers!");
 			return false;
 		}
 	}
@@ -352,7 +351,7 @@ bool createSyncObjects(VulkanContext* ctx, RendererState* state)
 			vkCreateSemaphore(ctx->device, &semaphoreInfo, NULL, &(rendererState.frames[i].renderFinished)) != VK_SUCCESS ||
 			vkCreateFence(ctx->device, &fenceInfo, NULL, &(rendererState.frames[i].frameFence)) != VK_SUCCESS)
 			{
-			ano_log(ANO_FATAL, "Failed to create semaphores!");
+			ano::log(ano::Fatal, "Failed to create semaphores!");
 			return false;
 		}
 	}
@@ -366,7 +365,7 @@ bool createSyncObjects(VulkanContext* ctx, RendererState* state)
 		if (vkCreateSemaphore(ctx->device, &timelineSem, NULL, &state->gfxTimeline) != VK_SUCCESS ||
 			vkCreateSemaphore(ctx->device, &timelineSem, NULL, &state->hizTimeline) != VK_SUCCESS)
 		{
-			ano_log(ANO_FATAL, "Failed to create async Hi-Z timeline semaphores!");
+			ano::log(ano::Fatal, "Failed to create async Hi-Z timeline semaphores!");
 			return false;
 		}
 		// Async light-cull: preludeTimeline counts prelude submits, lcTimeline counts light-culls.
@@ -374,7 +373,7 @@ bool createSyncObjects(VulkanContext* ctx, RendererState* state)
 			(vkCreateSemaphore(ctx->device, &timelineSem, NULL, &state->preludeTimeline) != VK_SUCCESS ||
 			 vkCreateSemaphore(ctx->device, &timelineSem, NULL, &state->lcTimeline) != VK_SUCCESS))
 		{
-			ano_log(ANO_FATAL, "Failed to create async light-cull timeline semaphores!");
+			ano::log(ano::Fatal, "Failed to create async light-cull timeline semaphores!");
 			return false;
 		}
 	}
@@ -405,7 +404,7 @@ bool createSyncObjects(VulkanContext* ctx, RendererState* state)
 				qpi.queryType = VK_QUERY_TYPE_TIMESTAMP;
 				qpi.queryCount = ANO_TS_COUNT;
 				if (vkCreateQueryPool(ctx->device, &qpi, NULL, &state->frames[i].timestampPool) != VK_SUCCESS) {
-					ano_log(ANO_WARN, "Failed to create timestamp query pool; profiling disabled.");
+					ano::log(ano::Warn, "Failed to create timestamp query pool; profiling disabled.");
 					state->timestampValidBits = 0u; // disable profiling, keep rendering
 				}
 			}
@@ -417,7 +416,7 @@ bool createSyncObjects(VulkanContext* ctx, RendererState* state)
 		if (!createDataBuffer(ctx, &gpuAllocator, sizeof(uint32_t), VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 				&state->frames[i].pickReadback, &state->frames[i].pickReadbackAlloc)) {
-			ano_log(ANO_FATAL, "Failed to create picking readback buffer!");
+			ano::log(ano::Fatal, "Failed to create picking readback buffer!");
 			return false;
 		}
 		state->frames[i].pickReadbackMapped = static_cast<uint32_t*>(state->frames[i].pickReadbackAlloc.mapped);

@@ -11,9 +11,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 // Ring element size budget.
 static_assert(sizeof(AnoAudioEvent) <= 32u, "AnoAudioEvent grew past 32 bytes; revisit the events ring");
 static_assert(sizeof(AnoAudioCommand) <= 192u, "AnoAudioCommand grew past 192 bytes; revisit the command ring");
@@ -66,7 +64,7 @@ static AnoAudioBackend backend_env_override(AnoAudioBackend want)
     for (size_t i = 0; i < ANO_AUDIO_BACKEND_COUNT; ++i)
         if (strcmp(env, ANO_AUDIO_BACKEND_NAMES.values[i]) == 0)
             return static_cast<AnoAudioBackend>(i + 1u);
-    ano_log(ANO_WARN, "audio: unknown ANO_AUDIO_BACKEND '%s'; ignored.", env);
+    ano::log(ano::Warn, "audio: unknown ANO_AUDIO_BACKEND '%s'; ignored.", env);
     return want;
 }
 
@@ -100,7 +98,7 @@ void ano_audio_bridge_destroy(AnoAudioBridge *bridge)
 bool ano_audio_init(const AnoAudioConfig *cfg)
 {
     if (g_mixer) {
-        ano_log(ANO_WARN, "audio: init called with the audio world already up; ignored.");
+        ano::log(ano::Warn, "audio: init called with the audio world already up; ignored.");
         return false;
     }
 
@@ -115,7 +113,7 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
     uint32_t evtCap    = c.evtCapacity ? c.evtCapacity : 1024u;
     uint32_t buses     = c.busCount ? c.busCount : 2u;
     if (buses > ANO_AUDIO_MAX_BUSES) {
-        ano_log(ANO_WARN, "audio: busCount %u clamped to %u.", buses, ANO_AUDIO_MAX_BUSES);
+        ano::log(ano::Warn, "audio: busCount %u clamped to %u.", buses, ANO_AUDIO_MAX_BUSES);
         buses = ANO_AUDIO_MAX_BUSES;
     }
     AnoAudioMixer *mx;
@@ -172,7 +170,7 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
     if (!mx->blockScratch || !mx->deviceScratch)
         goto fail_heap;
     if (!ano_audio_graph_init(mx, c.busLayout)) {
-        ano_log(ANO_ERROR, "audio: bad bus layout (a parent must precede its children).");
+        ano::log(ano::Error, "audio: bad bus layout (a parent must precede its children).");
         goto fail_heap;
     }
 
@@ -199,11 +197,11 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
     } else {
         const AnoAudioDeviceApi *api = backend_api(want);
         if (!api) {
-            ano_log(ANO_ERROR, "audio: backend %u is not available on this platform.", want);
+            ano::log(ano::Error, "audio: backend %u is not available on this platform.", want);
             goto fail_heap;
         }
         if (!ano_audio_backend_supports(api->backend, mixFormat)) {
-            ano_log(ANO_ERROR, "audio: backend %s does not support the engine mix contract.",
+            ano::log(ano::Error, "audio: backend %s does not support the engine mix contract.",
                     ano_audio_backend_name(api->backend));
             goto fail_heap;
         }
@@ -211,7 +209,7 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
             mx->device = api;
     }
     if (!mx->device) {
-        ano_log(ANO_ERROR, "audio: no device backend could start.");
+        ano::log(ano::Error, "audio: no device backend could start.");
         goto fail_heap;
     }
 
@@ -223,7 +221,7 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
 
     g_mixer = mx;
     g_heap  = heap;
-    ano_log(ANO_INFO, "audio: up 〜 backend=%s, %u Hz, block %u (%u deep), %u buses.",
+    ano::log(ano::Info, "audio: up 〜 backend=%s, %u Hz, block %u (%u deep), %u buses.",
             ano_audio_backend_name(mx->device->backend), rate, bf, devBlocks, buses);
     return true;
 
@@ -281,7 +279,7 @@ void ano_audio_shutdown(void)
     g_mixer = NULL;
     mi_heap_destroy(g_heap);
     g_heap = NULL;
-    ano_log(ANO_INFO, "audio: down.");
+    ano::log(ano::Info, "audio: down.");
 }
 
 AnoAudioBridge *anoAudioBridge(void)

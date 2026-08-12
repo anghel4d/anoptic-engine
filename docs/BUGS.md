@@ -62,7 +62,7 @@ Failure modes are values when callers must react differently.
 - Switch exhaustively without `default`, so a new result code forces every policy site to be revisited.
 - Keep results domain-specific; there is no engine-wide error enum.
 
-`ANO_FATAL` is a log level, not control flow. Logging a refusal never substitutes for returning it.
+`ano::Fatal` is a log level, not control flow. Logging a refusal never substitutes for returning it.
 
 
 ## Root-cause tags

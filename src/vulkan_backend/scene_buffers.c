@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_memory.h>
 
 #include "vulkan_backend/vulkanMaster.h"
@@ -66,7 +66,7 @@ bool createMaterialBuffer(VulkanContext* ctx, RendererState* state, uint32_t max
         
         if (!mintSceneBuffer(ctx, &bufferInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                              &state->materialBuffer.buffer[i], &state->materialBuffer.allocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create material buffer!");
+            ano::log(ano::Fatal, "Failed to create material buffer!");
             return false;
         }
 
@@ -148,7 +148,7 @@ bool createStreamBuffers(VulkanContext* ctx, RendererState* state, uint32_t capa
     // Per-frame resolved-slot buffers (binding 0).
     if (!createMappedSsboSet(ctx, (VkDeviceSize)sizeof(uint32_t) * capacity,
                              ts->slotBuffer, ts->slotAllocs, (void**)ts->slotMapped)) {
-        ano_log(ANO_FATAL, "Failed to create stream slot buffer!");
+        ano::log(ano::Fatal, "Failed to create stream slot buffer!");
         return false;
     }
 
@@ -161,7 +161,7 @@ bool createStreamBuffers(VulkanContext* ctx, RendererState* state, uint32_t capa
     };
     if (!mintSceneBuffer(ctx, &bufferInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                          &ts->xformRing, &ts->xformRingAlloc)) {
-        ano_log(ANO_FATAL, "Failed to create stream transform ring!");
+        ano::log(ano::Fatal, "Failed to create stream transform ring!");
         return false;
     }
     ts->xformRingMapped = (mat4*)ts->xformRingAlloc.mapped;
@@ -183,7 +183,7 @@ bool createTransformBuffer(VulkanContext* ctx, TransformBuffer* buf, uint32_t ma
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         if (!mintSceneBuffer(ctx, &bufferInfo, props, &buf->buffer[i], &buf->allocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create transform buffer!");
+            ano::log(ano::Fatal, "Failed to create transform buffer!");
             return false;
         }
 
@@ -210,7 +210,7 @@ bool createLightRuntimeBuffer(VulkanContext* ctx, TransformBuffer* buf, uint32_t
         if (rendererState.asyncLc) buffer_share_async_compute(&bufferInfo, fams);
 
         if (!mintSceneBuffer(ctx, &bufferInfo, props, &buf->buffer[i], &buf->allocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create light pose buffer!");
+            ano::log(ano::Fatal, "Failed to create light pose buffer!");
             return false;
         }
 
@@ -239,7 +239,7 @@ bool createIndirectDrawBuffer(VulkanContext* ctx, RendererState* state, uint32_t
         // GPU-private, written by vkCmdFillBuffer + cull.comp, read by draw-indirect.
         if (!mintSceneBuffer(ctx, &bufferInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                              &state->indirectBuffer.buffer[i], &state->indirectBuffer.allocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create indirect draw buffer!");
+            ano::log(ano::Fatal, "Failed to create indirect draw buffer!");
             return false;
         }
 
@@ -316,7 +316,7 @@ bool createCullingBuffers(VulkanContext* ctx, RendererState* state, uint32_t max
         meshInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         if (!mintSceneBuffer(ctx, &meshInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                              &state->culling.meshDataBuffer[i], &state->culling.meshDataAllocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create mesh data buffer!");
+            ano::log(ano::Fatal, "Failed to create mesh data buffer!");
             return false;
         }
         state->culling.meshDataMapped[i] =
@@ -330,7 +330,7 @@ bool createCullingBuffers(VulkanContext* ctx, RendererState* state, uint32_t max
         boundsInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         if (!mintSceneBuffer(ctx, &boundsInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                              &state->culling.meshBoundsBuffer[i], &state->culling.meshBoundsAllocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create mesh bounds buffer!");
+            ano::log(ano::Fatal, "Failed to create mesh bounds buffer!");
             return false;
         }
         state->culling.meshBoundsMapped[i] =
@@ -345,7 +345,7 @@ bool createCullingBuffers(VulkanContext* ctx, RendererState* state, uint32_t max
         // GPU-private, zeroed by vkCmdFillBuffer, incremented by cull.comp, read by draw-indirect-count.
         if (!mintSceneBuffer(ctx, &countInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                              &state->culling.drawCountBuffer[i], &state->culling.drawCountAllocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create draw count buffer!");
+            ano::log(ano::Fatal, "Failed to create draw count buffer!");
             return false;
         }
         state->culling.drawCountMapped[i] = (uint32_t*)state->culling.drawCountAllocs[i].mapped;
@@ -359,7 +359,7 @@ bool createCullingBuffers(VulkanContext* ctx, RendererState* state, uint32_t max
         // GPU-private, written by cull.comp, read by the geometry stage.
         if (!mintSceneBuffer(ctx, &compactedInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                              &state->culling.compactedEntityIndicesBuffer[i], &state->culling.compactedEntityIndicesAllocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create compacted entity index buffer!");
+            ano::log(ano::Fatal, "Failed to create compacted entity index buffer!");
             return false;
         }
         state->culling.compactedEntityIndicesMapped[i] = (uint32_t*)state->culling.compactedEntityIndicesAllocs[i].mapped;
@@ -372,7 +372,7 @@ bool createCullingBuffers(VulkanContext* ctx, RendererState* state, uint32_t max
         sortKeysInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         if (!mintSceneBuffer(ctx, &sortKeysInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                              &state->culling.sortKeysBuffer[i], &state->culling.sortKeysAllocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create sort keys buffer!");
+            ano::log(ano::Fatal, "Failed to create sort keys buffer!");
             return false;
         }
 
@@ -384,7 +384,7 @@ bool createCullingBuffers(VulkanContext* ctx, RendererState* state, uint32_t max
         uboInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         if (!mintSceneBuffer(ctx, &uboInfo, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                              &state->culling.ubo.buffer[i], &state->culling.ubo.allocs[i])) {
-            ano_log(ANO_FATAL, "Failed to create cull UBO buffer!");
+            ano::log(ano::Fatal, "Failed to create cull UBO buffer!");
             return false;
         }
         state->culling.ubo.mapped[i] = (CullUBO*)state->culling.ubo.allocs[i].mapped;
@@ -429,7 +429,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
 
     // Fallback must land at FALLBACK_MESH_INDEX; else unwind.
     if (fallbackMeshIdx != FALLBACK_MESH_INDEX) {
-        ano_log(ANO_ERROR, "Fallback mesh was assigned index %u instead of %u!", fallbackMeshIdx, FALLBACK_MESH_INDEX);
+        ano::log(ano::Error, "Fallback mesh was assigned index %u instead of %u!", fallbackMeshIdx, FALLBACK_MESH_INDEX);
         return false;
     }
 
@@ -444,7 +444,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
     // Colour role, no borrowed batch.
     if (createTextureImageFromPixels(ctx, VK_NULL_HANDLE, &fallbackPkg, fallbackPixels, 2, 2,
                                      TEXTURE_USE_COLOR, false).code != ANO_TEXTURE_BUILT) {
-        ano_log(ANO_WARN, "Warning: Failed to create fallback texture!");
+        ano::log(ano::Warn, "Warning: Failed to create fallback texture!");
         return false;
     }
     state->fallbackImage = fallbackPkg.image;
@@ -455,7 +455,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
     
     // Every unaddressable texture degrades to this slot, so init without it is a lie: unwind.
     if (fallbackTexIdx != FALLBACK_TEXTURE_INDEX) {
-        ano_log(ANO_ERROR, "Fallback texture was assigned index %u instead of %u!", fallbackTexIdx, FALLBACK_TEXTURE_INDEX);
+        ano::log(ano::Error, "Fallback texture was assigned index %u instead of %u!", fallbackTexIdx, FALLBACK_TEXTURE_INDEX);
         return false;
     }
 

@@ -8,7 +8,7 @@
 #include <meta>
 #include <string_view>
 #include <type_traits>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anogltf.h>
 
 extern GpuAllocator stagingAllocator;
@@ -501,14 +501,14 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
     AnoGltfResult result = ano_gltf_parse_file(fileName, &options, &data);
 
     if (result != AnoGltfResult::success) {
-        ano_log(ANO_ERROR, "Failed to parse glTF file (%s): %s",
+        ano::log(ano::Error, "Failed to parse glTF file (%s): %s",
                 ano_gltf_result_string(result), fileName);
         return NULL;
     }
 
     result = ano_gltf_load_buffers(data, fileName, &options);
     if (result != AnoGltfResult::success) {
-        ano_log(ANO_ERROR, "Failed to load glTF buffers (%s): %s",
+        ano::log(ano::Error, "Failed to load glTF buffers (%s): %s",
                 ano_gltf_result_string(result), fileName);
         ano_gltf_free(data);
         return NULL;
@@ -517,21 +517,21 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
     // Untrusted-input gate: buffer, view, accessor and sparse ranges are all loaded and bounded.
     result = ano_gltf_validate_loaded_data(data);
     if (result != AnoGltfResult::success) {
-        ano_log(ANO_ERROR, "glTF failed validation (%s), rejecting: %s",
+        ano::log(ano::Error, "glTF failed validation (%s), rejecting: %s",
                 ano_gltf_result_string(result), fileName);
         ano_gltf_free(data);
         return NULL;
     }
     ValidatedGltf gltf = { data };
 
-    ano_debug_log(ANO_INFO, "Successfully parsed %s with anogltf!", fileName);
+    ANO_DEBUG_LOG(ano::Info, "Successfully parsed %s with anogltf!", fileName);
 
     // Persistent ModelAsset block (one calloc, one free at unload).
     size_t primsTotal, childTotal, rootTotal;
     size_t assetBytes = asset_block_size(gltf, &primsTotal, &childTotal, &rootTotal);
     uint8_t* assetBase = ano::allocate_zero<uint8_t>(assetBytes);
     if (!assetBase) {
-        ano_log(ANO_ERROR, "Failed to allocate %zu-byte asset block for: %s", assetBytes, fileName);
+        ano::log(ano::Error, "Failed to allocate %zu-byte asset block for: %s", assetBytes, fileName);
         ano_gltf_free(data);
         return NULL;
     }
@@ -558,7 +558,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
     mi_heap_t* scratchHeap LOCALHEAPATTR = mi_heap_new();
     uint8_t* scratchBase = scratchHeap ? ano::heap_allocate_zero<uint8_t>(scratchHeap, scratchBytes) : NULL;
     if (!scratchBase) {
-        ano_log(ANO_ERROR, "Failed to allocate %zu-byte scratch block for: %s", scratchBytes, fileName);
+        ano::log(ano::Error, "Failed to allocate %zu-byte scratch block for: %s", scratchBytes, fileName);
         free(assetBase);
         ano_gltf_free(data);
         return NULL;
@@ -595,12 +595,12 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
 
             const AnoGltfAccessor *posAccessor, *normAccessor, *texAccessor;
             if (!prim_accessors(data, prim, &posAccessor, &normAccessor, &texAccessor)) {
-                ano_log(ANO_WARN, "Warning: Primitive missing positions or indices. Skipping.");
+                ano::log(ano::Warn, "Warning: Primitive missing positions or indices. Skipping.");
                 continue;
             }
             const AnoGltfAccessor* indexAccessor = &data->accessors[prim->indices.value];
             if (posAccessor->count > UINT32_MAX || indexAccessor->count > UINT32_MAX) {
-                ano_log(ANO_WARN, "Primitive exceeds the renderer's 32-bit geometry limits. Skipping.");
+                ano::log(ano::Warn, "Primitive exceeds the renderer's 32-bit geometry limits. Skipping.");
                 continue;
             }
 
@@ -629,7 +629,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
                 }
             }
             if (!decoded) {
-                ano_log(ANO_WARN, "Primitive accessor decoding failed after validation. Skipping.");
+                ano::log(ano::Warn, "Primitive accessor decoding failed after validation. Skipping.");
                 continue;
             }
 
@@ -640,7 +640,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
             decoded = ano_gltf_accessor_unpack_indices(
                 data, indexAccessor, indices, sizeof(*indices), indexCount) == indexCount;
             if (!decoded) {
-                ano_log(ANO_WARN, "Primitive index decoding failed after validation. Skipping.");
+                ano::log(ano::Warn, "Primitive index decoding failed after validation. Skipping.");
                 continue;
             }
 
@@ -663,7 +663,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
 
     // Identify PBR features globally supported by the active pipelines
     PbrFeatureFlags activeFeatures = ano_vk_get_active_pipelines_supported_features(&rendererState);
-    ano_debug_log(ANO_INFO, "[GLTF DEBUG] Active pipeline PBR features supported: 0x%08X", activeFeatures);
+    ANO_DEBUG_LOG(ano::Info, "[GLTF DEBUG] Active pipeline PBR features supported: 0x%08X", activeFeatures);
 
     // Mark texture roles per image (COLOR=sRGB, DATA=linear).
     if (data->texturesCount > 0) {
@@ -671,7 +671,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
             const AnoGltfMaterial* mat = &data->materials[m];
             PbrFeatureFlags matFeatures = gltf_identify_material_features(mat);
             PbrFeatureFlags supportedFeatures = matFeatures & activeFeatures;
-            ano_debug_log(ANO_INFO, "[GLTF DEBUG] Material %u (%.*s): required features = 0x%08X, supported = 0x%08X",
+            ANO_DEBUG_LOG(ano::Info, "[GLTF DEBUG] Material %u (%.*s): required features = 0x%08X, supported = 0x%08X",
                    m, mat->name.length ? static_cast<int>(mat->name.length) : 7,
                    mat->name.length ? mat->name.data : "unnamed", matFeatures, supportedFeatures);
 
@@ -683,7 +683,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
     // Batch CB for texture uploads. VK_NULL_HANDLE -> per-image mint; epilogue ends a held CB only.
     VkCommandBuffer textureCmd = beginSingleTimeCommands(ctx);
     if (textureCmd == VK_NULL_HANDLE)
-        ano_log(ANO_WARN, "No transient command buffer for the texture batch; uploading per image.");
+        ano::log(ano::Warn, "No transient command buffer for the texture batch; uploading per image.");
     uint32_t stagingCount = 0;
     // Halt latch: device/arena, registry, or bindless full.
     bool haltLoad = false;
@@ -697,7 +697,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
         if (img->uri.length == 0)
             continue;
         if (imageUsage[i] == TEXTURE_USE_NONE) {
-            ano_debug_log(ANO_INFO, "[GLTF DEBUG] Skipping image %u: %.*s (not needed or unsupported by pipeline)",
+            ANO_DEBUG_LOG(ano::Info, "[GLTF DEBUG] Skipping image %u: %.*s (not needed or unsupported by pipeline)",
                           i, static_cast<int>(img->uri.length), img->uri.data);
             continue;
         }
@@ -706,12 +706,12 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
             skipped++;
             continue;
         }
-        ano_debug_log(ANO_INFO, "[GLTF DEBUG] Loading image %u: %.*s",
+        ANO_DEBUG_LOG(ano::Info, "[GLTF DEBUG] Loading image %u: %.*s",
                       i, static_cast<int>(img->uri.length), img->uri.data);
         // Resolve image URI against the glTF file's directory, then percent-decode the tail.
         char texPath[1024];
         if (!gltf_image_path(texPath, fileName, img->uri)) {
-            ano_log(ANO_WARN, "Image URI too long, skipping: %.*s",
+            ano::log(ano::Warn, "Image URI too long, skipping: %.*s",
                     static_cast<int>(img->uri.length), img->uri.data);
             continue;
         }
@@ -722,15 +722,15 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
         case ANO_TEXTURE_BUILT:
             break;
         case ANO_TEXTURE_SOURCE:
-            ano_log(ANO_WARN, "Unusable image source, skipping: %.*s",
+            ano::log(ano::Warn, "Unusable image source, skipping: %.*s",
                     static_cast<int>(img->uri.length), img->uri.data);
             continue;
         case ANO_TEXTURE_INVALID:
-            ano_log(ANO_ERROR, "Image request outside the constructor's contract: %.*s",
+            ano::log(ano::Error, "Image request outside the constructor's contract: %.*s",
                     static_cast<int>(img->uri.length), img->uri.data);
             continue;
         case ANO_TEXTURE_DEVICE:
-            ano_log(ANO_ERROR, "Device or texture arena refused %.*s; halting texture construction.",
+            ano::log(ano::Error, "Device or texture arena refused %.*s; halting texture construction.",
                     static_cast<int>(img->uri.length), img->uri.data);
             haltLoad = true;
             continue;
@@ -739,7 +739,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
         if (pkg.staging) stagingBuffers[stagingCount++] = pkg.staging; // batch-owned
 
         if (!ano_vk_register_texture(&rendererState.primitives, ano_texture_record(&pkg))) {
-            ano_log(ANO_ERROR, "Texture registry refused %.*s; halting texture construction.",
+            ano::log(ano::Error, "Texture registry refused %.*s; halting texture construction.",
                     static_cast<int>(img->uri.length), img->uri.data);
             refused = pkg; // epilogue destroy
             haltLoad = true;
@@ -755,12 +755,12 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
             haltLoad |= dataIndex[i] == ANO_BINDLESS_NONE;
         }
         if (haltLoad)
-            ano_log(ANO_WARN, "No bindless slot for image %.*s; halting texture construction.",
+            ano::log(ano::Warn, "No bindless slot for image %.*s; halting texture construction.",
                     static_cast<int>(img->uri.length), img->uri.data);
     }
 
     if (skipped)
-        ano_log(ANO_WARN, "Texture construction halted: skipped %u further image uploads; those materials sample untextured.", skipped);
+        ano::log(ano::Warn, "Texture construction halted: skipped %u further image uploads; those materials sample untextured.", skipped);
 
     if (textureCmd != VK_NULL_HANDLE) endSingleTimeCommands(ctx, textureCmd);
 
@@ -777,7 +777,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
     // Pre-validate material buffer capacity
     uint32_t totalPrimitives = primsTotal;
     if (rendererState.materialBuffer.count + totalPrimitives > rendererState.materialBuffer.capacity) {
-        ano_log(ANO_WARN, "Warning: Material buffer cannot fit %u new materials (Capacity: %u, Current: %u). Some materials will fall back to index 0.",
+        ano::log(ano::Warn, "Warning: Material buffer cannot fit %u new materials (Capacity: %u, Current: %u). Some materials will fall back to index 0.",
                totalPrimitives, rendererState.materialBuffer.capacity, rendererState.materialBuffer.count);
     }
 
@@ -903,7 +903,7 @@ ModelAsset* parseGltf(VulkanContext* ctx, const char* fileName)
     }
 
     ano_gltf_free(data);
-    ano_debug_log(ANO_INFO, "Successfully extracted ModelAsset: %s", fileName);
+    ANO_DEBUG_LOG(ano::Info, "Successfully extracted ModelAsset: %s", fileName);
     return asset;
 }
 

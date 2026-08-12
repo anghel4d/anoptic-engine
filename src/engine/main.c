@@ -13,7 +13,8 @@
 #include "anoptic_time.h"
 #include "anoptic_threads.h"
 #include "anoptic_filesystem.h"
-#include "anoptic_log_crash.h"   // anoptic_log.h + crash blackbox
+#include "anoptic_log.h"
+#include "anoptic_log_crash.h"
 
 #ifndef HEADLESS_BUILD
 // Graphical: renderer + GLFW
@@ -62,8 +63,8 @@ static uint32_t spawn_asset(AnoRenderBridge* bridge, uint32_t* nextId, uint32_t 
                             const mat4 root, AnoMotionType motion, float speed) {
 	AnoRenderableDesc descs[SPAWN_ASSET_MAX_PRIMS];
 	uint32_t n = anoRenderAssetPrimitives(asset_id, root, descs, SPAWN_ASSET_MAX_PRIMS);
-	if (n == 0u) { ano_log(ANO_WARN, "Producer: asset %u has no primitives; nothing spawned.", asset_id); return UINT32_MAX; }
-	if (n > SPAWN_ASSET_MAX_PRIMS) { ano_log(ANO_WARN, "Producer: asset %u has %u primitives; spawning only the first %u.", asset_id, n, SPAWN_ASSET_MAX_PRIMS); n = SPAWN_ASSET_MAX_PRIMS; }
+	if (n == 0u) { ano::log(ano::Warn, "Producer: asset %u has no primitives; nothing spawned.", asset_id); return UINT32_MAX; }
+	if (n > SPAWN_ASSET_MAX_PRIMS) { ano::log(ano::Warn, "Producer: asset %u has %u primitives; spawning only the first %u.", asset_id, n, SPAWN_ASSET_MAX_PRIMS); n = SPAWN_ASSET_MAX_PRIMS; }
 	uint32_t first = *nextId;
 	for (uint32_t i = 0; i < n; i++) {
 		RenderCommand c = { .kind = RCMD_CREATE, .render_id = (*nextId)++,
@@ -450,7 +451,7 @@ static bool music_world_start(void)
 		uint32_t spin = 0;
 		while (!ano_audio_submit(ab, &setup[i].cmd)) {
 			if (++spin >= 1000u) {
-				ano_log(ANO_WARN, "Music: audio command ring full for 1 s; console setup abandoned.");
+				ano::log(ano::Warn, "Music: audio command ring full for 1 s; console setup abandoned.");
 				return false;
 			}
 			ano_sleep(1000);
@@ -465,11 +466,11 @@ static bool music_world_start(void)
 		ano_sleep(5000);
 	}
 	if (!haveTelem) {
-		ano_log(ANO_WARN, "Music: no mixer telemetry after 1 s; transport not started.");
+		ano::log(ano::Warn, "Music: no mixer telemetry after 1 s; transport not started.");
 		return false; // silent run, as documented
 	}
 	ano_synth_transport_start(g_synth, (t.blockIndex + 8u) * (uint64_t)t.blockFrames);
-	ano_log(ANO_INFO, "Music: composing live at %u Hz (seed %u).", MUSIC_RATE,
+	ano::log(ano::Info, "Music: composing live at %u Hz (seed %u).", MUSIC_RATE,
 	        (unsigned)MUSIC_SEED);
 	return true;
 	}();
@@ -753,7 +754,7 @@ static void submit_policy(AnoRenderSubmitResult r, uint64_t now, bool* dirty, ui
 	case ANO_RENDER_SUBMIT_OOM:          if (retryAt) *retryAt = now + HUD_OOM_RETRY_US; break;
 	case ANO_RENDER_SUBMIT_INVALID:
 		if (dirty) *dirty = false; if (retryAt) *retryAt = 0;
-		ano_log(ANO_WARN, "HUD: %s block refused as invalid; retired.", what);
+		ano::log(ano::Warn, "HUD: %s block refused as invalid; retired.", what);
 		break;
 	}
 }
@@ -771,10 +772,10 @@ static AnoRenderSubmitResult hud_text_spin(AnoRenderBridge* bridge, uint32_t tex
 		case ANO_RENDER_SUBMIT_ACCEPTED:
 			return r;
 		case ANO_RENDER_SUBMIT_OOM:
-			ano_log(ANO_WARN, "HUD: no memory for the %s block; running without it.", what);
+			ano::log(ano::Warn, "HUD: no memory for the %s block; running without it.", what);
 			return r;
 		case ANO_RENDER_SUBMIT_INVALID:
-			ano_log(ANO_WARN, "HUD: the %s block was refused as invalid; running without it.", what);
+			ano::log(ano::Warn, "HUD: the %s block was refused as invalid; running without it.", what);
 			return r;
 		case ANO_RENDER_SUBMIT_BACKPRESSURE:
 			if (atomic_load(&g_logicShouldStop))
@@ -938,7 +939,7 @@ hudDone:
 						case 2:                                                  // QUIT
 							menuVisible = false;
 							menuDirty = true;
-							ano_log(ANO_INFO, "Menu: quit selected (demo no-op).");
+							ano::log(ano::Info, "Menu: quit selected (demo no-op).");
 							break;
 						default: break;
 						}
@@ -963,12 +964,12 @@ hudDone:
 			}
 			case REVENT_PICK_RESULT:
 				if (ev.u.pick_render_id != ANO_RENDER_NO_PICK)
-					ano_debug_log(ANO_INFO, "Pick: cursor over render_id %u", ev.u.pick_render_id);
+					ANO_DEBUG_LOG(ano::Info, "Pick: cursor over render_id %u", ev.u.pick_render_id);
 				break;
 			case REVENT_SLOT_RETIRED:   break; // render_id free to recycle (ignored)
 			case REVENT_BATCH_CONSUMED: break; // batch ack (ignored)
 			case REVENT_CAPACITY:
-				ano_log(ANO_WARN, "Producer: back-channel saturated; some input samples were dropped.");
+				ano::log(ano::Warn, "Producer: back-channel saturated; some input samples were dropped.");
 				break;
 			}
 		}
@@ -1102,7 +1103,7 @@ hudDone:
 					barVpH = vpH;
 			}
 			if (ano_render_acquire_snapshot(bridge, &snap) && now - lastSnapLog > 1000000) {
-				ano_debug_log(ANO_INFO, "Snapshot: frameId %llu, viewport %ux%u",
+				ANO_DEBUG_LOG(ano::Info, "Snapshot: frameId %llu, viewport %ux%u",
 				       (unsigned long long)snap.frameId, snap.vpWidth, snap.vpHeight);
 				lastSnapLog = now;
 				if (bake != NULL) {
@@ -1138,7 +1139,7 @@ int main()
     // only the CWD-relative asset loads (glTF, textures) need this.
     // Interim shim until the Resource Manager owns asset paths.
     if (!ano_fs_chdir_gamepath())
-        ano_rlog(ANO_WARN, ANO_TERM | ANO_NOW, "Warning: could not set the working directory to the executable's; "
+        ano::log(ano::Warn, ano::Term | ano::Now, "Warning: could not set the working directory to the executable's; "
                "assets will load relative to the current working directory.");
 
     #ifdef DEBUG_BUILD
@@ -1146,25 +1147,25 @@ int main()
     mi_option_enable(mi_option_show_errors);
     mi_option_enable(mi_option_show_stats);
     mi_option_enable(mi_option_verbose);
-    ano_debug_rlog(ANO_INFO, ANO_TERM | ANO_NOW, "Running in debug mode!");
+    ANO_DEBUG_LOG(ano::Info, ano::Term | ano::Now, "Running in debug mode!");
 
     #endif
 
     // Process-wide logger. Cleans on scope exit.
     int logAlive ANO_LOG_SCOPE_ATTR = ano_log_init();
     if (logAlive != 0) {
-        ano_log(ANO_FATAL, "Logger initialization failed; something is very wrong.");
+        ano::log(ano::Fatal, "Logger initialization failed; something is very wrong.");
         return EXIT_FAILURE;
     }
 
     // Blackbox: fatal signal -> CRASH log + flush.
     if (ano_log_crash_init() != 0)
-        ano_log(ANO_WARN, "Blackbox failed to arm; a crash will leave no CRASH log.");
+        ano::log(ano::Warn, "Blackbox failed to arm; a crash will leave no CRASH log.");
 
     // Warn if main stack < ANO_THREAD_STACK_SIZE.
     size_t mainStack = ano_thread_main_stack();
     if (mainStack != 0 && mainStack < ANO_THREAD_STACK_SIZE)
-        ano_log(ANO_WARN, "Main-thread stack budget is %zu KiB, under the engine's %zu KiB: "
+        ano::log(ano::Warn, "Main-thread stack budget is %zu KiB, under the engine's %zu KiB: "
                 "deep main-thread call chains may overflow (raise `ulimit -s`).",
                 mainStack >> 10, (size_t)ANO_THREAD_STACK_SIZE >> 10);
 
@@ -1173,21 +1174,21 @@ int main()
     // initVulkan creates the bridge before the producer; no readiness handshake.
     if (!initVulkan())
     {
-        ano_log(ANO_FATAL, "Vulkan initialization failed.");
+        ano::log(ano::Fatal, "Vulkan initialization failed.");
         return -1;
     }
 
 #if defined(ANOPTIC_ENGINE_MUSIC)
     // Audio world before the producer. false -> silent run.
     if (!music_world_start())
-        ano_log(ANO_WARN, "Music: the audio world did not come up; running silent.");
+        ano::log(ano::Warn, "Music: the audio world did not come up; running silent.");
 #endif
 
     // Logic/ECS master: sole render-command producer.
     anothread_t logicThread;
     if (ano_thread_create(&logicThread, NULL, anoLogicThreadMain, NULL) != 0)
     {
-        ano_log(ANO_FATAL, "Failed to spawn logic thread.");
+        ano::log(ano::Fatal, "Failed to spawn logic thread.");
 #if defined(ANOPTIC_ENGINE_MUSIC)
         music_world_stop(true);
 #endif
@@ -1214,9 +1215,9 @@ int main()
     unInitVulkan();
 #else
     // Headless engine: no renderer. Idle console loop.
-    ano_rlog(ANO_INFO, ANO_TERM, "Anoptic Engine 〜 headless console mode.");
+    ano::log(ano::Info, ano::Term, "Anoptic Engine 〜 headless console mode.");
     while (true) {
-        ano_rlog(ANO_INFO, ANO_TERM, "Waiting...");
+        ano::log(ano::Info, ano::Term, "Waiting...");
         ano_sleep(3 * 1000000);
     };
 #endif

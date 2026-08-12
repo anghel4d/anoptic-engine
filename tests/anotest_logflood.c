@@ -40,7 +40,7 @@ static void *wide_producer(void *arg)
 {
     (void)arg;
     for (int i = 0; i < WIDE_PER_THREAD; i++)
-        ano_log(ANO_INFO, "%*d", WIDE_FIELD, i);
+        ano::log(ano::Info, "%*d", WIDE_FIELD, i);
     return NULL;
 }
 
@@ -71,12 +71,12 @@ int main(void)
     remove(PATH_WIDE);
 
     CHECK(ano_log_init() == 0, "logger up");
-    ano_log_set_level(ANO_INFO);
+    ano_log_set_level(ano::Info);
     CHECK(ano_log_output_dir(DIR_CTRL) == 0, "output -> control scratch");
 
     // control: narrow deferred burst, rendered ~ stored, nothing lost
     for (int i = 0; i < CTRL_RECORDS; i++)
-        ano_log(ANO_INFO, "ctrl %d", i);
+        ano::log(ano::Info, "ctrl %d", i);
     ano_log_flush();
     printf("logflood: control burst drained (%d records)\n", CTRL_RECORDS);
     fflush(stdout);

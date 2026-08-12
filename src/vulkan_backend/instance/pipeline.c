@@ -5,7 +5,7 @@
 
 #include <anoptic_memory_typed.h>
 #include <anoptic_filesystem.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include "pipeline.h"
 #include "vulkan_backend/pipeline_registry.h"
 #include "pipelines/flat.h"
@@ -49,7 +49,7 @@ bool loadFile(const char* filename, struct Buffer* buffer)
 	FILE* file = openEngineFile(filename);
 	if (file == NULL)
 	{
-		ano_log(ANO_ERROR, "Failed to open file (relative to the executable): %s", filename);
+		ano::log(ano::Error, "Failed to open file (relative to the executable): %s", filename);
 		return false;
 	}
 
@@ -61,14 +61,14 @@ bool loadFile(const char* filename, struct Buffer* buffer)
 	buffer->data = static_cast<char*>(ano_aligned_malloc(size, alignof(uint32_t)));
 	if (buffer->data == NULL)
 	{
-		ano_log(ANO_ERROR, "Failed to allocate memory for file: %s", filename);
+		ano::log(ano::Error, "Failed to allocate memory for file: %s", filename);
 		fclose(file);
 		return false;
 	}
 
 	if (fread(buffer->data, 1, size, file) != size)
 	{
-		ano_log(ANO_ERROR, "Failed to read file: %s", filename);
+		ano::log(ano::Error, "Failed to read file: %s", filename);
 		ano_aligned_free(buffer->data);
 		buffer->data = NULL;
 		fclose(file);
@@ -92,7 +92,7 @@ VkShaderModule createShaderModule(VkDevice device, struct Buffer* code)
 	VkShaderModule shaderModule;
 	if (vkCreateShaderModule(device, &createInfo, NULL, &shaderModule) != VK_SUCCESS)
 	{
-		ano_olog(ANO_ERROR, "Failed to create shader module!");
+		ano::log(ano::origin, ano::Error, "Failed to create shader module!");
 		return NULL;
 	}
 

@@ -2,8 +2,7 @@
 #include <anoptic_memory.h>   // puts this TU's malloc/free in the engine allocator (MI_OVERRIDE is OFF)
 #include <stdlib.h>
 #include <stdio.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #define DEFAULT_BLOCK_SIZE (256 * 1024 * 1024) // 256 MiB
 
 static uint32_t findMemoryType(VkPhysicalDeviceMemoryProperties memProps, uint32_t typeFilter, VkMemoryPropertyFlags properties)
@@ -16,7 +15,7 @@ static uint32_t findMemoryType(VkPhysicalDeviceMemoryProperties memProps, uint32
             return i;
         }
     }
-    ano_log(ANO_ERROR, "Failed to find suitable memory type!");
+    ano::log(ano::Error, "Failed to find suitable memory type!");
     return UINT32_MAX;
 }
 
@@ -57,7 +56,7 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
     // Expand blocks array
     void* temp = realloc(alloc->blocks, (alloc->blockCount + 1) * sizeof(GpuBlock));
     if (!temp) {
-        ano_log(ANO_ERROR, "Host OOM: Failed to allocate memory for GPU block tracking array!");
+        ano::log(ano::Error, "Host OOM: Failed to allocate memory for GPU block tracking array!");
         return (GpuAllocation){0};
     }
     alloc->blocks = static_cast<GpuBlock*>(temp);
@@ -77,7 +76,7 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
 
     if (vkAllocateMemory(alloc->device, &allocInfo, NULL, &newBlock->memory) != VK_SUCCESS)
     {
-        ano_log(ANO_ERROR, "Failed to allocate GPU block memory!");
+        ano::log(ano::Error, "Failed to allocate GPU block memory!");
         // Revert block count expansion
         alloc->blockCount--;
         GpuAllocation empty = {0};

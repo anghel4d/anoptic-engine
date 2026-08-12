@@ -10,8 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <anoptic_memory.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -113,7 +112,7 @@ bool createDescriptorPool(VulkanContext* ctx, RendererState* state)
 
 	if (vkCreateDescriptorPool(ctx->device, &poolInfo, NULL, &(rendererState.globalDescriptorPool)) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create descriptor pool!");
+		ano::log(ano::Fatal, "Failed to create descriptor pool!");
 		return false;
 	}
 
@@ -135,7 +134,7 @@ bool createBindlessTextureArray(VulkanContext* ctx, RendererState* state)
 
 	if (vkCreateDescriptorPool(ctx->device, &poolInfo, NULL, &rendererState.bindlessTextures.pool) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create bindless texture descriptor pool!");
+		ano::log(ano::Fatal, "Failed to create bindless texture descriptor pool!");
 		return false;
 	}
 
@@ -153,7 +152,7 @@ bool createBindlessTextureArray(VulkanContext* ctx, RendererState* state)
 
 	if (vkAllocateDescriptorSets(ctx->device, &allocInfo, &rendererState.bindlessTextures.set) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to allocate bindless texture descriptor set!");
+		ano::log(ano::Fatal, "Failed to allocate bindless texture descriptor set!");
 		return false;
 	}
 
@@ -180,7 +179,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
 		VkDescriptorSet globalSetsTemp[PERVIEW_SETS];
 	if (vkAllocateDescriptorSets(ctx->device, &allocInfo, globalSetsTemp) != VK_SUCCESS)
 	{
-        ano_log(ANO_FATAL, "Failed to allocate global descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate global descriptor sets!");
 		return false;
 	}
 	for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++)
@@ -201,7 +200,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
         VkDescriptorSet cullSetsTemp[MAX_FRAMES_IN_FLIGHT];
     if (vkAllocateDescriptorSets(ctx->device, &cullAllocInfo, cullSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate cull descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate cull descriptor sets!");
         return false;
     }
     for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++) rendererState.frames[i].cullSet = cullSetsTemp[i];
@@ -220,7 +219,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSet updateSetsTemp[MAX_FRAMES_IN_FLIGHT];
     if (vkAllocateDescriptorSets(ctx->device, &updateAllocInfo, updateSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate update descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate update descriptor sets!");
         return false;
     }
     for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++) rendererState.frames[i].updateSet = updateSetsTemp[i];
@@ -239,7 +238,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSet scatterSetsTemp[MAX_FRAMES_IN_FLIGHT];
     if (vkAllocateDescriptorSets(ctx->device, &scatterAllocInfo, scatterSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate scatter descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate scatter descriptor sets!");
         return false;
     }
     for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++) rendererState.frames[i].scatterSet = scatterSetsTemp[i];
@@ -258,7 +257,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSet lightsetupSetsTemp[MAX_FRAMES_IN_FLIGHT];
     if (vkAllocateDescriptorSets(ctx->device, &lightsetupAllocInfo, lightsetupSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate lightsetup descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate lightsetup descriptor sets!");
         return false;
     }
     for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++) rendererState.frames[i].lightsetupSet = lightsetupSetsTemp[i];
@@ -277,7 +276,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSet lightcullSetsTemp[PERVIEW_SETS];
     if (vkAllocateDescriptorSets(ctx->device, &lightcullAllocInfo, lightcullSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate light-cull descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate light-cull descriptor sets!");
         return false;
     }
     for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++)
@@ -299,7 +298,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSet tonemapSetsTemp[PERVIEW_SETS];
     if (vkAllocateDescriptorSets(ctx->device, &tonemapAllocInfo, tonemapSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate tonemap descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate tonemap descriptor sets!");
         return false;
     }
     for(int i=0; i<MAX_FRAMES_IN_FLIGHT; i++) {
@@ -319,7 +318,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSet hizSetsTemp[MAX_FRAMES_IN_FLIGHT * ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS];
     if (vkAllocateDescriptorSets(ctx->device, &hizAllocInfo, hizSetsTemp) != VK_SUCCESS)
     {
-        ano_log(ANO_FATAL, "Failed to allocate Hi-Z descriptor sets!");
+        ano::log(ano::Fatal, "Failed to allocate Hi-Z descriptor sets!");
         return false;
     }
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -334,11 +333,11 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSetAllocateInfo setupAlloc = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .descriptorPool = rendererState.globalDescriptorPool, .descriptorSetCount = MAX_FRAMES_IN_FLIGHT, .pSetLayouts = setupLayouts };
     VkDescriptorSet setupTemp[MAX_FRAMES_IN_FLIGHT];
-    if (vkAllocateDescriptorSets(ctx->device, &setupAlloc, setupTemp) != VK_SUCCESS) { ano_log(ANO_FATAL, "Failed to allocate shadowsetup sets!"); return false; }
+    if (vkAllocateDescriptorSets(ctx->device, &setupAlloc, setupTemp) != VK_SUCCESS) { ano::log(ano::Fatal, "Failed to allocate shadowsetup sets!"); return false; }
     VkDescriptorSetAllocateInfo geomAlloc = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .descriptorPool = rendererState.globalDescriptorPool, .descriptorSetCount = MAX_FRAMES_IN_FLIGHT, .pSetLayouts = geomLayouts };
     VkDescriptorSet geomTemp[MAX_FRAMES_IN_FLIGHT];
-    if (vkAllocateDescriptorSets(ctx->device, &geomAlloc, geomTemp) != VK_SUCCESS) { ano_log(ANO_FATAL, "Failed to allocate shadow geom sets!"); return false; }
+    if (vkAllocateDescriptorSets(ctx->device, &geomAlloc, geomTemp) != VK_SUCCESS) { ano::log(ano::Fatal, "Failed to allocate shadow geom sets!"); return false; }
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) { rendererState.frames[i].shadow.setupSet = setupTemp[i]; rendererState.frames[i].shadow.geomSet = geomTemp[i]; }
 
     // Moment-blur sets: two/frame (blur-X atlas, blur-Y temp).
@@ -347,7 +346,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
     VkDescriptorSetAllocateInfo blurAlloc = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .descriptorPool = rendererState.globalDescriptorPool, .descriptorSetCount = 2 * MAX_FRAMES_IN_FLIGHT, .pSetLayouts = blurLayouts };
     VkDescriptorSet blurTemp[2 * MAX_FRAMES_IN_FLIGHT];
-    if (vkAllocateDescriptorSets(ctx->device, &blurAlloc, blurTemp) != VK_SUCCESS) { ano_log(ANO_FATAL, "Failed to allocate shadow blur sets!"); return false; }
+    if (vkAllocateDescriptorSets(ctx->device, &blurAlloc, blurTemp) != VK_SUCCESS) { ano::log(ano::Fatal, "Failed to allocate shadow blur sets!"); return false; }
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         rendererState.frames[i].shadow.blurAtlasSet = blurTemp[2 * i + 0];
         rendererState.frames[i].shadow.blurTempSet  = blurTemp[2 * i + 1];

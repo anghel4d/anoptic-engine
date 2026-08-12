@@ -10,8 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <anoptic_memory.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>

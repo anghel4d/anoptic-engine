@@ -12,8 +12,7 @@
 #include <errno.h>
 #include <math.h>
 #include <string.h>
-
-#include "anoptic_log.h"
+#include <ano/log.h>
 #include "anoptic_memory.h"
 
 #include <ft2build.h>
@@ -403,7 +402,7 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
     *outCount = 0;
     if (glyphCount > 1024u)
     {
-        ano_log(ANO_WARN, "text: kern extraction skipped (bake %u > 1024 slots)", glyphCount);
+        ano::log(ano::Warn, "text: kern extraction skipped (bake %u > 1024 slots)", glyphCount);
         return 0;
     }
     uint32_t *slotGids = static_cast<uint32_t *>(
@@ -436,7 +435,7 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
         if (FT_Load_Sfnt_Table(face, TTAG_GPOS, 0, blob, &glen) != FT_Err_Ok)
             continue;
         if (ano_gpos_extract_kerns(blob, (uint32_t)glen, slotGids, glyphCount, dense) != 0)
-            ano_log(ANO_WARN, "text: malformed GPOS table; kerning skipped for one face");
+            ano::log(ano::Warn, "text: malformed GPOS table; kerning skipped for one face");
     }
 
     uint32_t nz = 0;
@@ -557,7 +556,7 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
             FT_LOAD_NO_SCALE | FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_TRANSFORM);
         if (err != FT_Err_Ok || face->glyph->format != FT_GLYPH_FORMAT_OUTLINE)
         {
-            ano_log(ANO_WARN, "text: glyph U+%04X failed to load as an outline (err %d)",
+            ano::log(ano::Warn, "text: glyph U+%04X failed to load as an outline (err %d)",
                          slotCp[i], (int)err);
             e->flags = ANO_GLYPH_MISSING;
             continue;

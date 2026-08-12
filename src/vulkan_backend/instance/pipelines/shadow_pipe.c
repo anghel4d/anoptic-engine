@@ -5,7 +5,7 @@
 
 #include <anoptic_memory.h>
 #include <anoptic_filesystem.h>
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include "vulkan_backend/instance/descriptor_layout_schema.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "flat.h"
@@ -154,8 +154,8 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 
 	}
 
-	if (r != VK_SUCCESS) { ano_log(ANO_FATAL, "Failed to create shadow depth pipeline!"); return false; }
-	if (mr != VK_SUCCESS) { ano_log(ANO_FATAL, "Failed to create masked shadow depth pipeline!"); return false; }
+	if (r != VK_SUCCESS) { ano::log(ano::Fatal, "Failed to create shadow depth pipeline!"); return false; }
+	if (mr != VK_SUCCESS) { ano::log(ano::Fatal, "Failed to create masked shadow depth pipeline!"); return false; }
 	return true;
 	}();
 
@@ -180,7 +180,7 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 	VkDescriptorSetLayoutCreateInfo blurSetInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.bindingCount = blurSpecs.count, .pBindings = blurBindings };
 	if (vkCreateDescriptorSetLayout(ctx->device, &blurSetInfo, NULL, &state->shadowBlurSetLayout) != VK_SUCCESS) {
-		ano_log(ANO_FATAL, "Failed to create shadow blur set layout!"); return false; }
+		ano::log(ano::Fatal, "Failed to create shadow blur set layout!"); return false; }
 
 	// vec2 dir + int layer + int pad. VERTEX for shadowblur.vert's gl_Layer routing.
 	VkPushConstantRange blurPush = { VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };
@@ -188,7 +188,7 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 		.setLayoutCount = 1, .pSetLayouts = &state->shadowBlurSetLayout,
 		.pushConstantRangeCount = 1, .pPushConstantRanges = &blurPush };
 	if (vkCreatePipelineLayout(ctx->device, &blurLayoutInfo, NULL, &state->shadowBlurLayout) != VK_SUCCESS) {
-		ano_log(ANO_FATAL, "Failed to create shadow blur pipeline layout!"); return false; }
+		ano::log(ano::Fatal, "Failed to create shadow blur pipeline layout!"); return false; }
 
 	// Blur phase: resources remain inert until acquired, then discharge once.
 	struct Buffer blurVertCode = {}, blurFragCode = {};
@@ -218,7 +218,7 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 	return vkCreateGraphicsPipelines(ctx->device, state->shadowCache, 1, &blurPipeline, NULL,
 	                                 &state->shadowBlurPipeline) == VK_SUCCESS;
 	}();
-	if (!blurOk) ano_log(ANO_FATAL, "Failed to create shadow blur pipeline!");
+	if (!blurOk) ano::log(ano::Fatal, "Failed to create shadow blur pipeline!");
 
 	// Both paths, unconditional.
 	ano_aligned_free(blurVertCode.data);

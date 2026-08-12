@@ -12,8 +12,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 
@@ -593,7 +592,7 @@ static AnoSynth *synth_of(void *user, const char *hook)
     static bool told;
     if (!told) {
         told = true;
-        ano_debug_log(ANO_ERROR,
+        ANO_DEBUG_LOG(ano::Error,
                       "synth: %s was given a user pointer that is not an AnoSynth. "
                       "generatorUser is shared by all four generator hooks; wrap all "
                       "of them or none.",
@@ -671,7 +670,7 @@ bool ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
     } else if constexpr (Kind == ACMD_MUSIC_OVERRIDE) {
         applied = ano_music_set_override(e, tag, (double)cmd->value);
         if (!applied)
-            ano_debug_log(ANO_WARN, "music: no parameter named '%s'.", tag);
+            ANO_DEBUG_LOG(ano::Warn, "music: no parameter named '%s'.", tag);
     } else if constexpr (Kind == ACMD_MUSIC_RELEASE) {
         ano_music_clear_override(e, tag);
         applied = true;
@@ -694,7 +693,7 @@ void ano_synth_control(void *user, const AnoAudioCommand *cmd)
     // SEEK: synth owns schedule. Else: engine via ano_music_apply_command.
     if (cmd->kind == ACMD_MUSIC_SEEK) {
         if (!music_seek(s, cmd->block))
-            ano_debug_log(ANO_WARN, "synth: seek snapshot refused (no engine, or a "
+            ANO_DEBUG_LOG(ano::Warn, "synth: seek snapshot refused (no engine, or a "
                                     "meter the running schedule cannot carry).");
         return;
     }

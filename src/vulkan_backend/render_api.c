@@ -2,9 +2,7 @@
  *
  * SPDX-License-Identifier: LGPL-3.0 */
 /*  == Anoptic Game Engine v0.0000001 == */
-
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #include <anoptic_meta.h>
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
@@ -154,16 +152,16 @@ bool ano_render_load_scene_assets(void)
 	// Load the scene's glTF assets into GPU memory. Load order is the asset_id namespace.
 	g_assets[0] = parseGltf(&ctx, "viking_room.gltf");
 	if (!g_assets[0])
-		ano_log(ANO_ERROR, "viking_room unavailable; continuing without it.");
+		ano::log(ano::Error, "viking_room unavailable; continuing without it.");
 
 	g_assets[1] = parseGltf(&ctx, "GlassHurricaneCandleHolder.gltf");
 	if (!g_assets[1])
-		ano_log(ANO_ERROR, "GlassHurricaneCandleHolder unavailable; continuing without it.");
+		ano::log(ano::Error, "GlassHurricaneCandleHolder unavailable; continuing without it.");
 
 	// Sponza: the scene environment, parsed under one node.
 	g_assets[2] = parseGltf(&ctx, "sponza/2.0/Sponza/glTF/Sponza.gltf");
 	if (!g_assets[2])
-		ano_log(ANO_WARN, "Warning: failed to parse Sponza glTF; continuing without it.");
+		ano::log(ano::Warn, "Warning: failed to parse Sponza glTF; continuing without it.");
 
 	g_assetCount = 3u;
 

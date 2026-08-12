@@ -28,7 +28,7 @@ Distilled from TECH_SPEC §11–§12 and the prototype:
 - `include/anoptic_collections.h` is an empty stub; generic lock-free collections not landed. Render bridge keeps private ring/seqlock copies with a migrate-later note. Audio bridge does the same; second consumer. Promote both into `anoptic_collections.h` later.
 - No arena API in memory: primitives are mimalloc heaps (`mi_heap_new` + `LOCALHEAPATTR`), `ano_aligned_malloc`, `ANO_CACHE_LINE`/`ANO_THREAD_LINE`. Render bridge rings from a dedicated `mi_heap_t`; audio stack does the same and builds fixed pools on top.
 - Threads: `ano_thread_create/join` wrap pthreads (winpthreads on win64, shim on macOS). Runtime today: three threads (main/render, logic via `anoLogicThreadMain` ~2 ms tick / sole render-command producer, logger drain). Audio mixer is the fourth, spawned/joined like the logic thread, shut down before its bridge is destroyed.
-- Time: `ano_timestamp_ticks` + `ano_ticks_to_ns` for hot-path block timing, `ano_sleep` for pacing. Logging: `ano_log` enqueue is lock-free and audio-thread-safe; `ANO_NOW` (synchronous flush) is not.
+- Time: `ano_timestamp_ticks` + `ano_ticks_to_ns` for hot-path block timing, `ano_sleep` for pacing. Logging: `ano::log` enqueue is lock-free and audio-thread-safe; `ano::Now` (synchronous flush) is not.
 
 ### 1.3 Backend landscape (verified July 2026)
 

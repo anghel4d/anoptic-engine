@@ -9,8 +9,7 @@
 #include <string.h>
 #include <math.h>
 #include <anoptic_memory.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -38,7 +37,7 @@ void enumerateMonitors(Monitors* monitors) // Instance creation helper
 	MonitorInfo* infos = static_cast<MonitorInfo*>(mi_malloc((size_t)count * sizeof(MonitorInfo)));
 	if (infos == NULL)
 	{
-		ano_log(ANO_ERROR, "Failed to allocate monitor info for %d monitors!", count);
+		ano::log(ano::Error, "Failed to allocate monitor info for %d monitors!", count);
 		return;
 	}
 	for (int i = 0; i < count; i++)
@@ -55,7 +54,7 @@ static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
 {
 	static uint32_t count = 0;
 	// VulkanContext* ctx = glfwGetWindowUserPointer(window);
-	ano_debug_log(ANO_INFO, "Resize: %d", count);
+	ANO_DEBUG_LOG(ano::Info, "Resize: %d", count);
 	count++;
 	rendererState.framebufferResized = true; // swapchain recreate stays render-owned
 	// Forward to logic
@@ -101,7 +100,7 @@ static void applyContentScale(float xs, float ys)
 {
 	static bool warned = false;
 	if (!warned && fabsf(xs - ys) > 0.01f) {
-		ano_log(ANO_WARN, "Content scale is anisotropic (%.2f x %.2f); using x.", (double)xs, (double)ys);
+		ano::log(ano::Warn, "Content scale is anisotropic (%.2f x %.2f); using x.", (double)xs, (double)ys);
 		warned = true;
 	}
 	if (xs <= 0.0f || xs == rendererState.uiScale)
@@ -174,27 +173,27 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
 	if (key == GLFW_KEY_L && action == GLFW_PRESS) {
 		AnoLightingMode next = (AnoLightingMode)(((uint32_t)ano_render_get_lighting_mode() + 1u) % (uint32_t)ANO_LIGHTING_MODE_COUNT);
 		ano_render_set_lighting_mode(next);
-		ano_log(ANO_INFO, "Lighting mode: %s", ano_render_lighting_mode_name(next));
+		ano::log(ano::Info, "Lighting mode: %s", ano_render_lighting_mode_name(next));
 	}
 	// LOD bias: [ finer, ] coarser.
 	if ((key == GLFW_KEY_LEFT_BRACKET || key == GLFW_KEY_RIGHT_BRACKET) &&
 	    (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 		int32_t bias = ano_render_get_lod_bias() + (key == GLFW_KEY_RIGHT_BRACKET ? 1 : -1);
 		ano_render_set_lod_bias(bias);
-		ano_log(ANO_INFO, "LOD bias: %+d", ano_render_get_lod_bias());
+		ano::log(ano::Info, "LOD bias: %+d", ano_render_get_lod_bias());
 	}
 	// Shadow LOD bias: ; finer, ' coarser.
 	if ((key == GLFW_KEY_SEMICOLON || key == GLFW_KEY_APOSTROPHE) &&
 	    (action == GLFW_PRESS || action == GLFW_REPEAT)) {
 		int32_t bias = ano_render_get_shadow_lod_bias() + (key == GLFW_KEY_APOSTROPHE ? 1 : -1);
 		ano_render_set_shadow_lod_bias(bias);
-		ano_log(ANO_INFO, "Shadow LOD bias: %+d", ano_render_get_shadow_lod_bias());
+		ano::log(ano::Info, "Shadow LOD bias: %+d", ano_render_get_shadow_lod_bias());
 	}
 	// Hi-Z occlusion toggle: H flips view 0 GPU occlusion cull.
 	if (key == GLFW_KEY_H && action == GLFW_PRESS) {
 		bool on = !ano_render_get_view_hiz_enable(0u);
 		ano_render_set_view_hiz_enable(0u, on);
-		ano_log(ANO_INFO, "Hi-Z occlusion (view 0): %s", on ? "ON" : "OFF");
+		ano::log(ano::Info, "Hi-Z occlusion (view 0): %s", on ? "ON" : "OFF");
 	}
 }
 
@@ -204,7 +203,7 @@ GLFWwindow* initWindow(VulkanContext* ctx, Monitors* monitors) // Initializes a 
 	{
 		const char* desc = NULL;
 		int code = glfwGetError(&desc);
-		ano_log(ANO_FATAL, "Failed to initialize GLFW! (0x%08X: %s)", code, desc ? desc : "no description");
+		ano::log(ano::Fatal, "Failed to initialize GLFW! (0x%08X: %s)", code, desc ? desc : "no description");
 		return NULL;
 	}
 
@@ -247,7 +246,7 @@ GLFWwindow* initWindow(VulkanContext* ctx, Monitors* monitors) // Initializes a 
 	{ // Headless/dead display or a 0x0 extent; every call below requires a live handle
 		const char* desc = NULL;
 		int code = glfwGetError(&desc);
-		ano_log(ANO_FATAL, "Failed to create window! (0x%08X: %s)", code, desc ? desc : "no description");
+		ano::log(ano::Fatal, "Failed to create window! (0x%08X: %s)", code, desc ? desc : "no description");
 		return NULL;
 	}
 
@@ -258,7 +257,7 @@ GLFWwindow* initWindow(VulkanContext* ctx, Monitors* monitors) // Initializes a 
 		if (sscanf(posEnv, "%dx%d", &px, &py) == 2)
 			glfwSetWindowPos(window, px, py);
 		else
-			ano_log(ANO_WARN, "ANO_POS \"%s\" invalid (want XxY); ignoring", posEnv);
+			ano::log(ano::Warn, "ANO_POS \"%s\" invalid (want XxY); ignoring", posEnv);
 	}
 
 	glfwSetWindowUserPointer(window, &rendererState);

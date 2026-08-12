@@ -1,8 +1,7 @@
 /* SPDX-FileCopyrightText: 2023 Anoptic Game Engine Authors
  *
  * SPDX-License-Identifier: LGPL-3.0 */
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include "transmission.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "vulkan_backend/pipeline_registry.h"
@@ -70,7 +69,7 @@ bool ano_pipeline_transmission_init(VulkanContext* ctx, RendererState* state, Pi
 
 	if (vkCreatePipelineLayout(ctx->device, &pipelineLayoutInfo, NULL, &proto->layout) != VK_SUCCESS) 
 	{
-		ano_log(ANO_FATAL, "Failed to create transmission pipeline layout!");
+		ano::log(ano::Fatal, "Failed to create transmission pipeline layout!");
 		return false;
 	}
 

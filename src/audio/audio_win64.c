@@ -18,8 +18,7 @@
 #include "audio_internal.h"
 #include "audio_pull.h"
 #include <anoptic_memory_typed.h>
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_time.h>
 
 /* Wave formats */
@@ -369,7 +368,7 @@ static void *wasapi_main(void *arg)
 
     // prefill silence
     if (!wasapi_write(render, bufferFrames, NULL, NULL))
-        ano_log(ANO_WARN, "audio/wasapi: silence prefill refused; starting on an unfilled buffer.");
+        ano::log(ano::Warn, "audio/wasapi: silence prefill refused; starting on an unfilled buffer.");
 
     if (st->avSet) {
         DWORD idx = 0;
@@ -379,7 +378,7 @@ static void *wasapi_main(void *arg)
         goto fail;
     started = true;
 
-    ano_log(ANO_INFO, "audio/wasapi: shared %s, %u Hz engine (mix %u Hz), device buffer %u frames.",
+    ano::log(ano::Info, "audio/wasapi: shared %s, %u Hz engine (mix %u Hz), device buffer %u frames.",
             viaClient3 ? "low-latency (IAudioClient3)" : "AUTOCONVERTPCM",
             mx->sampleRate, mixRate, bufferFrames);
     atomic_store_explicit(&st->init, ANO_WIN_INIT_OK, memory_order_release);
@@ -389,7 +388,7 @@ static void *wasapi_main(void *arg)
         DWORD waited = WaitForSingleObject(evt, 2000);
         if (waited == WAIT_FAILED) {
             // WAIT_FAILED: evt owned here, never recovers
-            ano_log(ANO_ERROR, "audio/wasapi: render event wait failed (%lu); stopping the device"
+            ano::log(ano::Error, "audio/wasapi: render event wait failed (%lu); stopping the device"
                     " thread, audio stays silent.", GetLastError());
             break;
         }
@@ -399,7 +398,7 @@ static void *wasapi_main(void *arg)
         if (FAILED(hr)) {
             bool terminal = wasapi_terminal(hr);
             if (terminal || ++refusals >= ANO_WASAPI_REFUSAL_LIMIT) {
-                ano_log(ANO_ERROR, "audio/wasapi: %s padding refusal (HRESULT 0x%08lX); stopping"
+                ano::log(ano::Error, "audio/wasapi: %s padding refusal (HRESULT 0x%08lX); stopping"
                         " the device thread, audio stays silent.",
                         terminal ? "terminal" : "unrelenting", (unsigned long)hr);
                 break;
@@ -418,7 +417,7 @@ static void *wasapi_main(void *arg)
         if (!wasapi_write_checked(render, writable, mx, &st->pull, &wr)) {
             bool terminal = wasapi_packet_terminal(wr);
             if (terminal || ++packetRefusals >= ANO_WASAPI_REFUSAL_LIMIT) {
-                ano_log(ANO_ERROR, "audio/wasapi: %s packet refusal (HRESULT 0x%08lX); stopping"
+                ano::log(ano::Error, "audio/wasapi: %s packet refusal (HRESULT 0x%08lX); stopping"
                         " the device thread, audio stays silent.",
                         terminal ? "terminal" : "unrelenting", (unsigned long)wr);
                 break;
@@ -706,7 +705,7 @@ static void *dsound_main(void *arg)
         goto fail;
     started = true;
 
-    ano_log(ANO_INFO, "audio/dsound: secondary %s ring %u bytes (4 blocks).",
+    ano::log(ano::Info, "audio/dsound: secondary %s ring %u bytes (4 blocks).",
             ano_audio_sample_name(outputFormat.sample), bufferBytes);
     atomic_store_explicit(&st->init, ANO_WIN_INIT_OK, memory_order_release);
 

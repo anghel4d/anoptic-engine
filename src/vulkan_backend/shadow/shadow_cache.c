@@ -5,8 +5,7 @@
 
 #include <math.h>
 #include <string.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
 #include "vulkan_backend/shadow/shadow.h"
@@ -125,7 +124,7 @@ static void mover_set(RendererState* st, uint32_t slot, const AnoMotionDescripto
             uint32_t nc = st->moverCap ? st->moverCap * 2u : 64u;
             MoverBound* nm = (MoverBound*)realloc(st->movers, (size_t)nc * sizeof(MoverBound));
             if (!nm) {
-                ano_log(ANO_ERROR, "Shadow cache: mover array growth failed; swept exposure disabled.");
+                ano::log(ano::Error, "Shadow cache: mover array growth failed; swept exposure disabled.");
                 st->sweptPoisoned = true;
                 return;
             }

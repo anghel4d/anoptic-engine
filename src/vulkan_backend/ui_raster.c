@@ -13,8 +13,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <anoptic_log.h>
+#include <ano/log.h>
 #include <anoptic_ui.h>
 
 // Region layout inside one uiFrameBuffer, in binding order. Offsets 256-aligned
@@ -86,7 +85,7 @@ static void ui_compose(RendererState* state)
             || ncw + blk->curveCount > ANO_UI_MAX_CURVE_WORDS
             || ng + blk->glyphCount > ANO_UI_MAX_GLYPHS)
         {
-            ano_log(ANO_WARN, "UI compose: ui_id %u skipped (table budget).",
+            ano::log(ano::Warn, "UI compose: ui_id %u skipped (table budget).",
                     state->uiBlocks[order[oi]].id);
             continue;
         }
@@ -176,7 +175,7 @@ static void ui_compose_demo(RendererState* state, bool selftest)
     ui_pending_bounds(state);
     state->uiVersion++;
     state->uiPinned = true;
-    ano_log(ANO_INFO, "UI overlay: demo scene composed (%u prims, %u clips%s, pinned)",
+    ano::log(ano::Info, "UI overlay: demo scene composed (%u prims, %u clips%s, pinned)",
             b.primCount, b.clipCount, selftest ? ", self-test" : "");
 }
 
@@ -198,7 +197,7 @@ bool ano_vk_ui_init(VulkanContext* ctx, RendererState* state)
                               state->asyncText,
                               &state->frames[i].uiFrameBuffer, &state->frames[i].uiFrameAlloc))
         {
-            ano_log(ANO_WARN, "UI overlay disabled: table buffer creation failed.");
+            ano::log(ano::Warn, "UI overlay disabled: table buffer creation failed.");
             state->uiOverlay = false;
             return true;
         }
@@ -222,12 +221,12 @@ bool ano_vk_ui_init(VulkanContext* ctx, RendererState* state)
             || !state->uiPendingStops || !state->uiPendingCurves || !state->uiPendingGlyphs
             || !state->uiTileCursor || !state->uiTileScratch)
         {
-            ano_log(ANO_WARN, "UI overlay disabled: pending table allocation failed.");
+            ano::log(ano::Warn, "UI overlay disabled: pending table allocation failed.");
             state->uiPendingPrims = NULL;
             state->uiOverlay = false;
         }
     }
-    ano_log(ANO_INFO, "UI overlay: tables resident (%u KiB x%u slots)%s",
+    ano::log(ano::Info, "UI overlay: tables resident (%u KiB x%u slots)%s",
             ANO_UI_FRAME_BYTES / 1024u, (unsigned)MAX_FRAMES_IN_FLIGHT,
             state->uiOverlay ? "" : ", compose pinned off");
 
@@ -264,7 +263,7 @@ void ano_vk_ui_block_set(RendererState* state, uint32_t ui_id, const RenderUiBlo
     }
     if (state->uiBlockCount >= ANO_UI_MAX_BLOCKS)
     {
-        ano_log(ANO_WARN, "UI bridge: block registry full (%u); ui_id %u dropped.",
+        ano::log(ano::Warn, "UI bridge: block registry full (%u); ui_id %u dropped.",
                 ANO_UI_MAX_BLOCKS, ui_id);
         mi_free((void*)blk);
         return;
@@ -384,7 +383,7 @@ bool ano_vk_ui_build_tiles(RendererState* state, uint32_t frameIndex)
     memcpy(fr->uiFrameMapped + ANO_UI_TILEENT_OFF, entries, (size_t)total * 4u);
     fr->uiTileVersion = state->uiVersion;
     fr->uiTileOx = ox; fr->uiTileOy = oy; fr->uiTileGx = gx; fr->uiTileGy = gy;
-    ano_debug_log(ANO_INFO, "UI tiles: %ux%u grid, %u prims -> %u entries (slot %u)",
+    ANO_DEBUG_LOG(ano::Info, "UI tiles: %ux%u grid, %u prims -> %u entries (slot %u)",
                   gx, gy, state->uiPendingPrimCount, total, frameIndex);
     return true;
 }

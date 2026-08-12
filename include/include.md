@@ -12,6 +12,7 @@ Runtime C ABI functions in an `include/` header always begin with `ano_`; C++26 
 
 ```plaintext
 include/
+├── ano/log.h           # Native C++26 logging emission, compile-time format plans, typed levels and routes
 ├── anogltf.h           # C++26 reflected glTF loader and typed schema
 ├── anoptic_meta.h      # Header-only C++26 reflection and value contracts
 ├── anoptic_memory.h    # Public memory allocation API

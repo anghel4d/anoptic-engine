@@ -10,8 +10,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <anoptic_memory_typed.h>
-#include <anoptic_log.h>
-
+#include <ano/log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -366,7 +365,7 @@ struct DeviceCapabilities populateCapabilities(VkPhysicalDevice device) // Selec
 	// fp16 arithmetic selects the *_fp16.frag lighting variants.
 	capabilities.shaderFloat16 = features12.[:ano_vk_q_12("shaderFloat16"):];
 	if (getenv("ANO_FORCE_NO_FP16")) capabilities.shaderFloat16 = false;
-	ano_log(ANO_INFO, "CDF reconstruct: %s", capabilities.shaderFloat16 ? "fp16" : "fp32 (no shaderFloat16)");
+	ano::log(ano::Info, "CDF reconstruct: %s", capabilities.shaderFloat16 ? "fp16" : "fp32 (no shaderFloat16)");
 
 	//Queue family checks
 	struct QueueFamilyIndices indices = findQueueFamilies(device, NULL);
@@ -440,14 +439,14 @@ bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR *surface) // Extend 
 
 	// Mesh shader optional; vertex fallback exists.
 	if (!requiredFeatures12 || !requiredDynamicRendering || !requiredMultiDraw) {
-		ano_log(ANO_WARN, "Device rejected: lacks required Vulkan 1.2, dynamic rendering, or multiDrawIndirect features.");
+		ano::log(ano::Warn, "Device rejected: lacks required Vulkan 1.2, dynamic rendering, or multiDrawIndirect features.");
 		return false;
 	}
 	if (!meshShaderFeatures.meshShader) {
-		ano_log(ANO_WARN, "Device lacks VK_EXT_mesh_shader: will use the vertex-shader fallback path.");
+		ano::log(ano::Warn, "Device lacks VK_EXT_mesh_shader: will use the vertex-shader fallback path.");
 		// Vertex fallback needs drawIndirectFirstInstance.
 		if (!features2.features.drawIndirectFirstInstance) {
-			ano_log(ANO_WARN, "Device rejected: also lacks drawIndirectFirstInstance, so the vertex "
+			ano::log(ano::Warn, "Device rejected: also lacks drawIndirectFirstInstance, so the vertex "
 			             "fallback path cannot draw correctly.");
 			return false;
 		}
@@ -462,7 +461,7 @@ bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR *surface) // Extend 
 	                                & props2.properties.limits.sampledImageDepthSampleCounts
 	                                & vk12Props.framebufferIntegerColorSampleCounts;
 	if (!(usableCounts & ~(VkSampleCountFlags)VK_SAMPLE_COUNT_1_BIT)) {
-		ano_log(ANO_WARN, "Device rejected: supports only 1x MSAA across the engine's attachment set, "
+		ano::log(ano::Warn, "Device rejected: supports only 1x MSAA across the engine's attachment set, "
 		             "and the renderer has no 1x path.");
 		return false;
 	}
@@ -488,7 +487,7 @@ VkSampleCountFlagBits getMaxUsableSampleCount(VulkanContext* ctx)
 	uint32_t preferred = getChosenMsaaSamples();
 	const char* msaaEnv = getenv("ANO_MSAA");
 	if (msaaEnv) preferred = (uint32_t)atoi(msaaEnv);
-	if (preferred < 2u) { ano_log(ANO_WARN, "MSAA preference %u below minimum, using 2x", preferred); preferred = 2u; }
+	if (preferred < 2u) { ano::log(ano::Warn, "MSAA preference %u below minimum, using 2x", preferred); preferred = 2u; }
 	VkSampleCountFlags mask = 0;
 	for (uint32_t s = 2u; s <= preferred && s <= 64u; s <<= 1) mask |= s; // sample flags are their counts
 	// Preference window empty, take any supported >=2x count.
@@ -569,7 +568,7 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 
 	if (ctx->deviceCount == 0) 
 	{
-		ano_log(ANO_FATAL, "Failed to find GPUs with Vulkan support!");
+		ano::log(ano::Fatal, "Failed to find GPUs with Vulkan support!");
 		return false;
 	}
 
@@ -596,14 +595,14 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 	bool bestIntegratedMesh = false;
 	bool bestFallbackMesh = false;
 
-	ano_log(ANO_INFO, "DeviceCount: %d", ctx->deviceCount);
+	ano::log(ano::Info, "DeviceCount: %d", ctx->deviceCount);
 
 	for (uint32_t i = 0; i < ctx->deviceCount; i++)
 	{
 		vkGetPhysicalDeviceProperties(devices[i], &deviceProperties);
 		vkGetPhysicalDeviceMemoryProperties(devices[i], &memProperties);
 		// Log full device identity.
-		ano_log(ANO_INFO, "Device %u: %s (%s, mesh shader: %s)", i, deviceProperties.deviceName,
+		ano::log(ano::Info, "Device %u: %s (%s, mesh shader: %s)", i, deviceProperties.deviceName,
 		             (size_t)deviceProperties.deviceType < ANO_VK_DEVICE_TYPE_NAMES.count
 		                 ? ANO_VK_DEVICE_TYPE_NAMES.values[deviceProperties.deviceType] : "unknown",
 		             deviceHasMeshShader(devices[i]) ? "yes" : "no");
@@ -652,13 +651,13 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 			}
 			(ctx->availableDevices)[i] = (char*)mi_malloc(strlen(deviceProperties.deviceName) +1);
 			strcpy((ctx->availableDevices)[i], deviceProperties.deviceName);
-			ano_debug_log(ANO_INFO, "Device %u is suitable: %s", i, ctx->availableDevices[i]);
+			ANO_DEBUG_LOG(ano::Info, "Device %u is suitable: %s", i, ctx->availableDevices[i]);
 		}
 	}
 
 	if (envDevice && !foundPreferredDevice)
 	{
-		ano_log(ANO_WARN, "ANO_DEVICE=\"%s\" matched no suitable device; falling back to automatic selection.", envDevice);
+		ano::log(ano::Warn, "ANO_DEVICE=\"%s\" matched no suitable device; falling back to automatic selection.", envDevice);
 	}
 
 	if (foundPreferredDevice)
@@ -683,14 +682,14 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 		}
 		else if (bestFallbackDevice != VK_NULL_HANDLE)
 		{
-			ano_log(ANO_WARN, "No discrete or integrated GPU; using a fallback adapter (software or virtual).");
+			ano::log(ano::Warn, "No discrete or integrated GPU; using a fallback adapter (software or virtual).");
 			ctx->physicalDevice = bestFallbackDevice;
 			ctx->deviceCapabilities = populateCapabilities(ctx->physicalDevice);
 			ctx->queueFamilyIndices = findQueueFamilies(ctx->physicalDevice, &(ctx->surface));
 		}
 		else
 		{
-			ano_log(ANO_FATAL, "Failed to find a suitable GPU!");
+			ano::log(ano::Fatal, "Failed to find a suitable GPU!");
 			free(devices);
 			return false;
 		}
@@ -699,10 +698,10 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 	// Log the selected device.
 	VkPhysicalDeviceProperties chosenProperties;
 	vkGetPhysicalDeviceProperties(ctx->physicalDevice, &chosenProperties);
-	ano_log(ANO_INFO, "Selected device: %s", chosenProperties.deviceName);
+	ano::log(ano::Info, "Selected device: %s", chosenProperties.deviceName);
 
 	ctx->msaaSamples = getMaxUsableSampleCount(ctx);
-	ano_log(ANO_INFO, "MSAA samples used: %d", ctx->msaaSamples);
+	ano::log(ano::Info, "MSAA samples used: %d", ctx->msaaSamples);
 
 	//printf("Graphics family: %d\nCompute family: %d\nTransfer family: %d\nPresent family: %d\n", (ctx->queueFamilyIndices.graphicsFamily), (ctx->queueFamilyIndices.computeFamily), (ctx->queueFamilyIndices.transferFamily), (ctx->queueFamilyIndices.presentFamily));
 
@@ -820,11 +819,11 @@ VkResult createLogicalDevice(VkPhysicalDevice physicalDevice, VkDevice* device, 
 
 	createInfo.enabledExtensionCount = enabledExtensionCount;
 	createInfo.ppEnabledExtensionNames = enabledExtensions;
-	ano_log(ANO_INFO, "Enabling %u device extensions (mesh shader: %s)", enabledExtensionCount, meshSupported ? "yes" : "no");
+	ano::log(ano::Info, "Enabling %u device extensions (mesh shader: %s)", enabledExtensionCount, meshSupported ? "yes" : "no");
 
 	if (vkCreateDevice(physicalDevice, &createInfo, NULL, device) != VK_SUCCESS)
 	{
-		ano_log(ANO_FATAL, "Failed to create logical device!");
+		ano::log(ano::Fatal, "Failed to create logical device!");
 		return VK_ERROR_INITIALIZATION_FAILED;
 	}
 		
@@ -832,14 +831,14 @@ VkResult createLogicalDevice(VkPhysicalDevice physicalDevice, VkDevice* device, 
 	vkGetDeviceQueue(*device, indices->graphicsFamily, 0, graphicsQueue);
 	if (*graphicsQueue == NULL)
 	{
-		ano_log(ANO_FATAL, "Failed to acquire graphics queue!");
+		ano::log(ano::Fatal, "Failed to acquire graphics queue!");
 		return VK_ERROR_INITIALIZATION_FAILED;	
 	}
 	vkGetDeviceQueue(*device, indices->presentFamily, 0, presentQueue);
-	ano_debug_log(ANO_INFO, "PresentQueue: %p", (void*)presentQueue);
+	ANO_DEBUG_LOG(ano::Info, "PresentQueue: %p", (void*)presentQueue);
 	if (*presentQueue == NULL)
 	{
-		ano_log(ANO_FATAL, "Failed to acquire present queue!");
+		ano::log(ano::Fatal, "Failed to acquire present queue!");
 		return VK_ERROR_INITIALIZATION_FAILED;	
 	}
 	if (indices->computePresent)
@@ -847,7 +846,7 @@ VkResult createLogicalDevice(VkPhysicalDevice physicalDevice, VkDevice* device, 
 		vkGetDeviceQueue(*device, indices->computeFamily, 0, computeQueue);
 		if (*computeQueue == NULL)
 		{
-			ano_log(ANO_FATAL, "Failed to acquire compute queue!");
+			ano::log(ano::Fatal, "Failed to acquire compute queue!");
 			return VK_ERROR_INITIALIZATION_FAILED;	
 		}
 	}
@@ -856,7 +855,7 @@ VkResult createLogicalDevice(VkPhysicalDevice physicalDevice, VkDevice* device, 
 		vkGetDeviceQueue(*device, indices->transferFamily, 0, transferQueue);
 		if (*transferQueue == NULL)
 		{
-			ano_log(ANO_FATAL, "Failed to acquire transfer queue!");
+			ano::log(ano::Fatal, "Failed to acquire transfer queue!");
 			return VK_ERROR_INITIALIZATION_FAILED;
 		}
 	}

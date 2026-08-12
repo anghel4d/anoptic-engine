@@ -25,20 +25,20 @@ enum {
     ANO_LOG_COMMITTED = 1 << 0, // set on publish (committed tag nonzero even at len 0)
     ANO_LOG_DEFERRED  = 1 << 1, // body is deferred-format capture blob
     ANO_LOG_SINKSHIFT = 2,      // publish shifts the masked route field by this, as one unit
-    ANO_LOG_TOFILE    = ANO_FILE << ANO_LOG_SINKSHIFT,  // sink: batched to output file at drain
-    ANO_LOG_TOCON     = ANO_TERM << ANO_LOG_SINKSHIFT,  // sink: echoed to terminal at drain
-    ANO_LOG_PLANNED   = 1 << 4, // capture blob's format slot holds an ano::logplan::Plan*
+    ANO_LOG_TOFILE    = ano::File.sink_mask << ANO_LOG_SINKSHIFT, // sink: batched to output file at drain
+    ANO_LOG_TOCON     = ano::Term.sink_mask << ANO_LOG_SINKSHIFT, // sink: echoed to terminal at drain
+    ANO_LOG_TYPED     = 1 << 4, // capture blob's format slot holds an ano::detail::Plan*
 };
 
 // Sink bits derive from the public route bits; the mapping must be complete and collision-free.
-static_assert((ANO_BOTH << ANO_LOG_SINKSHIFT) == (ANO_LOG_TOFILE | ANO_LOG_TOCON),
+static_assert((ano::Both.sink_mask << ANO_LOG_SINKSHIFT) == (ANO_LOG_TOFILE | ANO_LOG_TOCON),
               "shifted route sink field lands on exactly the marker sink bits");
 static_assert((ANO_LOG_TOFILE & ANO_LOG_TOCON) == 0, "sink bits are distinct");
 static_assert(((ANO_LOG_TOFILE | ANO_LOG_TOCON)
-               & (ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_PLANNED)) == 0,
-              "sink bits never collide with COMMITTED/DEFERRED/PLANNED");
+               & (ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_TYPED)) == 0,
+              "sink bits never collide with COMMITTED/DEFERRED/TYPED");
 static_assert((ANO_LOG_COMMITTED | ANO_LOG_DEFERRED | ANO_LOG_TOFILE | ANO_LOG_TOCON
-               | ANO_LOG_PLANNED) <= 0xff,
+               | ANO_LOG_TYPED) <= 0xff,
               "tag flags fit the marker's uint8_t flags field");
 
 // Entry head-line marker. Only `tag` is atomic (publish gate). timestamp/text ride its release/acquire.
@@ -54,7 +54,7 @@ typedef union {
     // `len` is low 16 bits of `w`. 2+1+1+4 packs to 8 with zero padding.
     struct {
         uint16_t len;       // stored text bytes, span = ceil((16 + len) / ANO_CL)
-        uint8_t  level;     // ano_loglevel_t for flusher routing
+        uint8_t  level;     // ano::Level for flusher routing
         uint8_t  flags;     // COMMITTED + DEFERRED + sink bits
         uint32_t cycle;     // lap (pos >> shift): stale prior-lap tag != this lap, no zeroing
     };

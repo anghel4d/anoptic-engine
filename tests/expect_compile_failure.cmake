@@ -13,11 +13,11 @@ execute_process(
 )
 
 if(result EQUAL 0)
-    message(FATAL_ERROR "invalid resource declaration compiled successfully: ${SOURCE}")
+    message(FATAL_ERROR "invalid declaration compiled successfully: ${SOURCE}")
 endif()
 
 string(FIND "${output}" "${EXPECTED}" expected_position)
 if(expected_position EQUAL -1)
     message(FATAL_ERROR
-            "resource declaration failed for the wrong reason: ${SOURCE}\n${output}")
+            "declaration failed for the wrong reason: ${SOURCE}\n${output}")
 endif()
