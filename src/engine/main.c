@@ -27,6 +27,7 @@
 #include <anoptic_music.h>
 #include <anoptic_synth.h>
 #include <anoptic_render_resources.h>
+#include "vulkan_backend/render_api.h"
 #include <vulkan/vulkan.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
@@ -118,17 +119,24 @@ struct CookedPack final {
 
 enum ReloadWorkerState : uint32_t {
     RELOAD_WORKER_IDLE,
+    RELOAD_WORKER_REQUESTED,
     RELOAD_WORKER_RUNNING,
     RELOAD_WORKER_READY,
+    RELOAD_WORKER_ACTIVE,
+    RELOAD_WORKER_RECLAIM,
+    RELOAD_WORKER_STOP,
 };
 
 struct ReloadWorker final {
     AnoResourceManager *manager;
     StartupSources sources;
-    AnoResourceReload *reload;
+    AnoRenderResourcePublication *publication;
+    mi_heap_t *heap;
     AnoResourceError result;
     anothread_t thread;
-    ANO_ATOMIC(uint32_t) state;
+    anothread_mutex_t mutex;
+    anothread_cond_t wake;
+    ReloadWorkerState state;
 };
 
 template<class Type>
@@ -272,11 +280,143 @@ AnoResourceError prepare_startup_resources_reload(
 void *prepare_reload_worker(void *argument)
 {
     ReloadWorker& worker = *static_cast<ReloadWorker *>(argument);
-    worker.result = prepare_startup_resources_reload(
-        worker.manager, worker.sources, &worker.reload);
-    atomic_store_explicit(&worker.state, RELOAD_WORKER_READY,
-                          memory_order_release);
+    ano_mutex_lock(&worker.mutex);
+    for (;;) {
+        while (worker.state != RELOAD_WORKER_REQUESTED
+               && worker.state != RELOAD_WORKER_STOP)
+            ano_thread_cond_wait(&worker.wake, &worker.mutex);
+        if (worker.state == RELOAD_WORKER_STOP) break;
+        const StartupSources sources = worker.sources;
+        worker.state = RELOAD_WORKER_RUNNING;
+        ano_mutex_unlock(&worker.mutex);
+
+        AnoResourceReload *reload = nullptr;
+        mi_heap_t *heap = mi_heap_new();
+        AnoRenderResourcePublication *publication = nullptr;
+        AnoResourceError result = heap
+            ? prepare_startup_resources_reload(
+                worker.manager, sources, &reload)
+            : ANO_RESOURCE_OUT_OF_MEMORY;
+        if (result == ANO_RESOURCE_OK)
+            result = ano_render_resources_prepare_reload_on_heap(
+                reload, heap, &publication);
+        else
+            ano_resource_reload_abort(reload);
+
+        ano_mutex_lock(&worker.mutex);
+        worker.heap = heap;
+        worker.publication = publication;
+        worker.result = result;
+        worker.state = RELOAD_WORKER_READY;
+        ano_thread_cond_broadcast(&worker.wake);
+        while (worker.state != RELOAD_WORKER_RECLAIM
+               && worker.state != RELOAD_WORKER_STOP)
+            ano_thread_cond_wait(&worker.wake, &worker.mutex);
+        const bool stop = worker.state == RELOAD_WORKER_STOP;
+        heap = worker.heap;
+        worker.heap = nullptr;
+        worker.publication = nullptr;
+        ano_mutex_unlock(&worker.mutex);
+        if (heap) mi_heap_destroy(heap);
+        ano_mutex_lock(&worker.mutex);
+        if (stop) break;
+        worker.state = RELOAD_WORKER_IDLE;
+        ano_thread_cond_broadcast(&worker.wake);
+    }
+    worker.state = RELOAD_WORKER_STOP;
+    ano_thread_cond_broadcast(&worker.wake);
+    ano_mutex_unlock(&worker.mutex);
     return nullptr;
+}
+
+bool reload_worker_start(ReloadWorker& worker)
+{
+    worker.state = RELOAD_WORKER_IDLE;
+    if (ano_mutex_init(&worker.mutex, nullptr) != 0) return false;
+    if (ano_thread_cond_init(&worker.wake, nullptr) != 0) {
+        ano_mutex_destroy(&worker.mutex);
+        return false;
+    }
+    if (ano_thread_create(&worker.thread, nullptr,
+                          prepare_reload_worker, &worker) != 0) {
+        ano_thread_cond_destroy(&worker.wake);
+        ano_mutex_destroy(&worker.mutex);
+        return false;
+    }
+    return true;
+}
+
+bool reload_worker_request(ReloadWorker& worker,
+                           const StartupSources& sources)
+{
+    ano_mutex_lock(&worker.mutex);
+    const bool accepted = worker.state == RELOAD_WORKER_IDLE;
+    if (accepted) {
+        worker.sources = sources;
+        worker.state = RELOAD_WORKER_REQUESTED;
+        ano_thread_cond_signal(&worker.wake);
+    }
+    ano_mutex_unlock(&worker.mutex);
+    return accepted;
+}
+
+bool reload_worker_take(ReloadWorker& worker, AnoResourceError *result,
+                        AnoRenderResourcePublication **publication)
+{
+    ano_mutex_lock(&worker.mutex);
+    const bool ready = worker.state == RELOAD_WORKER_READY;
+    if (ready) {
+        *result = worker.result;
+        *publication = worker.publication;
+        worker.state = RELOAD_WORKER_ACTIVE;
+    }
+    ano_mutex_unlock(&worker.mutex);
+    return ready;
+}
+
+void reload_worker_reclaim(ReloadWorker& worker)
+{
+    ano_mutex_lock(&worker.mutex);
+    if (worker.state == RELOAD_WORKER_ACTIVE
+        || worker.state == RELOAD_WORKER_READY) {
+        worker.state = RELOAD_WORKER_RECLAIM;
+        ano_thread_cond_signal(&worker.wake);
+    }
+    ano_mutex_unlock(&worker.mutex);
+}
+
+bool reload_worker_idle(ReloadWorker& worker)
+{
+    ano_mutex_lock(&worker.mutex);
+    const bool idle = worker.state == RELOAD_WORKER_IDLE;
+    ano_mutex_unlock(&worker.mutex);
+    return idle;
+}
+
+void reload_worker_stop(ReloadWorker& worker)
+{
+    AnoRenderResourcePublication *unclaimed = nullptr;
+    ano_mutex_lock(&worker.mutex);
+    while (worker.state == RELOAD_WORKER_REQUESTED
+           || worker.state == RELOAD_WORKER_RUNNING)
+        ano_thread_cond_wait(&worker.wake, &worker.mutex);
+    if (worker.state == RELOAD_WORKER_READY) {
+        unclaimed = worker.publication;
+        worker.state = RELOAD_WORKER_ACTIVE;
+    }
+    ano_mutex_unlock(&worker.mutex);
+    ano_render_resources_cancel_reload(unclaimed);
+    if (unclaimed) reload_worker_reclaim(worker);
+
+    ano_mutex_lock(&worker.mutex);
+    while (worker.state == RELOAD_WORKER_RECLAIM)
+        ano_thread_cond_wait(&worker.wake, &worker.mutex);
+    worker.state = RELOAD_WORKER_STOP;
+    ano_thread_cond_signal(&worker.wake);
+    ano_mutex_unlock(&worker.mutex);
+    ano_thread_join(worker.thread, nullptr);
+    ano_thread_cond_destroy(&worker.wake);
+    ano_mutex_destroy(&worker.mutex);
 }
 
 } // namespace
@@ -1442,7 +1582,14 @@ int main()
     bool replacementSourceActive = false;
     ReloadWorker reloadWorker = {.manager = resources};
     AnoRenderResourcePublication *publication = nullptr;
-    atomic_init(&reloadWorker.state, RELOAD_WORKER_IDLE);
+    if (!reload_worker_start(reloadWorker)) {
+        ano_log(ANO_FATAL, "Resource reload worker did not start.");
+        atomic_store(&g_logicShouldStop, true);
+        ano_thread_join(logicThread, NULL);
+        unInitVulkan();
+        ano_resource_manager_destroy(resources);
+        return -1;
+    }
     while (!anoShouldClose())
     {
         glfwPollEvents();
@@ -1465,26 +1612,19 @@ int main()
                     ano_log(ANO_INFO, "Resource epoch reload committed.");
                 } else
                     ano_log(ANO_ERROR, "Resource epoch reload rejected.");
+                reload_worker_reclaim(reloadWorker);
             }
         }
-        if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
-                == RELOAD_WORKER_READY) {
-            ano_thread_join(reloadWorker.thread, nullptr);
-            AnoResourceError reloaded = reloadWorker.result;
-            if (reloaded == ANO_RESOURCE_OK)
-                reloaded = ano_render_resources_prepare_reload(
-                    reloadWorker.reload, &publication);
-            else
-                ano_resource_reload_abort(reloadWorker.reload);
-            reloadWorker.reload = nullptr;
+        AnoResourceError reloaded = ANO_RESOURCE_OK;
+        if (reload_worker_take(
+                reloadWorker, &reloaded, &publication)) {
             if (reloaded != ANO_RESOURCE_OK)
                 ano_log(ANO_ERROR, "Resource epoch reload rejected: %s",
                         ano_resource_error_string(reloaded));
-            atomic_store_explicit(&reloadWorker.state, RELOAD_WORKER_IDLE,
-                                  memory_order_release);
+            if (publication == nullptr)
+                reload_worker_reclaim(reloadWorker);
         }
-        if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
-                == RELOAD_WORKER_IDLE
+        if (reload_worker_idle(reloadWorker)
             && publication == nullptr
             && atomic_exchange(&g_resourceReloadRequested, false)) {
             StartupSources selected = DEFAULT_SOURCES;
@@ -1492,32 +1632,15 @@ int main()
             if (replacement != nullptr && replacement[0] != '\0'
                 && !replacementSourceActive)
                 selected.viking = replacement;
-            reloadWorker.sources = selected;
-            reloadWorker.result = ANO_RESOURCE_OK;
-            reloadWorker.reload = nullptr;
-            atomic_store_explicit(&reloadWorker.state,
-                                  RELOAD_WORKER_RUNNING,
-                                  memory_order_release);
-            if (ano_thread_create(&reloadWorker.thread, nullptr,
-                                  prepare_reload_worker,
-                                  &reloadWorker) != 0) {
-                atomic_store_explicit(&reloadWorker.state,
-                                      RELOAD_WORKER_IDLE,
-                                      memory_order_release);
+            if (!reload_worker_request(reloadWorker, selected))
                 ano_log(ANO_ERROR, "Resource reload worker did not start.");
-            }
         }
         drawFrame();
     }
 
-    const uint32_t reloadState = atomic_load_explicit(
-        &reloadWorker.state, memory_order_acquire);
-    if (reloadState == RELOAD_WORKER_RUNNING
-        || reloadState == RELOAD_WORKER_READY) {
-        ano_thread_join(reloadWorker.thread, nullptr);
-        ano_resource_reload_abort(reloadWorker.reload);
-    }
     ano_render_resources_cancel_reload(publication);
+    if (publication) reload_worker_reclaim(reloadWorker);
+    reload_worker_stop(reloadWorker);
 
     // Stop producer FIRST and join. No submit races bridge destruction in unInitVulkan().
     atomic_store(&g_logicShouldStop, true);

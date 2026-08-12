@@ -32,10 +32,20 @@ enum class RenderBindingState : uint8_t {
     resident,
 };
 
+enum class PreparationState : uint8_t {
+    absent,
+    preparing,
+    ready,
+};
+
 struct RenderBinding final {
     AnoResourceTypeId sourceType;
     RenderBindingState state;
+    PreparationState preparation;
     bool reuseGeometry;
+    bool ownsReservations;
+    uint8_t *preparedPixels;
+    AnoPreparedGeometry preparedGeometry;
     schema::GpuTexture texture;
     schema::GpuMaterial material;
     schema::GpuMesh mesh;
@@ -61,6 +71,9 @@ struct AnoRenderResidency {
     VkBuffer *uploadStaging;
     uint32_t uploadStagingCount;
     uint32_t uploadStagingCapacity;
+    uint64_t realizationCursor;
+    bool realizationComplete;
+    bool reusedReservationsRetained;
 };
 
 namespace ano::asset_schema {
@@ -327,6 +340,7 @@ void destroy_texture_package(TexturePackage& package)
     vkDestroyImageView(ctx.device, package.srgbView, nullptr);
     vkDestroyImage(ctx.device, package.image, nullptr);
     vkDestroyBuffer(ctx.device, package.staging, nullptr);
+    gpu_free(&textureAllocator, package.alloc);
     package = {};
 }
 
@@ -363,19 +377,152 @@ AnoResourceError collect_dependencies(
 }
 
 template<class Output>
+consteval size_t output_member_count()
+{
+    size_t count = 0;
+    template for (constexpr std::meta::info member :
+                  std::define_static_array(std::meta::nonstatic_data_members_of(
+                      ^^RenderBinding, std::meta::access_context::unchecked())))
+        if constexpr (std::meta::type_of(member) == ^^Output)
+            ++count;
+    return count;
+}
+
+static uint32_t reserve_material_slot()
+{
+    MaterialBuffer& buffer = rendererState.materialBuffer;
+    if (buffer.freeCount != 0)
+        return buffer.freeSlots[--buffer.freeCount];
+    return buffer.count < buffer.capacity ? buffer.count++ : UINT32_MAX;
+}
+
+template<schema::RenderReservationKind Kind, class Output>
+void retain_reservation(uint32_t slot, const Output&)
+{
+    if constexpr (Kind == schema::RenderReservationKind::texture)
+        ano_vk_increment_texture_usage(&rendererState.primitives, slot);
+    else if constexpr (Kind == schema::RenderReservationKind::material) {
+        if (slot < rendererState.materialBuffer.capacity)
+            ++rendererState.materialBuffer.references[slot];
+    } else if constexpr (Kind == schema::RenderReservationKind::geometry)
+        geometry_pool_retain_chain(&rendererState.globalGeometryPool, slot);
+}
+
+template<schema::RenderReservationKind Kind, class Output>
+void release_reservation(uint32_t slot, const Output& output)
+{
+    if constexpr (Kind == schema::RenderReservationKind::texture) {
+        RenderPrimitives& primitives = rendererState.primitives;
+        if (slot >= primitives.textureCount) return;
+        TextureData& texture = primitives.textureBuffers[slot];
+        if (texture.usageCount == 0 || --texture.usageCount != 0) return;
+        bindless_release_texture(&rendererState.bindlessTextures,
+                                 output.colorSlot);
+        bindless_release_texture(&rendererState.bindlessTextures,
+                                 output.dataSlot);
+        vkDestroyImageView(ctx.device, texture.unormView, nullptr);
+        vkDestroyImageView(ctx.device, texture.srgbView, nullptr);
+        vkDestroyImage(ctx.device, texture.textureImage, nullptr);
+        gpu_free(&textureAllocator, texture.textureImageAlloc);
+        texture = {};
+        primitives.freeTextureSlots[primitives.freeTextureCount++] = slot;
+    } else if constexpr (Kind == schema::RenderReservationKind::material) {
+        MaterialBuffer& buffer = rendererState.materialBuffer;
+        if (slot == 0 || slot >= buffer.capacity
+            || buffer.references[slot] == 0 || --buffer.references[slot] != 0)
+            return;
+        buffer.freeSlots[buffer.freeCount++] = slot;
+    } else if constexpr (Kind == schema::RenderReservationKind::geometry) {
+        geometry_pool_release_chain(&rendererState.globalGeometryPool, slot);
+    }
+}
+
+template<class Output>
+void retain_output(const Output& output)
+{
+    template for (constexpr std::meta::info member :
+                  std::define_static_array(std::meta::nonstatic_data_members_of(
+                      ^^Output, std::meta::access_context::unchecked()))) {
+        static constexpr auto reservations = std::define_static_array(
+            std::meta::annotations_of_with_type(member, ^^schema::RenderReservation));
+        static_assert(reservations.size() <= 1);
+        if constexpr (!reservations.empty()) {
+            constexpr auto reservation =
+                std::meta::extract<schema::RenderReservation>(reservations[0]);
+            retain_reservation<reservation.kind>(output.[:member:], output);
+        }
+    }
+}
+
+template<class Output>
+void release_output(const Output& output)
+{
+    template for (constexpr std::meta::info member :
+                  std::define_static_array(std::meta::nonstatic_data_members_of(
+                      ^^Output, std::meta::access_context::unchecked()))) {
+        static constexpr auto reservations = std::define_static_array(
+            std::meta::annotations_of_with_type(member, ^^schema::RenderReservation));
+        if constexpr (!reservations.empty()) {
+            constexpr auto reservation =
+                std::meta::extract<schema::RenderReservation>(reservations[0]);
+            release_reservation<reservation.kind>(output.[:member:], output);
+        }
+    }
+}
+
+template<class Output>
 void publish_output(RenderBinding& binding, const Output& output)
 {
-    if constexpr (std::is_same_v<Output, schema::GpuTexture>)
-        binding.texture = output;
-    else if constexpr (std::is_same_v<Output, schema::GpuMaterial>)
-        binding.material = output;
-    else if constexpr (std::is_same_v<Output, schema::GpuMesh>)
-        binding.mesh = output;
-    else if constexpr (std::is_same_v<Output, schema::GpuScene>)
-        binding.scene = output;
-    else
-        static_assert(!std::is_same_v<Output, Output>,
-                      "render transform output lacks a resident binding");
+    static_assert(output_member_count<Output>() == 1,
+                  "render output must have exactly one resident field");
+    template for (constexpr std::meta::info member :
+                  std::define_static_array(std::meta::nonstatic_data_members_of(
+                      ^^RenderBinding, std::meta::access_context::unchecked())))
+        if constexpr (std::meta::type_of(member) == ^^Output) {
+            binding.[:member:] = output;
+            retain_output(output);
+            binding.ownsReservations = true;
+        }
+}
+
+template<class Operation>
+void visit_binding_output(RenderBinding& binding, Operation operation)
+{
+    static constexpr auto declarations = std::define_static_array(
+        std::meta::members_of(
+            ^^ano::asset_schema, std::meta::access_context::unchecked()));
+    template for (constexpr std::meta::info declaration : declarations) {
+        static constexpr auto annotations = std::define_static_array(
+            std::meta::annotations_of_with_type(declaration, ^^ano::Transform));
+        if constexpr (!annotations.empty()) {
+            constexpr auto transform = std::meta::extract<ano::Transform>(annotations[0]);
+            if constexpr (transform.executor == ano::Executor::render_master) {
+                constexpr TransformEndpoints endpoints = transform_endpoints(declaration);
+                using Input = [:endpoints.input:];
+                using Output = [:endpoints.output:];
+                if (binding.sourceType.value == ano::resource_type_id<Input>().value)
+                    template for (constexpr std::meta::info member :
+                                  std::define_static_array(std::meta::nonstatic_data_members_of(
+                                      ^^RenderBinding, std::meta::access_context::unchecked())))
+                        if constexpr (std::meta::type_of(member) == ^^Output)
+                            operation(binding.[:member:]);
+            }
+        }
+    }
+}
+
+void retain_binding(RenderBinding& binding)
+{
+    visit_binding_output(binding, []<class Output>(const Output& output) {
+        retain_output(output);
+    });
+}
+
+void release_binding(RenderBinding& binding)
+{
+    visit_binding_output(binding, []<class Output>(const Output& output) {
+        release_output(output);
+    });
 }
 
 bool is_render_input(AnoResourceTypeId type)
@@ -437,6 +584,128 @@ AnoResourceError invoke_render_transform(
         }
     }
     return ANO_RESOURCE_UNSUPPORTED;
+}
+
+template<class Input>
+AnoResourceError prepare_decoded(RenderBinding&, const Input&,
+                                 AnoResourceBytes, mi_heap_t*)
+{
+    return ANO_RESOURCE_OK;
+}
+
+template<>
+AnoResourceError prepare_decoded(
+    RenderBinding& binding, const schema::Texture& texture,
+    AnoResourceBytes artifact, mi_heap_t* heap)
+{
+    uint64_t pixels = 0;
+    uint64_t bytes = 0;
+    if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
+        || texture.width == 0 || texture.height == 0
+        || !ano::detail::checked_multiply(texture.width, texture.height, &pixels)
+        || !ano::detail::checked_multiply(pixels, 4, &bytes)
+        || bytes != texture.bytes.count || bytes > SIZE_MAX)
+        return ANO_RESOURCE_NON_CANONICAL;
+    binding.preparedPixels = static_cast<uint8_t*>(
+        mi_heap_malloc(heap, static_cast<size_t>(bytes)));
+    if (!binding.preparedPixels) return ANO_RESOURCE_OUT_OF_MEMORY;
+    const ano::ArtifactView<schema::Texture> view = {
+        .value = texture, .bytes = artifact};
+    return ano::resolve_span(
+        view, texture.bytes, binding.preparedPixels, bytes);
+}
+
+template<>
+AnoResourceError prepare_decoded(
+    RenderBinding& binding, const schema::Mesh& mesh,
+    AnoResourceBytes artifact, mi_heap_t* heap)
+{
+    if (binding.reuseGeometry) return ANO_RESOURCE_OK;
+    if (mesh.vertices.count == 0 || mesh.indices.count == 0
+        || mesh.vertices.count > UINT32_MAX || mesh.indices.count > UINT32_MAX
+        || mesh.vertices.count > SIZE_MAX / sizeof(schema::Vertex)
+        || mesh.indices.count > SIZE_MAX / sizeof(uint32_t))
+        return ANO_RESOURCE_NON_CANONICAL;
+    schema::Vertex* portable = static_cast<schema::Vertex*>(mi_heap_malloc(
+        heap, static_cast<size_t>(mesh.vertices.count) * sizeof(schema::Vertex)));
+    uint32_t* indices = static_cast<uint32_t*>(mi_heap_malloc(
+        heap, static_cast<size_t>(mesh.indices.count) * sizeof(uint32_t)));
+    if (!portable || !indices) return ANO_RESOURCE_OUT_OF_MEMORY;
+    const ano::ArtifactView<schema::Mesh> view = {
+        .value = mesh, .bytes = artifact};
+    AnoResourceError result = ano::resolve_span(
+        view, mesh.vertices, portable, mesh.vertices.count);
+    if (result == ANO_RESOURCE_OK)
+        result = ano::resolve_span(
+            view, mesh.indices, indices, mesh.indices.count);
+    if (result != ANO_RESOURCE_OK) return result;
+    static_assert(sizeof(schema::Vertex) == sizeof(::Vertex));
+    const AnoLodConfig lod = ano_lod_config_default(ANO_DEFAULT_LOD_COUNT);
+    return geometry_prepare_chain(
+        heap, reinterpret_cast<const ::Vertex*>(portable),
+        static_cast<uint32_t>(mesh.vertices.count), indices,
+        static_cast<uint32_t>(mesh.indices.count), &lod,
+        &binding.preparedGeometry)
+        ? ANO_RESOURCE_OK : ANO_RESOURCE_OWNER_REJECTED;
+}
+
+AnoResourceError invoke_prepare_transform(
+    RenderBinding& target, AnoResourceTypeId type,
+    AnoResourceBytes artifact, mi_heap_t* heap)
+{
+    static constexpr auto declarations = std::define_static_array(
+        std::meta::members_of(
+            ^^ano::asset_schema, std::meta::access_context::unchecked()));
+    template for (constexpr std::meta::info declaration : declarations) {
+        static constexpr auto annotations = std::define_static_array(
+            std::meta::annotations_of_with_type(declaration, ^^ano::Transform));
+        if constexpr (!annotations.empty()) {
+            constexpr auto transform = std::meta::extract<ano::Transform>(annotations[0]);
+            if constexpr (transform.executor == ano::Executor::render_master) {
+                constexpr TransformEndpoints endpoints = transform_endpoints(declaration);
+                using Input = [:endpoints.input:];
+                if (type.value == ano::resource_type_id<Input>().value) {
+                    const ano::DecodeResult<Input> decoded = ano::decode<Input>(artifact);
+                    return decoded.error == ANO_RESOURCE_OK
+                        ? prepare_decoded(target, decoded.view.value, artifact, heap)
+                        : decoded.error;
+                }
+            }
+        }
+    }
+    return ANO_RESOURCE_UNSUPPORTED;
+}
+
+AnoResourceError prepare_asset(AnoRenderResidency& residency,
+                               AnoAssetId asset, AnoResourceTypeId type,
+                               mi_heap_t* heap)
+{
+    RenderBinding* target = binding(residency, asset, type);
+    if (!target) return ANO_RESOURCE_TYPE_MISMATCH;
+    if (target->state == RenderBindingState::resident
+        || target->preparation == PreparationState::ready)
+        return ANO_RESOURCE_OK;
+    if (target->preparation == PreparationState::preparing)
+        return ANO_RESOURCE_BAD_MANIFEST;
+    target->preparation = PreparationState::preparing;
+    AnoResourceBytes artifact = {};
+    AnoResourceError result = ano_resource_epoch_resolve(
+        residency.source, asset, type, &artifact);
+    AnoResourceDependency* dependencies = nullptr;
+    uint64_t dependencyCount = 0;
+    if (result == ANO_RESOURCE_OK)
+        result = collect_dependencies(type, artifact, &dependencies,
+                                      &dependencyCount);
+    for (uint64_t i = 0; i < dependencyCount && result == ANO_RESOURCE_OK; ++i)
+        if (is_render_input(dependencies[i].type))
+            result = prepare_asset(residency, dependencies[i].asset,
+                                   dependencies[i].type, heap);
+    if (result == ANO_RESOURCE_OK)
+        result = invoke_prepare_transform(*target, type, artifact, heap);
+    mi_free(dependencies);
+    target->preparation = result == ANO_RESOURCE_OK
+        ? PreparationState::ready : PreparationState::absent;
+    return result;
 }
 
 AnoResourceError realize_asset(AnoRenderResidency& residency,
@@ -606,6 +875,7 @@ bool clone_scene_binding(AnoRenderResidency& candidate,
     }
     candidate.scenes[slot] = copied;
     target = source;
+    target.ownsReservations = false;
     target.scene.slot = slot;
     return true;
 }
@@ -666,6 +936,7 @@ AnoResourceError reuse_unchanged_bindings(
                 result = ANO_RESOURCE_OUT_OF_MEMORY;
         } else {
             target = source;
+            target.ownsReservations = false;
         }
     }
     mi_free(states);
@@ -723,33 +994,18 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
         || !ano::detail::checked_multiply(pixelCount, 4, &requiredBytes)
         || requiredBytes != texture.bytes.count || requiredBytes > SIZE_MAX)
         return false;
-    uint8_t *pixels = static_cast<uint8_t *>(
-        mi_malloc(static_cast<size_t>(requiredBytes)));
-    if (pixels == nullptr)
-        return false;
-    const ArtifactView<Texture> view = {
-        .value = texture,
-        .bytes = context.artifact,
-    };
-    const AnoResourceError resolved = resolve_span(
-        view, texture.bytes, pixels, requiredBytes);
-    if (resolved != ANO_RESOURCE_OK) {
-        mi_free(pixels);
-        return false;
-    }
+    RenderBinding* target = binding(
+        *context.residency, context.asset, ano::resource_type_id<Texture>());
+    if (!target || !target->preparedPixels) return false;
     AnoRenderResidency& residency = *context.residency;
     if (residency.uploadCommands == VK_NULL_HANDLE)
         residency.uploadCommands = beginSingleTimeCommands(&ctx);
-    if (residency.uploadCommands == VK_NULL_HANDLE) {
-        mi_free(pixels);
-        return false;
-    }
+    if (residency.uploadCommands == VK_NULL_HANDLE) return false;
     TexturePackage package = {};
     const TextureUsageFlags usage = static_cast<TextureUsageFlags>(texture.usage);
     const AnoTextureResult built = createTextureImageFromPixels(
-        &ctx, residency.uploadCommands, &package, pixels, texture.width,
+        &ctx, residency.uploadCommands, &package, target->preparedPixels, texture.width,
         texture.height, usage, true);
-    mi_free(pixels);
     if (built.code != ANO_TEXTURE_BUILT)
         return false;
     if (!append_upload_staging(residency, package.staging)) {
@@ -757,11 +1013,6 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
         return false;
     }
     package.staging = VK_NULL_HANDLE;
-    if (!ano_vk_register_texture(&rendererState.primitives,
-                                 ano_texture_record(&package))) {
-        destroy_texture_package(package);
-        return false;
-    }
     output.colorSlot = (usage & TEXTURE_USE_COLOR)
         ? bindless_register_texture(
             &ctx, &rendererState.bindlessTextures, package.srgbView,
@@ -772,19 +1023,33 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
             &ctx, &rendererState.bindlessTextures, package.unormView,
             rendererState.textureSampler)
         : ANO_BINDLESS_NONE;
-    return (!(usage & TEXTURE_USE_COLOR)
-            || output.colorSlot != ANO_BINDLESS_NONE)
-        && (!(usage & TEXTURE_USE_DATA)
-            || output.dataSlot != ANO_BINDLESS_NONE);
+    if (((usage & TEXTURE_USE_COLOR) && output.colorSlot == ANO_BINDLESS_NONE)
+        || ((usage & TEXTURE_USE_DATA) && output.dataSlot == ANO_BINDLESS_NONE)) {
+        bindless_release_texture(&rendererState.bindlessTextures,
+                                 output.colorSlot);
+        bindless_release_texture(&rendererState.bindlessTextures,
+                                 output.dataSlot);
+        destroy_texture_package(package);
+        return false;
+    }
+    output.ownerSlot = ano_vk_register_texture(
+        &rendererState.primitives, ano_texture_record(&package));
+    if (output.ownerSlot == UINT32_MAX) {
+        bindless_release_texture(&rendererState.bindlessTextures,
+                                 output.colorSlot);
+        bindless_release_texture(&rendererState.bindlessTextures,
+                                 output.dataSlot);
+        destroy_texture_package(package);
+        return false;
+    }
+    return true;
 }
 
 bool realize_material(const Material& material,
                       RenderResourceContext& context,
                       GpuMaterial& output) noexcept
 {
-    if (material.unlit
-        || rendererState.materialBuffer.count
-            >= rendererState.materialBuffer.capacity)
+    if (material.unlit)
         return false;
     MaterialData destination;
     ano_vk_init_default_material_data(&destination);
@@ -847,7 +1112,8 @@ bool realize_material(const Material& material,
     else
         destination.pipelineType = PIPELINE_FLAT;
 
-    output.slot = rendererState.materialBuffer.count++;
+    output.slot = reserve_material_slot();
+    if (output.slot == UINT32_MAX) return false;
     for (uint32_t frame = 0; frame < MAX_FRAMES_IN_FLIGHT; ++frame)
         rendererState.materialBuffer.mapped[frame][output.slot] = destination;
     return true;
@@ -874,59 +1140,27 @@ bool realize_mesh(const Mesh& mesh, RenderResourceContext& context,
         return true;
     }
 
-    schema::Vertex *portable = static_cast<schema::Vertex *>(
-        mi_malloc(static_cast<size_t>(mesh.vertices.count)
-                  * sizeof(schema::Vertex)));
-    uint32_t *indices = static_cast<uint32_t *>(
-        mi_malloc(static_cast<size_t>(mesh.indices.count)
-                  * sizeof(uint32_t)));
-    if (portable == nullptr || indices == nullptr) {
-        mi_free(indices);
-        mi_free(portable);
+    if (target == nullptr || target->preparedGeometry.lodCount == 0)
         return false;
-    }
-    const ArtifactView<Mesh> view = {
-        .value = mesh,
-        .bytes = context.artifact,
-    };
-    bool valid = resolve_span(
-        view, mesh.vertices, portable, mesh.vertices.count) == ANO_RESOURCE_OK
-        && resolve_span(view, mesh.indices, indices, mesh.indices.count)
-            == ANO_RESOURCE_OK;
-    static_assert(sizeof(schema::Vertex) == sizeof(::Vertex));
-    ::Vertex *vertices = reinterpret_cast<::Vertex *>(portable);
-    uint32_t base = ANO_MESH_NONE;
+    AnoRenderResidency& residency = *context.residency;
+    if (residency.uploadCommands == VK_NULL_HANDLE)
+        residency.uploadCommands = beginSingleTimeCommands(&ctx);
+    if (residency.uploadCommands == VK_NULL_HANDLE
+        || !reserve_upload_staging(residency, ANO_MAX_LOD))
+        return false;
+    VkBuffer staging[ANO_MAX_LOD] = {};
     uint32_t produced = 0;
-    if (valid) {
-        AnoRenderResidency& residency = *context.residency;
-        if (residency.uploadCommands == VK_NULL_HANDLE)
-            residency.uploadCommands = beginSingleTimeCommands(&ctx);
-        VkBuffer staging[ANO_MAX_LOD] = {};
-        const AnoLodConfig lod = ano_lod_config_default(
-            ANO_DEFAULT_LOD_COUNT);
-        valid = residency.uploadCommands != VK_NULL_HANDLE
-            && reserve_upload_staging(residency, ANO_MAX_LOD);
-        if (valid)
-            base = geometry_pool_record_chain(
-                &rendererState.globalGeometryPool, &stagingAllocator,
-                ctx.device, vertices,
-                static_cast<uint32_t>(mesh.vertices.count), indices,
-                static_cast<uint32_t>(mesh.indices.count), &lod,
-                residency.uploadCommands, staging, &produced);
-        valid = base != ANO_MESH_NONE && produced != 0;
-        if (valid) {
-            for (uint32_t i = 0; i < produced; ++i)
-                residency.uploadStaging[residency.uploadStagingCount++]
-                    = staging[i];
-        } else {
-            for (uint32_t i = 0; i < produced; ++i)
-                vkDestroyBuffer(ctx.device, staging[i], nullptr);
-        }
-    }
-    mi_free(indices);
-    mi_free(portable);
-    if (!valid)
+    const uint32_t base = geometry_pool_record_prepared_chain(
+        &rendererState.globalGeometryPool, &stagingAllocator,
+        ctx.device, &target->preparedGeometry,
+        residency.uploadCommands, staging, &produced);
+    if (base == ANO_MESH_NONE || produced == 0) {
+        for (uint32_t i = 0; i < produced; ++i)
+            vkDestroyBuffer(ctx.device, staging[i], nullptr);
         return false;
+    }
+    for (uint32_t i = 0; i < produced; ++i)
+        residency.uploadStaging[residency.uploadStagingCount++] = staging[i];
     output.geometrySlot = base;
     output.materialSlot = material->material.slot;
     return true;
@@ -1037,9 +1271,9 @@ static AnoResourceError submit_upload(AnoRenderResidency *residency)
 
 AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     const AnoResidencyEpoch *epoch, const AnoRenderResidency *previous,
-    AnoRenderResidency **residency)
+    mi_heap_t *preparationHeap, AnoRenderResidency **residency)
 {
-    if (epoch == nullptr || residency == nullptr)
+    if (epoch == nullptr || preparationHeap == nullptr || residency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *residency = nullptr;
     AnoRenderResidency *created = static_cast<AnoRenderResidency *>(
@@ -1077,22 +1311,64 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
             created->source, {i + 1}, &created->bindings[i].sourceType,
             &resident);
         if (result == ANO_RESOURCE_OK && resident
-            && is_render_input(created->bindings[i].sourceType))
-            result = realize_asset(
-                *created, {i + 1}, created->bindings[i].sourceType);
+            && is_render_input(created->bindings[i].sourceType)
+            && created->bindings[i].state != RenderBindingState::resident)
+            result = prepare_asset(
+                *created, {i + 1}, created->bindings[i].sourceType,
+                preparationHeap);
     }
-    if (result == ANO_RESOURCE_OK
-        && previous != nullptr
-        && !render_resource_epoch_compatible(&rendererState, created))
-        result = ANO_RESOURCE_OWNER_REJECTED;
-    if (result == ANO_RESOURCE_OK)
-        result = submit_upload(created);
     if (result != ANO_RESOURCE_OK) {
         ano_vk_resource_residency_destroy(created);
         return result;
     }
     *residency = created;
     return ANO_RESOURCE_OK;
+}
+
+AnoResourceError ano_vk_resource_residency_realize_step(
+    AnoRenderResidency *residency, uint32_t assetBudget, bool *complete)
+{
+    if (!residency || !complete || assetBudget == 0)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *complete = residency->realizationComplete;
+    if (*complete) return ANO_RESOURCE_OK;
+    if (!residency->reusedReservationsRetained) {
+        for (uint64_t i = 0; i < residency->bindingCount; ++i)
+            if (residency->bindings[i].state == RenderBindingState::resident
+                && !residency->bindings[i].ownsReservations) {
+                retain_binding(residency->bindings[i]);
+                residency->bindings[i].ownsReservations = true;
+            }
+        residency->reusedReservationsRetained = true;
+    }
+    uint32_t realized = 0;
+    AnoResourceError result = ANO_RESOURCE_OK;
+    while (residency->realizationCursor < residency->bindingCount
+           && realized < assetBudget && result == ANO_RESOURCE_OK) {
+        const uint64_t index = residency->realizationCursor++;
+        RenderBinding& target = residency->bindings[index];
+        bool resident = false;
+        result = ano_resource_epoch_asset(
+            residency->source, {index + 1}, &target.sourceType, &resident);
+        if (result == ANO_RESOURCE_OK && resident
+            && is_render_input(target.sourceType)
+            && target.state != RenderBindingState::resident) {
+            result = realize_asset(
+                *residency, {index + 1}, target.sourceType);
+            ++realized;
+        }
+    }
+    if (result != ANO_RESOURCE_OK) return result;
+    if (residency->realizationCursor != residency->bindingCount)
+        return ANO_RESOURCE_OK;
+    if (!render_resource_epoch_compatible(&rendererState, residency))
+        return ANO_RESOURCE_OWNER_REJECTED;
+    result = submit_upload(residency);
+    if (result == ANO_RESOURCE_OK) {
+        residency->realizationComplete = true;
+        *complete = true;
+    }
+    return result;
 }
 
 VkResult ano_vk_resource_residency_poll_upload(
@@ -1132,10 +1408,17 @@ AnoResourceError ano_vk_resource_residency_create(
     if (manager == nullptr || residency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     const AnoResidencyEpoch *epoch = nullptr;
+    mi_heap_t *preparationHeap = mi_heap_new();
+    if (preparationHeap == nullptr)
+        return ANO_RESOURCE_OUT_OF_MEMORY;
     AnoResourceError result = ano_resource_epoch_acquire(manager, &epoch);
     if (result == ANO_RESOURCE_OK)
         result = ano_vk_resource_residency_prepare_from_epoch(
-            epoch, nullptr, residency);
+            epoch, nullptr, preparationHeap, residency);
+    bool complete = false;
+    while (result == ANO_RESOURCE_OK && !complete)
+        result = ano_vk_resource_residency_realize_step(
+            *residency, UINT32_MAX, &complete);
     if (result == ANO_RESOURCE_OK)
         result = ano_vk_resource_residency_wait_upload(*residency);
     if (result != ANO_RESOURCE_OK) {
@@ -1143,6 +1426,7 @@ AnoResourceError ano_vk_resource_residency_create(
         *residency = nullptr;
     }
     ano_resource_epoch_release(epoch);
+    mi_heap_destroy(preparationHeap);
     return result;
 }
 
@@ -1162,6 +1446,10 @@ void ano_vk_resource_residency_destroy(AnoRenderResidency *residency)
         mi_free(residency->scenes[i].lights);
         mi_free(residency->scenes[i].renderables);
     }
+    for (uint64_t i = 0; i < residency->bindingCount; ++i)
+        if (residency->bindings[i].state == RenderBindingState::resident
+            && residency->bindings[i].ownsReservations)
+            release_binding(residency->bindings[i]);
     mi_free(residency->uploadStaging);
     mi_free(residency->scenes);
     mi_free(residency->bindings);

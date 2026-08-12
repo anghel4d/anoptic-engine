@@ -6,6 +6,7 @@
 #define ANOPTICENGINE_VULKAN_RESOURCE_RESIDENCY_H
 
 #include <anoptic_render.h>
+#include <anoptic_memory.h>
 #include <vulkan/vulkan.h>
 
 typedef struct AnoRenderResidency AnoRenderResidency;
@@ -14,7 +15,9 @@ AnoResourceError ano_vk_resource_residency_create(
     AnoResourceManager *manager, AnoRenderResidency **residency);
 AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     const AnoResidencyEpoch *epoch, const AnoRenderResidency *previous,
-    AnoRenderResidency **residency);
+    mi_heap_t *preparationHeap, AnoRenderResidency **residency);
+AnoResourceError ano_vk_resource_residency_realize_step(
+    AnoRenderResidency *residency, uint32_t assetBudget, bool *complete);
 VkResult ano_vk_resource_residency_poll_upload(
     AnoRenderResidency *residency);
 AnoResourceError ano_vk_resource_residency_wait_upload(

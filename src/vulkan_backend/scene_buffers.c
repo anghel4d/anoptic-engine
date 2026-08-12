@@ -55,6 +55,18 @@
 bool createMaterialBuffer(VulkanContext* ctx, RendererState* state, uint32_t maxEntities) {
     state->materialBuffer.capacity = maxEntities;
     state->materialBuffer.count = 0;
+    state->materialBuffer.freeCount = 0;
+    state->materialBuffer.references = static_cast<uint32_t*>(
+        calloc(maxEntities, sizeof(uint32_t)));
+    state->materialBuffer.freeSlots = static_cast<uint32_t*>(
+        malloc(static_cast<size_t>(maxEntities) * sizeof(uint32_t)));
+    if (!state->materialBuffer.references || !state->materialBuffer.freeSlots) {
+        free(state->materialBuffer.references);
+        free(state->materialBuffer.freeSlots);
+        state->materialBuffer.references = nullptr;
+        state->materialBuffer.freeSlots = nullptr;
+        return false;
+    }
     
     VkDeviceSize bufferSize = sizeof(MaterialData) * maxEntities;
     

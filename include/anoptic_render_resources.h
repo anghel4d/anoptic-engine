@@ -237,17 +237,28 @@ struct [[=Artifact{}]] Scene final {
     RelativeSpan<SceneLight> lights;
 };
 
+enum class RenderReservationKind : uint8_t {
+    texture,
+    material,
+    geometry,
+};
+
+struct RenderReservation final {
+    RenderReservationKind kind;
+};
+
 struct [[=Artifact{}]] GpuTexture final {
+    uint32_t ownerSlot [[=RenderReservation{RenderReservationKind::texture}]];
     uint32_t colorSlot;
     uint32_t dataSlot;
 };
 
 struct [[=Artifact{}]] GpuMaterial final {
-    uint32_t slot;
+    uint32_t slot [[=RenderReservation{RenderReservationKind::material}]];
 };
 
 struct [[=Artifact{}]] GpuMesh final {
-    uint32_t geometrySlot;
+    uint32_t geometrySlot [[=RenderReservation{RenderReservationKind::geometry}]];
     uint32_t materialSlot;
 };
 

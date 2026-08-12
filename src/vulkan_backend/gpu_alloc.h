@@ -3,6 +3,12 @@
 
 #include <vulkan/vulkan.h>
 
+typedef struct GpuFreeSpan
+{
+    VkDeviceSize offset;
+    VkDeviceSize size;
+} GpuFreeSpan;
+
 typedef struct GpuBlock
 {
     VkDeviceMemory  memory;
@@ -10,6 +16,9 @@ typedef struct GpuBlock
     VkDeviceSize    offset;     // next free offset (bump allocator)
     uint32_t        memoryType;
     void*           mapped;     // persistently mapped if HOST_VISIBLE, else NULL
+    GpuFreeSpan*    freeSpans;
+    uint32_t        freeCount;
+    uint32_t        freeCapacity;
 } GpuBlock;
 
 typedef struct GpuAllocator
@@ -32,8 +41,9 @@ typedef struct GpuAllocation
 // Alignment is handled internally. Creates a new block if needed.
 GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs,
                         VkMemoryPropertyFlags props);
+void gpu_free(GpuAllocator* alloc, GpuAllocation allocation);
 
-// Arena: no per-alloc free. Blocks reset or torn down only.
+// Reset/teardown remain available for generation-local arenas.
 void gpu_alloc_reset(GpuAllocator* alloc);   // reset all blocks to offset=0
 void gpu_alloc_destroy(GpuAllocator* alloc);  // free all VkDeviceMemory
 

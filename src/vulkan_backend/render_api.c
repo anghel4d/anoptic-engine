@@ -22,6 +22,7 @@ static AnoRenderResidency *g_resourceResidency;
 struct AnoRenderResourcePublication {
     AnoResourceReload *reload;
     AnoRenderResidency *residency;
+    mi_heap_t *ownedPreparationHeap;
     uint64_t retireAfter;
     AnoRenderResourcePublication *next;
 };
@@ -178,10 +179,11 @@ bool ano_render_load_scene_assets(AnoResourceManager *resources)
 	return true;
 }
 
-AnoResourceError ano_render_resources_prepare_reload(
-    AnoResourceReload *reload, AnoRenderResourcePublication **publication)
+static AnoResourceError prepare_reload(
+    AnoResourceReload *reload, mi_heap_t *preparationHeap,
+    bool ownsHeap, AnoRenderResourcePublication **publication)
 {
-    if (reload == nullptr || publication == nullptr)
+    if (reload == nullptr || preparationHeap == nullptr || publication == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *publication = nullptr;
     AnoRenderResourcePublication *prepared =
@@ -192,20 +194,40 @@ AnoResourceError ano_render_resources_prepare_reload(
         return ANO_RESOURCE_OUT_OF_MEMORY;
     }
     prepared->reload = reload;
+    prepared->ownedPreparationHeap = ownsHeap ? preparationHeap : nullptr;
     AnoResourceError result = ANO_RESOURCE_OK;
     if (ano_resource_reload_has_changes(reload)) {
         result = ano_vk_resource_residency_prepare_from_epoch(
             ano_resource_reload_epoch(reload), g_resourceResidency,
-            &prepared->residency);
+            preparationHeap, &prepared->residency);
     }
     if (result != ANO_RESOURCE_OK) {
         ano_vk_resource_residency_destroy(prepared->residency);
         ano_resource_reload_abort(reload);
+        if (ownsHeap) mi_heap_destroy(preparationHeap);
         mi_free(prepared);
         return result;
     }
     *publication = prepared;
     return ANO_RESOURCE_OK;
+}
+
+AnoResourceError ano_render_resources_prepare_reload_on_heap(
+    AnoResourceReload *reload, mi_heap_t *preparationHeap,
+    AnoRenderResourcePublication **publication)
+{
+    return prepare_reload(reload, preparationHeap, false, publication);
+}
+
+AnoResourceError ano_render_resources_prepare_reload(
+    AnoResourceReload *reload, AnoRenderResourcePublication **publication)
+{
+    mi_heap_t *heap = mi_heap_new();
+    if (!heap) {
+        ano_resource_reload_abort(reload);
+        return ANO_RESOURCE_OUT_OF_MEMORY;
+    }
+    return prepare_reload(reload, heap, true, publication);
 }
 
 void ano_render_resources_cancel_reload(
@@ -215,6 +237,8 @@ void ano_render_resources_cancel_reload(
         return;
     ano_vk_resource_residency_destroy(publication->residency);
     ano_resource_reload_abort(publication->reload);
+    if (publication->ownedPreparationHeap)
+        mi_heap_destroy(publication->ownedPreparationHeap);
     mi_free(publication);
 }
 
@@ -224,6 +248,18 @@ AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
     if (slot == nullptr || *slot == nullptr)
         return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
     AnoRenderResourcePublication *publication = *slot;
+    bool realized = publication->residency == nullptr;
+    AnoResourceError realization = ANO_RESOURCE_OK;
+    if (publication->residency)
+        realization = ano_vk_resource_residency_realize_step(
+            publication->residency, 4, &realized);
+    if (realization != ANO_RESOURCE_OK) {
+        *slot = nullptr;
+        ano_render_resources_cancel_reload(publication);
+        return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
+    }
+    if (!realized)
+        return ANO_RENDER_RESOURCE_RELOAD_PENDING;
     const VkResult upload = publication->residency
         ? ano_vk_resource_residency_poll_upload(publication->residency)
         : VK_SUCCESS;
@@ -240,10 +276,14 @@ AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
     publication->reload = nullptr;
     if (result != ANO_RESOURCE_OK) {
         ano_vk_resource_residency_destroy(publication->residency);
+        if (publication->ownedPreparationHeap)
+            mi_heap_destroy(publication->ownedPreparationHeap);
         mi_free(publication);
         return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
     }
     if (publication->residency == nullptr) {
+        if (publication->ownedPreparationHeap)
+            mi_heap_destroy(publication->ownedPreparationHeap);
         mi_free(publication);
         return ANO_RENDER_RESOURCE_RELOAD_COMMITTED;
     }
@@ -256,6 +296,8 @@ AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
     if (retired == nullptr
         || rendererState.completedFrameSerial >= publication->retireAfter) {
         ano_vk_resource_residency_destroy(retired);
+        if (publication->ownedPreparationHeap)
+            mi_heap_destroy(publication->ownedPreparationHeap);
         mi_free(publication);
     } else {
         publication->next = g_retiredResidencies;
@@ -284,6 +326,8 @@ void ano_render_resources_collect_retired(uint64_t completedFrameSerial)
         }
         *link = entry->next;
         ano_vk_resource_residency_destroy(entry->residency);
+        if (entry->ownedPreparationHeap)
+            mi_heap_destroy(entry->ownedPreparationHeap);
         mi_free(entry);
     }
 }

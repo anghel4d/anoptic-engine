@@ -132,6 +132,11 @@ bool ano_vk_init_material_layouts(VulkanContext* ctx, RendererState* state)
 
 	state->bindlessTextures.maxTextures = uabBudget < 4096u ? uabBudget : 4096u;
 	state->bindlessTextures.textureCount = 0;
+	state->bindlessTextures.freeCount = 0;
+	state->bindlessTextures.freeSlots = static_cast<uint32_t*>(calloc(
+		state->bindlessTextures.maxTextures, sizeof(uint32_t)));
+	if (state->bindlessTextures.freeSlots == NULL)
+		return false;
 	ano_log(ANO_INFO, "Bindless texture array: maxTextures = %u (device update-after-bind limit %u)",
 		state->bindlessTextures.maxTextures, uabLimit);
 

@@ -341,7 +341,10 @@ typedef struct MaterialBuffer
     GpuAllocation   allocs[MAX_FRAMES_IN_FLIGHT];
     MaterialData*   mapped[MAX_FRAMES_IN_FLIGHT];  // host-visible, persistently mapped
     uint32_t        capacity;   // palette row ceiling (PALETTE_CAPACITY)
-    uint32_t        count;      // live material rows
+    uint32_t        count;      // high-water row count
+    uint32_t*       references;
+    uint32_t*       freeSlots;
+    uint32_t        freeCount;
 } MaterialBuffer;
 
 /* Skeletons */
@@ -394,7 +397,9 @@ typedef struct BindlessTextureArray
     VkDescriptorSetLayout   layout;
     VkDescriptorSet         set;            // ONE set, holds ALL textures
     uint32_t                maxTextures;    // upper bound (e.g. 4096)
-    uint32_t                textureCount;   // current count
+    uint32_t                textureCount;   // high-water slot count
+    uint32_t*               freeSlots;
+    uint32_t                freeCount;
     VkSampler               defaultSampler; // shared linear/repeat sampler
 } BindlessTextureArray;
 

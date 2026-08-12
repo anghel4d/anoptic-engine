@@ -64,21 +64,42 @@ void ano_vk_decrement_mesh_usage(RenderPrimitives* primitives, uint32_t index) {
 
 // in:  primitives, data
 // out: true on append; false on realloc failure (primitives unchanged)
-bool ano_vk_register_texture(RenderPrimitives* primitives, TextureData data) {
+uint32_t ano_vk_register_texture(RenderPrimitives* primitives, TextureData data) {
+    if (primitives->freeTextureCount != 0) {
+        const uint32_t slot = primitives->freeTextureSlots[--primitives->freeTextureCount];
+        data.usageCount = 0;
+        primitives->textureBuffers[slot] = data;
+        return slot;
+    }
     if (primitives->textureCount >= primitives->textureCapacity) {
         uint32_t newCapacity = primitives->textureCapacity == 0 ? 8 : primitives->textureCapacity * 2;
-        TextureData* temp = static_cast<TextureData*>(realloc(primitives->textureBuffers, sizeof(TextureData) * newCapacity));
-        if (!temp) {
+        TextureData* temp = static_cast<TextureData*>(
+            calloc(newCapacity, sizeof(TextureData)));
+        uint32_t* freeSlots = static_cast<uint32_t*>(
+            malloc(sizeof(uint32_t) * newCapacity));
+        if (!temp || !freeSlots) {
             ano_log(ANO_ERROR, "Error: Failed to reallocate memory for textures!");
-            return false;
+            free(freeSlots);
+            free(temp);
+            return UINT32_MAX;
         }
+        if (primitives->textureCount != 0)
+            memcpy(temp, primitives->textureBuffers,
+                   sizeof(TextureData) * primitives->textureCount);
+        if (primitives->freeTextureCount != 0)
+            memcpy(freeSlots, primitives->freeTextureSlots,
+                   sizeof(uint32_t) * primitives->freeTextureCount);
+        free(primitives->textureBuffers);
+        free(primitives->freeTextureSlots);
         primitives->textureBuffers = temp;
+        primitives->freeTextureSlots = freeSlots;
         primitives->textureCapacity = newCapacity;
     }
 
     data.usageCount = 0;
-    primitives->textureBuffers[primitives->textureCount++] = data;
-    return true;
+    const uint32_t slot = primitives->textureCount++;
+    primitives->textureBuffers[slot] = data;
+    return slot;
 }
 
 void ano_vk_increment_texture_usage(RenderPrimitives* primitives, uint32_t index) {
@@ -105,6 +126,9 @@ void ano_vk_cleanup_primitives(RenderPrimitives* primitives) {
         free(primitives->textureBuffers);
         primitives->textureBuffers = NULL;
     }
+    free(primitives->freeTextureSlots);
+    primitives->freeTextureSlots = NULL;
+    primitives->freeTextureCount = 0;
     primitives->textureCount = 0;
     primitives->textureCapacity = 0;
 }

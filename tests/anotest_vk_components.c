@@ -41,7 +41,7 @@ int main() {
     TextureData td1 = {0};
     td1.textureImage = (VkImage)0x4;
     td1.srgbView = (VkImageView)0x8;
-    if (!ano_vk_register_texture(&primitives, td1)) {
+    if (ano_vk_register_texture(&primitives, td1) == UINT32_MAX) {
         printf("Texture registration refused!\n");
         return 1;
     }

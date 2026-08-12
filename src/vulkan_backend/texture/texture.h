@@ -107,6 +107,7 @@ bool createTextureSampler(VulkanContext* ctx, RendererState* state);
 // out: slot for (view, sampler), or ANO_BINDLESS_NONE if full or either handle absent.
 // inv: granted slot is never ANO_BINDLESS_NONE (refusal outside the index domain).
 uint32_t bindless_register_texture(VulkanContext* ctx, BindlessTextureArray* bta, VkImageView view, VkSampler sampler);
+void bindless_release_texture(BindlessTextureArray* bta, uint32_t slot);
 
 // Helper functions
 

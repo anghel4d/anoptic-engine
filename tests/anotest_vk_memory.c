@@ -101,8 +101,18 @@ int main() {
         return 1;
     }
 
-    // Cleanup. Arena alloc, freed by unInitVulkan.
+    // Released spans are immediately reusable once the owner object is gone.
     vkDestroyBuffer(ctx->device, testBuffer, NULL);
+    gpu_free(&gpuAllocator, testAlloc);
+    GpuAllocation recycled = gpu_alloc(
+        &gpuAllocator, memRequirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (recycled.memory != testAlloc.memory
+        || recycled.offset != testAlloc.offset) {
+        printf("Error: gpu_free span was not reused!\n");
+        unInitVulkan();
+        return 1;
+    }
+    gpu_free(&gpuAllocator, recycled);
 
     unInitVulkan();
     printf("Memory Allocation test passed successfully!\n");

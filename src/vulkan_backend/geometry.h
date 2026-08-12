@@ -7,6 +7,7 @@
 #define GEOMETRY_H
 
 #include <vulkan/vulkan.h>
+#include <anoptic_memory.h>
 #include "vulkan_backend/gpu_alloc.h"
 #include "vulkan_backend/vertex/vertex.h"
 #include "mesh/ano_meshoptimizer.h"
@@ -69,11 +70,8 @@ typedef struct GeometryPool
     uint32_t        meshCount;
     uint32_t        meshCapacity;
     MeshRegion*     meshes;             // registered mesh regions
+    uint32_t*       references;         // residency owners, keyed by LOD base
     MeshGpuPublication meshGpuPublication;
-
-    uint32_t*       freeMeshIndices;
-    uint32_t        freeMeshIndexCount;
-    uint32_t        freeMeshIndexCapacity;
 } GeometryPool;
 
 bool ano_vk_init_geometry_pool(GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
@@ -103,8 +101,36 @@ typedef struct AnoLodConfig
     float    edgeLenFactor;        // in-plane edge growth cap (mean-edge lengths); 0 disables
 } AnoLodConfig;
 
+typedef struct AnoPreparedGeometryLevel
+{
+    Vertex* vertices;
+    uint32_t vertexCount;
+    uint32_t* indices;
+    uint32_t indexCount;
+    uint8_t* upload;
+    uint32_t vertexBytes;
+    uint32_t metadataBytes;
+    MeshRegion region;
+} AnoPreparedGeometryLevel;
+
+typedef struct AnoPreparedGeometry
+{
+    AnoPreparedGeometryLevel levels[ANO_MAX_LOD];
+    uint32_t lodCount;
+} AnoPreparedGeometry;
+
 // Default chain: ratios 1, 1/2, 1/4, ...; 5% extent error.
 AnoLodConfig ano_lod_config_default(uint32_t lodCount);
+
+[[nodiscard]] bool geometry_prepare_chain(
+    mi_heap_t* heap, const Vertex* vertices, uint32_t vertexCount,
+    const uint32_t* indices, uint32_t indexCount,
+    const AnoLodConfig* config, AnoPreparedGeometry* prepared);
+
+[[nodiscard]] uint32_t geometry_pool_record_prepared_chain(
+    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
+    const AnoPreparedGeometry* prepared, VkCommandBuffer command,
+    VkBuffer out_staging[ANO_MAX_LOD], uint32_t* out_lodCount);
 
 // Records a chain into a caller-owned graphics command buffer. Staging buffers
 // remain live in out_staging until that command buffer's completion fence.
@@ -120,5 +146,7 @@ void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex);
 
 // Free a contiguous LOD chain (each level returned to the free lists). Symmetric with upload_chain.
 void geometry_pool_free_chain(GeometryPool* pool, uint32_t lodBase, uint32_t lodCount);
+void geometry_pool_retain_chain(GeometryPool* pool, uint32_t lodBase);
+void geometry_pool_release_chain(GeometryPool* pool, uint32_t lodBase);
 
 #endif

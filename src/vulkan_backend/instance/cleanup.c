@@ -74,6 +74,14 @@ void cleanupVulkan(VulkanContext* ctx) // Frees the initialized Vulkan parameter
             vkDestroyImage(ctx->device, record->textureImage, NULL);
     }
     ano_vk_cleanup_primitives(&rendererState.primitives);
+    free(rendererState.bindlessTextures.freeSlots);
+    rendererState.bindlessTextures.freeSlots = NULL;
+    rendererState.bindlessTextures.freeCount = 0;
+    free(rendererState.materialBuffer.references);
+    free(rendererState.materialBuffer.freeSlots);
+    rendererState.materialBuffer.references = NULL;
+    rendererState.materialBuffer.freeSlots = NULL;
+    rendererState.materialBuffer.freeCount = 0;
 
     if (rendererState.fallbackImageView) vkDestroyImageView(ctx->device, rendererState.fallbackImageView, NULL);
     if (rendererState.fallbackImage) vkDestroyImage(ctx->device, rendererState.fallbackImage, NULL);

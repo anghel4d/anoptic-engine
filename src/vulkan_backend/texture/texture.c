@@ -40,13 +40,14 @@ uint32_t bindless_register_texture(VulkanContext* ctx, BindlessTextureArray* bta
 		ano_log(ANO_ERROR, "ERROR: Bindless registration refused an absent view or sampler!");
 		return ANO_BINDLESS_NONE;
 	}
-	if (bta->textureCount >= bta->maxTextures) {
+	if (bta->textureCount >= bta->maxTextures && bta->freeCount == 0) {
 		ano_log(ANO_ERROR, "ERROR: Bindless texture array full!");
 		return ANO_BINDLESS_NONE;
 	}
 
-	uint32_t index = bta->textureCount;
-	bta->textureCount++;
+	uint32_t index = bta->freeCount != 0
+		? bta->freeSlots[--bta->freeCount]
+		: bta->textureCount++;
 
 	VkDescriptorImageInfo imageInfo = {};
 	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -65,6 +66,14 @@ uint32_t bindless_register_texture(VulkanContext* ctx, BindlessTextureArray* bta
 	vkUpdateDescriptorSets(ctx->device, 1, &descriptorWrite, 0, NULL);
 
 	return index;
+}
+
+void bindless_release_texture(BindlessTextureArray* bta, uint32_t slot)
+{
+	if (slot == ANO_BINDLESS_NONE || slot >= bta->textureCount
+		|| bta->freeCount >= bta->maxTextures)
+		return;
+	bta->freeSlots[bta->freeCount++] = slot;
 }
 
 bool transitionImageLayout(VulkanContext* ctx, VkCommandBuffer cmd, VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels)
