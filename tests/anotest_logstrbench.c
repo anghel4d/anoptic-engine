@@ -121,7 +121,7 @@ static bench_stats run_point(int producers, uint64_t *buf)
     }
     for (int i = 0; i < producers; i++)
         ano_thread_join(th[i], NULL);
-    ano_log_flush();
+    ano::log_flush();
 
     bench_lat merged;
     bench_lat_init(&merged, buf, (size_t)producers * (size_t)g_msgs);
@@ -172,15 +172,15 @@ int main(int argc, char **argv)
     printf("Logger x strings: %%.*s-captured UTF-8 item names, %d msgs/producer\n\n", g_msgs);
 
     scratch_make_dir(OUT_DIR);
-    ano_log_init();
-    ano_log_output_dir(OUT_DIR);
+    ano::log_init();
+    ano::log_output_dir(OUT_DIR);
 
     uint64_t expected = 0;
     for (int i = 0; i < 256; i++) {   // warm caches, branch predictors, the ring
         ano::log(ano::Info, "warm %.*s", anostr_fmt(g_pool[i % POOL_N]));
         expected++;
     }
-    ano_log_flush();
+    ano::log_flush();
 
     bench_lat_header();
     for (int p = 0; p < NPOINTS; p++) {
@@ -198,7 +198,7 @@ int main(int argc, char **argv)
     ano::log(ano::Info, "sentinel: %.*s / %.*s", anostr_fmt(sentinel), anostr_fmt(inl));
     expected++;
 
-    ano_log_cleanup();  // final drain + close, so the file below is complete
+    ano::log_cleanup();  // final drain + close, so the file below is complete
 
     int failures = 0;
     char outLog[96];    // the logger's file is session-stamped: <dir>/<stamp>_ano.log

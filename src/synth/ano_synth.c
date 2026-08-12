@@ -12,7 +12,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #include <anoptic_time.h>
 
 

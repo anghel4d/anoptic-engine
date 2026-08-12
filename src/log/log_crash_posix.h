@@ -227,7 +227,7 @@ static void bb_handler(int sig, siginfo_t *info, void *uctx)
     }
 
     // Stage 3: hail mary.
-    ano_log_flush();
+    ano::log_flush();
 
     // Re-raise with default disposition.
     sigset_t un;

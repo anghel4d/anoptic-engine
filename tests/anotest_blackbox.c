@@ -7,7 +7,7 @@
 //   - bb_fmt_dec/hex vs printf oracle
 //   - ano_log_crash_init: 0, resolves <exe>/logs/<stamp>_CRASH.log, creates nothing
 //   - one child per scenario (AV r/w/x, abort, illegal insn, div0, CRT raise, non-main,
-//     crash in ano_log_write, producer storm, ring full, stack overflow main/spawned, dual win64)
+//     crash in ano::log_write, producer storm, ring full, stack overflow main/spawned, dual win64)
 //   - Stage 3 hail mary: pre-crash records survive into scratch session log
 //   - deadman: poisoned deferred fmt deadlocks hail mary, watchdog ~5 s
 //   - Stage 4: leftover announce, per-session files, stamp-collision append, prune to newest 4
@@ -147,7 +147,7 @@ static void sc_hailmary(void)
 static void sc_empty_ring(void)
 {
     ano::log(ano::Info, "empty-ring-sentinel");
-    ano_log_flush();                    // ring drained before the crash
+    ano::log_flush();                    // ring drained before the crash
     *(volatile int *)0 = 1;
 }
 
@@ -157,7 +157,7 @@ static void sc_now_path(void)
     *(volatile int *)0 = 1;
 }
 
-// Crash inside ano_log_write: strlen on wild %s.
+// Crash inside ano::log_write: strlen on wild %s.
 static void sc_midwrite(void)
 {
     ano::log(ano::Info, "midwrite-sentinel-before");
@@ -178,16 +178,16 @@ static void *spammer(void *arg)
     for (;;) {
         s ^= s << 13; s ^= s >> 17; s ^= s << 5;
         if (huge) {
-            ano_log_write(ano::Info, ano::DefaultRoute, NULL, 0, "%s", bigbuf);  // 4000 B entries: the ring pins full
+            ano::log_write(ano::Info, ano::DefaultRoute, NULL, 0, "%s", bigbuf);  // 4000 B entries: the ring pins full
         } else {
             int n = (int)(s % 100u) + 8;
             for (int i = 0; i < n; i++) buf[i] = (char)('!' + (int)((s + (uint32_t)i) % 90u));
             buf[n] = 0;
-            ano_log_write(ano::Info, ano::DefaultRoute, "anotest", 1, "%s", buf);
-            ano_log_write(ano::Warn, ano::DefaultRoute, NULL, 0,
+            ano::log_write(ano::Info, ano::DefaultRoute, "anotest", 1, "%s", buf);
+            ano::log_write(ano::Warn, ano::DefaultRoute, NULL, 0,
                           "mix=%d/%x/%s", (int)s, s, "alpha");
             if ((++it & 63u) == 0)
-                ano_log_write(ano::Error, ano::Now | ano::File, NULL, 0, "now-%u", it);  // NOW under storm
+                ano::log_write(ano::Error, ano::Now | ano::File, NULL, 0, "now-%u", it);  // NOW under storm
         }
     }
     return NULL;
@@ -220,7 +220,7 @@ static void sc_deadman(void)
     ano_sleep(5000);        // 5 ms idle: let the drainer park
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-    ano_log_write(ano::Info, ano::DefaultRoute, NULL, 0, (const char *)page, 7);
+    ano::log_write(ano::Info, ano::DefaultRoute, NULL, 0, (const char *)page, 7);
 #pragma GCC diagnostic pop
 #if defined(_WIN32)
     VirtualFree(page, 0, MEM_RELEASE);  // freed while the drainer is still waking
@@ -275,8 +275,8 @@ static void sc_double(void)
 static void sc_clean(void)
 {
     ano::log(ano::Info, "clean-run-sentinel");
-    ano_log_flush();
-    ano_log_cleanup();
+    ano::log_flush();
+    ano::log_cleanup();
 }
 
 typedef struct { const char *name; void (*fn)(void); } child_t;
@@ -317,9 +317,9 @@ static int child_main(const char *name)
         *(volatile int *)0 = 1;
         return 0;
     }
-    if (ano_log_init() != 0) return 40;
+    if (ano::log_init() != 0) return 40;
     scratch_make_dir(LOG_DIR);
-    if (ano_log_output_dir(LOG_DIR) != 0) return 43;
+    if (ano::log_output_dir(LOG_DIR) != 0) return 43;
     if (ano_log_crash_init() != 0) return 41;
     for (size_t i = 0; i < NCHILDREN; i++) {
         if (strcmp(CHILDREN[i].name, name) == 0) {

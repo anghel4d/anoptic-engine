@@ -2,7 +2,7 @@
 
 The Anoptic logger lets any thread record a line without losing it. Ordinary calls capture typed values into a lock-free MPSC ring; one background thread owns formatting, terminal output, and the output file.
 
-Emission lives in `include/ano/log.h`. Lifecycle, configuration, and the raw dynamic-format boundary live in `include/anoptic_log.h`.
+Emission, lifecycle, configuration, and the raw dynamic-format boundary live in `include/anoptic_log.h`.
 
 ---
 
@@ -49,39 +49,39 @@ Buffered records ride the lock-free ring. `ano::Now` drains the ring, writes thr
 ### Lifecycle
 
 ```cpp
-int ano_log_init(void);
-int ano_log_cleanup(void);
+int ano::log_init();
+int ano::log_cleanup();
 ```
 
-Call `ano_log_init()` once at startup. It allocates the ring, captures a timestamp anchor, opens `<game-dir>/logs/<session-stamp>_ano.log`, and spawns the drain thread. Before initialization, only `ano::Now` records produce output, to `stderr`.
+Call `ano::log_init()` once at startup. It allocates the ring, captures a timestamp anchor, opens `<game-dir>/logs/<session-stamp>_ano.log`, and spawns the drain thread. Before initialization, only `ano::Now` records produce output, to `stderr`.
 
-Call `ano_log_cleanup()` once after all producer threads stop. It joins the drain thread, performs the final drain, syncs, and closes the file.
+Call `ano::log_cleanup()` once after all producer threads stop. It joins the drain thread, performs the final drain, syncs, and closes the file.
 
 ### Control
 
 ```cpp
-int  ano_log_output_dir(const char *directory);
-void ano_log_set_level(ano::Level minimum);
-void ano_log_set_route(ano::Level level, ano::Route route);
-void ano_log_flush(void);
+int  ano::log_output_dir(const char *directory);
+void ano::log_set_level(ano::Level minimum);
+void ano::log_set_route(ano::Level level, ano::Route route);
+void ano::log_flush();
 ```
 
-`ano_log_output_dir` redirects output to `directory/<session-stamp>_ano.log`. A rejected switch leaves the current file intact and returns `-1`.
+`ano::log_output_dir` redirects output to `directory/<session-stamp>_ano.log`. A rejected switch leaves the current file intact and returns `-1`.
 
-`ano_log_set_level` controls admission for buffered records; `ano::Now` bypasses the gate. `ano_log_set_route` requires at least one sink. Without an output file, file-routed records still drain to the terminal.
+`ano::log_set_level` controls admission for buffered records; `ano::Now` bypasses the gate. `ano::log_set_route` requires at least one sink. Without an output file, file-routed records still drain to the terminal.
 
-`ano_log_flush` synchronously drains buffered records. Use it only for a durability point.
+`ano::log_flush` synchronously drains buffered records. Use it only for a durability point.
 
 ### Raw dynamic-format boundary
 
 ```cpp
-int ano_log_write(ano::Level level, ano::Route route,
-                  const char *file, int line, const char *format, ...);
-int ano_log_vwrite(ano::Level level, ano::Route route,
-                   const char *file, int line, const char *format, va_list arguments);
+int ano::log_write(ano::Level level, ano::Route route,
+                   const char *file, int line, const char *format, ...);
+int ano::log_vwrite(ano::Level level, ano::Route route,
+                    const char *file, int line, const char *format, va_list arguments);
 ```
 
-These functions remain for foreign APIs, `va_list` wrappers, fuzzers, and genuinely dynamic formats. They preserve the generic parser and eager fallback. Ordinary engine call sites use `ano::log`.
+These functions remain for `va_list` wrappers, fuzzers, and genuinely dynamic formats. They preserve the generic parser and eager fallback. Ordinary engine call sites use `ano::log`. The bottom `extern "C"` block in `anoptic_log.h` mirrors the controls and dynamic boundary for foreign ABI callers; engine C++26 code does not use those spellings.
 
 A null `file` stores no origin. The return is `0` for normal write or admission rejection and `1` when a full ring made the dynamic producer wait or write through.
 
@@ -90,24 +90,23 @@ A null `file` stores no origin. The return is `0` for normal write or admission 
 ## Complete program shape
 
 ```cpp
-#include <ano/log.h>
 #include <anoptic_log.h>
 
 int main()
 {
-    if (ano_log_init() != 0)
+    if (ano::log_init() != 0)
         return 1;
-    ano_log_output_dir("mylogs");
-    ano_log_set_route(ano::Warn, ano::Both);
+    ano::log_output_dir("mylogs");
+    ano::log_set_route(ano::Warn, ano::Both);
 
     ano::log(ano::Info, "engine up, build %s", VERSION);
     while (running) {
         tick();
-        ano_log_flush();
+        ano::log_flush();
     }
 
     // Stop every producer before cleanup.
-    return ano_log_cleanup();
+    return ano::log_cleanup();
 }
 ```
 

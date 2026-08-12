@@ -70,29 +70,29 @@ int main(void)
     remove(PATH_CTRL);
     remove(PATH_WIDE);
 
-    CHECK(ano_log_init() == 0, "logger up");
-    ano_log_set_level(ano::Info);
-    CHECK(ano_log_output_dir(DIR_CTRL) == 0, "output -> control scratch");
+    CHECK(ano::log_init() == 0, "logger up");
+    ano::log_set_level(ano::Info);
+    CHECK(ano::log_output_dir(DIR_CTRL) == 0, "output -> control scratch");
 
     // control: narrow deferred burst, rendered ~ stored, nothing lost
     for (int i = 0; i < CTRL_RECORDS; i++)
         ano::log(ano::Info, "ctrl %d", i);
-    ano_log_flush();
+    ano::log_flush();
     printf("logflood: control burst drained (%d records)\n", CTRL_RECORDS);
     fflush(stdout);
 
     // trigger: wide deferred burst. Drain must survive before joins return
-    CHECK(ano_log_output_dir(DIR_WIDE) == 0, "output -> wide scratch");
+    CHECK(ano::log_output_dir(DIR_WIDE) == 0, "output -> wide scratch");
     anothread_t prod[WIDE_PRODUCERS];
     for (intptr_t i = 0; i < WIDE_PRODUCERS; i++)
         CHECK(ano_thread_create(&prod[i], NULL, wide_producer, (void *)i) == 0, "wide producer up");
     for (int i = 0; i < WIDE_PRODUCERS; i++)
         ano_thread_join(prod[i], NULL);
-    ano_log_flush();
+    ano::log_flush();
     printf("logflood: wide burst drained (%d records)\n", WIDE_TOTAL);
     fflush(stdout);
 
-    ano_log_cleanup();
+    ano::log_cleanup();
 
     // oracles on closed files: no loss, and full-width rendering (kills truncate-to-fit fakes)
     uint64_t ctrlLines = scratch_count_lines(PATH_CTRL);

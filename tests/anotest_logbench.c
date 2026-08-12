@@ -69,13 +69,13 @@ __attribute__((format(printf, 4, 5)))
 static int ring_enqueue(log_types_t level, const char *file, int line, const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
-    int r = ano_log_vwrite(map_level(level), ano::DefaultRoute, file, line, fmt, ap);
+    int r = ano::log_vwrite(map_level(level), ano::DefaultRoute, file, line, fmt, ap);
     va_end(ap);
     return r;
 }
 
 static const logger_api RING  = {
-    "ring  (lock-free MPSC)", ano_log_init, ring_enqueue, ano_log_flush, ano_log_cleanup, ano_log_output_dir
+    "ring  (lock-free MPSC)", ano::log_init, ring_enqueue, ano::log_flush, ano::log_cleanup, ano::log_output_dir
 };
 static const logger_api MUTEX = {
     "mutex (baseline)",       mtxlog_init,  mtxlog_enqueue,  mtxlog_flush,  mtxlog_cleanup,  mtxlog_output_dir

@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 #include <string.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 // Events-ring element size (copied per push/pop). Cap at 32 B.
 static_assert(sizeof(RenderEvent) <= 32u, "RenderEvent grew past 32 bytes; revisit the events ring");
 

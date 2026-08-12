@@ -13,7 +13,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #include <anoptic_ui.h>
 
 // Region layout inside one uiFrameBuffer, in binding order. Offsets 256-aligned

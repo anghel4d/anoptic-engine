@@ -70,7 +70,7 @@ src/
 
 - `strings/` (`anoptic_strings.h`): Owned-string-type work and scoped-heap experiments.
 
-- `log/` (`ano/log.h`, `anoptic_log.h`, `anoptic_log_crash.h`): Native C++26 logging emission with consteval format plans, typed deferred capture, and a lock-free MPSC ring; lifecycle, dynamic-format fallback, and crash handling remain C ABI controls.
+- `log/` (`anoptic_log.h`, `anoptic_log_crash.h`): Native C++26 logging emission with consteval format plans, typed deferred capture, and a lock-free MPSC ring; lifecycle, dynamic-format fallback, and crash handling remain C ABI controls.
 
 - `anoptic_log_crash.h` Crash handling. The blackbox hooks fatal signals
   (POSIX) and unhandled SEH exceptions + SIGABRT (Windows), writes an async-signal-safe

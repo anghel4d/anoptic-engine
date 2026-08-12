@@ -84,7 +84,7 @@ static bench_stats run_point(int producers, uint64_t *buf)
     }
     for (int i = 0; i < producers; i++)
         ano_thread_join(th[i], NULL);
-    ano_log_flush();    // drain the tail so the next point starts empty
+    ano::log_flush();    // drain the tail so the next point starts empty
 
     bench_lat merged;   // adjacent slices, all full: one contiguous sample set
     bench_lat_init(&merged, buf, (size_t)producers * (size_t)g_msgs);
@@ -129,12 +129,12 @@ int main(int argc, char **argv)
     }
 
     scratch_make_dir(TAIL_DIR);
-    ano_log_init();
-    ano_log_output_dir(TAIL_DIR);
+    ano::log_init();
+    ano::log_output_dir(TAIL_DIR);
 
     for (int i = 0; i < 256; i++)   // warm caches + branch predictors
         ano::log(ano::Info, "warm %d", i);
-    ano_log_flush();
+    ano::log_flush();
 
     for (int p = 0; p < NPOINTS; p++) {
         bench_stats s = run_point(POINTS[p], buf);
@@ -144,7 +144,7 @@ int main(int argc, char **argv)
         bench_lat_row(label, s);
     }
 
-    ano_log_cleanup();
+    ano::log_cleanup();
     free(buf);
     char tailLog[96];
     snprintf(tailLog, sizeof tailLog, "%s/%s_ano.log", TAIL_DIR, ano_fs_session_stamp());

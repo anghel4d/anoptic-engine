@@ -6,7 +6,7 @@
 // Calm blackbox: resolve CRASH.log path, Stage 4 look-back, hand off to platform Stage 1 hooks.
 
 #include <anoptic_log_crash.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #include <anoptic_filesystem.h>
 
 #include "log/log_crash_internal.h"

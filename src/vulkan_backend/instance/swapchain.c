@@ -8,7 +8,7 @@
 #include <vulkan/vulkan.h>
 #include <string.h>
 #include <anoptic_memory.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #ifndef GLFW_INCLUDE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>

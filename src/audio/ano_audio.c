@@ -11,7 +11,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 // Ring element size budget.
 static_assert(sizeof(AnoAudioEvent) <= 32u, "AnoAudioEvent grew past 32 bytes; revisit the events ring");
 static_assert(sizeof(AnoAudioCommand) <= 192u, "AnoAudioCommand grew past 192 bytes; revisit the command ring");

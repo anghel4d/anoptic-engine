@@ -18,7 +18,7 @@
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-#include <ano/log.h>
+#include <anoptic_log.h>
 #include <anoptic_meta.h>
 
 extern GpuAllocator textureAllocator;

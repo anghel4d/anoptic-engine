@@ -2,7 +2,7 @@
 #include <anoptic_memory.h>   // puts this TU's malloc/free in the engine allocator (MI_OVERRIDE is OFF)
 #include <stdlib.h>
 #include <stdio.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #define DEFAULT_BLOCK_SIZE (256 * 1024 * 1024) // 256 MiB
 
 static uint32_t findMemoryType(VkPhysicalDeviceMemoryProperties memProps, uint32_t typeFilter, VkMemoryPropertyFlags properties)

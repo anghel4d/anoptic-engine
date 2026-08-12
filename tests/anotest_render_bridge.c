@@ -18,7 +18,7 @@
 #include "anoptic_memory.h" // ANO_CACHE_LINE / ANO_THREAD_LINE
 #include "anoptic_threads.h"
 #include "anoptic_time.h" // ano_sleep
-#include "anoptic_log.h"  // ano_log_set_route
+#include "anoptic_log.h"  // ano::log_set_route
 
 #include "templates/sanopts.h"   // ASan alt-stack opt-out; see header
 
@@ -680,7 +680,7 @@ int main(void)
     test_single_threaded(heap);
 
     // ui_set drop WARN -> stderr NOW (no logger init).
-    ano_log_set_route(ano::Warn, ano::Term | ano::Now);
+    ano::log_set_route(ano::Warn, ano::Term | ano::Now);
 
     test_accepted(heap);
     test_backpressure(heap);

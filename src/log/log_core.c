@@ -4,8 +4,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Lock-free MPSC ring logger. Producer: capture/format, CAS `tail`, copy, release-store `tag`. One owned consumer drains.
-// ano_log_flush drains inline. NOW (FATAL default): drain, write-through, fsync if file open. Sink bits ride the tag.
-// Full ring: producer waits (backoff + wake); stall wedge write-through. Never drops. Stop producers before ano_log_cleanup.
+// ano::log_flush drains inline. NOW (FATAL default): drain, write-through, fsync if file open. Sink bits ride the tag.
+// Full ring: producer waits (backoff + wake); stall wedge write-through. Never drops. Stop producers before ano::log_cleanup.
 
 #include "log/log_ring.h"
 #include <anoptic_log.h>
@@ -813,7 +813,7 @@ static uint64_t drain_and_emit(void)
     return h - h0;
 }
 
-// One drain pass, serialized. Owned thread loops; ano_log_flush runs inline.
+// One drain pass, serialized. Owned thread loops; ano::log_flush runs inline.
 static uint64_t drain(void)
 {
     ano_mutex_lock(&g_drainMtx);
@@ -849,7 +849,7 @@ static void drainer_park(void)
     ano_mutex_unlock(&g_wakeMtx);
 }
 
-// Owned consumer: drain while work, park on empty. ano_log_flush still drains inline.
+// Owned consumer: drain while work, park on empty. ano::log_flush still drains inline.
 static void *drainer_main(void *arg)
 {
     (void)arg;
@@ -861,7 +861,7 @@ static void *drainer_main(void *arg)
 }
 
 
-/* Paths behind ano_log_vwrite (sinks already resolved). */
+/* Paths behind ano::log_vwrite (sinks already resolved). */
 
 // Buffered: capture or eager-format, publish to ring. Drainer routes by sink bits on tag.
 __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 0)))
@@ -1083,9 +1083,10 @@ static int log_now(ano::Level level, uint8_t sinks, const char *file, int line,
 
 
 /* Public interface */
+namespace ano {
 
-int ano_log_vwrite(ano::Level level, ano::Route route,
-                   const char *file, int line, const char *fmt, va_list args)
+int log_vwrite(Level level, Route route,
+               const char *file, int line, const char *fmt, va_list args)
 {
     const ano::Route selected = ano::detail::prepare(level, route);
     if (selected.sink_mask == 0)
@@ -1095,16 +1096,16 @@ int ano_log_vwrite(ano::Level level, ano::Route route,
     return log_buffered(level, selected.sink_mask, file, line, fmt, args);
 }
 
-int ano_log_write(ano::Level level, ano::Route route,
-                  const char *file, int line, const char *fmt, ...)
+int log_write(Level level, Route route,
+              const char *file, int line, const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
-    int rc = ano_log_vwrite(level, route, file, line, fmt, ap);
+    int rc = log_vwrite(level, route, file, line, fmt, ap);
     va_end(ap);
     return rc;
 }
 
-void ano_log_set_route(ano::Level level, ano::Route route)
+void log_set_route(Level level, Route route)
 {
     if (level_index(level) >= LOG_LEVELS
         || (route.sink_mask & ano::Both.sink_mask) == 0)
@@ -1113,7 +1114,7 @@ void ano_log_set_route(ano::Level level, ano::Route route)
                           memory_order_relaxed);
 }
 
-int ano_log_output_dir(const char *directoryPath)
+int log_output_dir(const char *directoryPath)
 {
     if (directoryPath == NULL || directoryPath[0] == '\0'
         || !atomic_load_explicit(&g_initialized, memory_order_relaxed))
@@ -1134,19 +1135,19 @@ int ano_log_output_dir(const char *directoryPath)
     return 0;
 }
 
-void ano_log_set_level(ano::Level min)
+void log_set_level(Level min)
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         atomic_store_explicit(&g_minLevel, (int)min, memory_order_relaxed);
 }
 
-void ano_log_flush(void)
+void log_flush()
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         drain();
 }
 
-int ano_log_init(void)
+int log_init()
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         return 0;
@@ -1216,14 +1217,14 @@ int ano_log_init(void)
     return 0;
 }
 
-// ANO_LOG_SCOPE_ATTR target. Cleanup keys off g_initialized.
-void ano_log_scope_release(const int *initStatus)
+// Cleanup-attribute target. Cleanup keys off g_initialized.
+void log_scope_release(const int *initStatus)
 {
     (void)initStatus;
-    ano_log_cleanup();
+    log_cleanup();
 }
 
-int ano_log_cleanup(void)
+int log_cleanup()
 {
     if (!atomic_load_explicit(&g_initialized, memory_order_relaxed))
         return 0;
@@ -1253,4 +1254,61 @@ int ano_log_cleanup(void)
     ano_mutex_destroy(&g_drainMtx);
     ano_mutex_destroy(&g_outFileMtx);
     return 0;
+}
+
+} // namespace ano
+
+extern "C" {
+
+int ano_log_vwrite(ano::Level level, ano::Route route,
+                   const char *file, int line, const char *fmt, va_list args)
+{
+    return ano::log_vwrite(level, route, file, line, fmt, args);
+}
+
+int ano_log_write(ano::Level level, ano::Route route,
+                  const char *file, int line, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    const int result = ano::log_vwrite(level, route, file, line, fmt, args);
+    va_end(args);
+    return result;
+}
+
+void ano_log_set_route(ano::Level level, ano::Route route)
+{
+    ano::log_set_route(level, route);
+}
+
+int ano_log_output_dir(const char *directoryPath)
+{
+    return ano::log_output_dir(directoryPath);
+}
+
+void ano_log_set_level(ano::Level minimum)
+{
+    ano::log_set_level(minimum);
+}
+
+void ano_log_flush(void)
+{
+    ano::log_flush();
+}
+
+int ano_log_init(void)
+{
+    return ano::log_init();
+}
+
+void ano_log_scope_release(const int *initStatus)
+{
+    ano::log_scope_release(initStatus);
+}
+
+int ano_log_cleanup(void)
+{
+    return ano::log_cleanup();
+}
+
 }

@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #include <anoptic_time.h>
 
 /* ALSA fallback */

@@ -19,7 +19,7 @@
 // Stage 2: Hopefully never, but...
 // A crash occurs. Immediately write trace to CRASH.log
 
-// Stage 3: Immediately following stage 2, a hail mary ano_log_flush() to hopefully recover anything that might've survived in the log buffers, *after* we have already written the CRASH.log.
+// Stage 3: Immediately following stage 2, a hail mary ano::log_flush() to hopefully recover anything that might've survived in the log buffers, *after* we have already written the CRASH.log.
 
 // Stage 4: Final, the anocraft accident investigation.
 // TODO: Ask user if they want to send telemetry (future implement)
@@ -37,7 +37,7 @@ extern "C" {
 /* Lifecycle Functions */
 
 // Arm the blackbox: run the Stage 4 check for a previous run's CRASH.log, then install the Stage 1 hooks.
-// Call once from main, right after ano_log_init. The hooks live for the whole process, no cleanup.
+// Call once from main, right after ano::log_init(). The hooks live for the whole process, no cleanup.
 // The record file is per-session -- <gamedir>/logs/<session-stamp>_CRASH.log, the stamp shared with
 // the logger's own file (ano_fs_session_stamp) -- resolved once here, never inside a handler.
 // Stage 4 announces how many *_CRASH.log files are left over ("n crash logs detected"), then prunes

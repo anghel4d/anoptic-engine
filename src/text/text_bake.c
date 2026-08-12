@@ -12,7 +12,7 @@
 #include <errno.h>
 #include <math.h>
 #include <string.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 #include "anoptic_memory.h"
 
 #include <ft2build.h>

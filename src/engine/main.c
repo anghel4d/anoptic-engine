@@ -1152,7 +1152,8 @@ int main()
     #endif
 
     // Process-wide logger. Cleans on scope exit.
-    int logAlive ANO_LOG_SCOPE_ATTR = ano_log_init();
+    using ano::log_scope_release;
+    int logAlive __attribute__((cleanup(log_scope_release))) = ano::log_init();
     if (logAlive != 0) {
         ano::log(ano::Fatal, "Logger initialization failed; something is very wrong.");
         return EXIT_FAILURE;

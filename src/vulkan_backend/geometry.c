@@ -6,7 +6,7 @@
 #include <anoptic_memory_typed.h>
 #include <string.h>
 #include <stdio.h>
-#include <ano/log.h>
+#include <anoptic_log.h>
 static void geometry_pool_release_mesh_registry(GeometryPool* pool)
 {
     free(pool->meshes);
