@@ -1,6 +1,7 @@
 ---
 name: anoptic-c-ultra
-description: Anoptic architecture doctrine. Manual invocation only. Use only when the user explicitly invokes $anoptic-c-ultra or explicitly asks to apply the C+Ultra skill.
+description: >-
+  Architectural reference for when a task creates new Anoptic modules: a public API under include/, its implementation boundary, and its ownership model. Use implicitly only when both conditions hold: (1) the task creates a new top-level engine module with a new public header and implementation unit, and (2) its API, ownership, data layout, or foreign boundary must be (re)designed from scratch.
 ---
 
 # Doctrine
