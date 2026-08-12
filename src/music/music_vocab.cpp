@@ -25,13 +25,13 @@ inline constexpr auto kPatchNames = ano::reflect_enum_names<AnoPatchName>(
 consteval bool names_valid()
 {
     for (std::size_t i = 0; i < kLayerNames.size(); ++i) {
-        if (kLayerNames.values[i] == nullptr || kLayerNames.values[i][0] == '\0')
+        if (kLayerNames.values[i][0] == '\0')
             return false;
     }
     if (kPatchNames.values[ANO_PATCH_NONE][0] != '\0')
         return false;
     for (std::size_t i = 1; i < kPatchNames.size(); ++i) {
-        if (kPatchNames.values[i] == nullptr || kPatchNames.values[i][0] == '\0')
+        if (kPatchNames.values[i][0] == '\0')
             return false;
     }
     return true;

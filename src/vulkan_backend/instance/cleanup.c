@@ -20,6 +20,7 @@
 
 #include "instanceInit.h"
 #include "vulkan_backend/vulkanMaster.h"
+#include "vulkan_backend/frame/frame.h"
 #include "vulkan_backend/text_raster.h"
 #include "vulkan_backend/ui_raster.h"
 
@@ -119,6 +120,7 @@ void cleanupVulkan(VulkanContext* ctx) // Frees the initialized Vulkan parameter
 	ano_vk_text_destroy(ctx, &rendererState);
 	// UI overlay lane: adopted blocks + table buffers, handle-guarded
 	ano_vk_ui_destroy(ctx, &rendererState);
+	ano_frame_capture_destroy(ctx, &rendererState);
 
 	// Shared shadow images: atlas, blur temp, transient caster depth
 	if (rendererState.shadowAtlasArrayView) vkDestroyImageView(ctx->device, rendererState.shadowAtlasArrayView, NULL);

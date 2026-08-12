@@ -65,10 +65,20 @@ void unInitVulkan() // A celebration
 	{
 		if (rendererState.frames[i].frameSubmitted)
 		{
-			vkWaitForFences(ctx.device, 1, &(rendererState.frames[i].frameFence), VK_TRUE, UINT64_MAX);
+			if (vkWaitForFences(ctx.device, 1,
+					&(rendererState.frames[i].frameFence), VK_TRUE,
+					UINT64_MAX) == VK_SUCCESS)
+			{
+				if (rendererState.completedFrameSerial
+						< rendererState.frames[i].submissionSerial)
+					rendererState.completedFrameSerial =
+						rendererState.frames[i].submissionSerial;
+				ano_frame_capture_collect(&rendererState, (uint32_t)i);
+			}
 			rendererState.frames[i].frameSubmitted = false;
 		}
     }
+	ano_render_resources_collect_retired(rendererState.completedFrameSerial);
 
 	// Drain last signaled async Hi-Z / light-cull / text ordinals before teardown.
 	if (rendererState.asyncHiz && rendererState.hizTimeline != VK_NULL_HANDLE
@@ -226,7 +236,25 @@ void drawFrame()
 
     if (rendererState.frames[rendererState.frameIndex].frameSubmitted == true)
     {
-        vkWaitForFences(ctx.device, 1, &(rendererState.frames[rendererState.frameIndex].frameFence), VK_TRUE, UINT64_MAX);
+        VkResult frameWait = vkWaitForFences(
+            ctx.device, 1,
+            &(rendererState.frames[rendererState.frameIndex].frameFence),
+            VK_TRUE, UINT64_MAX);
+        if (frameWait != VK_SUCCESS) {
+            latchRenderUnrecoverable("frame fence", frameWait);
+            return;
+        }
+        if (rendererState.completedFrameSerial
+                < rendererState.frames[rendererState.frameIndex]
+                      .submissionSerial)
+            rendererState.completedFrameSerial =
+                rendererState.frames[rendererState.frameIndex]
+                    .submissionSerial;
+        rendererState.frames[rendererState.frameIndex].frameSubmitted = false;
+        ano_render_resources_collect_retired(
+            rendererState.completedFrameSerial);
+        ano_frame_capture_collect(&rendererState,
+                                  rendererState.frameIndex);
 
         // Per-pass timestamps ready to read.
         ano_collect_frame_stats(rendererState.frameIndex);
@@ -267,6 +295,10 @@ void drawFrame()
 
 	updateTransformBuffer(&ctx, &rendererState, rendererState.frameIndex);
 	updateCullingBuffers(&ctx, &rendererState, rendererState.frameIndex);
+
+	// Publication changes the live epoch only between submissions. Apply its
+	// entity bindings after this frame slot's fence and before recording it.
+	ano_render_resources_apply_pending(rendererState.frameIndex);
 
 	// Ingest ECS->render transitions for this frame slot.
 	render_apply_commands(&rendererState, rendererState.frameIndex);
@@ -317,6 +349,7 @@ void drawFrame()
 
 	// Submitted: the fence is armed and imageAvailable consumed, whatever presentation answers.
 	rendererState.frames[rendererState.frameIndex].frameSubmitted = true;
+	ano_frame_capture_submitted(&rendererState, rendererState.frameIndex);
 
     // Present before submitting a new frame's commands.
 
@@ -705,6 +738,7 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 		return false;
 	}
 	rendererState.globalFrame = 0;
+	rendererState.completedFrameSerial = 0;
 
 	// Zero the light palette + shadow config/info device buffers once.
 	{

@@ -120,6 +120,7 @@ bool ano_frame_submit(uint64_t ordinal)
 			vkSignalSemaphore(ctx.device, &signalInfo);
 		}
 	}
+	rendererState.frames[rendererState.frameIndex].submissionSerial = ordinal;
 	rendererState.timelineOrdinal = ordinal;
 
 	// Async Hi-Z compute submit, waits gfxTimeline == ordinal, signals hizTimeline == ordinal for the ordinal+2 graphics submit.

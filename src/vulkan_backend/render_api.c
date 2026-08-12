@@ -5,6 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_log.h>
+#include <anoptic_memory.h>
 
 #include <anoptic_meta.h>
 #include <anoptic_render_resources.h>
@@ -17,6 +18,17 @@
 #include "vulkan_backend/resources/resources.h"
 
 static AnoRenderResidency *g_resourceResidency;
+
+struct AnoRenderResourcePublication {
+    AnoResourceReload *reload;
+    AnoRenderResidency *candidate;
+    AnoRenderResidency *retired;
+    uint64_t retireAfter;
+    AnoRenderResourcePublication *next;
+};
+
+static AnoRenderResourcePublication *g_retiredResidencies;
+static bool g_resourceEpochPending;
 
 // Material SSBO row 0, claimed before any glTF parse.
 #define ANO_DEFAULT_MATERIAL_INDEX 0u
@@ -136,6 +148,11 @@ bool ano_render_get_view_hiz_enable(uint32_t view) {
     return rendererState.hizEnable[view] != 0u;
 }
 
+bool ano_render_capture_next_frame(const char *path)
+{
+    return ano_frame_capture_request(&ctx, &rendererState, path);
+}
+
 // Claim material SSBO row 0 with stock white PBR before resource realization.
 static void register_default_material(void)
 {
@@ -162,45 +179,156 @@ bool ano_render_load_scene_assets(AnoResourceManager *resources)
 	return true;
 }
 
-AnoResourceError ano_render_resources_publish_reload(AnoResourceReload *reload)
+AnoResourceError ano_render_resources_prepare_reload(
+    AnoResourceReload *reload, AnoRenderResourcePublication **publication)
 {
-    if (reload == nullptr)
+    if (reload == nullptr || publication == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
+    *publication = nullptr;
+    AnoRenderResourcePublication *prepared =
+        static_cast<AnoRenderResourcePublication *>(
+            mi_calloc(1, sizeof(AnoRenderResourcePublication)));
+    if (prepared == nullptr) {
+        ano_resource_reload_abort(reload);
+        return ANO_RESOURCE_OUT_OF_MEMORY;
+    }
+    prepared->reload = reload;
     AnoResourceError result = ANO_RESOURCE_OK;
-    if (!ano_resource_reload_has_changes(reload))
-        return ano_resource_reload_commit(reload);
-
-    AnoRenderResidency *candidate = nullptr;
-    result = ano_vk_resource_residency_create_from_epoch(
-        ano_resource_reload_epoch(reload), g_resourceResidency, &candidate);
-    if (result != ANO_RESOURCE_OK
-        || !render_resource_epoch_compatible(&rendererState, candidate)) {
-        ano_vk_resource_residency_destroy(candidate);
-        ano_resource_reload_abort(reload);
-        return result == ANO_RESOURCE_OK
-            ? ANO_RESOURCE_OWNER_REJECTED : result;
+    if (ano_resource_reload_has_changes(reload)) {
+        result = ano_vk_resource_residency_prepare_from_epoch(
+            ano_resource_reload_epoch(reload), g_resourceResidency,
+            &prepared->candidate);
+        if (result == ANO_RESOURCE_OK
+            && !render_resource_epoch_compatible(
+                &rendererState, prepared->candidate))
+            result = ANO_RESOURCE_OWNER_REJECTED;
+        if (result == ANO_RESOURCE_OK)
+            result = ano_vk_resource_residency_submit(prepared->candidate);
     }
-    if (vkDeviceWaitIdle(ctx.device) != VK_SUCCESS) {
-        ano_vk_resource_residency_destroy(candidate);
-        ano_resource_reload_abort(reload);
-        return ANO_RESOURCE_OWNER_REJECTED;
-    }
-    result = ano_resource_reload_commit(reload);
     if (result != ANO_RESOURCE_OK) {
-        ano_vk_resource_residency_destroy(candidate);
+        ano_vk_resource_residency_destroy(prepared->candidate);
+        ano_resource_reload_abort(reload);
+        mi_free(prepared);
         return result;
     }
-
-    render_apply_resource_epoch(
-        &rendererState, candidate, rendererState.frameIndex);
-    AnoRenderResidency *retired = g_resourceResidency;
-    g_resourceResidency = candidate;
-    ano_vk_resource_residency_destroy(retired);
+    *publication = prepared;
     return ANO_RESOURCE_OK;
+}
+
+AnoRenderResourcePublicationStatus
+ano_render_resources_publication_status(
+    const AnoRenderResourcePublication *publication)
+{
+    if (publication == nullptr)
+        return ANO_RENDER_RESOURCE_PUBLICATION_REJECTED;
+    if (publication->candidate == nullptr)
+        return ANO_RENDER_RESOURCE_PUBLICATION_READY;
+    switch (ano_vk_resource_residency_upload_status(
+                publication->candidate)) {
+        case ANO_RENDER_RESIDENCY_UPLOAD_PENDING:
+            return ANO_RENDER_RESOURCE_PUBLICATION_UPLOADING;
+        case ANO_RENDER_RESIDENCY_UPLOAD_READY:
+            return ANO_RENDER_RESOURCE_PUBLICATION_READY;
+        case ANO_RENDER_RESIDENCY_UPLOAD_REJECTED:
+            return ANO_RENDER_RESOURCE_PUBLICATION_REJECTED;
+    }
+    return ANO_RENDER_RESOURCE_PUBLICATION_REJECTED;
+}
+
+AnoResourceError ano_render_resources_publish(
+    AnoRenderResourcePublication *publication)
+{
+    if (publication == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    if (ano_render_resources_publication_status(publication)
+            != ANO_RENDER_RESOURCE_PUBLICATION_READY)
+        return ANO_RESOURCE_OWNER_REJECTED;
+    AnoResourceError result = publication->candidate == nullptr
+        ? ANO_RESOURCE_OK
+        : ano_vk_resource_residency_finish_upload(publication->candidate);
+    if (result != ANO_RESOURCE_OK) {
+        ano_resource_reload_abort(publication->reload);
+        ano_vk_resource_residency_destroy(publication->candidate);
+        mi_free(publication);
+        return result;
+    }
+    result = ano_resource_reload_commit(publication->reload);
+    publication->reload = nullptr;
+    if (result != ANO_RESOURCE_OK) {
+        ano_vk_resource_residency_destroy(publication->candidate);
+        mi_free(publication);
+        return result;
+    }
+    if (publication->candidate == nullptr) {
+        mi_free(publication);
+        return ANO_RESOURCE_OK;
+    }
+
+    publication->retired = g_resourceResidency;
+    g_resourceResidency = publication->candidate;
+    publication->candidate = nullptr;
+    g_resourceEpochPending = true;
+    publication->retireAfter = rendererState.timelineOrdinal;
+    if (publication->retired == nullptr
+        || rendererState.completedFrameSerial >= publication->retireAfter) {
+        ano_vk_resource_residency_destroy(publication->retired);
+        mi_free(publication);
+    } else {
+        publication->next = g_retiredResidencies;
+        g_retiredResidencies = publication;
+    }
+    return ANO_RESOURCE_OK;
+}
+
+void ano_render_resources_discard(
+    AnoRenderResourcePublication *publication)
+{
+    if (publication == nullptr)
+        return;
+    if (publication->candidate != nullptr) {
+        if (ano_vk_resource_residency_upload_status(publication->candidate)
+                == ANO_RENDER_RESIDENCY_UPLOAD_PENDING)
+            (void)ano_vk_resource_residency_wait_upload(
+                publication->candidate);
+        else if (ano_vk_resource_residency_upload_status(
+                     publication->candidate)
+                 == ANO_RENDER_RESIDENCY_UPLOAD_READY)
+            (void)ano_vk_resource_residency_finish_upload(
+                publication->candidate);
+        ano_vk_resource_residency_destroy(publication->candidate);
+    }
+    ano_resource_reload_abort(publication->reload);
+    mi_free(publication);
+}
+
+void ano_render_resources_apply_pending(uint32_t frameIndex)
+{
+    if (!g_resourceEpochPending)
+        return;
+    render_apply_resource_epoch(&rendererState, g_resourceResidency,
+                                frameIndex);
+    g_resourceEpochPending = false;
+}
+
+void ano_render_resources_collect_retired(uint64_t completedFrameSerial)
+{
+    AnoRenderResourcePublication **link = &g_retiredResidencies;
+    while (*link != nullptr) {
+        AnoRenderResourcePublication *entry = *link;
+        if (completedFrameSerial < entry->retireAfter) {
+            link = &entry->next;
+            continue;
+        }
+        *link = entry->next;
+        ano_vk_resource_residency_destroy(entry->retired);
+        mi_free(entry);
+    }
 }
 
 void ano_render_unload_scene_assets(void)
 {
+	ano_render_resources_collect_retired(UINT64_MAX);
 	ano_vk_resource_residency_destroy(g_resourceResidency);
 	g_resourceResidency = nullptr;
+	g_resourceEpochPending = false;
 }

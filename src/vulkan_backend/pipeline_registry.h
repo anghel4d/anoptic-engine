@@ -137,17 +137,21 @@ consteval bool ano_pipeline_passes_valid(const RenderPassDef (&passes)[Count])
 {
     bool covered[PIPELINE_TYPE_COUNT] = {};
     for (const RenderPassDef& pass : passes) {
-        const AnoPipelineSpec* spec = ano_pipeline_spec(pass.prototype);
-        if (spec == nullptr || spec->schedule != AnoPipelineSchedule::frame ||
-            pass.implementationIndex >= spec->implementationCount)
+        if (!ano_pipeline_type_valid(pass.prototype))
             return false;
-        if ((pass.type == PASS_GRAPHICS) != (spec->kind == AnoPipelineKind::graphics) ||
-            (pass.type == PASS_COMPUTE) != (spec->kind == AnoPipelineKind::compute))
+        const AnoPipelineSpec spec =
+            ANO_PIPELINE_REGISTRY.values[static_cast<uint32_t>(
+                pass.prototype)];
+        if (spec.schedule != AnoPipelineSchedule::frame ||
+            pass.implementationIndex >= spec.implementationCount)
+            return false;
+        if ((pass.type == PASS_GRAPHICS) != (spec.kind == AnoPipelineKind::graphics) ||
+            (pass.type == PASS_COMPUTE) != (spec.kind == AnoPipelineKind::compute))
             return false;
         if (pass.type == PASS_GRAPHICS) {
-            if (!pass.perView || spec->drawSlot == ANO_NO_DRAW_SLOT || pass.colorAttachmentCount > 4)
+            if (!pass.perView || spec.drawSlot == ANO_NO_DRAW_SLOT || pass.colorAttachmentCount > 4)
                 return false;
-        } else if (pass.colorAttachmentCount != 0 || spec->drawSlot != ANO_NO_DRAW_SLOT) {
+        } else if (pass.colorAttachmentCount != 0 || spec.drawSlot != ANO_NO_DRAW_SLOT) {
             return false;
         }
         covered[static_cast<uint32_t>(pass.prototype)] = true;

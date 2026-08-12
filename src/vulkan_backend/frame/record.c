@@ -284,32 +284,7 @@ bool recordCommandBuffer(uint32_t imageIndex)
 
     ano_ts(cmd, ANO_TS_AFTER_COMPOSITE);
 
-	// Transition swapchain image to present
-	{
-		VkImageMemoryBarrier swapChainBarrier = {};
-		swapChainBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		swapChainBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		swapChainBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		swapChainBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		swapChainBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		swapChainBarrier.image = rendererState.images[imageIndex];
-		swapChainBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		swapChainBarrier.subresourceRange.baseMipLevel = 0;
-		swapChainBarrier.subresourceRange.levelCount = 1;
-		swapChainBarrier.subresourceRange.baseArrayLayer = 0;
-		swapChainBarrier.subresourceRange.layerCount = 1;
-		swapChainBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		swapChainBarrier.dstAccessMask = 0;
-
-		vkCmdPipelineBarrier(
-			cmd,
-			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			0,
-			0, NULL,
-			0, NULL,
-			1, &swapChainBarrier
-		);
-	}
+	ano_frame_capture_record(&rendererState, cmd, imageIndex);
 
 	if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
 	{

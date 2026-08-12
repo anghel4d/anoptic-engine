@@ -45,6 +45,16 @@ void ano_record_composite(VkCommandBuffer cmd, uint32_t imageIndex);
 // Submit the frame's command buffers in order. ordinal = 1-based timeline value, false on submit failure.
 bool ano_frame_submit(uint64_t ordinal);
 
+/* frame/capture.c */
+
+bool ano_frame_capture_request(VulkanContext *ctx, RendererState *state,
+                               const char *path);
+void ano_frame_capture_record(RendererState *state, VkCommandBuffer command,
+                              uint32_t imageIndex);
+void ano_frame_capture_submitted(RendererState *state, uint32_t frameIndex);
+void ano_frame_capture_collect(RendererState *state, uint32_t frameIndex);
+void ano_frame_capture_destroy(VulkanContext *ctx, RendererState *state);
+
 /* frame/update.c */
 
 // Build each view's camera matrices into its mapped uniform (drawFrame, per frame).

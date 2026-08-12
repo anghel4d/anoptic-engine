@@ -234,17 +234,12 @@ constexpr const AnoAudioInterleaveProjection* ano_audio_interleave_mapping(
         ? &ANO_AUDIO_INTERLEAVE_REGISTRY.values[index] : nullptr;
 }
 
-constexpr const AnoAudioBackendCapability* ano_audio_backend_capability(AnoAudioBackend backend)
-{
-    const size_t value = static_cast<size_t>(backend);
-    return value > 0 && value <= ANO_AUDIO_BACKEND_COUNT
-        ? &ANO_AUDIO_BACKEND_REGISTRY.values[value - 1] : nullptr;
-}
-
 constexpr bool ano_audio_format_valid(AnoAudioFormat format)
 {
-    return format.sampleRate != 0 && ano_audio_sample_mapping(format.sample) &&
-        ano_audio_channel_mapping(format.layout) && ano_audio_interleave_mapping(format.interleave);
+    return format.sampleRate != 0
+        && static_cast<size_t>(format.sample) < ANO_AUDIO_SAMPLE_TYPE_COUNT
+        && static_cast<size_t>(format.layout) < ANO_AUDIO_CHANNEL_LAYOUT_COUNT
+        && static_cast<size_t>(format.interleave) < ANO_AUDIO_INTERLEAVE_COUNT;
 }
 
 constexpr AnoAudioFormat ano_audio_mix_format(uint32_t sampleRate)
@@ -258,15 +253,19 @@ enum class AnoAudioFormatPath : uint8_t { unsupported, direct, engine_conversion
 constexpr AnoAudioFormatPath ano_audio_backend_format_path(
     AnoAudioBackend backend, AnoAudioFormat format)
 {
-    const AnoAudioBackendCapability* capability = ano_audio_backend_capability(backend);
-    if (!capability || !ano_audio_format_valid(format) ||
-        (capability->layoutMask & ano_audio_bit(format.layout)) == 0 ||
-        (capability->interleaveMask & ano_audio_bit(format.interleave)) == 0)
+    const size_t backendValue = static_cast<size_t>(backend);
+    if (backendValue == 0 || backendValue > ANO_AUDIO_BACKEND_COUNT
+        || !ano_audio_format_valid(format))
+        return AnoAudioFormatPath::unsupported;
+    const AnoAudioBackendCapability capability =
+        ANO_AUDIO_BACKEND_REGISTRY.values[backendValue - 1];
+    if ((capability.layoutMask & ano_audio_bit(format.layout)) == 0
+        || (capability.interleaveMask & ano_audio_bit(format.interleave)) == 0)
         return AnoAudioFormatPath::unsupported;
     const uint8_t sample = ano_audio_bit(format.sample);
-    if ((capability->directSampleMask & sample) != 0)
+    if ((capability.directSampleMask & sample) != 0)
         return AnoAudioFormatPath::direct;
-    return (capability->convertedSampleMask & sample) != 0
+    return (capability.convertedSampleMask & sample) != 0
         ? AnoAudioFormatPath::engine_conversion : AnoAudioFormatPath::unsupported;
 }
 

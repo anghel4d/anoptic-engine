@@ -13,10 +13,28 @@
 #include "anoptic_resources_cook.h"
 #include "anoptic_resources_runtime.h"
 
-// Consumes a CPU-prepared transaction after renderer realization succeeds or
-// aborts it without changing the published epoch.
-extern "C" AnoResourceError ano_render_resources_publish_reload(
-    AnoResourceReload *reload);
+typedef struct AnoRenderResourcePublication AnoRenderResourcePublication;
+
+typedef enum AnoRenderResourcePublicationStatus {
+    ANO_RENDER_RESOURCE_PUBLICATION_UPLOADING,
+    ANO_RENDER_RESOURCE_PUBLICATION_READY,
+    ANO_RENDER_RESOURCE_PUBLICATION_REJECTED,
+} AnoRenderResourcePublicationStatus;
+
+// Preparation takes ownership of reload. The published epoch remains unchanged
+// until a ready publication is committed at a render-frame boundary.
+extern "C" AnoResourceError ano_render_resources_prepare_reload(
+    AnoResourceReload *reload, AnoRenderResourcePublication **publication);
+extern "C" AnoRenderResourcePublicationStatus
+ano_render_resources_publication_status(
+    const AnoRenderResourcePublication *publication);
+// Consumes a ready publication. A failed commit preserves the current epoch.
+extern "C" AnoResourceError ano_render_resources_publish(
+    AnoRenderResourcePublication *publication);
+// Consumes an unpublished candidate and preserves the current epoch. Submitted
+// owner work is retired before its private storage is released.
+extern "C" void ano_render_resources_discard(
+    AnoRenderResourcePublication *publication);
 
 namespace ano::asset_schema {
 

@@ -23,7 +23,7 @@ consteval bool mode_table_valid()
 {
     for (std::size_t i = 0; i < kModeNames.size(); ++i) {
         const AnoModeContract &contract = kModeContracts.values[i];
-        if (kModeNames.values[i] == nullptr || kModeNames.values[i][0] == '\0'
+        if (kModeNames.values[i][0] == '\0'
             || contract.intervals[0] != 0)
             return false;
         for (std::size_t degree = 1; degree < 7; ++degree)

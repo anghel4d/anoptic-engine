@@ -42,6 +42,7 @@
 // main() sets g_logicShouldStop on close, joins before unInitVulkan() destroys the bridge.
 static atomic_bool g_logicShouldStop = false;
 static atomic_bool g_resourceReloadRequested = false;
+static atomic_bool g_frameCaptureRequested = false;
 
 namespace {
 
@@ -119,6 +120,7 @@ enum ReloadWorkerState : uint32_t {
     RELOAD_WORKER_IDLE,
     RELOAD_WORKER_RUNNING,
     RELOAD_WORKER_READY,
+    RELOAD_WORKER_PUBLISHING,
 };
 
 struct ReloadWorker final {
@@ -1123,6 +1125,10 @@ hudDone:
 						if (ie->u.key.action == GLFW_PRESS)
 							atomic_store(&g_resourceReloadRequested, true);
 						break;
+					case GLFW_KEY_F12:
+						if (ie->u.key.action == GLFW_PRESS)
+							atomic_store(&g_frameCaptureRequested, true);
+						break;
 					case GLFW_KEY_M:
 						if (ie->u.key.action == GLFW_PRESS) {
 							menuVisible = !menuVisible;
@@ -1436,30 +1442,71 @@ int main()
     // Render loop (main): poll + draw. Logic feeds ECS->render concurrently.
     bool replacementSourceActive = false;
     ReloadWorker reloadWorker = {.manager = resources};
+    AnoRenderResourcePublication *publication = nullptr;
     atomic_init(&reloadWorker.state, RELOAD_WORKER_IDLE);
     while (!anoShouldClose())
     {
         glfwPollEvents();
+        if (atomic_exchange(&g_frameCaptureRequested, false)) {
+            const char *path = getenv("ANO_FRAME_CAPTURE_PATH");
+            if (path == nullptr || path[0] == '\0')
+                path = "anoptic-frame.ppm";
+            if (!ano_render_capture_next_frame(path))
+                ano_log(ANO_WARN, "Frame capture request was refused.");
+        }
+        if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
+                == RELOAD_WORKER_PUBLISHING) {
+            const AnoRenderResourcePublicationStatus status =
+                ano_render_resources_publication_status(publication);
+            if (status == ANO_RENDER_RESOURCE_PUBLICATION_READY) {
+                const AnoResourceError reloaded =
+                    ano_render_resources_publish(publication);
+                publication = nullptr;
+                if (reloaded == ANO_RESOURCE_OK) {
+                    const char *replacement = getenv(
+                        "ANO_VIKING_RELOAD_SOURCE");
+                    if (replacement != nullptr && replacement[0] != '\0')
+                        replacementSourceActive = !replacementSourceActive;
+                    ano_log(ANO_INFO, "Resource epoch reload committed.");
+                } else {
+                    ano_log(ANO_ERROR,
+                            "Resource epoch reload rejected: %s",
+                            ano_resource_error_string(reloaded));
+                }
+                atomic_store_explicit(&reloadWorker.state,
+                                      RELOAD_WORKER_IDLE,
+                                      memory_order_release);
+            } else if (status == ANO_RENDER_RESOURCE_PUBLICATION_REJECTED) {
+                ano_render_resources_discard(publication);
+                publication = nullptr;
+                ano_log(ANO_ERROR,
+                        "Resource epoch reload rejected by renderer owner.");
+                atomic_store_explicit(&reloadWorker.state,
+                                      RELOAD_WORKER_IDLE,
+                                      memory_order_release);
+            }
+        }
         if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
                 == RELOAD_WORKER_READY) {
             ano_thread_join(reloadWorker.thread, nullptr);
             AnoResourceError reloaded = reloadWorker.result;
             if (reloaded == ANO_RESOURCE_OK)
-                reloaded = ano_render_resources_publish_reload(
-                    reloadWorker.reload);
+                reloaded = ano_render_resources_prepare_reload(
+                    reloadWorker.reload, &publication);
+            else
+                ano_resource_reload_abort(reloadWorker.reload);
             reloadWorker.reload = nullptr;
-            if (reloaded == ANO_RESOURCE_OK) {
-                const char *replacement = getenv(
-                    "ANO_VIKING_RELOAD_SOURCE");
-                if (replacement != nullptr && replacement[0] != '\0')
-                    replacementSourceActive = !replacementSourceActive;
-                ano_log(ANO_INFO, "Resource epoch reload committed.");
-            } else {
+            if (reloaded == ANO_RESOURCE_OK)
+                atomic_store_explicit(&reloadWorker.state,
+                                      RELOAD_WORKER_PUBLISHING,
+                                      memory_order_release);
+            else {
                 ano_log(ANO_ERROR, "Resource epoch reload rejected: %s",
                         ano_resource_error_string(reloaded));
+                atomic_store_explicit(&reloadWorker.state,
+                                      RELOAD_WORKER_IDLE,
+                                      memory_order_release);
             }
-            atomic_store_explicit(&reloadWorker.state, RELOAD_WORKER_IDLE,
-                                  memory_order_release);
         }
         if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
                 == RELOAD_WORKER_IDLE
@@ -1487,10 +1534,14 @@ int main()
         drawFrame();
     }
 
-    if (atomic_load_explicit(&reloadWorker.state, memory_order_acquire)
-            != RELOAD_WORKER_IDLE) {
+    const uint32_t reloadState = atomic_load_explicit(
+        &reloadWorker.state, memory_order_acquire);
+    if (reloadState == RELOAD_WORKER_RUNNING
+        || reloadState == RELOAD_WORKER_READY) {
         ano_thread_join(reloadWorker.thread, nullptr);
         ano_resource_reload_abort(reloadWorker.reload);
+    } else if (reloadState == RELOAD_WORKER_PUBLISHING) {
+        ano_render_resources_discard(publication);
     }
 
     // Stop producer FIRST and join. No submit races bridge destruction in unInitVulkan().

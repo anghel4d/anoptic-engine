@@ -82,6 +82,7 @@ struct AnoDrawKernelRegistry final {
 consteval AnoDrawKernelRegistry ano_reflect_draw_kernels()
 {
     AnoDrawKernelRegistry result{};
+    bool seen[ANO_DRAW_GEOMETRY_COUNT][ANO_DRAW_SUBMISSION_COUNT] = {};
     static constexpr auto profiles =
         std::define_static_array(std::meta::enumerators_of(^^AnoDrawProfile));
     template for (constexpr auto profile : profiles) {
@@ -90,11 +91,13 @@ consteval AnoDrawKernelRegistry ano_reflect_draw_kernels()
             result.kernels[static_cast<size_t>(spec.geometry)]
                           [static_cast<size_t>(spec.submission)] =
                 &record_draw_kernel<spec.geometry, spec.submission>;
+            seen[static_cast<size_t>(spec.geometry)]
+                [static_cast<size_t>(spec.submission)] = true;
         }
     }
-    for (const auto& geometry : result.kernels)
-        for (AnoDrawKernel kernel : geometry)
-            if (kernel == nullptr)
+    for (const auto& geometry : seen)
+        for (bool present : geometry)
+            if (!present)
                 __builtin_abort();
     return result;
 }

@@ -7,6 +7,7 @@ target_sources(anoptic_render PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/frame/record_views.c
 	${CMAKE_CURRENT_SOURCE_DIR}/frame/record.c
 	${CMAKE_CURRENT_SOURCE_DIR}/frame/submit.c
+	${CMAKE_CURRENT_SOURCE_DIR}/frame/capture.c
 	${CMAKE_CURRENT_SOURCE_DIR}/slot_upload.c
 	${CMAKE_CURRENT_SOURCE_DIR}/light_registry.c
 	${CMAKE_CURRENT_SOURCE_DIR}/shadow/shadow_cache.c

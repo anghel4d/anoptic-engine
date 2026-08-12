@@ -122,6 +122,17 @@ uint32_t geometry_pool_upload_chain(GeometryPool* pool, GpuAllocator* alloc, VkD
                                     const AnoLodConfig* config,
                                     uint32_t* out_lodBase, uint32_t* out_lodCount);
 
+// Records a chain into a caller-owned graphics command buffer. Staging buffers
+// remain live in out_staging until that command buffer's completion fence.
+uint32_t geometry_pool_record_chain(
+    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
+    const Vertex* vertices, uint32_t vertexCount,
+    const uint32_t* indices, uint32_t indexCount,
+    const AnoLodConfig* config, VkCommandBuffer command,
+    VkBuffer* out_staging, uint32_t stagingCapacity,
+    uint32_t* out_stagingCount, uint32_t* out_lodBase,
+    uint32_t* out_lodCount);
+
 // Free a mesh region, adding its memory and index to the free lists
 void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex);
 

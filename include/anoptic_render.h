@@ -57,6 +57,10 @@ void unInitVulkan(void);
 // Render one frame; drains pending render commands.
 void drawFrame(void);
 
+// Copies the next fully composited swapchain image to a binary PPM at path.
+// The path is copied. Returns false when capture is unsupported or already pending.
+bool ano_render_capture_next_frame(const char *path);
+
 // true once the window has been asked to close.
 bool anoShouldClose(void);
 

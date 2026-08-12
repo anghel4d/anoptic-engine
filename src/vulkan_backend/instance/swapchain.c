@@ -19,6 +19,8 @@
 #include "instanceInit.h"
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/text_raster.h"
+#include "vulkan_backend/frame/frame.h"
+#include "vulkan_backend/render_api.h"
 
 
 // Surface enumeration caps. Real surfaces report far fewer; a longer list is clamped, never overrun.
@@ -162,7 +164,11 @@ bool initSwapChain(VulkanContext* ctx, GLFWwindow* window, VkPresentModeKHR pref
     createInfo.imageColorSpace = support.format.colorSpace;
     createInfo.imageExtent = chosenExtent;
     createInfo.imageArrayLayers = 1; // Always 1 unless developing stereoscopic 3D
-    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    state->frameCaptureSupported =
+        (support.capabilities.supportedUsageFlags
+         & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+        | (state->frameCaptureSupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 
     QueueFamilyIndices indices = ctx->queueFamilyIndices;
     uint32_t queueFamilyIndices[] = {indices.graphicsFamily, indices.presentFamily};
@@ -361,6 +367,18 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 {
 	// Wait for device idle
 	vkDeviceWaitIdle(ctx->device);
+	const bool captureRequested = rendererState.frameCaptureRequested;
+	char capturePath[sizeof(rendererState.frameCapturePath)] = {};
+	if (captureRequested) {
+		memcpy(capturePath, rendererState.frameCapturePath,
+		       sizeof(capturePath));
+		rendererState.frameCaptureRequested = false;
+	}
+	rendererState.completedFrameSerial = rendererState.timelineOrdinal;
+	ano_render_resources_collect_retired(rendererState.completedFrameSerial);
+	if (rendererState.frameCaptureSubmitted)
+		ano_frame_capture_collect(&rendererState,
+			rendererState.frameCaptureFrame);
 
 	// Do not recreate FIF semaphores on reinit (bugs).
 	// for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -449,6 +467,9 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 	}
 
 	rendererState.framebufferResized = false;
+	if (captureRequested
+		&& !ano_frame_capture_request(ctx, &rendererState, capturePath))
+		ano_log(ANO_WARN, "Frame capture was cancelled by swapchain recreation.");
 }
 
 // Central init component. VK_NULL_HANDLE on failure (driver out-param never forwarded).

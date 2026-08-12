@@ -456,6 +456,7 @@ typedef struct PerFrameResources
     VkSemaphore         renderFinished;
     VkFence             frameFence;
     bool                frameSubmitted;
+    uint64_t            submissionSerial;
 
     // Command recording. computeCommandBuffer: async Hi-Z build (NULL when asyncHiz off).
     // Async light-cull split CBs (NULL when asyncLc off).
@@ -471,6 +472,7 @@ typedef struct PerFrameResources
     VkBuffer            pickReadback;
     GpuAllocation       pickReadbackAlloc;
     uint32_t*           pickReadbackMapped;
+    bool                frameCaptureRecorded;
 
     // Per-view resources (camera UBO, depth, HDR target, froxel lists, descriptor sets).
     ViewResources       views[ANO_VIEW_COUNT];
@@ -541,6 +543,20 @@ typedef struct RendererState
     VkImageView             colorView[ANO_VIEW_COUNT];
     uint32_t                viewCount;
     VkImageView*            views;
+
+    // One explicitly requested swapchain readback. The buffer is reused after
+    // its submitting frame fence completes.
+    bool                    frameCaptureSupported;
+    bool                    frameCaptureRequested;
+    bool                    frameCaptureSubmitted;
+    uint32_t                frameCaptureFrame;
+    VkBuffer                frameCaptureBuffer;
+    GpuAllocation           frameCaptureAlloc;
+    VkDeviceSize            frameCaptureCapacity;
+    uint8_t*                frameCaptureMapped;
+    VkExtent2D              frameCaptureExtent;
+    VkFormat                frameCaptureFormat;
+    char                    frameCapturePath[1024];
 
     // Command pool
     VkCommandPool           commandPool;
@@ -765,6 +781,7 @@ typedef struct RendererState
     VkSemaphore             gfxTimeline;
     VkSemaphore             hizTimeline;
     uint64_t                timelineOrdinal;    // last submitted ordinal; the frame being recorded is +1
+    uint64_t                completedFrameSerial; // greatest fence-complete graphics ordinal
     uint64_t                hizValidOrdinal;    // first ordinal whose cull may trust the sampled pyramids
     VkCommandPool           computeCommandPool; // compute-family pool for the per-frame build CBs
 

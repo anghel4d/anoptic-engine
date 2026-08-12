@@ -9,11 +9,25 @@
 
 typedef struct AnoRenderResidency AnoRenderResidency;
 
+typedef enum AnoRenderResidencyUploadStatus {
+    ANO_RENDER_RESIDENCY_UPLOAD_PENDING,
+    ANO_RENDER_RESIDENCY_UPLOAD_READY,
+    ANO_RENDER_RESIDENCY_UPLOAD_REJECTED,
+} AnoRenderResidencyUploadStatus;
+
 AnoResourceError ano_vk_resource_residency_create(
     AnoResourceManager *manager, AnoRenderResidency **residency);
-AnoResourceError ano_vk_resource_residency_create_from_epoch(
+AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     const AnoResidencyEpoch *epoch, const AnoRenderResidency *previous,
     AnoRenderResidency **residency);
+AnoResourceError ano_vk_resource_residency_submit(
+    AnoRenderResidency *residency);
+AnoRenderResidencyUploadStatus ano_vk_resource_residency_upload_status(
+    const AnoRenderResidency *residency);
+AnoResourceError ano_vk_resource_residency_finish_upload(
+    AnoRenderResidency *residency);
+AnoResourceError ano_vk_resource_residency_wait_upload(
+    AnoRenderResidency *residency);
 void ano_vk_resource_residency_destroy(AnoRenderResidency *residency);
 uint32_t ano_vk_resource_scene_primitives(
     const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
