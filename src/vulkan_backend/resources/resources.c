@@ -34,6 +34,7 @@ enum class RenderBindingState : uint8_t {
 struct RenderBinding final {
     AnoResourceTypeId sourceType;
     RenderBindingState state;
+    bool reuseGeometry;
     schema::GpuTexture texture;
     schema::GpuMaterial material;
     schema::GpuMesh mesh;
@@ -627,12 +628,22 @@ AnoResourceError reuse_unchanged_bindings(
 
     const AnoResourceTypeId sceneType =
         ano::resource_type_id<schema::Scene>();
+    const AnoResourceTypeId meshType =
+        ano::resource_type_id<schema::Mesh>();
     for (uint64_t i = 0; i < candidate.bindingCount
                          && result == ANO_RESOURCE_OK; ++i) {
-        if (states[i] != ReuseState::reusable)
-            continue;
         RenderBinding& target = candidate.bindings[i];
         const RenderBinding& source = previous->bindings[i];
+        if (states[i] == ReuseState::dirty
+            && !directlyChanged[i]
+            && target.sourceType.value == meshType.value
+            && source.sourceType.value == meshType.value
+            && source.state == RenderBindingState::resident) {
+            target.mesh.geometrySlot = source.mesh.geometrySlot;
+            target.reuseGeometry = true;
+        }
+        if (states[i] != ReuseState::reusable)
+            continue;
         if (target.sourceType.value == sceneType.value) {
             if (!clone_scene_binding(candidate, *previous, target, source))
                 result = ANO_RESOURCE_OUT_OF_MEMORY;
@@ -834,6 +845,18 @@ bool realize_mesh(const Mesh& mesh, RenderResourceContext& context,
         || mesh.vertices.count > SIZE_MAX / sizeof(schema::Vertex)
         || mesh.indices.count > SIZE_MAX / sizeof(uint32_t))
         return false;
+    RenderBinding *material = binding(*context.residency, mesh.material);
+    RenderBinding *target = binding(
+        *context.residency, context.asset, ano::resource_type_id<Mesh>());
+    if (material == nullptr
+        || material->state != RenderBindingState::resident)
+        return false;
+    if (target != nullptr && target->reuseGeometry) {
+        output.geometrySlot = target->mesh.geometrySlot;
+        output.materialSlot = material->material.slot;
+        return true;
+    }
+
     schema::Vertex *portable = static_cast<schema::Vertex *>(
         mi_malloc(static_cast<size_t>(mesh.vertices.count)
                   * sizeof(schema::Vertex)));
@@ -870,9 +893,7 @@ bool realize_mesh(const Mesh& mesh, RenderResourceContext& context,
     }
     mi_free(indices);
     mi_free(portable);
-    RenderBinding *material = binding(*context.residency, mesh.material);
-    if (!valid || material == nullptr
-        || material->state != RenderBindingState::resident)
+    if (!valid)
         return false;
     output.geometrySlot = base;
     output.materialSlot = material->material.slot;

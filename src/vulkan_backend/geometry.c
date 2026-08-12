@@ -67,7 +67,7 @@ bool ano_vk_init_geometry_pool(GeometryPool* pool, GpuAllocator* alloc, VkDevice
     pool->freeMeshIndexCapacity = 0;
 
     VkDeviceSize vertexPoolSize = 64 * 1024 * 1024; // 64 MB
-    VkDeviceSize indexPoolSize = 16 * 1024 * 1024;  // 16 MB
+    VkDeviceSize indexPoolSize = 32 * 1024 * 1024;  // two residency generations may overlap during publication
     
     pool->vertexCapacity = vertexPoolSize;
     pool->indexCapacity = indexPoolSize;
