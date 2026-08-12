@@ -1,6 +1,6 @@
 ---
 name: anoptic-c-ultra
-description: Anoptic architecture doctrine. Use implicitly only for subsystem architecture, public API design, foreign ABI/layout design, or explicit C+Ultra conformance review. Do not invoke for routine implementation, local refactors, builds, tests, debugging, or merely because C++26, reflection, constexpr, or engine code is present.
+description: Anoptic architecture doctrine. Manual invocation only. Use only when the user explicitly invokes $anoptic-c-ultra or explicitly asks to apply the C+Ultra skill.
 ---
 
 # Doctrine

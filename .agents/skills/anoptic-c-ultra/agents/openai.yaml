@@ -4,4 +4,4 @@ interface:
   default_prompt: "Use $anoptic-c-ultra to implement this with ordinary constexpr/consteval computation and reflection-driven generation in Anoptic's safe, C-like C++26 subset."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

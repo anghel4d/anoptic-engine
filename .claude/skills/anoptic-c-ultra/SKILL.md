@@ -1,6 +1,7 @@
 ---
 name: anoptic-c-ultra
-description: Apply Anoptic's C+Ultra doctrine to C++ implementation, review, architecture, safety, and style.
+description: Apply Anoptic's C+Ultra doctrine only when the user explicitly invokes this skill.
+disable-model-invocation: true
 ---
 
 # Doctrine
