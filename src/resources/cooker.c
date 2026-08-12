@@ -147,6 +147,10 @@ extern "C" AnoResourceError ano_resource_cooker_add(
     if (artifact.data == nullptr || artifact.size == 0
         || artifact.size > SIZE_MAX)
         return ANO_RESOURCE_INVALID_ARGUMENT;
+    const AnoResourceError canonical = ano_resource_validate_artifact(
+        type, artifact);
+    if (canonical != ANO_RESOURCE_OK)
+        return ANO_RESOURCE_NON_CANONICAL;
     uint8_t *copy = static_cast<uint8_t *>(
         mi_malloc(static_cast<size_t>(artifact.size)));
     if (copy == nullptr)
@@ -233,10 +237,6 @@ AnoResourceError ano_resource_cooker_adopt(
         return ANO_RESOURCE_CANCELLED;
     if (contains_asset(cooker, asset))
         return ANO_RESOURCE_DUPLICATE_ASSET;
-    if (ano_resource_validate_artifact(
-            type, {.data = artifact, .size = artifactSize})
-            != ANO_RESOURCE_OK)
-        return ANO_RESOURCE_NON_CANONICAL;
 
     if (cooker->itemCount == cooker->itemCapacity) {
         const uint64_t capacity = cooker->itemCapacity == 0

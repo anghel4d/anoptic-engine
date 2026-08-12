@@ -5,6 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include "cooker_internal.h"
+#include "parallel.h"
 
 #include <anoptic_memory.h>
 
@@ -46,6 +47,7 @@ struct WorkItem final {
     uint64_t dependencyCount;
     uint64_t canonicalIndex;
     uint64_t packOffset;
+    AnoResourceError result;
 };
 
 struct ContentOrder final {
@@ -158,6 +160,36 @@ void release_work(WorkItem *work, uint64_t count)
     for (uint64_t i = 0; i < count; ++i)
         mi_free(work[i].dependencies);
     mi_free(work);
+}
+
+void analyze_work_item(void *context, uint64_t index)
+{
+    WorkItem& item = static_cast<WorkItem *>(context)[index];
+    item.result = ano_resource_artifact_schema(item.source.type, &item.schema);
+    if (item.result == ANO_RESOURCE_OK)
+        item.result = ano_resource_content_id(
+            item.source.artifact, &item.content);
+    if (item.result == ANO_RESOURCE_OK)
+        item.result = collect_dependencies(
+            item.source.type, item.source.artifact, &item.dependencies,
+            &item.dependencyCount);
+}
+
+struct PackCopyContext final {
+    uint8_t *destination;
+    uint64_t payloadOffset;
+    const WorkItem *work;
+};
+
+void copy_pack_item(void *context, uint64_t index)
+{
+    const PackCopyContext& copy =
+        *static_cast<const PackCopyContext *>(context);
+    const WorkItem& item = copy.work[index];
+    if (item.canonicalIndex == index)
+        memcpy(copy.destination + copy.payloadOffset + item.packOffset,
+               item.source.artifact.data,
+               static_cast<size_t>(item.source.artifact.size));
 }
 
 AnoResourceError validate_dependency_graph(
@@ -292,10 +324,11 @@ AnoResourceError canonicalize_work_payloads(WorkItem *work, uint64_t count,
         for (uint64_t i = first; i < last; ++i) {
             WorkItem& candidate = work[order[i].index];
             const WorkItem& root = work[canonical];
-            if (candidate.source.artifact.size != root.source.artifact.size
+            if (order[i].index != canonical
+                && (candidate.source.artifact.size != root.source.artifact.size
                 || memcmp(candidate.source.artifact.data,
                           root.source.artifact.data,
-                          static_cast<size_t>(root.source.artifact.size)) != 0) {
+                          static_cast<size_t>(root.source.artifact.size)) != 0)) {
                 result = ANO_RESOURCE_BAD_PACK;
                 break;
             }
@@ -365,6 +398,22 @@ AnoResourceError validate_payload(
     }
     mi_free(actualDependencies);
     return equal ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_PACK;
+}
+
+struct PackValidationContext final {
+    AnoResourceBytes bytes;
+    uint64_t payloadOffset;
+    const AnoResourceManifest *manifest;
+    AnoResourceError *results;
+};
+
+void validate_pack_item(void *context, uint64_t index)
+{
+    PackValidationContext& validation =
+        *static_cast<PackValidationContext *>(context);
+    validation.results[index] = validate_payload(
+        validation.bytes, validation.payloadOffset, validation.manifest,
+        validation.manifest->entries[index]);
 }
 
 AnoResourceError validate_pack_layout(
@@ -597,9 +646,8 @@ AnoResourceError ano_resource_pack_build(
         qsort(work, static_cast<size_t>(itemCount), sizeof(*work), compare_items);
 
     AnoResourceError result = ANO_RESOURCE_OK;
-    uint64_t dependencyCount = 0;
     for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
-        WorkItem& item = work[i];
+        const WorkItem& item = work[i];
         if (item.source.asset.value != i + 1)
             result = i != 0
                     && item.source.asset.value == work[i - 1].source.asset.value
@@ -609,19 +657,17 @@ AnoResourceError ano_resource_pack_build(
                  || item.source.artifact.data == nullptr
                  || item.source.artifact.size == 0)
             result = ANO_RESOURCE_INVALID_ARGUMENT;
-        else if (ano_resource_artifact_schema(item.source.type, &item.schema)
-                     != ANO_RESOURCE_OK
-                 || ano_resource_validate_artifact(item.source.type,
-                                                   item.source.artifact)
-                     != ANO_RESOURCE_OK)
-            result = ANO_RESOURCE_TYPE_MISMATCH;
-        else if (ano_resource_content_id(item.source.artifact, &item.content)
-                 != ANO_RESOURCE_OK)
-            result = ANO_RESOURCE_BAD_PACK;
-        else
-            result = collect_dependencies(
-                item.source.type, item.source.artifact, &item.dependencies,
-                &item.dependencyCount);
+    }
+    if (result == ANO_RESOURCE_OK)
+        ano::resource_detail::parallel_for(
+            itemCount, work, analyze_work_item);
+
+    uint64_t dependencyCount = 0;
+    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
+        const WorkItem& item = work[i];
+        result = item.result;
+        if (result != ANO_RESOURCE_OK)
+            break;
         if (result == ANO_RESOURCE_OK
             && !ano::detail::checked_add(dependencyCount,
                                          item.dependencyCount,
@@ -713,11 +759,12 @@ AnoResourceError ano_resource_pack_build(
         result = ANO_RESOURCE_OVERFLOW;
     uint8_t *built = nullptr;
     if (result == ANO_RESOURCE_OK) {
-        built = static_cast<uint8_t *>(mi_calloc(1, static_cast<size_t>(totalSize)));
+        built = static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(totalSize)));
         if (built == nullptr)
             result = ANO_RESOURCE_OUT_OF_MEMORY;
     }
     if (result == ANO_RESOURCE_OK) {
+        memset(built, 0, packHeaderSize);
         memcpy(built, packMagic, sizeof(packMagic));
         ano::detail::write_unsigned(built + 8, manifestSize.size, 8);
         ano::detail::write_unsigned(built + 16, totalSize, 8);
@@ -747,17 +794,12 @@ AnoResourceError ano_resource_pack_build(
             memcpy(built + 32, manifestContent.bytes,
                    sizeof(manifestContent.bytes));
     }
-    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i)
-        memmove(built + payloadOffset + work[i].packOffset,
-                work[i].source.artifact.data,
-                static_cast<size_t>(work[i].source.artifact.size));
-
     if (result == ANO_RESOURCE_OK) {
-        AnoResourcePack *verified = nullptr;
-        result = ano_resource_pack_open(
-            {.data = built, .size = totalSize}, &verified);
-        ano_resource_pack_close(verified);
+        PackCopyContext copy = {built, payloadOffset, work};
+        ano::resource_detail::parallel_for(
+            itemCount, &copy, copy_pack_item);
     }
+
     if (result == ANO_RESOURCE_OK) {
         *pack = {.data = built, .size = totalSize};
         built = nullptr;
@@ -807,10 +849,30 @@ extern "C" AnoResourceError ano_resource_pack_open(
         ano_resource_manifest_open(manifestBytes, &manifest);
     if (result != ANO_RESOURCE_OK)
         return result;
-    for (uint64_t i = 0;
-         i < manifest->root.entries.count && result == ANO_RESOURCE_OK; ++i)
-        result = validate_payload(bytes, payloadOffset, manifest,
-                                  manifest->entries[i]);
+    const uint64_t entryCount = manifest->root.entries.count;
+    size_t validationBytes = 0;
+    if (!ano::detail::checked_allocation_size(
+            entryCount, sizeof(AnoResourceError), &validationBytes))
+        result = ANO_RESOURCE_OVERFLOW;
+    AnoResourceError *validations = result != ANO_RESOURCE_OK
+        || validationBytes == 0 ? nullptr
+        : static_cast<AnoResourceError *>(mi_malloc(validationBytes));
+    if (result == ANO_RESOURCE_OK && validationBytes != 0
+        && validations == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK) {
+        PackValidationContext validation = {
+            .bytes = bytes,
+            .payloadOffset = payloadOffset,
+            .manifest = manifest,
+            .results = validations,
+        };
+        ano::resource_detail::parallel_for(
+            entryCount, &validation, validate_pack_item);
+        for (uint64_t i = 0; i < entryCount && result == ANO_RESOURCE_OK; ++i)
+            result = validations[i];
+    }
+    mi_free(validations);
     if (result == ANO_RESOURCE_OK)
         result = validate_pack_layout(bytes, payloadOffset, manifest);
     if (result != ANO_RESOURCE_OK) {
@@ -829,7 +891,7 @@ extern "C" AnoResourceError ano_resource_pack_open(
         return bytes.size > SIZE_MAX ? ANO_RESOURCE_OVERFLOW
                                      : ANO_RESOURCE_OUT_OF_MEMORY;
     }
-    memcpy(copy, bytes.data, static_cast<size_t>(bytes.size));
+    ano::resource_detail::parallel_copy(copy, bytes.data, bytes.size);
     opened->bytes = copy;
     opened->byteCount = bytes.size;
     opened->payloadOffset = payloadOffset;
@@ -867,11 +929,6 @@ extern "C" AnoResourceError ano_resource_pack_read(
     if (found != ANO_RESOURCE_OK)
         return found;
     *packSize = entry.unpackedSize;
-    const AnoResourceError validated = validate_payload(
-        {.data = pack->bytes, .size = pack->byteCount}, pack->payloadOffset,
-        pack->manifest, entry);
-    if (validated != ANO_RESOURCE_OK)
-        return validated;
     if (output.data == nullptr || output.size < entry.unpackedSize)
         return ANO_RESOURCE_BUFFER_TOO_SMALL;
     memmove(output.data,

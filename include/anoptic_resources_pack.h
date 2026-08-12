@@ -53,7 +53,7 @@ void ano_resource_pack_close(AnoResourcePack *pack);
 const AnoResourceManifest *ano_resource_pack_manifest(
     const AnoResourcePack *pack);
 
-// A read rechecks the selected extent, content identity, schema, and artifact.
+// Reads borrow the immutable authentication established by pack_open.
 // packSize receives the unpacked size on success or insufficient capacity.
 AnoResourceError ano_resource_pack_read(const AnoResourcePack *pack,
                                         AnoAssetId asset,

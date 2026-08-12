@@ -15,6 +15,7 @@
 #include <windows.h>    // PE header walk for ano_thread_main_stack
 #else
 #include <sys/resource.h>
+#include <unistd.h>
 #endif
 
 /* Thread Management */
@@ -75,6 +76,17 @@ int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(
         pthread_attr_destroy(&engineAttr);
 #endif
     return rc;
+}
+
+uint32_t ano_thread_concurrency(void) {
+
+#if defined(_WIN32)
+    const DWORD count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    return count == 0 ? 1 : (uint32_t)count;
+#else
+    const long count = sysconf(_SC_NPROCESSORS_ONLN);
+    return count <= 0 ? 1 : (count > UINT32_MAX ? UINT32_MAX : (uint32_t)count);
+#endif
 }
 
 int ano_thread_join(anothread_t thread, void **res) {

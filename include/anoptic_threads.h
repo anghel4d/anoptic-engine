@@ -8,6 +8,7 @@
 #define ANOPTIC_THREADS_H
 
 #include <stddef.h>
+#include <stdint.h>
 #include <pthread.h>
 #include <anoptic_atomic.h>
 #include <time.h>     // struct timespec for ano_thread_cond_timedwait
@@ -60,6 +61,9 @@ typedef pthread_key_t anothread_key_t;
 #define ANO_THREAD_STACK_SIZE ((size_t)8 << 20)
 
 int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(* func)(void *), void *arg);
+
+// Logical processors available to this process, or one when unavailable.
+uint32_t ano_thread_concurrency(void);
 
 // Initial-thread stack budget. POSIX soft RLIMIT_STACK (SIZE_MAX if unlimited), win64 PE reserve, else 0.
 size_t ano_thread_main_stack(void);

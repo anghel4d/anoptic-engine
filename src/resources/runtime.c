@@ -9,6 +9,8 @@
 #include <anoptic_resources_runtime.h>
 #include <anoptic_threads.h>
 
+#include "parallel.h"
+
 #include <float.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -94,6 +96,30 @@ bool retain_epoch(AnoResidencyEpoch *epoch)
                 memory_order_relaxed, memory_order_relaxed))
             return true;
     }
+}
+
+struct EpochLoadContext final {
+    const AnoResourcePack *pack;
+    const AnoResourceManifestEntry *entries;
+    const uint8_t *demanded;
+    AnoResidencyEpoch *epoch;
+    AnoResourceError *results;
+};
+
+void load_epoch_artifact(void *context, uint64_t index)
+{
+    EpochLoadContext& load = *static_cast<EpochLoadContext *>(context);
+    if (load.demanded[index] == 0) {
+        load.results[index] = ANO_RESOURCE_OK;
+        return;
+    }
+    ResidencyBinding& binding = load.epoch->bindings[index];
+    uint64_t size = binding.size;
+    load.results[index] = ano_resource_pack_read(
+        load.pack, load.entries[index].asset,
+        {.data = load.epoch->arena + binding.offset, .size = size}, &size);
+    if (load.results[index] == ANO_RESOURCE_OK && size != binding.size)
+        load.results[index] = ANO_RESOURCE_BAD_PACK;
 }
 
 AnoResourceError load_manifest_entries(
@@ -216,14 +242,12 @@ AnoResourceError build_epoch(
         binding.content = entries[i].content;
         if (demanded[i] == 0)
             continue;
-        uint64_t artifactSize = 0;
-        const AnoResourceError measured = ano_resource_pack_read(
-            pack, entries[i].asset, {nullptr, 0}, &artifactSize);
-        if (measured != ANO_RESOURCE_BUFFER_TOO_SMALL)
-            result = measured;
-        else if (!ano::detail::checked_add(arenaSize, artifactSize,
-                                           &arenaSize)
-                 || arenaSize > SIZE_MAX)
+        binding.offset = arenaSize;
+        binding.size = entries[i].unpackedSize;
+        binding.resident = true;
+        if (!ano::detail::checked_add(
+                arenaSize, binding.size, &arenaSize)
+            || arenaSize > SIZE_MAX)
             result = ANO_RESOURCE_OVERFLOW;
     }
     if (result == ANO_RESOURCE_OK && arenaSize != 0) {
@@ -233,26 +257,29 @@ AnoResourceError build_epoch(
             result = ANO_RESOURCE_OUT_OF_MEMORY;
     }
 
-    uint64_t arenaCursor = 0;
-    for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i) {
-        if (demanded[i] == 0)
-            continue;
-        ResidencyBinding& binding = candidate->bindings[i];
-        uint64_t artifactSize = arenaSize - arenaCursor;
-        result = ano_resource_pack_read(
-            pack, entries[i].asset,
-            {.data = candidate->arena + arenaCursor,
-             .size = artifactSize},
-            &artifactSize);
-        if (result == ANO_RESOURCE_OK) {
-            binding.offset = arenaCursor;
-            binding.size = artifactSize;
-            binding.resident = true;
-            arenaCursor += artifactSize;
-        }
+    size_t loadBytes = 0;
+    if (result == ANO_RESOURCE_OK
+        && !ano::detail::checked_allocation_size(
+            assetCount, sizeof(AnoResourceError), &loadBytes))
+        result = ANO_RESOURCE_OVERFLOW;
+    AnoResourceError *loads = result != ANO_RESOURCE_OK || loadBytes == 0
+        ? nullptr : static_cast<AnoResourceError *>(mi_malloc(loadBytes));
+    if (result == ANO_RESOURCE_OK && loadBytes != 0 && loads == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK) {
+        EpochLoadContext load = {
+            .pack = pack,
+            .entries = entries,
+            .demanded = demanded,
+            .epoch = candidate,
+            .results = loads,
+        };
+        ano::resource_detail::parallel_for(
+            assetCount, &load, load_epoch_artifact);
+        for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i)
+            result = loads[i];
     }
-    if (result == ANO_RESOURCE_OK && arenaCursor != arenaSize)
-        result = ANO_RESOURCE_BAD_PACK;
+    mi_free(loads);
 
     uint64_t compareCount = assetCount;
     if (previous != nullptr && previous->bindingCount > compareCount)

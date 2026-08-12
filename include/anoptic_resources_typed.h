@@ -20,6 +20,7 @@
 #include <meta>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <string_view>
 #include <type_traits>
 
@@ -137,6 +138,8 @@ inline constexpr uint32_t sha256Constants[64] = {
     0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u,
 };
 
+void sha256_transform_runtime(uint32_t state[8], const uint8_t block[64]);
+
 struct Sha256 final {
     uint32_t state[8] = {
         0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
@@ -146,7 +149,7 @@ struct Sha256 final {
     uint64_t byteCount = 0;
     uint32_t blockSize = 0;
 
-    constexpr void transform()
+    constexpr void transform_scalar()
     {
         uint32_t words[64] = {};
         for (uint32_t i = 0; i < 16; ++i) {
@@ -200,6 +203,15 @@ struct Sha256 final {
         state[7] += h;
     }
 
+    constexpr void transform()
+    {
+        if consteval {
+            transform_scalar();
+        } else {
+            sha256_transform_runtime(state, block);
+        }
+    }
+
     constexpr void append(uint8_t value)
     {
         block[blockSize++] = value;
@@ -212,8 +224,37 @@ struct Sha256 final {
 
     constexpr void append(const uint8_t *bytes, uint64_t count)
     {
-        for (uint64_t i = 0; i < count; ++i)
-            append(bytes[i]);
+        if consteval {
+            for (uint64_t i = 0; i < count; ++i)
+                append(bytes[i]);
+        } else {
+            if (blockSize != 0) {
+                uint64_t take = sizeof(block) - blockSize;
+                if (take > count)
+                    take = count;
+                memcpy(block + blockSize, bytes, static_cast<size_t>(take));
+                blockSize += static_cast<uint32_t>(take);
+                byteCount += take;
+                bytes += take;
+                count -= take;
+                if (blockSize == sizeof(block)) {
+                    transform();
+                    blockSize = 0;
+                }
+            }
+            while (count >= sizeof(block)) {
+                memcpy(block, bytes, sizeof(block));
+                byteCount += sizeof(block);
+                bytes += sizeof(block);
+                count -= sizeof(block);
+                transform();
+            }
+            if (count != 0) {
+                memcpy(block, bytes, static_cast<size_t>(count));
+                blockSize = static_cast<uint32_t>(count);
+                byteCount += count;
+            }
+        }
     }
 
     constexpr void append(std::string_view text)
@@ -538,6 +579,42 @@ consteval uint64_t wire_size(std::meta::info type)
         return result;
     }
     reject("unsupported canonical wire type", type);
+}
+
+// Runtime encoding may copy a reflected wire leaf wholesale when its native
+// layout is already the canonical little-endian layout. Reflection proves the
+// absence of padding recursively; bools and enums retain value validation.
+consteval bool wire_bulk_copyable(std::meta::info type)
+{
+    type = std::meta::dealias(type);
+    const WireShape shape = wire_shape(type);
+    if (shape == WireShape::integer || shape == WireShape::floating)
+        return std::meta::size_of(type) == 1
+            || std::endian::native == std::endian::little;
+    if (shape == WireShape::array)
+        return std::meta::size_of(type) == wire_size(type)
+            && wire_bulk_copyable(std::meta::remove_extent(type));
+    if (shape != WireShape::record
+        || std::endian::native != std::endian::little
+        || std::meta::size_of(type) != wire_size(type))
+        return false;
+
+    uint64_t cursor = 0;
+    for (const std::meta::info field : wire_fields(type)) {
+        const std::meta::info fieldType = std::meta::type_of(field);
+        if (std::meta::offset_of(field).total_bits() != cursor * 8
+            || !wire_bulk_copyable(fieldType))
+            return false;
+        cursor = checked_wire_add(cursor, wire_size(fieldType), field);
+    }
+    return cursor == std::meta::size_of(type);
+}
+
+consteval bool wire_requires_structural_visit(std::meta::info type)
+{
+    return wire_contains(type, WireShape::boolean)
+        || wire_contains(type, WireShape::enumeration)
+        || wire_contains(type, WireShape::relativeSpan);
 }
 
 consteval void hash_wire_type(Sha256& hash, std::meta::info type)
@@ -899,8 +976,9 @@ constexpr void plan_value(const Type& value, PlanContext& context)
             context.error = ANO_RESOURCE_OVERFLOW;
             return;
         }
-        for (uint64_t i = 0; i < value.count; ++i)
-            plan_value(elements[i], context);
+        if constexpr (wire_contains(^^Element, WireShape::relativeSpan))
+            for (uint64_t i = 0; i < value.count; ++i)
+                plan_value(elements[i], context);
     } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         for (size_t i = 0; i < std::extent_v<Type>; ++i)
             plan_value(value[i], context);
@@ -964,9 +1042,25 @@ constexpr void encode_value(const Type& value, uint64_t offset,
         }
         write_unsigned(context.output.data + offset, payloadOffset, 8);
         write_unsigned(context.output.data + offset + 8, value.count, 8);
-        for (uint64_t i = 0; i < value.count; ++i)
-            encode_value(elements[i],
-                         payloadOffset + i * wire_size(^^Element), context);
+        if constexpr (wire_bulk_copyable(^^Element)) {
+            if consteval {
+                for (uint64_t i = 0; i < value.count; ++i)
+                    encode_value(
+                        elements[i],
+                        payloadOffset + i * wire_size(^^Element), context);
+            } else {
+                if (fixedBytes > SIZE_MAX) {
+                    context.error = ANO_RESOURCE_OVERFLOW;
+                    return;
+                }
+                memcpy(context.output.data + payloadOffset, elements,
+                       static_cast<size_t>(fixedBytes));
+            }
+        } else {
+            for (uint64_t i = 0; i < value.count; ++i)
+                encode_value(elements[i],
+                             payloadOffset + i * wire_size(^^Element), context);
+        }
     } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         using Element = std::remove_extent_t<Type>;
         for (size_t i = 0; i < std::extent_v<Type>; ++i)
@@ -1087,9 +1181,17 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
         }
         if (output != nullptr)
             *output = {spanOffset, count};
-        for (uint64_t i = 0; i < count; ++i)
-            decode_value(spanOffset + i * wire_size(^^Element), context,
-                         static_cast<Element *>(nullptr));
+        if constexpr (wire_requires_structural_visit(^^Element)) {
+            for (uint64_t i = 0; i < count; ++i)
+                decode_value(spanOffset + i * wire_size(^^Element), context,
+                             static_cast<Element *>(nullptr));
+        } else if constexpr (wire_contains(^^Element, WireShape::assetRef)) {
+            if (context.collectDependencies)
+                for (uint64_t i = 0; i < count; ++i)
+                    decode_value(
+                        spanOffset + i * wire_size(^^Element), context,
+                        static_cast<Element *>(nullptr));
+        }
     } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         using Element = std::remove_extent_t<Type>;
         for (size_t i = 0; i < std::extent_v<Type>; ++i)

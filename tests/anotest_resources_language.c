@@ -94,6 +94,33 @@ constexpr AnoContentId abcDigest = ano::detail::sha256(abcBytes, sizeof(abcBytes
 static_assert(abcDigest.bytes[0] == 0xba && abcDigest.bytes[1] == 0x78
               && abcDigest.bytes[30] == 0x15 && abcDigest.bytes[31] == 0xad);
 
+struct ShaPattern final { uint8_t bytes[257]; };
+struct ShaCases final { AnoContentId values[10]; };
+
+consteval ShaPattern make_sha_pattern()
+{
+    ShaPattern pattern = {};
+    for (uint32_t i = 0; i < sizeof(pattern.bytes); ++i)
+        pattern.bytes[i] = static_cast<uint8_t>(i * 29u + 17u);
+    return pattern;
+}
+
+inline constexpr ShaPattern shaPattern = make_sha_pattern();
+inline constexpr uint64_t shaLengths[10] = {
+    0, 1, 55, 56, 63, 64, 65, 127, 128, sizeof(shaPattern.bytes),
+};
+
+consteval ShaCases make_sha_cases()
+{
+    ShaCases cases = {};
+    for (uint32_t i = 0; i < 10; ++i)
+        cases.values[i] = ano::detail::sha256(
+            shaPattern.bytes, shaLengths[i]);
+    return cases;
+}
+
+inline constexpr ShaCases shaCases = make_sha_cases();
+
 constexpr Material make_material(void)
 {
     Material material = {};
@@ -411,6 +438,17 @@ static void test_sha256(void)
               == ANO_RESOURCE_OK
           && memcmp(content.bytes, expected, sizeof(expected)) == 0,
           "content identity matches the published SHA-256 abc vector");
+    bool runtimeMatchesConstexpr = true;
+    for (uint32_t i = 0; i < 10; ++i) {
+        runtimeMatchesConstexpr = runtimeMatchesConstexpr
+            && ano_resource_content_id(
+                   {shaPattern.bytes, shaLengths[i]}, &content)
+                == ANO_RESOURCE_OK
+            && memcmp(content.bytes, shaCases.values[i].bytes,
+                      sizeof(content.bytes)) == 0;
+    }
+    CHECK(runtimeMatchesConstexpr,
+          "runtime SHA-256 matches constexpr across block boundaries");
     CHECK(strcmp(ano_resource_error_string(ANO_RESOURCE_SCHEMA_MISMATCH),
                  "schema_mismatch") == 0,
           "resource error names come from the reflected enum");
