@@ -34,34 +34,6 @@ uint32_t ano_draw_slot_of(PipelineType type) {
     return spec ? spec->drawSlot : ANO_NO_DRAW_SLOT;
 }
 
-void ano_vk_register_mesh(RenderPrimitives* primitives, MeshData data) {
-    if (primitives->meshCount >= primitives->meshCapacity) {
-        uint32_t newCapacity = primitives->meshCapacity == 0 ? 8 : primitives->meshCapacity * 2;
-        MeshData* temp = static_cast<MeshData*>(realloc(primitives->meshes, sizeof(MeshData) * newCapacity));
-        if (!temp) {
-            ano_log(ANO_ERROR, "Error: Failed to reallocate memory for meshes!");
-            return;
-        }
-        primitives->meshes = temp;
-        primitives->meshCapacity = newCapacity;
-    }
-
-    data.usageCount = 0;
-    primitives->meshes[primitives->meshCount++] = data;
-}
-
-void ano_vk_increment_mesh_usage(RenderPrimitives* primitives, uint32_t index) {
-    if (index < primitives->meshCount) {
-        primitives->meshes[index].usageCount++;
-    }
-}
-
-void ano_vk_decrement_mesh_usage(RenderPrimitives* primitives, uint32_t index) {
-    if (index < primitives->meshCount && primitives->meshes[index].usageCount > 0) {
-        primitives->meshes[index].usageCount--;
-    }
-}
-
 // in:  primitives, data
 // out: true on append; false on realloc failure (primitives unchanged)
 uint32_t ano_vk_register_texture(RenderPrimitives* primitives, TextureData data) {
@@ -108,20 +80,7 @@ void ano_vk_increment_texture_usage(RenderPrimitives* primitives, uint32_t index
     }
 }
 
-void ano_vk_decrement_texture_usage(RenderPrimitives* primitives, uint32_t index) {
-    if (index < primitives->textureCount && primitives->textureBuffers[index].usageCount > 0) {
-        primitives->textureBuffers[index].usageCount--;
-    }
-}
-
 void ano_vk_cleanup_primitives(RenderPrimitives* primitives) {
-    if (primitives->meshes) {
-        free(primitives->meshes);
-        primitives->meshes = NULL;
-    }
-    primitives->meshCount = 0;
-    primitives->meshCapacity = 0;
-
     if (primitives->textureBuffers) {
         free(primitives->textureBuffers);
         primitives->textureBuffers = NULL;

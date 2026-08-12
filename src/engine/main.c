@@ -298,7 +298,7 @@ void *prepare_reload_worker(void *argument)
                 worker.manager, sources, &reload)
             : ANO_RESOURCE_OUT_OF_MEMORY;
         if (result == ANO_RESOURCE_OK)
-            result = ano_render_resources_prepare_reload_on_heap(
+            result = ano_render_resources_prepare_reload(
                 reload, heap, &publication);
         else
             ano_resource_reload_abort(reload);
@@ -1624,8 +1624,9 @@ int main()
             if (publication == nullptr)
                 reload_worker_reclaim(reloadWorker);
         }
-        if (reload_worker_idle(reloadWorker)
-            && publication == nullptr
+        if (publication == nullptr
+            && atomic_load(&g_resourceReloadRequested)
+            && reload_worker_idle(reloadWorker)
             && atomic_exchange(&g_resourceReloadRequested, false)) {
             StartupSources selected = DEFAULT_SOURCES;
             const char *replacement = getenv("ANO_VIKING_RELOAD_SOURCE");

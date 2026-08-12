@@ -137,7 +137,13 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
 
     if (alloc->memProps.memoryTypes[memoryType].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
     {
-        vkMapMemory(alloc->device, newBlock->memory, 0, blockSize, 0, &newBlock->mapped);
+        if (vkMapMemory(
+                alloc->device, newBlock->memory, 0, blockSize, 0,
+                &newBlock->mapped) != VK_SUCCESS) {
+            vkFreeMemory(alloc->device, newBlock->memory, NULL);
+            alloc->blockCount--;
+            return (GpuAllocation){0};
+        }
     }
 
     VkDeviceSize alignedOffset = (newBlock->offset + reqs.alignment - 1) & ~(reqs.alignment - 1);

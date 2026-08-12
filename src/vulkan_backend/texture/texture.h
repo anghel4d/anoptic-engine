@@ -9,29 +9,15 @@
 #define TEXTURE_H
 
 #include <vulkan/vulkan.h>
-#include <stdio.h>
 #include <stdbool.h>
-#include <stb_image.h>
-#include <math.h>
 
 #include <anoptic_results.h>
 
 #include "vulkan_backend/components.h"
 #include "vulkan_backend/instance/instanceInit.h"
 
-// Structs
-
-typedef struct Texture8
-{
-	int32_t texWidth;
-	int32_t texHeight;
-	int32_t texChannels;
-	uint32_t mipLevels;
-	stbi_uc* pixels;
-} Texture8;
-
 // Texture construction outcomes.
-// SOURCE: this asset. DEVICE: whole load (gpu_alloc monotonic). INVALID: contract violation.
+// SOURCE rejects texels; DEVICE rejects Vulkan construction; INVALID rejects the call contract.
 ANO_RESULT_TYPE(AnoTextureResult,
     ANO_TEXTURE_BUILT = 0,   // *pkg complete; caller owns every handle
     ANO_TEXTURE_SOURCE,      // decode refused or outside domain
@@ -49,13 +35,11 @@ typedef uint32_t TextureUsageFlags;   // PbrFeatureFlags idiom, components.h:157
 
 // One constructed texture.
 // srgbView non-null iff COLOR built; unormView iff DATA; BUILT carries >= 1 view.
-// staging live and caller-owned when keepStaging, else VK_NULL_HANDLE.
 typedef struct TexturePackage {
 	VkImage       image;
 	GpuAllocation alloc;
 	VkImageView   srgbView;    // iff COLOR built
 	VkImageView   unormView;   // iff DATA built
-	VkBuffer      staging;     // caller-owned through batch, or VK_NULL_HANDLE
 	uint32_t      mipLevels, width, height;
 } TexturePackage;
 
@@ -71,31 +55,21 @@ static inline TextureData ano_texture_record(const TexturePackage* pkg)
 	};
 }
 
-// Functions
+// createTextureImageFromStaging records into a non-null borrowed command
+// buffer. transitionImageLayout also accepts VK_NULL_HANDLE and then performs
+// its own synchronous transient submission.
 
-// Reads an image from storage and returns Vulkan-compatible 8-bit binary texture data
-Texture8 readTexture8bit(const char* fileName);
+// Creates an image and records an upload from a caller-owned staging slice.
+AnoTextureResult createTextureImageFromStaging(
+    VulkanContext* ctx, VkCommandBuffer cmd, TexturePackage* pkg,
+    VkBuffer staging, VkDeviceSize stagingOffset, uint32_t width,
+    uint32_t height, TextureUsageFlags usage);
 
-// Borrowed-cmd contract (createTextureImage, createTextureImageFromPixels, transitionImageLayout):
-// in: cmd borrowed (caller submits), or VK_NULL_HANDLE for a transient per-op mint/submit/retire.
-// out: refused per-op mint -> false, nothing recorded.
-// inv: deliberate no-borrow and failed caller mint are indistinguishable; both take the per-op path.
-
-// Load file texels into a Vulkan image.
-// in: usage (COLOR -> sRGB, DATA -> UNORM, both -> mutable dual-view); keepStaging publishes pkg->staging.
-// out: BUILT transfers *pkg; else *pkg inert, no live handles.
-// inv: usage with neither bit, or borrowed cmd with keepStaging false -> INVALID.
-AnoTextureResult createTextureImage(VulkanContext* ctx, VkCommandBuffer cmd, TexturePackage* pkg,
-                                    const char* fileName, bool flag16,
-                                    TextureUsageFlags usage, bool keepStaging);
-
-// Same from raw pixels.
-AnoTextureResult createTextureImageFromPixels(VulkanContext* ctx, VkCommandBuffer cmd, TexturePackage* pkg,
-                                              const unsigned char* pixels, uint32_t width, uint32_t height,
-                                              TextureUsageFlags usage, bool keepStaging);
-
-// in: existing image. out: *textureImageView, or VK_NULL_HANDLE on false.
-[[nodiscard]] bool createTextureImageView(VulkanContext* ctx, VkImage textureImage, VkImageView* textureImageView, VkFormat format, uint32_t miplevels);
+// Synchronous convenience for immutable RGBA8 pixels.
+AnoTextureResult createTextureImageFromPixels(
+    VulkanContext* ctx, TexturePackage* pkg, const unsigned char* pixels,
+    uint32_t width, uint32_t height, TextureUsageFlags usage);
+void destroyTexturePackage(VulkanContext* ctx, TexturePackage* pkg);
 
 // Creates a sampler definition for use in shaders
 bool createTextureSampler(VulkanContext* ctx, RendererState* state);

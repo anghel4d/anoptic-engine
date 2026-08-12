@@ -76,9 +76,15 @@ bool createDataBufferShared(VulkanContext* ctx, GpuAllocator* allocator, VkDevic
 		*buffer = VK_NULL_HANDLE; // avoid dangling handle
 		return false;
 	}
-	vkBindBufferMemory(ctx->device, *buffer, allocation->memory, allocation->offset);
-
-	return true;
+	if (vkBindBufferMemory(
+			ctx->device, *buffer, allocation->memory,
+			allocation->offset) == VK_SUCCESS)
+		return true;
+	vkDestroyBuffer(ctx->device, *buffer, NULL);
+	gpu_free(allocator, *allocation);
+	*buffer = VK_NULL_HANDLE;
+	*allocation = (GpuAllocation){0};
+	return false;
 }
 
 bool createDataBuffer(VulkanContext* ctx, GpuAllocator* allocator, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer* buffer, GpuAllocation* allocation)
@@ -227,6 +233,7 @@ bool stagingTransfer(VulkanContext* ctx, const void* data, VkBuffer dstBuffer, V
 
 	// Cleanup staging buffer
 	vkDestroyBuffer(ctx->device, stagingBuffer, NULL);
+	gpu_free(&stagingAllocator, stagingAlloc);
 
 	return copied;
 }

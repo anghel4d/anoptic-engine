@@ -11,13 +11,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <anoptic_memory.h>
 #include <anoptic_render_resources.h>
 
 bool ano_render_load_scene_assets(AnoResourceManager *resources);
-AnoResourceError ano_render_resources_prepare_reload_on_heap(
-    AnoResourceReload *reload, mi_heap_t *preparationHeap,
-    AnoRenderResourcePublication **publication);
 void ano_render_resources_apply_pending(uint32_t frameIndex);
 void ano_render_resources_collect_retired(uint64_t completedFrameSerial);
 void ano_render_unload_scene_assets(void);

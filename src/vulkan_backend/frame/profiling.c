@@ -26,10 +26,15 @@ uint32_t g_shadowRenderFrames = 0;
 // Wall-clock frame-timing tally (struct + inlined hot-path mark in frame.h), drained here.
 anoperf_accumulator_t g_perfAcc;
 
-// Live VRAM use of a bump allocator: sum of each block's high-water offset.
+// Live bytes below each block's bump frontier.
 static VkDeviceSize allocator_used_bytes(const GpuAllocator* a) {
     VkDeviceSize used = 0;
-    for (uint32_t i = 0; i < a->blockCount; i++) used += a->blocks[i].offset;
+    for (uint32_t i = 0; i < a->blockCount; ++i) {
+        VkDeviceSize blockUsed = a->blocks[i].offset;
+        for (uint32_t span = 0; span < a->blocks[i].freeCount; ++span)
+            blockUsed -= a->blocks[i].freeSpans[span].size;
+        used += blockUsed;
+    }
     return used;
 }
 

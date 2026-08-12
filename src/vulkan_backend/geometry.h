@@ -17,7 +17,7 @@ typedef struct MeshRegion
     uint32_t    vertexOffset;   // byte offset into the vertex mega-buffer
     uint32_t    vertexCount;    // number of vertices
     uint32_t    indexOffset;    // byte offset of metadata block in index buffer
-    uint32_t    indexCount;     // total metadata size in bytes (used for freeing)
+    uint32_t    metadataBytes;  // allocation size in the metadata buffer
     uint32_t    meshletOffset;  // byte offset of meshlets in index buffer
     uint32_t    meshletCount;   // number of meshlets
     uint32_t    uniqueVerticesOffset; // byte offset of unique vertices in index buffer
@@ -103,11 +103,8 @@ typedef struct AnoLodConfig
 
 typedef struct AnoPreparedGeometryLevel
 {
-    Vertex* vertices;
-    uint32_t vertexCount;
-    uint32_t* indices;
-    uint32_t indexCount;
     uint8_t* upload;
+    VkDeviceSize uploadOffset;
     uint32_t vertexBytes;
     uint32_t metadataBytes;
     MeshRegion region;
@@ -117,6 +114,7 @@ typedef struct AnoPreparedGeometry
 {
     AnoPreparedGeometryLevel levels[ANO_MAX_LOD];
     uint32_t lodCount;
+    VkDeviceSize uploadBytes;
 } AnoPreparedGeometry;
 
 // Default chain: ratios 1, 1/2, 1/4, ...; 5% extent error.
@@ -128,18 +126,9 @@ AnoLodConfig ano_lod_config_default(uint32_t lodCount);
     const AnoLodConfig* config, AnoPreparedGeometry* prepared);
 
 [[nodiscard]] uint32_t geometry_pool_record_prepared_chain(
-    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-    const AnoPreparedGeometry* prepared, VkCommandBuffer command,
-    VkBuffer out_staging[ANO_MAX_LOD], uint32_t* out_lodCount);
-
-// Records a chain into a caller-owned graphics command buffer. Staging buffers
-// remain live in out_staging until that command buffer's completion fence.
-[[nodiscard]] uint32_t geometry_pool_record_chain(
-    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-    const Vertex* vertices, uint32_t vertexCount,
-    const uint32_t* indices, uint32_t indexCount,
-    const AnoLodConfig* config, VkCommandBuffer command,
-    VkBuffer out_staging[ANO_MAX_LOD], uint32_t* out_lodCount);
+    GeometryPool* pool, const AnoPreparedGeometry* prepared,
+    VkCommandBuffer command, VkBuffer staging, void* stagingMapped,
+    VkDeviceSize stagingBase);
 
 // Free a mesh region, adding its memory and index to the free lists
 void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex);

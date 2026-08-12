@@ -418,11 +418,6 @@ if(TARGET anoptic_render)
     add_test(NAME anotest_vk_shadow COMMAND anotest_vk_shadow)
     set_tests_properties(anotest_vk_shadow PROPERTIES TIMEOUT 30 LABELS "unit;render")
 
-    add_executable(anotest_vk_components anotest_vk_components.c)
-    target_link_libraries(anotest_vk_components PRIVATE anoptic_render)
-    add_test(NAME anotest_vk_components COMMAND anotest_vk_components)
-    set_tests_properties(anotest_vk_components PROPERTIES TIMEOUT 30 LABELS "unit;vulkan")
-
     add_executable(anotest_vk_compliance_layers anotest_vk_compliance_layers.c)
     target_link_libraries(anotest_vk_compliance_layers PRIVATE anoptic_render)
     add_test(NAME anotest_vk_compliance_layers COMMAND anotest_vk_compliance_layers)
@@ -443,26 +438,6 @@ if(TARGET anoptic_render)
     set_tests_properties(anotest_vk_sync PROPERTIES TIMEOUT 30 LABELS "unit;vulkan"
         DISABLED "$<CONFIG:Release>" SKIP_RETURN_CODE 77)
 
-    # Texture-custody guards: real TUs vs link-seam vk/helper stubs; EXISTS until sources land.
-
-    # createTextureImage / createTextureImageFromPixels failure unwind + MUTABLE_FORMAT format list.
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/anotest_texunwindguard.c)
-        add_executable(anotest_texunwindguard anotest_texunwindguard.c ${CMAKE_SOURCE_DIR}/src/vulkan_backend/texture/texture.c)
-        target_include_directories(anotest_texunwindguard PRIVATE ${CMAKE_SOURCE_DIR}/external/glfw/include ${Vulkan_INCLUDE_DIRS})
-        target_link_libraries(anotest_texunwindguard PRIVATE anoptic_core m)
-        add_test(NAME anoptic_texunwindguard COMMAND anotest_texunwindguard)
-        set_tests_properties(anoptic_texunwindguard PROPERTIES TIMEOUT 30 LABELS "unit;render")
-    endif()
-
-    # ano_vk_register_texture growth refusal; mi_realloc/mi_free renamed to test seams.
-    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/anotest_texregisterguard.c)
-        add_executable(anotest_texregisterguard anotest_texregisterguard.c ${CMAKE_SOURCE_DIR}/src/vulkan_backend/components.c)
-        target_include_directories(anotest_texregisterguard PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external/glfw/include ${Vulkan_INCLUDE_DIRS})
-        target_compile_definitions(anotest_texregisterguard PRIVATE mi_realloc=anotest_seam_realloc mi_free=anotest_seam_free)
-        target_link_libraries(anotest_texregisterguard PRIVATE anoptic_core m)
-        add_test(NAME anoptic_texregisterguard COMMAND anotest_texregisterguard)
-        set_tests_properties(anoptic_texregisterguard PROPERTIES TIMEOUT 30 LABELS "unit;render;mem")
-    endif()
 
     # Dual-view SRGB/UNORM sample readback via compute probe.
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/anotest_vk_texdomain.c)
@@ -475,7 +450,7 @@ if(TARGET anoptic_render)
 
     # A lone `--build --target anotest_vk_*` must still stage this directory's
     # shaders/assets before the test can run.
-    foreach(vktest IN ITEMS anotest_render_slots anotest_vk_lifecycle anotest_vk_components
+    foreach(vktest IN ITEMS anotest_render_slots anotest_vk_lifecycle
             anotest_vk_shadow anotest_vk_compliance_layers anotest_vk_memory anotest_vk_sync)
         add_dependencies(${vktest} anoptic_test_resources)
     endforeach()

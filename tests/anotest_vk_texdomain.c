@@ -62,8 +62,9 @@ int main(void)
     unsigned char pixels[4 * 4 * 4];
     memset(pixels, PROBE_BYTE, sizeof pixels);
 
-    AnoTextureResult built = createTextureImageFromPixels(ctx, VK_NULL_HANDLE, &pkg, pixels, 4, 4,
-                                                          TEXTURE_USE_COLOR | TEXTURE_USE_DATA, false);
+    AnoTextureResult built = createTextureImageFromPixels(
+        ctx, &pkg, pixels, 4, 4,
+        TEXTURE_USE_COLOR | TEXTURE_USE_DATA);
     if (built.code != ANO_TEXTURE_BUILT) {
         printf("Error: createTextureImageFromPixels refused both roles (code %d)!\n", (int)built.code);
         return false;
@@ -80,10 +81,6 @@ int main(void)
     }
     if (pkg.srgbView == pkg.unormView) {
         printf("Error: the two roles collapsed onto one view handle!\n");
-        return false;
-    }
-    if (pkg.staging != VK_NULL_HANDLE) {
-        printf("Error: keepStaging was false but the staging buffer was published!\n");
         return false;
     }
     if (g_ValidationErrors > 0) {
@@ -251,7 +248,7 @@ int main(void)
     }();
     status = passed ? 0 : 1;
 
-    // Destroy probe objects. Bindless slots and arena spans stay until unInitVulkan.
+    // Destroy probe objects and return their allocator spans.
     vkDestroyPipeline(ctx->device, pipe, NULL);
     vkDestroyShaderModule(ctx->device, module, NULL);
     ano_aligned_free(code.data);
@@ -259,9 +256,8 @@ int main(void)
     vkDestroyDescriptorPool(ctx->device, probePool, NULL); // + probeSet
     vkDestroyDescriptorSetLayout(ctx->device, probeLayout, NULL);
     vkDestroyBuffer(ctx->device, ssbo, NULL);
-    vkDestroyImageView(ctx->device, pkg.unormView, NULL);
-    vkDestroyImageView(ctx->device, pkg.srgbView, NULL);
-    vkDestroyImage(ctx->device, pkg.image, NULL);
+    gpu_free(&stagingAllocator, ssboAlloc);
+    destroyTexturePackage(ctx, &pkg);
     unInitVulkan();
     printf(status == 0 ? "Texture-domain readback test passed successfully!\n"
                        : "Texture-domain readback test FAILED.\n");

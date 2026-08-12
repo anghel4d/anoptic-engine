@@ -23,6 +23,8 @@ VkResult ano_vk_resource_residency_poll_upload(
 AnoResourceError ano_vk_resource_residency_wait_upload(
     AnoRenderResidency *residency);
 void ano_vk_resource_residency_destroy(AnoRenderResidency *residency);
+bool ano_vk_resource_scene_affected(
+    const AnoRenderResidency *residency, AnoAssetId asset);
 uint32_t ano_vk_resource_scene_primitives(
     const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
     AnoRenderableDesc *output, uint32_t capacity);

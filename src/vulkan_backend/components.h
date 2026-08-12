@@ -156,18 +156,9 @@ typedef struct TextureData
 	VkImageView unormView;   // data, or VK_NULL_HANDLE
 } TextureData;
 
-typedef struct MeshData
-{
-	uint32_t usageCount; // number of active meshes using this resource
-	uint32_t meshRegionIndex;
-} MeshData;
-
 // Tracks loaded graphics resources and their usage
 typedef struct RenderPrimitives
 {
-	uint32_t meshCount;
-	uint32_t meshCapacity;
-	MeshData* meshes;
 	uint32_t textureCount;
 	uint32_t textureCapacity;
 	TextureData* textureBuffers;
@@ -175,14 +166,9 @@ typedef struct RenderPrimitives
 	uint32_t freeTextureCount;
 } RenderPrimitives;
 
-void ano_vk_register_mesh(RenderPrimitives* primitives, MeshData data);
-void ano_vk_increment_mesh_usage(RenderPrimitives* primitives, uint32_t index);
-void ano_vk_decrement_mesh_usage(RenderPrimitives* primitives, uint32_t index);
-
 // Out: registry slot, or UINT32_MAX on failure (caller keeps handles).
 [[nodiscard]] uint32_t ano_vk_register_texture(RenderPrimitives* primitives, TextureData data);
 void ano_vk_increment_texture_usage(RenderPrimitives* primitives, uint32_t index);
-void ano_vk_decrement_texture_usage(RenderPrimitives* primitives, uint32_t index);
 
 void ano_vk_cleanup_primitives(RenderPrimitives* primitives);
 

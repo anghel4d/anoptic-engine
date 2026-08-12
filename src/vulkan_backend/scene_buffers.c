@@ -41,9 +41,9 @@
         vkDestroyBuffer(ctx->device, minted, NULL);
         return false;
     }
-    // Bind failed: destroy unbacked buffer; arena span unreclaimed.
     if (vkBindBufferMemory(ctx->device, minted, alloc.memory, alloc.offset) != VK_SUCCESS) {
         vkDestroyBuffer(ctx->device, minted, NULL);
+        gpu_free(&gpuAllocator, alloc);
         return false;
     }
 
@@ -439,21 +439,39 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
         4, 1, 5, 1, 4, 0  // bottom
     };
 
-    VkCommandBuffer fallbackUpload = beginSingleTimeCommands(ctx);
-    VkBuffer fallbackStaging[ANO_MAX_LOD] = {};
-    uint32_t fallbackLods = 0;
+    mi_heap_t* fallbackHeap = mi_heap_new();
+    AnoPreparedGeometry fallbackGeometry = {};
+    const bool fallbackPrepared = fallbackHeap
+        && geometry_prepare_chain(
+            fallbackHeap, cubeVertices, 8, cubeIndices, 36, nullptr,
+            &fallbackGeometry);
+    VkBuffer fallbackStaging = VK_NULL_HANDLE;
+    GpuAllocation fallbackStagingAlloc = {};
+    const bool fallbackStaged = fallbackPrepared
+        && createDataBuffer(
+            ctx, &stagingAllocator, fallbackGeometry.uploadBytes,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &fallbackStaging, &fallbackStagingAlloc)
+        && fallbackStagingAlloc.mapped;
+    VkCommandBuffer fallbackUpload = fallbackStaged
+        ? beginSingleTimeCommands(ctx) : VK_NULL_HANDLE;
     uint32_t fallbackMeshIdx = fallbackUpload == VK_NULL_HANDLE
         ? ANO_MESH_NONE
-        : geometry_pool_record_chain(
-            &state->globalGeometryPool, &stagingAllocator, ctx->device,
-            cubeVertices, 8, cubeIndices, 36, NULL, fallbackUpload,
-            fallbackStaging, &fallbackLods);
-    const bool fallbackUploaded = fallbackUpload != VK_NULL_HANDLE
-        && endSingleTimeCommandsChecked(ctx, fallbackUpload);
-    for (uint32_t i = 0; i < fallbackLods; ++i)
-        vkDestroyBuffer(ctx->device, fallbackStaging[i], NULL);
-    if (!fallbackUploaded)
-        fallbackMeshIdx = ANO_MESH_NONE;
+        : geometry_pool_record_prepared_chain(
+            &state->globalGeometryPool, &fallbackGeometry, fallbackUpload,
+            fallbackStaging, fallbackStagingAlloc.mapped, 0);
+    bool fallbackUploaded = false;
+    if (fallbackMeshIdx != ANO_MESH_NONE)
+        fallbackUploaded = endSingleTimeCommandsChecked(ctx, fallbackUpload);
+    else if (fallbackUpload != VK_NULL_HANDLE)
+        vkFreeCommandBuffers(
+            ctx->device, state->commandPool, 1, &fallbackUpload);
+    vkDestroyBuffer(ctx->device, fallbackStaging, nullptr);
+    gpu_free(&stagingAllocator, fallbackStagingAlloc);
+    if (fallbackHeap) mi_heap_destroy(fallbackHeap);
+    if (!fallbackUploaded) fallbackMeshIdx = ANO_MESH_NONE;
 
     // Fallback must land at FALLBACK_MESH_INDEX; else unwind.
     if (fallbackMeshIdx != FALLBACK_MESH_INDEX) {
@@ -470,8 +488,9 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
     TexturePackage fallbackPkg; // gpu_allocator
 
     // Colour role, no borrowed batch.
-    if (createTextureImageFromPixels(ctx, VK_NULL_HANDLE, &fallbackPkg, fallbackPixels, 2, 2,
-                                     TEXTURE_USE_COLOR, false).code != ANO_TEXTURE_BUILT) {
+    if (createTextureImageFromPixels(
+            ctx, &fallbackPkg, fallbackPixels, 2, 2,
+            TEXTURE_USE_COLOR).code != ANO_TEXTURE_BUILT) {
         ano_log(ANO_WARN, "Warning: Failed to create fallback texture!");
         return false;
     }

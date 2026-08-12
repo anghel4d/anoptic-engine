@@ -102,6 +102,9 @@ bool render_resource_epoch_compatible(
         if (slot >= state->slotMotionCap
             || state->slotResourceAsset[slot].value == 0)
             continue;
+        if (!ano_vk_resource_scene_affected(
+                residency, state->slotResourceAsset[slot]))
+            continue;
         AnoRenderableDesc resolved = {};
         if (!ano_vk_resource_scene_primitive(
                 residency, state->slotResourceAsset[slot],
@@ -116,9 +119,13 @@ void render_apply_resource_epoch(
     RendererState *state, const AnoRenderResidency *residency,
     uint32_t frameIndex)
 {
+    bool changed = false;
     for (uint32_t slot = 0; slot < state->slots.slotHighWater; ++slot) {
         if (slot >= state->slotMotionCap
             || state->slotResourceAsset[slot].value == 0)
+            continue;
+        if (!ano_vk_resource_scene_affected(
+                residency, state->slotResourceAsset[slot]))
             continue;
         AnoRenderableDesc resolved = {};
         if (!ano_vk_resource_scene_primitive(
@@ -138,8 +145,9 @@ void render_apply_resource_epoch(
         memcpy(command.resource_root, state->slotResourceRoot[slot],
                sizeof(mat4));
         stage_command_fields(state, &command, slot, frameIndex);
+        changed = true;
     }
-    state->shadowGlobalDirty = true;
+    if (changed) state->shadowGlobalDirty = true;
 }
 
 

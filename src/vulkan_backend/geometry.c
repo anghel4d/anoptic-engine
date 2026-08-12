@@ -33,6 +33,30 @@ static void geometry_pool_mark_gpu_dirty(GeometryPool* pool, uint32_t meshIndex)
     publication->pendingFrames[meshIndex] = publication->allFrames;
 }
 
+static bool geometry_pool_create_buffer(
+    GpuAllocator* allocator, VkDevice device,
+    const VkBufferCreateInfo* info, VkBuffer* buffer,
+    GpuAllocation* allocation)
+{
+    *buffer = VK_NULL_HANDLE;
+    *allocation = {};
+    if (vkCreateBuffer(device, info, NULL, buffer) != VK_SUCCESS)
+        return false;
+    VkMemoryRequirements requirements;
+    vkGetBufferMemoryRequirements(device, *buffer, &requirements);
+    *allocation = gpu_alloc(
+        allocator, requirements, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (allocation->memory != VK_NULL_HANDLE
+        && vkBindBufferMemory(device, *buffer, allocation->memory,
+                              allocation->offset) == VK_SUCCESS)
+        return true;
+    vkDestroyBuffer(device, *buffer, NULL);
+    gpu_free(allocator, *allocation);
+    *buffer = VK_NULL_HANDLE;
+    *allocation = {};
+    return false;
+}
+
 bool ano_vk_init_geometry_pool(GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
                                uint32_t graphicsFamily, uint32_t transferFamily,
                                uint32_t framesInFlight)
@@ -74,7 +98,7 @@ bool ano_vk_init_geometry_pool(GeometryPool* pool, GpuAllocator* alloc, VkDevice
     uint32_t queueFamilyIndices[] = {graphicsFamily, transferFamily};
     bool concurrent = (graphicsFamily != transferFamily);
 
-    VkBufferCreateInfo vInfo = {
+    VkBufferCreateInfo info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = vertexPoolSize,
         .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -82,65 +106,27 @@ bool ano_vk_init_geometry_pool(GeometryPool* pool, GpuAllocator* alloc, VkDevice
         .queueFamilyIndexCount = concurrent ? 2u : 0u,
         .pQueueFamilyIndices = concurrent ? queueFamilyIndices : NULL
     };
-    if (vkCreateBuffer(device, &vInfo, NULL, &pool->vertexBuffer) != VK_SUCCESS) {
-        pool->vertexBuffer = VK_NULL_HANDLE;
+    if (!geometry_pool_create_buffer(
+            alloc, device, &info, &pool->vertexBuffer,
+            &pool->vertexAlloc)) {
         geometry_pool_release_mesh_registry(pool);
         return false;
     }
-    VkMemoryRequirements vReqs;
-    vkGetBufferMemoryRequirements(device, pool->vertexBuffer, &vReqs);
-    pool->vertexAlloc = gpu_alloc(alloc, vReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (pool->vertexAlloc.memory == VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, pool->vertexBuffer, NULL);
-        pool->vertexBuffer = VK_NULL_HANDLE; // atomic rollback: null handle (cleanup guards on it) + free meshes
-        geometry_pool_release_mesh_registry(pool);
-        return false;
-    }
-    if (vkBindBufferMemory(device, pool->vertexBuffer, pool->vertexAlloc.memory,
-                           pool->vertexAlloc.offset) != VK_SUCCESS) {
-        vkDestroyBuffer(device, pool->vertexBuffer, NULL);
-        pool->vertexBuffer = VK_NULL_HANDLE;
-        geometry_pool_release_mesh_registry(pool);
-        return false;
-    }
+    info.size = indexPoolSize;
+    info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+        | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+        | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (geometry_pool_create_buffer(
+            alloc, device, &info, &pool->indexBuffer,
+            &pool->indexAlloc))
+        return true;
 
-    VkBufferCreateInfo iInfo = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = indexPoolSize,
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        .sharingMode = concurrent ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
-        .queueFamilyIndexCount = concurrent ? 2u : 0u,
-        .pQueueFamilyIndices = concurrent ? queueFamilyIndices : NULL
-    };
-    if (vkCreateBuffer(device, &iInfo, NULL, &pool->indexBuffer) != VK_SUCCESS) {
-        vkDestroyBuffer(device, pool->vertexBuffer, NULL);
-        pool->vertexBuffer = VK_NULL_HANDLE;
-        pool->indexBuffer = VK_NULL_HANDLE;
-        geometry_pool_release_mesh_registry(pool);
-        return false;
-    }
-    VkMemoryRequirements iReqs;
-    vkGetBufferMemoryRequirements(device, pool->indexBuffer, &iReqs);
-    pool->indexAlloc = gpu_alloc(alloc, iReqs, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (pool->indexAlloc.memory == VK_NULL_HANDLE) {
-        vkDestroyBuffer(device, pool->vertexBuffer, NULL);
-        vkDestroyBuffer(device, pool->indexBuffer, NULL);
-        pool->vertexBuffer = VK_NULL_HANDLE; // atomic rollback: null both handles + free meshes
-        pool->indexBuffer = VK_NULL_HANDLE;
-        geometry_pool_release_mesh_registry(pool);
-        return false;
-    }
-    if (vkBindBufferMemory(device, pool->indexBuffer, pool->indexAlloc.memory,
-                           pool->indexAlloc.offset) != VK_SUCCESS) {
-        vkDestroyBuffer(device, pool->vertexBuffer, NULL);
-        vkDestroyBuffer(device, pool->indexBuffer, NULL);
-        pool->vertexBuffer = VK_NULL_HANDLE;
-        pool->indexBuffer = VK_NULL_HANDLE;
-        geometry_pool_release_mesh_registry(pool);
-        return false;
-    }
-
-    return true;
+    vkDestroyBuffer(device, pool->vertexBuffer, NULL);
+    gpu_free(alloc, pool->vertexAlloc);
+    pool->vertexBuffer = VK_NULL_HANDLE;
+    pool->vertexAlloc = {};
+    geometry_pool_release_mesh_registry(pool);
+    return false;
 }
 
 void ano_vk_cleanup_geometry_pool(GeometryPool* pool, VkDevice device)
@@ -157,228 +143,163 @@ void ano_vk_cleanup_geometry_pool(GeometryPool* pool, VkDevice device)
     
 }
 
-static bool geometry_prepare_level(mi_heap_t* heap,
-                                   AnoPreparedGeometryLevel* level)
+struct GeometryScratch final {
+    ano_meshlet_t* meshlets;
+    uint32_t* meshletVertices;
+    uint8_t* triangles;
+    ano_meshlet_bounds_gpu_t* bounds;
+};
+
+struct GeometryUploadLayout final {
+    size_t vertexBytes;
+    size_t meshletBytes;
+    size_t uniqueVertexBytes;
+    size_t triangleBytes;
+    size_t boundsBytes;
+    size_t classicIndexBytes;
+    size_t metadataBytes;
+    size_t totalBytes;
+    bool valid;
+};
+
+constexpr bool geometry_size_product(size_t left, size_t right, size_t* value)
 {
-    const size_t maximum = ano_build_meshlets_bound(level->indexCount, 64, 126);
-    if (maximum == 0) return false;
-    ano_meshlet_t* meshlets = static_cast<ano_meshlet_t*>(mi_heap_malloc(
-        heap, maximum * sizeof(ano_meshlet_t)));
-    uint32_t* vertices = static_cast<uint32_t*>(mi_heap_malloc(
-        heap, maximum * 64u * sizeof(uint32_t)));
-    uint8_t* triangles = static_cast<uint8_t*>(mi_heap_malloc(
-        heap, maximum * 126u * 3u));
-    ano_meshlet_bounds_gpu_t* bounds =
-        static_cast<ano_meshlet_bounds_gpu_t*>(mi_heap_malloc(
-            heap, maximum * sizeof(ano_meshlet_bounds_gpu_t)));
-    if (!meshlets || !vertices || !triangles || !bounds) return false;
+    if (left != 0 && right > SIZE_MAX / left) return false;
+    *value = left * right;
+    return true;
+}
+
+constexpr bool geometry_size_sum(size_t left, size_t right, size_t* value)
+{
+    if (right > SIZE_MAX - left) return false;
+    *value = left + right;
+    return true;
+}
+
+constexpr GeometryUploadLayout geometry_upload_layout(
+    size_t vertexCount, size_t indexCount, size_t meshletCount,
+    size_t uniqueVertexCount, size_t localIndexCount)
+{
+    GeometryUploadLayout result = {};
+    if (!geometry_size_product(vertexCount, sizeof(Vertex), &result.vertexBytes)
+        || !geometry_size_product(meshletCount, sizeof(ano_meshlet_t),
+                                  &result.meshletBytes)
+        || !geometry_size_product(uniqueVertexCount, sizeof(uint32_t),
+                                  &result.uniqueVertexBytes)
+        || localIndexCount > SIZE_MAX - 3u
+        || !geometry_size_product(meshletCount,
+                                  sizeof(ano_meshlet_bounds_gpu_t),
+                                  &result.boundsBytes)
+        || !geometry_size_product(indexCount, sizeof(uint32_t),
+                                  &result.classicIndexBytes))
+        return result;
+    result.triangleBytes = (localIndexCount + 3u) & ~size_t{3};
+    size_t metadata = 0;
+    if (!geometry_size_sum(result.meshletBytes, result.uniqueVertexBytes,
+                           &metadata)
+        || !geometry_size_sum(metadata, result.triangleBytes, &metadata)
+        || !geometry_size_sum(metadata, result.boundsBytes, &metadata)
+        || !geometry_size_sum(metadata, result.classicIndexBytes, &metadata)
+        || !geometry_size_sum(result.vertexBytes, metadata,
+                              &result.totalBytes)
+        || metadata > UINT32_MAX || result.vertexBytes > UINT32_MAX)
+        return result;
+    result.metadataBytes = metadata;
+    result.valid = true;
+    return result;
+}
+
+static_assert(geometry_upload_layout(1, 3, 1, 3, 3).valid);
+
+static bool geometry_prepare_level(
+    mi_heap_t* heap, AnoPreparedGeometryLevel* level,
+    const Vertex* vertices, uint32_t vertexCount,
+    const uint32_t* indices, uint32_t indexCount,
+    const GeometryScratch& scratch)
+{
     const size_t meshletCount = ano_build_meshlets(
-        meshlets, vertices, triangles, level->indices, level->indexCount,
-        64, 126);
+        scratch.meshlets, scratch.meshletVertices, scratch.triangles,
+        indices, indexCount, 64, 126);
     if (meshletCount == 0) return false;
     const size_t uniqueVertexCount =
-        meshlets[meshletCount - 1].vertex_offset
-        + meshlets[meshletCount - 1].vertex_count;
+        scratch.meshlets[meshletCount - 1].vertex_offset
+        + scratch.meshlets[meshletCount - 1].vertex_count;
     const size_t localIndexCount =
-        meshlets[meshletCount - 1].triangle_offset
-        + meshlets[meshletCount - 1].triangle_count * 3u;
+        scratch.meshlets[meshletCount - 1].triangle_offset
+        + scratch.meshlets[meshletCount - 1].triangle_count * 3u;
     for (size_t i = 0; i < meshletCount; ++i)
-        bounds[i] = ano_compute_meshlet_bounds(
-            vertices + meshlets[i].vertex_offset,
-            triangles + meshlets[i].triangle_offset,
-            meshlets[i].triangle_count, (const float*)level->vertices,
-            level->vertexCount, sizeof(Vertex));
+        scratch.bounds[i] = ano_compute_meshlet_bounds(
+            scratch.meshletVertices + scratch.meshlets[i].vertex_offset,
+            scratch.triangles + scratch.meshlets[i].triangle_offset,
+            scratch.meshlets[i].triangle_count,
+            reinterpret_cast<const float*>(vertices), vertexCount,
+            sizeof(Vertex));
 
-    const size_t meshletBytes = meshletCount * sizeof(ano_meshlet_t);
-    const size_t uniqueVertexBytes = uniqueVertexCount * sizeof(uint32_t);
-    const size_t triangleBytes = (localIndexCount + 3u) & ~size_t{3};
-    const size_t boundsBytes = meshletCount * sizeof(ano_meshlet_bounds_gpu_t);
-    const size_t classicIndexBytes =
-        (size_t)level->indexCount * sizeof(uint32_t);
-    const size_t metadataBytes = meshletBytes + uniqueVertexBytes
-        + triangleBytes + boundsBytes + classicIndexBytes;
-    const size_t vertexBytes = (size_t)level->vertexCount * sizeof(Vertex);
-    if (metadataBytes > UINT32_MAX || vertexBytes > UINT32_MAX
-        || metadataBytes > SIZE_MAX - vertexBytes)
-        return false;
-    level->upload = static_cast<uint8_t*>(mi_heap_malloc(
-        heap, vertexBytes + metadataBytes));
+    const GeometryUploadLayout layout = geometry_upload_layout(
+        vertexCount, indexCount, meshletCount, uniqueVertexCount,
+        localIndexCount);
+    if (!layout.valid) return false;
+    level->upload = static_cast<uint8_t*>(
+        mi_heap_malloc(heap, layout.totalBytes));
     if (!level->upload) return false;
-    memcpy(level->upload, level->vertices, vertexBytes);
-    uint8_t* metadata = level->upload + vertexBytes;
-    memcpy(metadata, meshlets, meshletBytes);
-    memcpy(metadata + meshletBytes, vertices, uniqueVertexBytes);
-    memcpy(metadata + meshletBytes + uniqueVertexBytes,
-           triangles, localIndexCount);
-    if (triangleBytes > localIndexCount)
-        memset(metadata + meshletBytes + uniqueVertexBytes + localIndexCount,
-               0, triangleBytes - localIndexCount);
-    memcpy(metadata + meshletBytes + uniqueVertexBytes + triangleBytes,
-           bounds, boundsBytes);
-    memcpy(metadata + meshletBytes + uniqueVertexBytes + triangleBytes
-               + boundsBytes,
-           level->indices, classicIndexBytes);
+    memcpy(level->upload, vertices, layout.vertexBytes);
+    uint8_t* metadata = level->upload + layout.vertexBytes;
+    memcpy(metadata, scratch.meshlets, layout.meshletBytes);
+    memcpy(metadata + layout.meshletBytes, scratch.meshletVertices,
+           layout.uniqueVertexBytes);
+    memcpy(metadata + layout.meshletBytes + layout.uniqueVertexBytes,
+           scratch.triangles, localIndexCount);
+    if (layout.triangleBytes > localIndexCount)
+        memset(metadata + layout.meshletBytes + layout.uniqueVertexBytes
+                   + localIndexCount,
+               0, layout.triangleBytes - localIndexCount);
+    memcpy(metadata + layout.meshletBytes + layout.uniqueVertexBytes
+               + layout.triangleBytes,
+           scratch.bounds, layout.boundsBytes);
+    memcpy(metadata + layout.meshletBytes + layout.uniqueVertexBytes
+               + layout.triangleBytes + layout.boundsBytes,
+           indices, layout.classicIndexBytes);
 
-    level->vertexBytes = (uint32_t)vertexBytes;
-    level->metadataBytes = (uint32_t)metadataBytes;
+    level->vertexBytes = static_cast<uint32_t>(layout.vertexBytes);
+    level->metadataBytes = static_cast<uint32_t>(layout.metadataBytes);
     level->region = {
-        .vertexCount = level->vertexCount,
-        .indexCount = (uint32_t)metadataBytes,
-        .meshletCount = (uint32_t)meshletCount,
-        .uniqueVerticesOffset = (uint32_t)meshletBytes,
-        .trianglesOffset = (uint32_t)(meshletBytes + uniqueVertexBytes),
-        .boundsOffset = (uint32_t)(meshletBytes + uniqueVertexBytes
-                                   + triangleBytes),
-        .classicIndexOffset = (uint32_t)(meshletBytes + uniqueVertexBytes
-                                         + triangleBytes + boundsBytes),
-        .classicIndexCount = level->indexCount,
+        .vertexCount = vertexCount,
+        .metadataBytes = static_cast<uint32_t>(layout.metadataBytes),
+        .meshletCount = static_cast<uint32_t>(meshletCount),
+        .uniqueVerticesOffset = static_cast<uint32_t>(layout.meshletBytes),
+        .trianglesOffset = static_cast<uint32_t>(
+            layout.meshletBytes + layout.uniqueVertexBytes),
+        .boundsOffset = static_cast<uint32_t>(
+            layout.meshletBytes + layout.uniqueVertexBytes
+            + layout.triangleBytes),
+        .classicIndexOffset = static_cast<uint32_t>(
+            layout.meshletBytes + layout.uniqueVertexBytes
+            + layout.triangleBytes + layout.boundsBytes),
+        .classicIndexCount = indexCount,
         .lodCount = 1,
     };
-    Vector3 minimum = level->vertices[0].position;
-    Vector3 maximumBounds = minimum;
-    for (uint32_t i = 1; i < level->vertexCount; ++i)
+    Vector3 minimum = vertices[0].position;
+    Vector3 maximum = minimum;
+    for (uint32_t i = 1; i < vertexCount; ++i)
         for (uint32_t axis = 0; axis < 3; ++axis) {
-            const float value = level->vertices[i].position.v[axis];
+            const float value = vertices[i].position.v[axis];
             if (value < minimum.v[axis]) minimum.v[axis] = value;
-            if (value > maximumBounds.v[axis]) maximumBounds.v[axis] = value;
+            if (value > maximum.v[axis]) maximum.v[axis] = value;
         }
-    float maximumDistance = 0.0f;
     for (uint32_t axis = 0; axis < 3; ++axis)
         level->region.boundingSphereCenter[axis] =
-            (minimum.v[axis] + maximumBounds.v[axis]) * 0.5f;
-    for (uint32_t i = 0; i < level->vertexCount; ++i) {
+            (minimum.v[axis] + maximum.v[axis]) * 0.5f;
+    float maximumDistance = 0.0f;
+    for (uint32_t i = 0; i < vertexCount; ++i) {
         float distance = 0.0f;
         for (uint32_t axis = 0; axis < 3; ++axis) {
-            const float delta = level->vertices[i].position.v[axis]
+            const float delta = vertices[i].position.v[axis]
                 - level->region.boundingSphereCenter[axis];
             distance += delta * delta;
         }
         if (distance > maximumDistance) maximumDistance = distance;
     }
     level->region.boundingSphereRadius = sqrtf(maximumDistance);
-    return true;
-}
-
-// Emit worker-prepared bytes into a caller-reserved meshes[] slot.
-static bool geometry_pool_emit_level(GeometryPool* pool, GpuAllocator* alloc,
-                                     VkDevice device,
-                                     const AnoPreparedGeometryLevel* level,
-                                     uint32_t meshIndex,
-                                     VkCommandBuffer command,
-                                     VkBuffer* retainedStaging)
-{
-    const VkDeviceSize totalSize =
-        (VkDeviceSize)level->vertexBytes + level->metadataBytes;
-    VkBufferCreateInfo stagingInfo = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        .size = totalSize,
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .sharingMode = VK_SHARING_MODE_EXCLUSIVE
-    };
-
-    VkBuffer staging = VK_NULL_HANDLE;
-    if (vkCreateBuffer(device, &stagingInfo, NULL, &staging)
-        != VK_SUCCESS) {
-        return false;
-    }
-
-    VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(device, staging, &memReqs);
-
-    GpuAllocation stagingAlloc = gpu_alloc(alloc, memReqs, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (stagingAlloc.memory == VK_NULL_HANDLE
-        || vkBindBufferMemory(device, staging, stagingAlloc.memory,
-                              stagingAlloc.offset) != VK_SUCCESS) {
-        vkDestroyBuffer(device, staging, NULL);
-        return false;
-    }
-    memcpy(stagingAlloc.mapped, level->upload, (size_t)totalSize);
-
-    // Plan allocations
-    uint32_t finalVertexOffset = (uint32_t)-1;
-    int vertexFreeIdx = -1;
-    for (uint32_t i = 0; i < pool->vertexFreeCount; i++) {
-        if (pool->vertexFreeBlocks[i].size >= level->vertexBytes) {
-            finalVertexOffset = pool->vertexFreeBlocks[i].offset;
-            vertexFreeIdx = (int)i;
-            break;
-        }
-    }
-    if (finalVertexOffset == (uint32_t)-1) {
-        if ((VkDeviceSize)pool->vertexWriteOffset + level->vertexBytes > pool->vertexCapacity) {
-            ano_log(ANO_ERROR, "Error: Geometry mega-buffer vertex pool exhausted! Requested %llu, Capacity %llu",
-                   (unsigned long long)(pool->vertexWriteOffset + level->vertexBytes), (unsigned long long)pool->vertexCapacity);
-            vkDestroyBuffer(device, staging, NULL);
-            return false; // pool exhausted
-        }
-        finalVertexOffset = pool->vertexWriteOffset;
-    }
-
-    uint32_t finalIndexOffset = (uint32_t)-1;
-    int indexFreeIdx = -1;
-    for (uint32_t i = 0; i < pool->indexFreeCount; i++) {
-        if (pool->indexFreeBlocks[i].size >= level->metadataBytes) {
-            finalIndexOffset = pool->indexFreeBlocks[i].offset;
-            indexFreeIdx = (int)i;
-            break;
-        }
-    }
-    if (finalIndexOffset == (uint32_t)-1) {
-        if ((VkDeviceSize)pool->indexWriteOffset + level->metadataBytes > pool->indexCapacity) {
-            ano_log(ANO_ERROR, "Error: Geometry mega-buffer metadata pool exhausted! Requested %llu, Capacity %llu",
-                   (unsigned long long)(pool->indexWriteOffset + level->metadataBytes), (unsigned long long)pool->indexCapacity);
-            vkDestroyBuffer(device, staging, NULL);
-            return false; // pool exhausted
-        }
-        finalIndexOffset = pool->indexWriteOffset;
-    }
-
-    // Commit reservations
-    if (vertexFreeIdx >= 0) {
-        pool->vertexFreeBlocks[vertexFreeIdx].offset += level->vertexBytes;
-        pool->vertexFreeBlocks[vertexFreeIdx].size -= level->vertexBytes;
-        if (pool->vertexFreeBlocks[vertexFreeIdx].size == 0) {
-            pool->vertexFreeBlocks[vertexFreeIdx] = pool->vertexFreeBlocks[--pool->vertexFreeCount];
-        }
-    } else {
-        pool->vertexWriteOffset += level->vertexBytes;
-    }
-    if (indexFreeIdx >= 0) {
-        pool->indexFreeBlocks[indexFreeIdx].offset += level->metadataBytes;
-        pool->indexFreeBlocks[indexFreeIdx].size -= level->metadataBytes;
-        if (pool->indexFreeBlocks[indexFreeIdx].size == 0) {
-            pool->indexFreeBlocks[indexFreeIdx] = pool->indexFreeBlocks[--pool->indexFreeCount];
-        }
-    } else {
-        pool->indexWriteOffset += level->metadataBytes;
-    }
-
-    VkBufferCopy copyRegion = {
-        .srcOffset = 0,
-        .dstOffset = finalVertexOffset,
-        .size = level->vertexBytes
-    };
-    vkCmdCopyBuffer(command, staging, pool->vertexBuffer, 1, &copyRegion);
-
-    VkBufferCopy indexCopyRegion = {
-        .srcOffset = level->vertexBytes,
-        .dstOffset = finalIndexOffset,
-        .size = level->metadataBytes
-    };
-    vkCmdCopyBuffer(command, staging, pool->indexBuffer, 1,
-                    &indexCopyRegion);
-    *retainedStaging = staging;
-
-    MeshRegion* mesh = &pool->meshes[meshIndex];
-    *mesh = level->region;
-    mesh->vertexOffset = finalVertexOffset;
-    mesh->indexOffset = finalIndexOffset;
-    mesh->meshletOffset += finalIndexOffset;
-    mesh->uniqueVerticesOffset += finalIndexOffset;
-    mesh->trianglesOffset += finalIndexOffset;
-    mesh->boundsOffset += finalIndexOffset;
-    mesh->classicIndexOffset += finalIndexOffset;
-
     return true;
 }
 
@@ -400,19 +321,18 @@ AnoLodConfig ano_lod_config_default(uint32_t lodCount)
     return c;
 }
 
-// Compact referenced verts into outVerts; rewrite indices in place. Returns compacted count, or 0 on OOM.
-static uint32_t geometry_compact_level(mi_heap_t* heap,
-                                       const Vertex* srcVerts, uint32_t srcVertexCount,
-                                       uint32_t* indices, uint32_t indexCount, Vertex* outVerts)
+// Compact referenced vertices into outVerts and rewrite indices in place.
+static uint32_t geometry_compact_level(
+    const Vertex* srcVerts, uint32_t srcVertexCount,
+    uint32_t* indices, uint32_t indexCount, Vertex* outVerts,
+    uint32_t* remap)
 {
-    uint32_t* remap = static_cast<uint32_t*>(mi_heap_malloc(
-        heap, (size_t)srcVertexCount * sizeof(uint32_t)));
-    if (!remap) return 0;
     memset(remap, 0xFF, (size_t)srcVertexCount * sizeof(uint32_t)); // 0xFFFFFFFF == unassigned
 
     uint32_t next = 0;
     for (uint32_t i = 0; i < indexCount; ++i) {
         uint32_t old = indices[i];
+        if (old >= srcVertexCount) return 0;
         if (remap[old] == 0xFFFFFFFFu) {
             remap[old] = next;
             outVerts[next] = srcVerts[old];
@@ -421,6 +341,11 @@ static uint32_t geometry_compact_level(mi_heap_t* heap,
         indices[i] = remap[old];
     }
     return next;
+}
+
+constexpr VkDeviceSize geometry_upload_align(VkDeviceSize offset)
+{
+    return (offset + 3u) & ~VkDeviceSize{3};
 }
 
 bool geometry_prepare_chain(
@@ -437,6 +362,28 @@ bool geometry_prepare_chain(
     if (want > ANO_MAX_LOD) want = ANO_MAX_LOD;
     const float targetError = config ? config->targetError : 0.0f;
 
+    const size_t meshletCapacity = ano_build_meshlets_bound(
+        indexCount, 64, 126);
+    if (meshletCapacity == 0
+        || meshletCapacity > SIZE_MAX / sizeof(ano_meshlet_t)
+        || meshletCapacity > SIZE_MAX / (64u * sizeof(uint32_t))
+        || meshletCapacity > SIZE_MAX / (126u * 3u)
+        || meshletCapacity > SIZE_MAX / sizeof(ano_meshlet_bounds_gpu_t))
+        return false;
+    const GeometryScratch scratch = {
+        .meshlets = static_cast<ano_meshlet_t*>(mi_heap_malloc(
+            heap, meshletCapacity * sizeof(ano_meshlet_t))),
+        .meshletVertices = static_cast<uint32_t*>(mi_heap_malloc(
+            heap, meshletCapacity * 64u * sizeof(uint32_t))),
+        .triangles = static_cast<uint8_t*>(mi_heap_malloc(
+            heap, meshletCapacity * 126u * 3u)),
+        .bounds = static_cast<ano_meshlet_bounds_gpu_t*>(mi_heap_malloc(
+            heap, meshletCapacity * sizeof(ano_meshlet_bounds_gpu_t))),
+    };
+    if (!scratch.meshlets || !scratch.meshletVertices
+        || !scratch.triangles || !scratch.bounds)
+        return false;
+
     uint32_t* simplified = want > 1u
         ? static_cast<uint32_t*>(mi_heap_malloc(
             heap, (size_t)indexCount * sizeof(uint32_t)))
@@ -445,7 +392,11 @@ bool geometry_prepare_chain(
         ? static_cast<Vertex*>(mi_heap_malloc(
             heap, (size_t)vertexCount * sizeof(Vertex)))
         : NULL;
-    if (want > 1u && (!simplified || !compacted)) want = 1u;
+    uint32_t* remap = want > 1u
+        ? static_cast<uint32_t*>(mi_heap_malloc(
+            heap, (size_t)vertexCount * sizeof(uint32_t)))
+        : NULL;
+    if (want > 1u && (!simplified || !compacted || !remap)) want = 1u;
 
     for (uint32_t level = 0; level < want; ++level) {
         const Vertex* levelVertices = vertices;
@@ -466,25 +417,25 @@ bool geometry_prepare_chain(
             ano_optimize_vertex_cache(simplified, simplified, got, vertexCount);
             levelIndexCount = (uint32_t)got;
             levelVertexCount = geometry_compact_level(
-                heap, vertices, vertexCount, simplified, levelIndexCount,
-                compacted);
+                vertices, vertexCount, simplified, levelIndexCount,
+                compacted, remap);
             if (levelVertexCount == 0) break;
             levelVertices = compacted;
             levelIndices = simplified;
         }
         AnoPreparedGeometryLevel& output = prepared->levels[prepared->lodCount];
-        output.vertices = static_cast<Vertex*>(mi_heap_malloc(
-            heap, (size_t)levelVertexCount * sizeof(Vertex)));
-        output.indices = static_cast<uint32_t*>(mi_heap_malloc(
-            heap, (size_t)levelIndexCount * sizeof(uint32_t)));
-        if (!output.vertices || !output.indices) return false;
-        memcpy(output.vertices, levelVertices,
-               (size_t)levelVertexCount * sizeof(Vertex));
-        memcpy(output.indices, levelIndices,
-               (size_t)levelIndexCount * sizeof(uint32_t));
-        output.vertexCount = levelVertexCount;
-        output.indexCount = levelIndexCount;
-        if (!geometry_prepare_level(heap, &output)) return false;
+        if (!geometry_prepare_level(
+                heap, &output, levelVertices, levelVertexCount,
+                levelIndices, levelIndexCount, scratch))
+            return false;
+        const VkDeviceSize offset = geometry_upload_align(
+            prepared->uploadBytes);
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(
+            output.vertexBytes) + output.metadataBytes;
+        if (offset < prepared->uploadBytes || bytes > UINT64_MAX - offset)
+            return false;
+        output.uploadOffset = offset;
+        prepared->uploadBytes = offset + bytes;
         ++prepared->lodCount;
     }
     return prepared->lodCount != 0;
@@ -543,60 +494,148 @@ static uint32_t geometry_pool_reserve_meshes(GeometryPool* pool,
     return base;
 }
 
-uint32_t geometry_pool_record_prepared_chain(
-    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-    const AnoPreparedGeometry* prepared, VkCommandBuffer command,
-    VkBuffer outStaging[ANO_MAX_LOD], uint32_t* out_lodCount)
+static void geometry_pool_free_span(GeoFreeBlock** spans, uint32_t* count,
+                                    uint32_t* capacity, uint32_t offset,
+                                    uint32_t size);
+
+static bool geometry_pool_reserve_free_capacity(
+    GeoFreeBlock** blocks, uint32_t count, uint32_t* capacity,
+    uint32_t additional)
 {
-    if (!prepared || prepared->lodCount == 0 || !outStaging || !out_lodCount
-        || command == VK_NULL_HANDLE)
+    if (additional > UINT32_MAX - count) return false;
+    const uint32_t required = count + additional;
+    if (required <= *capacity) return true;
+    uint32_t grown = *capacity == 0 ? 32u : *capacity;
+    while (grown < required) {
+        if (grown > UINT32_MAX / 2u) return false;
+        grown *= 2u;
+    }
+    GeoFreeBlock* replacement = ano::reallocate(*blocks, grown);
+    if (!replacement) return false;
+    *blocks = replacement;
+    *capacity = grown;
+    return true;
+}
+
+static bool geometry_pool_take_span(
+    GeoFreeBlock* blocks, uint32_t* freeCount, uint32_t* writeOffset,
+    VkDeviceSize capacity, uint32_t bytes, uint32_t* offset)
+{
+    for (uint32_t i = 0; i < *freeCount; ++i) {
+        if (blocks[i].size < bytes) continue;
+        *offset = blocks[i].offset;
+        blocks[i].offset += bytes;
+        blocks[i].size -= bytes;
+        if (blocks[i].size == 0)
+            blocks[i] = blocks[--*freeCount];
+        return true;
+    }
+    if (static_cast<VkDeviceSize>(*writeOffset) + bytes > capacity)
+        return false;
+    *offset = *writeOffset;
+    *writeOffset += bytes;
+    return true;
+}
+
+uint32_t geometry_pool_record_prepared_chain(
+    GeometryPool* pool, const AnoPreparedGeometry* prepared,
+    VkCommandBuffer command, VkBuffer staging, void* stagingMapped,
+    VkDeviceSize stagingBase)
+{
+    if (!pool || !prepared || prepared->lodCount == 0
+        || prepared->lodCount > ANO_MAX_LOD
+        || command == VK_NULL_HANDLE || staging == VK_NULL_HANDLE
+        || !stagingMapped || (stagingBase & 3u) != 0
+        || prepared->uploadBytes > UINT64_MAX - stagingBase
+        || stagingBase + prepared->uploadBytes > SIZE_MAX)
         return ANO_MESH_NONE;
-    *out_lodCount = 0;
     bool appended = false;
     const uint32_t base = geometry_pool_reserve_meshes(
         pool, prepared->lodCount, &appended);
     if (base == ANO_MESH_NONE) return base;
-    uint32_t produced = 0;
-    for (; produced < prepared->lodCount; ++produced) {
-        const AnoPreparedGeometryLevel& level = prepared->levels[produced];
-        VkBuffer staging = VK_NULL_HANDLE;
-        if (!geometry_pool_emit_level(
-                pool, alloc, device, &level, base + produced, command,
-                &staging))
-            break;
-        outStaging[produced] = staging;
+    if (!geometry_pool_reserve_free_capacity(
+            &pool->vertexFreeBlocks, pool->vertexFreeCount,
+            &pool->vertexFreeCapacity, prepared->lodCount)
+        || !geometry_pool_reserve_free_capacity(
+            &pool->indexFreeBlocks, pool->indexFreeCount,
+            &pool->indexFreeCapacity, prepared->lodCount)) {
+        if (appended) pool->meshCount = base;
+        return ANO_MESH_NONE;
     }
-    if (appended) pool->meshCount = base + produced;
-    if (produced != 0) {
-        pool->meshes[base].lodCount = produced;
-        for (uint32_t level = 0; level < produced; ++level)
-            geometry_pool_mark_gpu_dirty(pool, base + level);
-    }
-    *out_lodCount = produced;
-    return produced ? base : ANO_MESH_NONE;
-}
 
-// Upload contiguous LOD chain. Level 0 = full mesh; level i = ano_simplify(source, ratios[i]) then compact+emit.
-// Cull bound from level 0 only. Truncates on stall/exhaust; releases unused reserved slots.
-// in: source mesh, config (NULL => one full level)
-// out: base / *out_lodCount; total failure => ANO_MESH_NONE + 0 (never the fallback slot)
-uint32_t geometry_pool_record_chain(
-    GeometryPool* pool, GpuAllocator* alloc, VkDevice device,
-    const Vertex* vertices, uint32_t vertexCount,
-    const uint32_t* indices, uint32_t indexCount,
-    const AnoLodConfig* config, VkCommandBuffer command,
-    VkBuffer outStaging[ANO_MAX_LOD], uint32_t* out_lodCount)
-{
-    mi_heap_t* heap = mi_heap_new();
-    if (!heap) return ANO_MESH_NONE;
-    AnoPreparedGeometry prepared = {};
-    const bool ready = geometry_prepare_chain(
-        heap, vertices, vertexCount, indices, indexCount, config, &prepared);
-    const uint32_t base = ready
-        ? geometry_pool_record_prepared_chain(
-            pool, alloc, device, &prepared, command, outStaging, out_lodCount)
-        : ANO_MESH_NONE;
-    mi_heap_destroy(heap);
+    uint32_t vertexOffsets[ANO_MAX_LOD] = {};
+    uint32_t metadataOffsets[ANO_MAX_LOD] = {};
+    uint32_t reserved = 0;
+    for (; reserved < prepared->lodCount; ++reserved) {
+        const AnoPreparedGeometryLevel& level = prepared->levels[reserved];
+        if (!geometry_pool_take_span(
+                pool->vertexFreeBlocks, &pool->vertexFreeCount,
+                &pool->vertexWriteOffset, pool->vertexCapacity,
+                level.vertexBytes, &vertexOffsets[reserved]))
+            break;
+        if (!geometry_pool_take_span(
+                pool->indexFreeBlocks, &pool->indexFreeCount,
+                &pool->indexWriteOffset, pool->indexCapacity,
+                level.metadataBytes, &metadataOffsets[reserved])) {
+            geometry_pool_free_span(
+                &pool->vertexFreeBlocks, &pool->vertexFreeCount,
+                &pool->vertexFreeCapacity, vertexOffsets[reserved],
+                level.vertexBytes);
+            break;
+        }
+    }
+    if (reserved != prepared->lodCount) {
+        for (uint32_t i = 0; i < reserved; ++i) {
+            geometry_pool_free_span(
+                &pool->vertexFreeBlocks, &pool->vertexFreeCount,
+                &pool->vertexFreeCapacity, vertexOffsets[i],
+                prepared->levels[i].vertexBytes);
+            geometry_pool_free_span(
+                &pool->indexFreeBlocks, &pool->indexFreeCount,
+                &pool->indexFreeCapacity, metadataOffsets[i],
+                prepared->levels[i].metadataBytes);
+        }
+        if (appended) pool->meshCount = base;
+        ano_log(ANO_ERROR, "Geometry mega-buffer exhausted while reserving a LOD chain.");
+        return ANO_MESH_NONE;
+    }
+
+    uint8_t* mapped = static_cast<uint8_t*>(stagingMapped);
+    for (uint32_t i = 0; i < prepared->lodCount; ++i) {
+        const AnoPreparedGeometryLevel& level = prepared->levels[i];
+        const VkDeviceSize source = stagingBase + level.uploadOffset;
+        const VkDeviceSize total = static_cast<VkDeviceSize>(
+            level.vertexBytes) + level.metadataBytes;
+        memcpy(mapped + static_cast<size_t>(source), level.upload,
+               static_cast<size_t>(total));
+        const VkBufferCopy vertexCopy = {
+            .srcOffset = source,
+            .dstOffset = vertexOffsets[i],
+            .size = level.vertexBytes,
+        };
+        const VkBufferCopy metadataCopy = {
+            .srcOffset = source + level.vertexBytes,
+            .dstOffset = metadataOffsets[i],
+            .size = level.metadataBytes,
+        };
+        vkCmdCopyBuffer(command, staging, pool->vertexBuffer, 1,
+                        &vertexCopy);
+        vkCmdCopyBuffer(command, staging, pool->indexBuffer, 1,
+                        &metadataCopy);
+
+        MeshRegion& mesh = pool->meshes[base + i];
+        mesh = level.region;
+        mesh.vertexOffset = vertexOffsets[i];
+        mesh.indexOffset = metadataOffsets[i];
+        mesh.meshletOffset += metadataOffsets[i];
+        mesh.uniqueVerticesOffset += metadataOffsets[i];
+        mesh.trianglesOffset += metadataOffsets[i];
+        mesh.boundsOffset += metadataOffsets[i];
+        mesh.classicIndexOffset += metadataOffsets[i];
+    }
+    pool->meshes[base].lodCount = prepared->lodCount;
+    for (uint32_t i = 0; i < prepared->lodCount; ++i)
+        geometry_pool_mark_gpu_dirty(pool, base + i);
     return base;
 }
 
@@ -635,10 +674,11 @@ void geometry_pool_free(GeometryPool* pool, uint32_t meshIndex)
         &pool->vertexFreeBlocks, &pool->vertexFreeCount,
         &pool->vertexFreeCapacity, mesh->vertexOffset,
         static_cast<uint32_t>(mesh->vertexCount * sizeof(Vertex)));
-    if (mesh->indexCount != 0)
+    if (mesh->metadataBytes != 0)
         geometry_pool_free_span(
             &pool->indexFreeBlocks, &pool->indexFreeCount,
-            &pool->indexFreeCapacity, mesh->indexOffset, mesh->indexCount);
+            &pool->indexFreeCapacity, mesh->indexOffset,
+            mesh->metadataBytes);
 
     // Clear mesh
     memset(mesh, 0, sizeof(MeshRegion));

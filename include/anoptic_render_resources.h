@@ -12,6 +12,7 @@
 #include "anoptic_resources_typed.h"
 #include "anoptic_resources_cook.h"
 #include "anoptic_resources_runtime.h"
+#include "anoptic_memory.h"
 
 typedef struct AnoRenderResourcePublication AnoRenderResourcePublication;
 
@@ -21,10 +22,11 @@ typedef enum AnoRenderResourceReloadStatus {
     ANO_RENDER_RESOURCE_RELOAD_REJECTED,
 } AnoRenderResourceReloadStatus;
 
-// Preparation takes ownership of reload. The published epoch remains unchanged
-// until a ready publication is committed at a render-frame boundary.
+// Preparation takes ownership of reload. The caller keeps preparationHeap live
+// until polling or cancellation consumes the publication.
 extern "C" AnoResourceError ano_render_resources_prepare_reload(
-    AnoResourceReload *reload, AnoRenderResourcePublication **publication);
+    AnoResourceReload *reload, mi_heap_t *preparationHeap,
+    AnoRenderResourcePublication **publication);
 // Polls owner work and commits a ready candidate. A terminal result consumes
 // *publication and sets it to null; rejection preserves the current epoch.
 extern "C" AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
