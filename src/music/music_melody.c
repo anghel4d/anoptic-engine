@@ -847,7 +847,7 @@ void ano_generate_melody(const AnoHarmonicContext *ctx, AnoMeter meter,
     }
 
     if (replayed) {
-        // placed stands
+        // replayed line already placed
     } else if (lifecycle == ANO_MEL_COMPLETED) {
         // payoff drive: the phrase develops the signature constraint-first
         AnoVariantOp op;

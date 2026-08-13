@@ -54,7 +54,6 @@ static void bb_puts(HANDLE h, const char *s) { bb_write_all(h, s, strlen(s)); }
 static void bb_dec(HANDLE h, unsigned long long v) { char b[20]; bb_write_all(h, b, bb_fmt_dec(b, v)); }
 static void bb_hex(HANDLE h, unsigned long long v) { char b[18]; bb_write_all(h, b, bb_fmt_hex(b, v)); }
 
-// Exception code -> name.
 static const char *bb_code_name(DWORD code)
 {
     switch (code) {
@@ -300,6 +299,7 @@ int bb_thread_arm(void)
     return SetThreadStackGuarantee(&g) ? 0 : -1;
 }
 
+// SetThreadStackGuarantee lasts until thread exit.
 void bb_thread_disarm(void)
 {
 }

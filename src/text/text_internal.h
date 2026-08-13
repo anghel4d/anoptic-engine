@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Text internals shared by text.c / text_bake.c, exposed to the white-box unit test. FreeType-free.
+// Shared text internals. FreeType-free. White-box tests include this.
 
 #ifndef ANO_TEXT_INTERNAL_H
 #define ANO_TEXT_INTERNAL_H
@@ -32,12 +32,9 @@ void ano_text_version(int *major, int *minor, int *patch);
 //   glyph  := contour (SENTINEL contour)*
 //   contour := p0 (p1 p2)+          -- curve i+1 starts at curve i's p2
 
-// ANO_TEXT_POINT_SENTINEL separates contours, never a coordinate.
 // Contours close bit-exactly. Fill-right: clockwise outers in y-up, CCW holes. Every curve x- and y-monotone, control inside endpoint box.
+#define ANO_TEXT_POINT_SENTINEL 0x7C007C00u  // contour separator, never a coordinate
 
-#define ANO_TEXT_POINT_SENTINEL 0x7C007C00u
-
-// AnoGlyphEntry.flags bits.
 #define ANO_GLYPH_MISSING 0x1u  // codepoint absent from the face (blank stand-in)
 
 // Horizontal kern pair (GPOS PairPos): xAdvance added between glyphs, em, negative pulls together. Sorted by key.
@@ -56,8 +53,7 @@ struct AnoGlyphRange {
 // Directory slot for a codepoint, or ANO_TEXT_SLOT_NONE. Pure, any thread.
 uint32_t ano_text_bake_slot(const AnoFontBake *bake, uint32_t codepoint);
 
-// Pen advance, em, for codepoints with no slot.
-#define ANO_TEXT_GAP_EM 0.5f
+#define ANO_TEXT_GAP_EM 0.5f  // em advance for codepoints with no slot
 
 // Kern between two slots, em. 0 if absent or out of range; a slot >= 65536 aliases in the packed key and may hit an unrelated pair. Pure, any thread.
 float ano_text_kern(const AnoFontBake *bake, uint32_t leftSlot, uint32_t rightSlot);
@@ -87,7 +83,9 @@ int ano_cubic_to_quads(const double px[4], const double py[4], double tolEm,
 
 /* GPOS kerning */
 
-// FreeType-free. Accumulate latn/DFLT 'kern' PairPos xAdvance (lookups sorted by index, first applying subtable per pair) into dense[s1*slotCount+s2], font units, caller-zeroed. slotGids > 0xFFFF = absent. Bounds-checked. Malformed -> nonzero with dense possibly partial. 0 = success including "no kerns".
+// FreeType-free. Writes latn/DFLT 'kern' PairPos xAdvance into dense[s1*slotCount+s2], font units, caller-zeroed.
+// Lookups sorted by index; first applying subtable per pair. slotGids > 0xFFFF = absent. Bounds-checked.
+// Malformed -> nonzero, dense possibly partial. 0 = success, including no kerns.
 int ano_gpos_extract_kerns(const uint8_t *gpos, uint32_t len, const uint32_t *slotGids,
                            uint32_t slotCount, int32_t *dense);
 
@@ -103,7 +101,7 @@ void ano_text_raster_ref(const uint32_t *points, const AnoGlyphEntry *glyph,
                          float pixelsPerEm, int left, int top, int width, int rows,
                          uint8_t *out, float *maxSumOut);
 
-// FreeType AA ground truth (linear 8-bit, unhinted) at pixelsPerEm into buf. FT bearings. Returns 0 or EINVAL/EIO/ENOMEM. Module thread.
+// FreeType AA ground truth (linear 8-bit, unhinted) at pixelsPerEm into buf. Sets pixel sizes on the face. FT bearings. Returns 0 or EINVAL/EIO/ENOMEM. Module thread.
 int ano_text_ref_ft_render(AnoFontId font, uint32_t codepoint, uint32_t pixelsPerEm,
                            uint8_t *buf, uint32_t cap, int *width, int *rows,
                            int *left, int *top);

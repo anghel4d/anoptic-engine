@@ -28,8 +28,8 @@ extern "C" {
 
 /* Fixed shape */
 
-// Interleaved f32 stereo mix. Upstream and registered buffers match this rate.
-// Registered buffers: mono (spatializable) or stereo (pan = balance, never positional).
+// Interleaved f32 stereo mix. Registered buffers match this channel count and the engine sample rate.
+// Mono is spatializable. Stereo pan is balance only, never positional.
 #define ANO_AUDIO_CHANNELS 2
 
 // Pool ceilings. Preallocated at init. Runtime allocate is a state flip, never a mixer-thread heap call.
@@ -130,16 +130,15 @@ typedef struct AnoAudioBusDesc
     float    sendLevel[ANO_AUDIO_MAX_SENDS];     // initial linear send level
 } AnoAudioBusDesc;
 
-// Block generator on the mixer thread. After bus zero, before fold.
-// Writes into busMix[b] (interleaved stereo); rides that bus's chain, fader, and sends.
-// startFrame = absolute frame of the block's first sample. No alloc, lock, or bridge.
+// Mixer-thread block generator. After buses are zeroed, before voices and fold.
+// Writes busMix[b] (interleaved stereo); rides that bus's chain, fader, and sends.
+// startFrame is the block's first sample. No alloc, lock, or bridge.
 // Attach before init. Pointer immutable while running.
 typedef void (*AnoAudioGenerator)(void *user, float *const *busMix, uint32_t busCount,
                                   uint32_t frames, uint64_t startFrame);
 
-// Optional back-channel for a composing generator (steer / events / stats).
-// Composer state lives on the mixer thread; the producer cannot reach it.
-// Mixer never interprets these: forwards ACMD_MUSIC_*, publishes polled events, copies stats.
+// Composer back-channel. State stays on the mixer thread.
+// Mixer forwards ACMD_MUSIC_*, publishes polled events, copies stats.
 // All three run on the mixer thread at the block boundary. Optional; render-only needs none.
 struct AnoAudioCommand;
 struct AnoAudioEvent;
@@ -242,7 +241,7 @@ typedef enum AnoAudioCommandKind
     ACMD_BUFFER_REGISTER ANO_AUDIO_META(AnoAudioCommandContract{AnoAudioCommandPayload::buffer_block, AnoAudioPayloadOwnership::adopted, AnoAudioCommandTarget::mixer}),
     ACMD_BUFFER_RELEASE ANO_AUDIO_META(AnoAudioCommandContract{AnoAudioCommandPayload::source_id, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::mixer}),
 
-    // Forwarded verbatim to generatorControl at block boundary. No-op without generator.
+    // Forwarded verbatim to generatorControl at the block boundary. No-op without generatorControl.
     ACMD_MUSIC_AFFECT ANO_AUDIO_META(AnoAudioCommandContract{AnoAudioCommandPayload::music_affect, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::generator}),
     ACMD_MUSIC_KEY ANO_AUDIO_META(AnoAudioCommandContract{AnoAudioCommandPayload::music_key, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::generator}),
     ACMD_MUSIC_MOTIF ANO_AUDIO_META(AnoAudioCommandContract{AnoAudioCommandPayload::music_tag, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::generator}),
@@ -357,9 +356,9 @@ bool ano_audio_poll_event(AnoAudioBridge *bridge, AnoAudioEvent *out);
 
 /* Sample buffers */
 
-// Register from logic. Copies to owned block at submit; never free on mixer.
-// RELEASE stops voices; block returns via AEVT_BUFFER_RETIRED after last voice quiets.
-// Teardown frees remaining resident, queued, or un-polled blocks. No AEVT after shutdown; do not free adopted blocks after return.
+// Copies to an owned block at submit. Mixer owns it until AEVT_BUFFER_RETIRED; do not free after a successful submit.
+// RELEASE stops voices; the block returns via AEVT_BUFFER_RETIRED after the last voice quiets.
+// Shutdown frees remaining resident, queued, or un-polled blocks. No AEVT after shutdown; those blocks are already freed.
 
 // Register interleaved f32 (1-2 ch, engine rate). false = backpressure or bad args.
 bool ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,

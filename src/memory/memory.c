@@ -8,8 +8,7 @@
 
 namespace std {
 
-// The no-runtime build supplies the terminal path required by standard
-// containers when exceptions are disabled.
+// Weak terminate: no-runtime, no-exception containers require this path.
 [[gnu::weak, noreturn]] void terminate() noexcept
 {
     __builtin_trap();

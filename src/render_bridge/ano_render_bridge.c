@@ -44,8 +44,6 @@ bool ano_render_bridge_init(AnoRenderBridge *bridge, mi_heap_t *heap,
     return true;
 }
 
-// in:  cmd (POD command being dropped)
-// out: nothing; frees the render-owned block its kind carries
 // inv: reflected ownership map is total over RenderCommandKind. Ownership rides bulk_owned.
 void ano_render_command_release(const RenderCommand *cmd)
 {
@@ -69,13 +67,11 @@ void ano_render_bridge_destroy(AnoRenderBridge *bridge)
 
 /* Logic Master Endpoints */
 
-// Public producer endpoint (anoptic_render.h). Non-inline via opaque handle.
 bool ano_render_submit(AnoRenderBridge *bridge, const RenderCommand *cmd)
 {
     return bridge->commands.push(*cmd);
 }
 
-// Runtime light endpoints. POD RenderCommand -> command ring. false == full, retry.
 bool ano_render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_t parent_render_id,
                              const RenderLightParams *params, float ox, float oy, float oz)
 {
@@ -110,9 +106,7 @@ bool ano_render_light_detach(AnoRenderBridge *bridge, uint32_t light_id)
 
 /* Bulk */
 
-// in:  bridge, batch (caller-owned; only mask-named arrays are read)
-// out: ACCEPTED with one render-owned block enqueued, or a refusal
-// inv: NULL batch before count; zero count before any array touch
+// inv: NULL batch before count; zero count before any array touch. Only mask-named arrays are read.
 AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, const RenderUpdateBatch *batch)
 {
     if (batch == NULL)
@@ -152,7 +146,7 @@ AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, con
 
     RenderCommand cmd = { .kind = RCMD_BULK_UPDATE, .update = b, .bulk_owned = true };
     if (!ano_render_submit(bridge, &cmd)) {
-        ano_render_command_release(&cmd); // failed push: retire block
+        ano_render_command_release(&cmd);
         return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
     }
     return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
@@ -187,7 +181,6 @@ AnoRenderSubmitResult ano_render_submit_bulk_destroy(AnoRenderBridge *bridge, co
 
 /* Screen Text */
 
-// Clamp caps packed size at compile time.
 static_assert(ANO_RENDER_TEXT_MAX <= (SIZE_MAX - sizeof(RenderTextBlock)) / sizeof(AnoGlyphInstance),
                "a full screen-text block must fit size_t");
 
@@ -198,9 +191,9 @@ AnoRenderSubmitResult ano_render_text_set(AnoRenderBridge *bridge, uint32_t text
     if (count == 0u)
         return ano_render_text_clear(bridge, text_id);
     if (instances == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID); // count without data
+        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
     if (count > ANO_RENDER_TEXT_MAX)
-        count = ANO_RENDER_TEXT_MAX; // clamp to the region
+        count = ANO_RENDER_TEXT_MAX;
     size_t bytes = sizeof(RenderTextBlock) + (size_t)count * sizeof(AnoGlyphInstance);
     char *blk = static_cast<char *>(mi_malloc(bytes));
     if (blk == NULL)
@@ -212,13 +205,12 @@ AnoRenderSubmitResult ano_render_text_set(AnoRenderBridge *bridge, uint32_t text
     b->instances = inst;
     RenderCommand c = { .kind = RCMD_TEXT_SET, .text = b, .text_id = text_id, .bulk_owned = true };
     if (!bridge->commands.push(c)) {
-        ano_render_command_release(&c); // failed push: retire block
+        ano_render_command_release(&c);
         return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
     }
     return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
 }
 
-// Push TEXT_CLEAR. ACCEPTED or BACKPRESSURE.
 AnoRenderSubmitResult ano_render_text_clear(AnoRenderBridge *bridge, uint32_t text_id)
 {
     RenderCommand c = { .kind = RCMD_TEXT_CLEAR, .text_id = text_id };
@@ -240,7 +232,7 @@ static bool ui_path_walk_valid(const uint32_t *curves, uint32_t curveCount,
     uint32_t i = off + 1u;
     for (uint32_t c = 0; c < quads; c++) {
         if (i >= curveCount)
-            return false; // separator-test read
+            return false;
         if (curves[i] == ANO_UI_CURVE_SENTINEL) {
             i++;
             if (i >= curveCount || curves[i] == ANO_UI_CURVE_SENTINEL)
@@ -248,14 +240,13 @@ static bool ui_path_walk_valid(const uint32_t *curves, uint32_t curveCount,
             i++;
         }
         if (i + 1u >= curveCount)
-            return false; // control + end reads
+            return false;
         i += 2u;
     }
     return true;
 }
 
-// Block-local ref check for one UI prim, including the referenced paint's stop window.
-// Failure -> INVALID (deterministic).
+// Block-local refs, including the paint's stop window. Failure -> INVALID.
 static bool ui_prim_valid(const AnoUiPrim *p, uint32_t clips, uint32_t paints, uint32_t glyphs,
                           const uint32_t *curves, uint32_t curveCount,
                           const AnoUiPaint *paintTab, uint32_t stops)
@@ -266,7 +257,7 @@ static bool ui_prim_valid(const AnoUiPrim *p, uint32_t clips, uint32_t paints, u
         if (p->paintRef >= paints)
             return false;
         const AnoUiPaint *pa = &paintTab[p->paintRef];
-        // Window by subtraction: stopFirst + stopCount.
+        // Overflow-safe stop window.
         if (pa->stopFirst > stops || pa->stopCount > stops - pa->stopFirst)
             return false;
     }
@@ -277,7 +268,6 @@ static bool ui_prim_valid(const AnoUiPrim *p, uint32_t clips, uint32_t paints, u
     return true;
 }
 
-// Cap refusals bound packed size at compile time.
 static_assert((size_t)ANO_RENDER_UI_MAX_PRIMS  * sizeof(AnoUiPrim)
              + (size_t)ANO_RENDER_UI_MAX_CLIPS  * sizeof(AnoUiClip)
              + (size_t)ANO_RENDER_UI_MAX_PAINTS * sizeof(AnoUiPaint)
@@ -297,7 +287,6 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
         return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
     if (ui->primCount == 0u)
         return ano_render_ui_clear(bridge, ui_id);
-    // Caps, glyph pair, or nonzero count over a NULL table -> INVALID.
     if (ui->primCount > ANO_RENDER_UI_MAX_PRIMS || ui->clipCount > ANO_RENDER_UI_MAX_CLIPS
         || ui->paintCount > ANO_RENDER_UI_MAX_PAINTS || ui->stopCount > ANO_RENDER_UI_MAX_STOPS
         || ui->curveCount > ANO_RENDER_UI_MAX_CURVES
@@ -358,13 +347,12 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
     if (glyphB) memcpy(at, glyphs, glyphB);
     RenderCommand c = { .kind = RCMD_UI_SET, .ui = b, .ui_id = ui_id, .bulk_owned = true };
     if (!bridge->commands.push(c)) {
-        ano_render_command_release(&c); // failed push: retire block
+        ano_render_command_release(&c);
         return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
     }
     return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
 }
 
-// Push UI_CLEAR. ACCEPTED or BACKPRESSURE.
 AnoRenderSubmitResult ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_id)
 {
     RenderCommand c = { .kind = RCMD_UI_CLEAR, .ui_id = ui_id };
@@ -376,7 +364,6 @@ AnoRenderSubmitResult ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_i
 
 /* Back-Channel */
 
-// Logic-master endpoints (anoptic_render.h). Non-inline via opaque handle.
 bool ano_render_poll_event(AnoRenderBridge *bridge, RenderEvent *out)
 {
     return bridge->events.pop(*out);

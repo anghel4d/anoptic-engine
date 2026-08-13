@@ -15,8 +15,8 @@
 // Premultiplied linear from straight rgba.
 #define PM(r, g, b, a) { (r) * (a), (g) * (a), (b) * (a), (a) }
 
-// In: builder (caps >= 16 prims / 4 clips / 1 paint / 2 stops / 16 curve words), panel origin.
-// Emission order is paint order. Gradient/path absent if their tables are unattached.
+// Emission order is paint order. Unattached paint table: gradient rrect still emits (paintRef NONE).
+// Unattached curves: path_fill returns NONE.
 void ano_ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
 {
     const float shadow[4]   = PM(0.00f, 0.00f, 0.00f, 0.55f);

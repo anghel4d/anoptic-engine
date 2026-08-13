@@ -12,16 +12,12 @@
 #include <anoptic_log.h>
 #include <anoptic_memory.h>   // ANO_CACHE_LINE
 
-// Stored line + wall-clock prefix = 4096. MSG_MAX = stored cap, TIME_RESV = prefix budget.
-// Max entry spans ceil((16 + MSG_MAX) / ANO_CL) <= 64 lines.
-#define ANO_LOG_TIME_RESV 16u                          // "HH:MM:SS " prefix budget
-#define ANO_LOG_MSG_MAX   (4096u - ANO_LOG_TIME_RESV)  // stored + prefix = 4096
+// Stored line + "HH:MM:SS " prefix = 4096. Max entry spans ceil((16 + MSG_MAX) / ANO_CL) <= 64 lines.
+#define ANO_LOG_TIME_RESV 16u
+#define ANO_LOG_MSG_MAX   (4096u - ANO_LOG_TIME_RESV)
 
 // Ring capacity in BYTES, power of two. Override: -DANO_LOG_RING_BYTES (64 KiB to 2 MiB).
 #ifndef ANO_LOG_RING_BYTES
-// 2MB
-//#define ANO_LOG_RING_BYTES (2u * 1024u * 1024u)
-// 512 KB
 #define ANO_LOG_RING_BYTES (512u * 1024u)
 #endif
 #define ANO_LOG_RING_LINES (ANO_LOG_RING_BYTES / ANO_CACHE_LINE)

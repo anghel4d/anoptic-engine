@@ -46,7 +46,7 @@ static void *thread_trampoline(void *p)
 
 int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(* func)(void *), void *arg) {
 
-    // NULL attr -> ANO_THREAD_STACK_SIZE (lazily committed). Explicit attrs untouched. Win64: PE --stack instead.
+    // NULL attr: ANO_THREAD_STACK_SIZE, lazily committed. Win64 uses PE --stack instead.
 #if !defined(_WIN32)
     pthread_attr_t engineAttr;
     bool engineOwned = attr == NULL && pthread_attr_init(&engineAttr) == 0;
@@ -109,9 +109,6 @@ anothread_t ano_thread_self(void) {
     return pthread_self();
 }
 
-// Inputs: none.
-// Output: initial-thread stack bytes, 0 on query failure.
-// POSIX: soft RLIMIT_STACK (SIZE_MAX if unlimited). Win64: PE reserve.
 size_t ano_thread_main_stack(void) {
 
 #if defined(_WIN32)

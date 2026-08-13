@@ -5,12 +5,11 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Anoptic UI API
-// Primitive ABI + pure builder verbs for the GPU UI overlay lane. docs/ui/ui-render.md.
-// Layout, styling, hit-testing live in the caller (logic thread).
-// Pure over caller memory: any thread, no alloc, no module state. Premultiplied linear RGBA.
-// Builder coords: LOGICAL UNITS of the block surface, y-down, origin top-left.
+// Primitive ABI + pure builder verbs for the GPU overlay. docs/ui/ui-render.md.
+// Layout, styling, and hit-testing stay in the caller. Pure over caller memory: any thread, no alloc, no module state.
+// Premultiplied linear RGBA. Builder coords: logical units of the block surface, y-down, origin top-left.
 // Renderer folds logical->device once at compose via ano_ui_*_scale. Layout never sees pixels.
-// AA ramps, tiles, and the reference evaluator run AFTER the fold, in device pixels.
+// AA, tiles, and the reference evaluator run after the fold, in device pixels.
 
 #ifndef ANOPTICENGINE_ANOPTIC_UI_H
 #define ANOPTICENGINE_ANOPTIC_UI_H
@@ -33,13 +32,11 @@ typedef enum AnoUiPrimKind {
     ANO_UI_GLYPHS = 4, // AnoGlyphInstance range: aux0/aux1 = first/count, color = tint
 } AnoUiPrimKind;
 
-// flags bits [0:1]: register blend mode, painter's order.
+// flags [0:1]: blend mode, painter's order. [3+]: reserved (nine-slice, pixel-snap).
 #define ANO_UI_BLEND_OVER 0x0u // premultiplied src-over
-#define ANO_UI_BLEND_ADD  0x1u // rgb-additive glow, coverage does not occlude
+#define ANO_UI_BLEND_ADD  0x1u // rgb-additive glow; coverage does not occlude
 #define ANO_UI_BLEND_MASK 0x3u
-// flag bits [2+].
-#define ANO_UI_FLAG_INNER 0x4u // SHADOW: inner shadow (blur of complement, masked inside)
-// bits 3+ reserved: nine-slice, pixel-snap hints.
+#define ANO_UI_FLAG_INNER 0x4u // SHADOW: blur of complement, masked inside
 
 // paintRef/clipRef sentinel: none. Also the builder's table-full error return.
 #define ANO_UI_REF_NONE 0xFFFFFFFFu
@@ -91,7 +88,7 @@ static_assert(sizeof(AnoUiClip) == 48 && offsetof(AnoUiClip, rrCenter) == 16
                   && offsetof(AnoUiClip, rrRadii) == 32,
               "GPU ABI: 48-byte clip entry");
 
-// Paint kinds for AnoUiPaint.kind (RRECT and PATH fills). NONE uses prim color as flat fill.
+// Paint kinds for RRECT and PATH fills. NONE uses prim color as flat fill.
 // t from pixel through xform (g = xform * [px,py,1]): linear t=g.x, radial t=|g|,
 // conic t=atan2(g.y,g.x)/2pi + 0.5.
 #define ANO_UI_GRAD_LINEAR 0u
@@ -131,22 +128,21 @@ typedef struct AnoUiBuilder {
     uint32_t   *curves;  uint32_t curveCap;  uint32_t curveCount; // packed path curve words
 } AnoUiBuilder;
 
-// Zeroes counts and binds caller arrays. NULL + cap 0 legal. Curves start detached.
+// Bind caller arrays and zero counts. NULL + cap 0 is legal. Curves start detached.
 void ano_ui_builder_init(AnoUiBuilder *b,
                          AnoUiPrim *prims, uint32_t primCap,
                          AnoUiClip *clips, uint32_t clipCap,
                          AnoUiPaint *paints, uint32_t paintCap,
                          AnoUiStop *stops, uint32_t stopCap);
 
-// Attaches the curve-stream scratch ano_ui_path_fill bakes into (packed binary16
-// point words, the text sweeper's grammar). NULL/0 detaches.
+// Attach curve-stream scratch for ano_ui_path_fill (packed binary16, text sweeper grammar). NULL/0 detaches.
 void ano_ui_builder_curves(AnoUiBuilder *b, uint32_t *curves, uint32_t curveCap);
 
 // Premultiplied linear from sRGB-authored straight rgba.
 void ano_ui_color_srgb(const float srgba[4], float out[4]);
 
 // Rounded rect from min/max. radii = (tl,tr,br,bl), non-neg + CSS adjacent-side clamp.
-// borderWidth 0 = fill, >0 = ring inside boundary. Returns prim index or ANO_UI_REF_NONE.
+// borderWidth 0 = fill, >0 = ring inside the boundary.
 uint32_t ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], const float color[4], float borderWidth,
                       uint32_t paintRef, uint32_t clipRef, uint32_t flags);
@@ -164,16 +160,16 @@ uint32_t ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectM
 
 // Filled path over curve stream words [curveOffset, ...) for curveCount monotone quads.
 // bbox = conservative cull bounds (logical) + prim-local origin. Low-level: caller
-// supplies a pre-baked stream; most callers want ano_ui_path_fill.
+// supplies a pre-baked stream. Prefer ano_ui_path_fill.
 uint32_t ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                      uint32_t curveOffset, uint32_t curveCount, const float color[4],
                      uint32_t paintRef, uint32_t clipRef, uint32_t flags);
 
-// Path segment (logical units, y-down). MOVE opens a contour; LINE/QUAD extend from prior point.
-// Each contour auto-closes to its opening point.
-#define ANO_UI_SEG_MOVE 0u // start a new contour at (p[0], p[1])
-#define ANO_UI_SEG_LINE 1u // straight edge to (p[0], p[1])
-#define ANO_UI_SEG_QUAD 2u // quadratic to (p[2], p[3]) via control (p[0], p[1])
+// Path segment (logical, y-down). MOVE opens a contour; LINE/QUAD extend from the prior point.
+// Each contour auto-closes to its opening point. MOVE/LINE use p[0],p[1].
+#define ANO_UI_SEG_MOVE 0u
+#define ANO_UI_SEG_LINE 1u
+#define ANO_UI_SEG_QUAD 2u // to (p[2], p[3]) via control (p[0], p[1])
 
 // Contour separator in packed curve stream (both binary16 halves +inf). Text sweeper grammar. ABI.
 #define ANO_UI_CURVE_SENTINEL 0x7C007C00u
@@ -182,9 +178,9 @@ typedef struct AnoUiPathSeg {
     float    p[4];
 } AnoUiPathSeg;
 
-// Path fill: lines/quads, auto-closed, into curve buffer as monotone quads.
+// Path fill: lines/quads, auto-closed, into the curve buffer as monotone quads.
 // Nonzero winding; opposite-wound inners punch holes. Bbox + frame from points.
-// Returns prim index, or ANO_UI_REF_NONE if table/curve full or path empty.
+// ANO_UI_REF_NONE if a table or the curve buffer is full, or the path is empty.
 uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
                           const float color[4], uint32_t paintRef, uint32_t clipRef,
                           uint32_t flags);
@@ -207,7 +203,7 @@ uint32_t ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMa
 // Stops copied and sorted ascending by t. Colors are premultiplied linear.
 // ANO_UI_REF_NONE when a table is full or stopCount is 0.
 
-// Linear: t runs 0 at p0 to 1 at p1 along p0->p1, constant across it.
+// Linear: t runs 0 at p0 to 1 at p1 along p0->p1, constant across it. Zero-length axis -> t = 0.
 uint32_t ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
                              const AnoUiStop *stops, uint32_t stopCount);
 
@@ -215,7 +211,7 @@ uint32_t ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[
 uint32_t ano_ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
                                     const AnoUiStop *stops, uint32_t stopCount);
 
-// Radial: t = |pixel - center| / radius, 0 at center, 1 on the circle.
+// Radial: t = |pixel - center| / radius, 0 at center, 1 on the circle. radius <= 0 -> t = 0.
 uint32_t ano_ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
                              const AnoUiStop *stops, uint32_t stopCount);
 
@@ -235,7 +231,7 @@ void ano_ui_demo_scene(AnoUiBuilder *b, float originX, float originY);
 // anisotropic scales are out of contract (radii/sigma/border are scalars).
 
 // Prim: origin/half/radii scale. param[0] scales for RRECT border and SHADOW sigma.
-// IMAGE lod shifts by -log2(s). PATH curve words and GLYPHS fold separately
+// IMAGE lod shifts by -log2(s), clamped to >= 0. PATH curve words and GLYPHS fold separately
 // (ano_ui_curves_scale; glyph instances scale origin by s, inv by 1/s).
 void ano_ui_prim_scale(AnoUiPrim *p, float s);
 
@@ -252,7 +248,7 @@ void ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, floa
 
 /* Reference Evaluator */
 
-// Scalar mirror of the GPU prim math. src/ui/ui_raster_ref.c.
+// Scalar mirror of the GPU prim math.
 
 typedef struct AnoUiScene {
     const AnoUiPrim  *prims;  uint32_t primCount;
@@ -285,7 +281,7 @@ void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py
 // IMAGE/GLYPHS evaluate to zero here.
 void ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, float out[4]);
 
-// Painter's-order evaluation of the whole scene at one pixel (premultiplied linear).
+// Painter's-order scene eval. Result is unclamped premultiplied linear. ADD accumulates rgb only.
 void ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4]);
 
 
@@ -293,14 +289,14 @@ void ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4]);
 
 // Per-tile prim lists (ui-render.md §3.7): CPU-coarse at compose, one list per 8x8 tile.
 // Entry = prim index | solid high bit (coverage==1 -> flat fill, skip SDF).
-// Glyphs are NOT tiled here.
+// Text-lane glyph instances are not listed here. GLYPHS/IMAGE shade to zero.
 
 #define ANO_UI_TILE_PX          8u          // tile edge, matches the 8x8 compute workgroup
 #define ANO_UI_ENTRY_SOLID      0x80000000u // tile entry: prim fully covers the tile
 #define ANO_UI_ENTRY_INDEX_MASK 0x7FFFFFFFu
 
-// Padded pixel AABB of one prim (half + 1px AA; SHADOW +3*sigma + 1px). Identity-inv only
-// (v0). Matches the GPU cull and pending bounds.
+// Padded pixel AABB of one prim (half + 1px AA; SHADOW +3*sigma + 1px). Identity-inv only.
+// Matches ui_box_hits and ui_pending_bounds.
 void ano_ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2]);
 
 // Dense tile grid (tilesX*tilesY of 8px, top-left at ox,oy). offsets[t]..offsets[t+1]
@@ -312,8 +308,8 @@ uint32_t ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t *entries, uint32_t entryCap,
                            uint32_t *cursor, bool *ok);
 
-// Painter's-order tiled eval at (px,py). Matches ano_ui_ref_eval inside grid; GPU mirrors this.
-// Glyphs not included. Out-of-range entry index fails CLOSED (zero, OVER).
+// Painter's-order tiled eval at (px,py). Matches ano_ui_ref_eval inside the grid; GPU mirrors this.
+// IMAGE/GLYPHS shade to zero. Out-of-range entry index fails CLOSED (zero, OVER).
 void ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY, const uint32_t *offsets,
                            const uint32_t *entries, int32_t px, int32_t py, float out[4]);

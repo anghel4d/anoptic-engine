@@ -32,25 +32,25 @@ typedef struct AnoResourceGoal {
     float importance;
 } AnoResourceGoal;
 
-// The manager retains the cooked revision and begins with an empty epoch.
+// Retains the cooked revision. The first epoch has no resident assets.
 AnoResourceError ano_resource_manager_create(const AnoCookedRevision *revision,
                                              AnoResourceManager **manager);
 void ano_resource_manager_destroy(AnoResourceManager *manager);
 
-// Goal IDs identify independent demand contributions. Setting an existing ID
-// replaces that contribution; removing an absent ID reports not_found.
+// Goal IDs are independent demand contributions. Setting an existing ID
+// replaces it; removing an absent ID reports not_found.
 AnoResourceError ano_resource_goal_set(AnoResourceManager *manager,
                                        AnoResourceGoal goal);
 AnoResourceError ano_resource_goal_remove(AnoResourceManager *manager,
                                           AnoResourceGoalId goal);
 
-// Reconciliation publishes a successor only after every demanded commit-group
-// floor and typed dependency is present in one immutable revision.
+// Publishes a successor only after every demanded commit-group floor and typed
+// dependency is present in one immutable revision.
 AnoResourceError ano_resource_reconcile(AnoResourceManager *manager);
 
-// A prepared reload retains a private candidate revision and epoch. Owners may
-// realize reload_epoch before commit; abort or any failed commit preserves the
-// published generation. Commit consumes the reload object.
+// Retains a private candidate revision and epoch. Owners may realize
+// reload_epoch before commit. Abort or a failed commit preserves the published
+// generation; commit consumes the reload.
 AnoResourceError ano_resource_reload_prepare(AnoResourceManager *manager,
                                              const AnoCookedRevision *revision,
                                              AnoResourceReload **reload);
@@ -69,11 +69,11 @@ AnoResidencyEpochId ano_resource_epoch_id(const AnoResidencyEpoch *epoch);
 AnoResourceError ano_resource_epoch_manifest_id(
     const AnoResidencyEpoch *epoch, AnoManifestId *manifest);
 
-// Resolve returns immutable canonical bytes borrowed from the acquired epoch.
+// Returns immutable canonical bytes borrowed from the acquired epoch.
 AnoResourceError ano_resource_epoch_resolve(
     const AnoResidencyEpoch *epoch, AnoAssetId asset,
     AnoResourceTypeId requiredType, AnoResourceBytes *bytes);
-// Returns the immutable dependency row borrowed from the retained epoch.
+// Returns the immutable dependency row borrowed from the live epoch.
 AnoResourceError ano_resource_epoch_dependencies(
     const AnoResidencyEpoch *epoch, AnoAssetId asset,
     const AnoResourceDependency **dependencies, uint64_t *count);

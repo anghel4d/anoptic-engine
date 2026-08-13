@@ -14,8 +14,7 @@
 #include <sched.h>
 #include <time.h>
 
-// Spin-wait hint, not a scheduling call: x86 `pause` drops the memory-order-violation flush the
-// owner eats on release, arm64 `yield` frees the pipeline slot. Every spin loop below wants it.
+// Spin hint, not a schedule. x86 pause avoids the owner's memory-order-violation flush; arm64 yield is the SMT pause hint.
 #if defined(__aarch64__) || defined(__arm64__)
 #  define ANO_CPU_RELAX() __builtin_arm_yield()
 #elif defined(__x86_64__) || defined(__i386__)
@@ -27,7 +26,6 @@
 
 /* Spinlocks: POSIX gap-fill */
 
-// in: lock, pshared (ignored, always process-private). out: 0. unlocked state.
 int pthread_spin_init(pthread_spinlock_t *lock, int pshared) {
 
     (void)pshared;
@@ -41,7 +39,6 @@ int pthread_spin_destroy(pthread_spinlock_t *lock) {
     return 0;
 }
 
-// in: lock. out: 0. invariant: returns owning the lock (0->1, acquire).
 int pthread_spin_lock(pthread_spinlock_t *lock) {
 
     int expected = 0;
@@ -54,7 +51,7 @@ int pthread_spin_lock(pthread_spinlock_t *lock) {
     return 0;
 }
 
-// in: lock. out: 0 if acquired, EBUSY if already held.
+// 0 if acquired, EBUSY if already held.
 int pthread_spin_trylock(pthread_spinlock_t *lock) {
 
     int expected = 0;
@@ -76,11 +73,9 @@ int pthread_spin_unlock(pthread_spinlock_t *lock) {
 
 // `arrived`: [phase:16][arrivals:16]. One RMW claims arrival+phase; last opens next phase.
 #define ANO_BAR_SHIFT 16u
-#define ANO_BAR_MASK  ((1u << ANO_BAR_SHIFT) - 1u)   // one half of the state word
+#define ANO_BAR_MASK  ((1u << ANO_BAR_SHIFT) - 1u)
 
-// A waiter blocks for an unbounded time by definition, so a bare spin starves the very peers it
-// waits on the moment runnable threads outnumber cores: the cohort then costs a whole scheduler
-// quantum instead of a handful of loads. Relax, then hand the core over, then park.
+// Unbounded wait: a bare spin starves peers once threads outnumber cores. Relax, then yield, then park.
 #define ANO_BAR_SPINS   1024u
 #define ANO_BAR_YIELDS  64u
 #define ANO_BAR_PARK_NS 1000L
@@ -90,8 +85,7 @@ static_assert(sizeof(unsigned int) * CHAR_BIT >= 2u * ANO_BAR_SHIFT,
 static_assert(__atomic_always_lock_free(sizeof(unsigned int), 0),
                "the barrier spins on atomic_uint; a lock-backed atomic would deadlock it");
 
-// in: spin tally, bumped in place. out: void. relax -> sched_yield -> short park, by tally.
-// Both calls are hints: sched_yield cannot fail here, and a park cut short by EINTR just re-tests.
+// sched_yield cannot fail here. A park cut short by EINTR just re-tests.
 static inline void ano_bar_backoff(unsigned *spins) {
 
     const unsigned i = (*spins)++;
@@ -105,7 +99,6 @@ static inline void ano_bar_backoff(unsigned *spins) {
     }
 }
 
-// in: barrier, attr (ignored), count (1..ANO_BAR_MASK). out: 0, or EINVAL outside that domain.
 int pthread_barrier_init(pthread_barrier_t *barrier,
                          const pthread_barrierattr_t *attr, unsigned int count) {
 
@@ -117,8 +110,7 @@ int pthread_barrier_init(pthread_barrier_t *barrier,
     return 0;
 }
 
-// in: barrier. out: PTHREAD_BARRIER_SERIAL_THREAD to exactly one thread per cohort, else 0.
-// invariant: no return until all `count` of this phase arrive; each arrival in exactly one cohort.
+// No return until this phase's cohort arrives. Each arrival is in exactly one cohort.
 int pthread_barrier_wait(pthread_barrier_t *barrier) {
 
     const unsigned int count = barrier->count;
@@ -128,7 +120,7 @@ int pthread_barrier_wait(pthread_barrier_t *barrier) {
     for (;;) {
         phase = state >> ANO_BAR_SHIFT;
         n     = (state & ANO_BAR_MASK) + 1u;
-        // the cohort's last arrival opens the next phase in the same RMW that admits it
+        // Last arrival opens the next phase in the same RMW that admits it.
         unsigned int next = n == count ? ((phase + 1u) & ANO_BAR_MASK) << ANO_BAR_SHIFT
                                        : (phase << ANO_BAR_SHIFT) | n;
         if (atomic_compare_exchange_weak_explicit(&barrier->arrived, &state, next,
@@ -143,7 +135,7 @@ int pthread_barrier_wait(pthread_barrier_t *barrier) {
     unsigned spins = 0;
     while ((atomic_load_explicit(&barrier->arrived, memory_order_acquire)
             >> ANO_BAR_SHIFT) == phase) {
-        ano_bar_backoff(&spins);   // wait out this phase's last arrival
+        ano_bar_backoff(&spins);
     }
     return 0;
 }

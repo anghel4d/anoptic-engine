@@ -14,7 +14,7 @@
 #include <anoptic_meta.h>
 
 #include "music_control.h"
-#include "music_ir.h" // AnoPatchName: the value domain of instrument arrays
+#include "music_ir.h"
 
 namespace {
 
@@ -164,7 +164,7 @@ AnoMappingTable ano_mapping_table_default(void)
 
 AnoMappingTable ano_mapping_table_electronic(void)
 {
-    // Same defaults; different instrument rows (timbres may cross layer grain).
+    // Timbres may cross layer grain.
     AnoMappingTable t = ano_mapping_table_default();
     t.instrumentRows[0] = (AnoInstrumentRow){
         ANO_MUSIC_PAD, 2, { { ANO_PATCH_WARM, 0.0 }, { ANO_PATCH_BRIGHT, 0.60 } } };

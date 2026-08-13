@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #if defined(_WIN32)
-// Pin API level before Windows headers (CreateWaitableTimerExW / FlsAlloc).
+// Pin API level before Windows headers (Win10 hi-res waitable timers).
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0A00   // Win10: hi-res waitable timers
 #define WINVER       0x0A00
@@ -28,13 +28,12 @@
 
 /* Precision Timestamps */
 
-// Timebase: invariant TSC (rdtsc) when available, else QPC. Chosen once, shared by ticks and ticks_to_ns.
+// Timebase: invariant TSC when available, else QPC. Chosen once.
 
 // QPC frequency (counts/s), cached once. TSC calibration reference too.
 static ANO_ATOMIC(uint64_t) cachedPerfFreq = 0;
 
-// QPC frequency, resolved once. The module's single timebase validation point.
-//   out: uint64_t counts/s, never 0
+// QPC frequency, resolved once. Never 0.
 static uint64_t query_perf_freq(void) {
     uint64_t f = atomic_load_explicit(&cachedPerfFreq, memory_order_relaxed);
     if (f)
@@ -42,15 +41,14 @@ static uint64_t query_perf_freq(void) {
     LARGE_INTEGER tmp;
     if (QueryPerformanceFrequency(&tmp) == 0 || tmp.QuadPart <= 0) {
         printf("No performance timebase: QueryPerformanceFrequency failed.\n");
-        abort();   // no timebase, no engine; trips the crash blackbox
+        abort();   // No timebase, no engine; trips the crash blackbox.
     }
     f = (uint64_t)tmp.QuadPart;
     atomic_store_explicit(&cachedPerfFreq, f, memory_order_relaxed);
     return f;
 }
 
-// Raw QPC counts. TSC calibration ref, or timebase when no invariant TSC. Re-anchor uses unbiased_now.
-//   out: uint64_t counts, same domain as query_perf_freq
+// Raw QPC counts. Calibration ref, or timebase without invariant TSC. Re-anchor uses unbiased_now.
 static inline uint64_t qpc_now(void) {
     LARGE_INTEGER tmp;
     QueryPerformanceCounter(&tmp);   // cannot fail on WinXP+
@@ -60,9 +58,8 @@ static inline uint64_t qpc_now(void) {
 // QueryUnbiasedInterruptTimePrecise: KernelBase.dll. Redeclare for older SDKs/import libs.
 WINBASEAPI VOID WINAPI QueryUnbiasedInterruptTimePrecise(PULONGLONG lpUnbiasedInterruptTimePrecise);
 
-// Unbiased interrupt time: suspend-excluded, monotonic. TSC re-anchor reference (not QPC).
+// Suspend-excluded monotonic time in 100ns units. TSC re-anchor reference (not QPC).
 // Precise form reads the source, not the last tick (~15.6ms).
-//   out: uint64_t 100ns units since boot, suspended time excluded, monotonic non-decreasing
 static inline uint64_t unbiased_now(void) {
     ULONGLONG t = 0;
     QueryUnbiasedInterruptTimePrecise(&t);   // void return: cannot fail
@@ -71,13 +68,12 @@ static inline uint64_t unbiased_now(void) {
 
 #ifdef ANO_TSC_ARCH
 
-// Resolved timebase, frozen after resolve_clock.
 enum { CLOCK_UNSET = 0, CLOCK_TSC = 1, CLOCK_QPC = 2 };
-static ANO_ATOMIC(int)      g_clockMode  = CLOCK_UNSET;
-static ANO_ATOMIC(int)      g_clockElect = 0;    // one-time election guard for resolve_clock
-static ANO_ATOMIC(uint64_t) cachedTscHz  = 0;    // calibrated invariant-TSC frequency (TSC mode only)
+static ANO_ATOMIC(int)      g_clockMode  = CLOCK_UNSET;  // frozen after resolve_clock
+static ANO_ATOMIC(int)      g_clockElect = 0;    // one-time resolve_clock election
+static ANO_ATOMIC(uint64_t) cachedTscHz  = 0;    // calibrated invariant-TSC Hz (TSC mode only)
 
-// Calibration sanity band (excludes 0).
+// Calibration sanity band.
 #define ANO_TSC_HZ_MIN 100000000ull      // 100 MHz
 #define ANO_TSC_HZ_MAX 100000000000ull   // 100 GHz
 static_assert(ANO_TSC_HZ_MIN > 0 && ANO_TSC_HZ_MIN < ANO_TSC_HZ_MAX, "TSC band must exclude 0 and be ordered");
@@ -102,7 +98,6 @@ static inline uint64_t rdtsc_fenced(void) {
 
 #define ANO_TSC_CAL_MS 4u   // per-sample window vs actual QPC elapsed
 
-// TSC Hz from elapsed TSC / elapsed QPC.
 static uint64_t sample_tsc_hz(uint64_t qf) {
     LARGE_INTEGER q0, q1;
     QueryPerformanceCounter(&q0);
@@ -119,7 +114,7 @@ static uint64_t sample_tsc_hz(uint64_t qf) {
     return (uint64_t)(((unsigned __int128)dt * qf) / dq);
 }
 
-// Median of three TSC Hz samples.
+// Median of three samples.
 static uint64_t calibrate_tsc_hz(void) {
     uint64_t qf = query_perf_freq();
     uint64_t s[3];
@@ -136,15 +131,13 @@ static uint64_t calibrate_tsc_hz(void) {
 // A TSC stamp is __rdtsc() + g_tscBias, valid while the raw count stays at or above g_tscAnchorRaw.
 // The pair is republished only when a power transition restarts the counter.
 static ANO_ATOMIC(uint64_t) g_tscBias      = 0;   // exported - raw; wraps mod 2^64 by design
-static ANO_ATOMIC(uint64_t) g_tscAnchorRaw = 0;   // raw TSC at the anchor
+static ANO_ATOMIC(uint64_t) g_tscAnchorRaw = 0;
 static ANO_ATOMIC(int)      g_tscAnchoring = 0;   // one re-anchor at a time
 // Reference pair, written before g_clockMode goes public and thereafter only under g_tscAnchoring.
 static uint64_t g_refAnchor      = 0;   // unbiased interrupt time (100ns units) at the anchor
 static uint64_t g_exportedAnchor = 0;   // exported ticks at the anchor
 
-// Publish an anchor. Bias stored first: a reader that sees the new raw anchor sees the new bias.
-//   in:  raw (uint64_t) TSC just sampled, ref (uint64_t) unbiased interrupt time just sampled,
-//        exported (uint64_t) count the next stamp must report
+// Bias stored first: a reader that sees the new raw anchor sees the new bias.
 static void tsc_set_anchor(uint64_t raw, uint64_t ref, uint64_t exported) {
     g_refAnchor      = ref;
     g_exportedAnchor = exported;
@@ -153,7 +146,7 @@ static void tsc_set_anchor(uint64_t raw, uint64_t ref, uint64_t exported) {
 }
 
 // Cold path: raw TSC fell ≥1ms below anchor (S3/S4 restart). Re-anchor via unbiased gap.
-//   out: void. This or another thread republished; caller re-reads either way.
+// This or another thread republished; caller re-reads either way.
 static void tsc_reanchor(void) {
     int expected = 0;
     if (!atomic_compare_exchange_strong(&g_tscAnchoring, &expected, 1)) {
@@ -173,7 +166,7 @@ static void tsc_reanchor(void) {
     atomic_store_explicit(&g_tscAnchoring, 0, memory_order_release);
 }
 
-// Elect once. Losers wait. Calibration ~12 ms Sleep, once.
+// Elect once. Losers wait. Calibration Sleeps ~12 ms, once.
 static void resolve_clock(void) {
     int expected = 0;
     if (!atomic_compare_exchange_strong(&g_clockElect, &expected, 1)) {
@@ -184,7 +177,7 @@ static void resolve_clock(void) {
     int mode = CLOCK_QPC;
     if (have_invariant_tsc()) {
         uint64_t hz = calibrate_tsc_hz();
-        if (hz >= ANO_TSC_HZ_MIN && hz <= ANO_TSC_HZ_MAX) {   // rejects a degenerate sample, incl. 0
+        if (hz >= ANO_TSC_HZ_MIN && hz <= ANO_TSC_HZ_MAX) {
             atomic_store_explicit(&cachedTscHz, hz, memory_order_relaxed);
             uint64_t raw = rdtsc_fenced();
             tsc_set_anchor(raw, unbiased_now(), raw);   // bias 0: stamps are the raw count until a restart
@@ -214,7 +207,7 @@ static inline int clock_mode(void) {
 
 #endif // ANO_TSC_ARCH
 
-// Raw counter: rdtsc vs anchor, or QPC. Divide deferred to ano_ticks_to_ns.
+// rdtsc vs anchor, or QPC. Conversion is in ano_ticks_to_ns.
 uint64_t ano_timestamp_ticks() {
 #ifdef ANO_TSC_ARCH
     if (clock_mode() == CLOCK_TSC) {
@@ -234,7 +227,6 @@ uint64_t ano_timestamp_ticks() {
     return qpc_now();
 }
 
-// Convert raw counts (value or delta) to nanoseconds, overflow-safe via the resolved timebase.
 uint64_t ano_ticks_to_ns(uint64_t ticks) {
 
     uint64_t freq;
@@ -246,47 +238,40 @@ uint64_t ano_ticks_to_ns(uint64_t ticks) {
     freq = query_perf_freq();
 #endif
 
-    // Split into two parts to scale without overflow.
-    uint64_t largePart = ticks / freq;    // Seconds
-    uint64_t smallPart = ticks % freq;    // Sub-seconds
-
-    // Recombine the two parts.
-    smallPart = smallPart * 1000000000ULL / freq;
-    return smallPart + (largePart * 1000000000ULL);
+    // Scale in seconds + remainder to avoid overflow.
+    uint64_t seconds = ticks / freq;
+    uint64_t remainder = ticks % freq;
+    remainder = remainder * 1000000000ULL / freq;
+    return remainder + (seconds * 1000000000ULL);
 }
 
 uint64_t ano_timestamp_raw() {
     return ano_ticks_to_ns(ano_timestamp_ticks());
 }
 
-// return ano_timestamp_raw, but scaled to microseconds.
 uint64_t ano_timestamp_us() {
-    return ano_timestamp_raw() / 1000;  // Convert nanoseconds to microseconds
+    return ano_timestamp_raw() / 1000;
 }
 
-// return ano_timestamp_raw, but truncated to ms.
 uint32_t ano_timestamp_ms() {
-    return (uint32_t)(ano_timestamp_raw() / 1000000LL);  // Convert nanoseconds to milliseconds
+    return (uint32_t)(ano_timestamp_raw() / 1000000LL);
 }
 
 
 /* Generic Date-Time Stamps */
 
-// Unix UTC timestamp.
 int64_t ano_timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
 
-    // Error handling
     if (currentTime == (time_t)-1) {
-        return INT64_MIN; // Out-of-range sentinel value
+        return INT64_MIN; // Out-of-range sentinel.
     }
 
     return (int64_t)currentTime;
 }
 
-// Convert a Unix timestamp to broken-down local civil time.
 ano_datetime ano_localtime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
@@ -303,12 +288,11 @@ ano_datetime ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-// Spinlock the current thread for approximately ns nanoseconds.
 int ano_busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
         printf("Requested busywait time exceeds maximum limit. Exiting.\n");
-        return -1; // error
+        return -1;
     }
 
     uint64_t startTime = ano_timestamp_raw();
@@ -318,11 +302,10 @@ int ano_busywait(uint64_t ns) {
         endTime = ano_timestamp_raw();
     } while (endTime - startTime < ns);
 
-    return 0; // success
+    return 0;
 }
 
-// Win10 1803+ hi-res timer flag. Define if SDK headers predate it.
-// Target 1803+: hi-res timer always available; no timeBeginPeriod floor.
+// Win10 1803+ hi-res timer flag, for older SDKs. No timeBeginPeriod floor.
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
@@ -342,12 +325,12 @@ static void NTAPI ano_sleep_timer_free(PVOID p) {
         CloseHandle((HANDLE)p);
 }
 
-// Lazy hi-res waitable timer. NULL -> caller uses coarse Sleep.
+// Lazy hi-res waitable timer. NULL means use coarse Sleep.
 static HANDLE ano_sleep_timer(void) {
     if (tlSleepTimer == INVALID_HANDLE_VALUE)
         return NULL;             // unsupported
     if (tlSleepTimer != NULL)
-        return tlSleepTimer;     // hot path: reuse
+        return tlSleepTimer;
 
     HANDLE h = CreateWaitableTimerExW(NULL, NULL,
                                       CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -357,7 +340,6 @@ static HANDLE ano_sleep_timer(void) {
     }
     tlSleepTimer = h;
 
-    // Register thread-exit destructor to close the handle.
     int expected = 0;
     if (atomic_compare_exchange_strong(&gFlsInit, &expected, 1))
         gSleepTimerFls = FlsAlloc(ano_sleep_timer_free);
@@ -366,9 +348,7 @@ static HANDLE ano_sleep_timer(void) {
     return h;
 }
 
-// High-res sleep: waitable timer + busywait tail. Yields the CPU.
-//   in:  us (uint64_t) microseconds to sleep
-//   out: int, 0 on success, positive errno-ish on failure (Unix-backend parity)
+// Waitable timer + busywait tail. Yields. Returns 0, or positive errno-ish (Unix parity).
 int ano_sleep(uint64_t us) {
 
     if (us == 0)
@@ -377,14 +357,14 @@ int ano_sleep(uint64_t us) {
     uint64_t target_ns = us * 1000ULL;
     uint64_t start = ano_timestamp_raw();
 
-    // Coarse stage: yield the CPU for everything but the spin tail.
+    // Coarse yield, leaving the spin tail.
     {
         uint64_t coarse_ns = target_ns > ANO_SLEEP_SPIN_TAIL_NS ? target_ns - ANO_SLEEP_SPIN_TAIL_NS : target_ns;
         HANDLE timer = ano_sleep_timer();
         bool yielded = false;
         if (timer != NULL) {
             // Relative due time in 100ns units, negative per Win32 ABI.
-            // Clamp to INT64_MAX (negation stays relative). Floor to 1 (never "signal now").
+            // Clamp to INT64_MAX; floor to 1 (never signal now).
             uint64_t units = coarse_ns / 100ULL;
             if (units == 0) units = 1;
             if (units > (uint64_t)INT64_MAX) units = (uint64_t)INT64_MAX;
@@ -418,7 +398,7 @@ int ano_sleep(uint64_t us) {
         ano_busywait(remaining > MAX_BUSYWAIT_NS ? MAX_BUSYWAIT_NS : remaining);
     }
 
-    return 0; // success
+    return 0;
 }
 
 #endif

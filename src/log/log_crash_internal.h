@@ -20,13 +20,13 @@ extern char bb_crashPath[];
 // Stage 1, per-platform: install fatal hooks. 0 ok, -1 if any failed.
 int bb_install(void);
 
-// Stage 4 helper: count `dir` entries ending in `suffix`, copy lex-last into newest[MAXPATH]. Calm time. Count or 0.
+// Calm-time count of `dir` entries ending in `suffix`; lex-last name into newest[MAXPATH]. Count or 0.
 int bb_scan_suffix(const char *dir, const char *suffix, char *newest);
 
 // Retention cap at boot: newest BB_KEEP_LOGS of each log type survive.
 #define BB_KEEP_LOGS 4
 
-// Boot prune: delete `suffix` entries keeping `keep` newest (cap 8) by mtime, skip names starting with `skip`. Calm time. Files removed.
+// Calm-time prune: drop `suffix` entries, keep `keep` newest (cap 8) by mtime, skip names starting with `skip`. Returns files removed.
 int bb_prune_suffix(const char *dir, const char *suffix, int keep, const char *skip);
 
 // One prune candidate: mtime (bigger = newer) + name.
@@ -50,7 +50,7 @@ static inline void bb_top_insert(bb_prune_t top[], int cap, int *n, unsigned lon
 int  bb_thread_arm(void);
 void bb_thread_disarm(void);
 
-// Decimal of v into out, returns length. Async-signal-safe.
+// Decimal of v into out. Async-signal-safe.
 static inline size_t bb_fmt_dec(char *out, unsigned long long v)
 {
     char tmp[20];

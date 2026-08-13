@@ -6,7 +6,7 @@
 
 // Pre-ring mutex logger baseline (anotest_logbench). Not in standard build. See log_old.h.
 // Producers format then append under one mutex. Caller drains via mtxlog_flush. No owned thread.
-// FATAL/_now write through. Stop producers before mtxlog_cleanup.
+// mtxlog_immediate writes through. Stop producers before mtxlog_cleanup.
 
 #include "log/log_old.h"
 
@@ -38,14 +38,13 @@ static uint64_t          g_dropped;
 
 /* Formatting */
 
-// Wall-clock HH:MM:SS.
 static void format_walltime(char *out, size_t cap)
 {
     ano_datetime t = ano_localtime(ano_timestamp_unix());
     snprintf(out, cap, "%02d:%02d:%02d", t.hour, t.minute, t.second);
 }
 
-// Compose prefix + message into out, no newline. Length clamped to cap-1. format(printf, 6, 0).
+// Compose prefix + message into out, no newline. Length clamped to cap-1.
 __attribute__((format(printf, 6, 0)))
 static int build_line(char *out, int cap, log_types_t level,
                       const char *file, int line, const char *fmt, va_list ap)
@@ -65,7 +64,7 @@ static int build_line(char *out, int cap, log_types_t level,
 
 /* Sink + buffer (all under g_mtx) */
 
-// Write buffer to sink (or console), reset. Caller holds g_mtx.
+// Write buffer to sink (or console). Caller holds g_mtx.
 static void flush_locked(void)
 {
     if (g_bufLen == 0)
@@ -245,7 +244,6 @@ int mtxlog_cleanup(void)
 
     atomic_store(&g_initialized, false);
 
-    // Final drain, then close.
     ano_mutex_lock(&g_mtx);
     flush_locked();
     if (g_sink != NULL) {

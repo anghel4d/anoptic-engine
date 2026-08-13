@@ -44,12 +44,12 @@ typedef struct AnoResourceCookArtifact {
 AnoResourceError ano_resource_cooker_create(
     AnoResourceCookerConfig config, AnoResourceCooker **cooker);
 void ano_resource_cooker_destroy(AnoResourceCooker *cooker);
-// Begins a replacement transaction while preserving the persistent instance
-// graph, source snapshots, current action keys, executor, and current revision.
+// Discards the pending cook. Bindings, snapshots, action keys, executor, and
+// the current revision stay.
 AnoResourceError ano_resource_cooker_begin(AnoResourceCooker *cooker);
 
-// Source IDs are stable import handles. Binding the same ID again replaces its
-// provider path; import requests and semantic asset IDs remain unchanged.
+// Source IDs are stable. Rebinding replaces the path; import requests and
+// semantic asset IDs stay.
 AnoResourceError ano_resource_source_bind(AnoResourceCooker *cooker,
                                           AnoResourceSourceId source,
                                           const char *path);
@@ -58,19 +58,18 @@ AnoResourceError ano_resource_source_bind(AnoResourceCooker *cooker,
 AnoResourceError ano_resource_import(AnoResourceCooker *cooker,
                                      const AnoResourceImportRequest *request);
 
-// Adds canonical bytes produced by a reflected typed encoder or transform.
-// The cooker copies the bytes; callers retain ownership of the input span.
+// Copies canonical artifact bytes. Callers keep the input span.
 AnoResourceError ano_resource_cooker_add(
     AnoResourceCooker *cooker, AnoAssetId asset, AnoResourceTypeId type,
     AnoResourceCommitGroupId commitGroup, AnoResourceBytes artifact);
-// Measures first, then encodes directly into disjoint reservations in bounded
-// immutable generation volumes. Callbacks complete before this function returns.
+// Caller supplies encodedSize. Encoding writes disjoint reservations in sealed
+// volumes. Callbacks complete before return.
 AnoResourceError ano_resource_cooker_encode_batch(
     AnoResourceCooker *cooker, AnoResourceCookArtifact *artifacts,
     uint64_t count);
 
-// Cooking publishes an immutable in-memory revision. Unchanged action results
-// retain their existing volumes; changed artifacts occupy newly sealed volumes.
+// Publishes an immutable revision. Unchanged artifacts keep their volumes;
+// changed ones occupy newly sealed volumes.
 AnoResourceError ano_resource_cook(AnoResourceCooker *cooker,
                                    const AnoCookedRevision **revision);
 AnoResourceError ano_resource_revision_retain(

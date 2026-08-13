@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Contours (lines + quads) -> monotone quads: p0 (p1 p2)+ per contour, ANO_UI_CURVE_SENTINEL
-// between. Points binary16 in prim-local (bbox center).
+// between. Points are binary16 in prim-local space (bbox center).
 // Fill: nonzero winding. Signed area sets orientation; opposite inners are holes.
 
 #include <stddef.h>
@@ -27,8 +27,6 @@ static uint32_t pack_pt(double x, double y)
     return (uint32_t)ano_half_pack((float)x) | ((uint32_t)ano_half_pack((float)y) << 16);
 }
 
-// In: count packed point words (in == out legal), isotropic scale s > 0.
-// Out: each binary16 pair scaled. Contour sentinel +inf halves stay +inf.
 void ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, float s)
 {
     for (uint32_t i = 0; i < count; i++)
@@ -39,7 +37,6 @@ void ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, floa
     }
 }
 
-// Quad traversed backwards: swap endpoints, keep control.
 static AnoQuad quad_rev(const AnoQuad *q)
 {
     return (AnoQuad){ { q->x[2], q->x[1], q->x[0] }, { q->y[2], q->y[1], q->y[0] } };
@@ -73,8 +70,7 @@ uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t se
     if (b->curves == NULL || segCount == 0 || b->primCount >= b->primCap)
         return ANO_UI_REF_NONE;
 
-    // Pass A: quads in builder space, contour boundaries, bbox. Lines -> straight quads (control at midpoint).
-    // Each contour auto-closes to its opening point.
+    // Pass A: quads in builder space, contour bounds, bbox. Lines become straight quads (control at midpoint).
     AnoQuad q[UI_PATH_MAX_QUADS];
     uint32_t cstart[UI_PATH_MAX_QUADS + 1]; // first quad index of each contour
     uint32_t qn = 0, cn = 0;
@@ -115,7 +111,7 @@ uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t se
                 ctrlx = sg->p[0]; ctrly = sg->p[1];
                 nx = sg->p[2]; ny = sg->p[3];
             }
-            else // LINE
+            else
             {
                 nx = sg->p[0]; ny = sg->p[1];
                 ctrlx = 0.5 * (cx + nx); ctrly = 0.5 * (cy + ny);
@@ -125,7 +121,7 @@ uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t se
             q[qn++] = (AnoQuad){ { cx, ctrlx, nx }, { cy, ctrly, ny } };
             cx = nx; cy = ny;
         }
-        // bbox over endpoints + controls (curve in their hull)
+        // bbox over endpoints + controls (the curve stays in their hull)
         for (uint32_t k = (i == 0 ? 0 : qn - 1); k < qn; k++)
             for (int j = 0; j < 3; j++)
             {
@@ -206,7 +202,7 @@ uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t se
     if (curveSegs == 0)
         return ANO_UI_REF_NONE;
 
-    b->curveCount = w; // commit
+    b->curveCount = w;
     float mn[2] = { (float)minx, (float)miny }, mx[2] = { (float)maxx, (float)maxy };
     return ano_ui_path(b, mn, mx, base, curveSegs, color, paintRef, clipRef, flags);
 }

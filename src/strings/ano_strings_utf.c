@@ -4,8 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// UTF-8 iteration, encoding, case/class, cull, rune-sort, and UTF-16/32 bridges for anostr_t.
-// Malformed -> U+FFFD advancing one byte. Case/class: two-stage table (ano_unicode_tables.h).
+// Malformed -> U+FFFD, advance one byte. Case/class: two-stage table (ano_unicode_tables.h).
 
 #include "anoptic_strings_utf.h"
 
@@ -27,7 +26,7 @@ static int utf8_decode(const uint8_t *p, size_t n, anorune_t *out)
         return 1;
     }
 
-    int      need;  // continuation bytes after the lead
+    int      need;
     anorune_t r, min;
     if ((b0 & 0xE0u) == 0xC0u) { need = 1; r = b0 & 0x1Fu; min = 0x80u; }
     else if ((b0 & 0xF0u) == 0xE0u) { need = 2; r = b0 & 0x0Fu; min = 0x800u; }
@@ -153,12 +152,10 @@ int anostr_builder_append_rune(anostr_builder_t *b, anorune_t r)
 
 /* Case and Classification */
 
-// Record 0 is the identity record.
-
 static inline const ano_uc_record_t *uc_record(anorune_t r)
 {
     if (r >= ANO_UC_TABLE_MAX)
-        return &ano_uc_records[0];
+        return &ano_uc_records[0];  // identity: uncased, no flags
     size_t block = ano_uc_stage1[r >> 8];
     return &ano_uc_records[ano_uc_stage2[block * 256 + (r & 0xFFu)]];
 }
@@ -217,7 +214,7 @@ static size_t cull_find_first(anostr_t s, uint8_t ucMask, const uint64_t asciiSe
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
     size_t i = 0;
     while (i < s.len) {
-        // 8-byte chunks with no high bit and no member byte skip in one test.
+        // Skip 8-byte ASCII chunks with no cull-class member.
         while (i + 8 <= s.len) {
             uint64_t chunk;
             memcpy(&chunk, p + i, 8);
@@ -255,7 +252,6 @@ anostr_t anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
     if (ucMask == 0 || s.len == 0)
         return s;
 
-    // ASCII membership bitset for these classes.
     uint64_t asciiSet[2] = {0};
     for (uint32_t c = 0; c < 128; c++)
         if ((uc_record(c)->flags & ucMask) != 0)
@@ -263,7 +259,7 @@ anostr_t anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
 
     size_t first = cull_find_first(s, ucMask, asciiSet);
     if (first == s.len)
-        return s;   // nothing to cull, same backing
+        return s;   // same backing
 
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
     anostr_builder_t b = anostr_builder_make(heap, s.len);

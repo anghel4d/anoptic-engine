@@ -198,7 +198,7 @@ void ano_generate_pad(const AnoHarmonicContext *ctx, AnoMeter meter,
     int velocity = params->velocityCenter + PAD_VELOCITY_OFFSET;
     velocity = velocity < 1 ? 1 : velocity > 127 ? 127 : velocity;
 
-    // ornament: a prepared suspension if available, else the payoff lean
+    // prepared suspension if available, else the payoff lean
     bool haveOrn = false;
     int ornTarget = 0, ornDiss = 0;
     const char *ornRole = "";

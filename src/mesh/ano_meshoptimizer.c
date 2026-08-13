@@ -1,5 +1,5 @@
 #include "ano_meshoptimizer.h"
-#include <anoptic_memory.h>   // puts this TU's malloc/free in the engine allocator (MI_OVERRIDE is OFF)
+#include <anoptic_memory.h>   // MI_OVERRIDE is OFF: heap APIs come from this header
 #include <string.h>
 #include <math.h>
 #include <float.h>
@@ -78,14 +78,14 @@ static inline size_t align_up(size_t size, size_t alignment) {
     return (size + alignment - 1) & ~(alignment - 1);
 }
 
-// Reserve `bytes` at cursor; return offset, advance 16-aligned. Final cursor = block size.
+// Reserve bytes at cursor; return offset. Advances 16-aligned. Final cursor is block size.
 static inline size_t carve(size_t* cur, size_t bytes) {
     size_t at = *cur;
     *cur = align_up(at + bytes, 16);
     return at;
 }
 
-// Seal one meshlet: record its spans and copy its local vertex table out. Caller advances offsets.
+// Copies the local vertex table. Caller advances the running offsets.
 static inline void meshlet_seal(ano_meshlet_t* m, uint32_t* meshlet_vertices, const uint32_t* current,
                                 uint32_t vertex_offset, uint32_t triangle_offset,
                                 uint32_t nverts, uint32_t ntris) {
@@ -103,7 +103,7 @@ size_t ano_build_meshlets_bound(size_t index_count, size_t max_vertices, size_t 
     if (max_vertices < 3) return 0;
     if (max_triangles < 1) return 0;
 
-    // Clamp limits
+    // Clamp to uint8_t local-index range.
     if (max_vertices > 256) max_vertices = 256;
     if (max_triangles > 256) max_triangles = 256;
 
@@ -119,14 +119,13 @@ void ano_optimize_vertex_cache(uint32_t* destination, const uint32_t* indices, s
 
     if (index_count == 0 || vertex_count == 0) return;
 
-    // Both acquisitions below are pass-local; the scoped heap is the only discharge.
+    // Pass-local scratch; scoped heap is the only discharge.
     mi_heap_t* pass ANO_SCOPED_HEAP = ano_heap_create();
     if (!pass) return;
 
     const uint32_t* src_indices = indices;
     uint32_t* indices_copy = NULL;
 
-    // Support in-place optimization
     if (destination == indices) {
         indices_copy = mi_heap_mallocn_tp(uint32_t, pass, index_count);
         if (!indices_copy) return;
@@ -137,7 +136,6 @@ void ano_optimize_vertex_cache(uint32_t* destination, const uint32_t* indices, s
     uint32_t cache_size = 16;
     size_t face_count = index_count / 3;
 
-    // Partition one scratch block across all helper arrays
     size_t total_memory_size = 0;
     size_t counts_offset          = carve(&total_memory_size, vertex_count * sizeof(uint32_t));
     size_t offsets_offset         = carve(&total_memory_size, vertex_count * sizeof(uint32_t));
@@ -282,11 +280,11 @@ size_t ano_build_meshlets(ano_meshlet_t* meshlets, uint32_t* meshlet_vertices, u
                           size_t max_vertices, size_t max_triangles) {
     size_t meshlet_count = 0;
 
-    // Same acceptance domain as ano_build_meshlets_bound: a config it sizes 0 packs nothing.
+    // Same domain as ano_build_meshlets_bound: a config it sizes 0 packs nothing.
     if (max_vertices < 3) return 0;
     if (max_triangles < 1) return 0;
 
-    // Clamp to uint8_t local-index range
+    // Clamp to uint8_t local-index range.
     if (max_vertices > 256) max_vertices = 256;
     if (max_triangles > 256) max_triangles = 256;
     
@@ -307,7 +305,6 @@ size_t ano_build_meshlets(ano_meshlet_t* meshlets, uint32_t* meshlet_vertices, u
         int32_t a_idx = -1, b_idx = -1, c_idx = -1;
         uint32_t added_vertices = 0;
         
-        // Linear scan for vertex reuse
         for (uint32_t j = 0; j < num_current_vertices; ++j) {
             if (current_meshlet_vertices[j] == a) a_idx = (int32_t)j;
             if (current_meshlet_vertices[j] == b) b_idx = (int32_t)j;
@@ -318,7 +315,6 @@ size_t ano_build_meshlets(ano_meshlet_t* meshlets, uint32_t* meshlet_vertices, u
         if (b_idx == -1 && a != b) added_vertices++;
         if (c_idx == -1 && c != a && c != b) added_vertices++;
         
-        // Commit meshlet when vertex/triangle limits exceeded
         if (num_current_vertices + added_vertices > max_vertices || num_current_triangles >= max_triangles) {
             if (num_current_triangles > 0) {
                 meshlet_seal(&meshlets[meshlet_count++], meshlet_vertices, current_meshlet_vertices,
@@ -331,7 +327,7 @@ size_t ano_build_meshlets(ano_meshlet_t* meshlets, uint32_t* meshlet_vertices, u
             a_idx = -1; b_idx = -1; c_idx = -1;
         }
         
-        // Insert new verts, map duplicate corners of the same triangle
+        // Map duplicate corners of the same triangle.
         if (a_idx == -1) {
             a_idx = (int32_t)num_current_vertices;
             current_meshlet_vertices[num_current_vertices++] = a;
@@ -348,14 +344,12 @@ size_t ano_build_meshlets(ano_meshlet_t* meshlets, uint32_t* meshlet_vertices, u
             current_meshlet_vertices[num_current_vertices++] = c;
         }
         
-        // Emit triangle
         meshlet_triangles[triangle_offset + num_current_triangles * 3 + 0] = (uint8_t)a_idx;
         meshlet_triangles[triangle_offset + num_current_triangles * 3 + 1] = (uint8_t)b_idx;
         meshlet_triangles[triangle_offset + num_current_triangles * 3 + 2] = (uint8_t)c_idx;
         num_current_triangles++;
     }
     
-    // Commit the final meshlet
     if (num_current_triangles > 0)
         meshlet_seal(&meshlets[meshlet_count++], meshlet_vertices, current_meshlet_vertices,
                      vertex_offset, triangle_offset, num_current_vertices, num_current_triangles);
@@ -385,13 +379,12 @@ static inline float v3_dist2(const float* a, const float* b) {
     float d[3]; v3_sub(a, b, d); return dot_product(d, d);
 }
 
-// Position of meshlet-local corner i.
 static inline const float* meshlet_pos(const uint32_t* mv, const uint8_t* mt,
                                        const float* vp, size_t stride, size_t i) {
     return (const float*)((const char*)vp + (size_t)mv[mt[i]] * stride);
 }
 
-// Corner furthest from ref over [0, n). out: its squared distance. Ritter seed pass.
+// Furthest corner from ref in [0, n). Writes squared distance. Ritter seed.
 static const float* meshlet_furthest(const uint32_t* mv, const uint8_t* mt, const float* vp,
                                      size_t stride, size_t n, const float* ref, float* out_d2) {
     float best = -1.0f;
@@ -408,13 +401,13 @@ static const float* meshlet_furthest(const uint32_t* mv, const uint8_t* mt, cons
 ano_meshlet_bounds_gpu_t ano_compute_meshlet_bounds(const uint32_t* meshlet_vertices, const uint8_t* meshlet_triangles, 
                                                     size_t triangle_count, const float* vertex_positions, 
                                                     size_t vertex_count, size_t vertex_positions_stride) {
-    (void)vertex_count; // Unused here
+    (void)vertex_count; // API surface; unused
     ano_meshlet_bounds_gpu_t bounds;
     memset(&bounds, 0, sizeof(bounds));
     
     if (triangle_count == 0) return bounds;
 
-    // 1. Ritter bounding sphere: seed on the two mutually furthest corners.
+    // Ritter sphere: seed on the two mutually furthest corners.
     const size_t corners = triangle_count * 3;
     const float* p_start = meshlet_pos(meshlet_vertices, meshlet_triangles,
                                        vertex_positions, vertex_positions_stride, 0);
@@ -424,14 +417,13 @@ ano_meshlet_bounds_gpu_t ano_compute_meshlet_bounds(const uint32_t* meshlet_vert
     const float* p_max = meshlet_furthest(meshlet_vertices, meshlet_triangles, vertex_positions,
                                           vertex_positions_stride, corners, p_min, &max_dist_sq);
 
-    // Midpoint center, half-diameter radius
+    // Midpoint center; radius = half the seed diameter.
     bounds.center[0] = (p_min[0] + p_max[0]) * 0.5f;
     bounds.center[1] = (p_min[1] + p_max[1]) * 0.5f;
     bounds.center[2] = (p_min[2] + p_max[2]) * 0.5f;
     float rad_sq = max_dist_sq * 0.25f;
     bounds.radius = sqrtf(rad_sq);
 
-    // Grow sphere to enclose outliers
     for (size_t i = 0; i < corners; ++i) {
         const float* pos = meshlet_pos(meshlet_vertices, meshlet_triangles,
                                        vertex_positions, vertex_positions_stride, i);
@@ -451,10 +443,9 @@ ano_meshlet_bounds_gpu_t ano_compute_meshlet_bounds(const uint32_t* meshlet_vert
         }
     }
 
-    // 2. Normal cone (meshopt): cutoff = sin(spread), 1 past hemisphere. flat.task:
-    //   dot(center-eye, axis) >= cutoff*|center-eye| + radius => fully backfacing.
+    // meshopt normal cone: cutoff = sin(spread); 1 past hemisphere.
     float avg_normal[3] = { 0.0f, 0.0f, 0.0f };
-    float triangle_normals[256][3]; // Max 256 triangles
+    float triangle_normals[256][3]; // matches max_triangles clamp
     size_t valid_normals = 0;
 
     size_t cone_triangle_count = triangle_count > 256 ? 256 : triangle_count;
@@ -471,7 +462,7 @@ ano_meshlet_bounds_gpu_t ano_compute_meshlet_bounds(const uint32_t* meshlet_vert
 
         float len = sqrtf(dot_product(normal, normal));
         if (len > 1e-6f) {
-            // Average unit normals (facing spread, not area-weighted)
+            // Facing spread: average unit normals, not area-weighted.
             float* tn = triangle_normals[valid_normals++];
             v3_copy(normal, tn);
             v3_div(tn, len);
@@ -479,7 +470,7 @@ ano_meshlet_bounds_gpu_t ano_compute_meshlet_bounds(const uint32_t* meshlet_vert
         }
     }
 
-    // Degenerate meshlet: never cone-cull
+    // Degenerate meshlet: never cone-cull.
     bounds.cone_axis[0] = 0.0f; bounds.cone_axis[1] = 0.0f; bounds.cone_axis[2] = 1.0f;
     bounds.cone_cutoff = 1.0f;
     v3_copy(bounds.center, bounds.cone_apex);
@@ -505,8 +496,7 @@ ano_meshlet_bounds_gpu_t ano_compute_meshlet_bounds(const uint32_t* meshlet_vert
 
 /* Mesh Simplification */
 
-// LOD. Endpoint-snap QEM. Same VBO, shorter IBO.
-// Welds coincident positions. Borders slide along border only. Geometry-only.
+// Endpoint-snap QEM. Same VBO, shorter IBO. Geometry-only.
 
 // 11-float symmetric quadric: error(v) = vT A v + 2 bT v + c. w normalizes by weight.
 typedef struct {
@@ -517,22 +507,21 @@ typedef struct {
     float w;
 } ano_quadric_t;
 
-// Directed collapse: snap v onto t, cost = quadric error at t.
+// Directed collapse: snap v onto t at quadric error cost.
 typedef struct { float cost; uint32_t v; uint32_t t; } ano_collapse_t;
 
-static const float ANO_BORDER_WEIGHT = 10.0f;  // border-plane quadric weight
+static const float ANO_BORDER_WEIGHT = 10.0f;
 static const size_t ANO_SIMPLIFY_MAX_PASSES = 1000u;
-static const float ANO_SIMPLIFY_AREA_EPS2 = 1e-24f;    // (2*area)^2: Guard 5 collinear drop (== |cross|<1e-12)
+static const float ANO_SIMPLIFY_AREA_EPS2 = 1e-24f;    // (2*area)^2. Guard 5 collinear drop (|cross| < 1e-12).
 static const float ANO_SIMPLIFY_ABS_EDGE_FRAC = 0.25f; // abs edge cap vs largest bbox axis (extent==1)
 static const float ANO_SIMPLIFY_MAX_NORMAL_DRIFT_COS = 0.5f; // cos(60deg): max cumulative face rotation from pass-0
 static const float ANO_FEATURE_COS = 0.70710678f;      // cos(45deg): manifold dihedral past this = feature edge
-// static const float ANO_SIMPLIFY_VOLUME_K = 0.0f;    // OFF: >0 enables swept-volume thickness guard
 
 static inline uint32_t ano_float_bits(float f) { uint32_t b; memcpy(&b, &f, sizeof b); return b; }
 
 static inline size_t ano_ceil_pow2(size_t x) { size_t p = 16; while (p < x) p <<= 1; return p; }
 
-// Unit plane (a,b,c,d) weighted by w -> quadric.
+// Weighted unit plane (a,b,c,d) -> quadric.
 static void ano_quadric_from_plane(ano_quadric_t* q, float a, float b, float c, float d, float w) {
     q->a00 = a*a*w; q->a11 = b*b*w; q->a22 = c*c*w;
     q->a10 = a*b*w; q->a20 = a*c*w; q->a21 = b*c*w;
@@ -602,7 +591,7 @@ static uint32_t ano_edge_get(const uint64_t* keys, const uint32_t* cnt, size_t c
     return keys[h] ? cnt[h] : 0;
 }
 
-// Slot of a known-present edge (same slot as use-count for feature companion table).
+// Slot of a known-present edge (same slot as the feature companion table).
 static size_t ano_edge_slot(const uint64_t* keys, size_t cap, uint32_t u, uint32_t v) {
     return ano_edge_probe(keys, cap, ano_edge_key(u, v));
 }
@@ -642,7 +631,6 @@ float ano_simplify_scale(const float* vertex_positions, size_t vertex_count, siz
     return e > ez ? e : ez;
 }
 
-// kind codes
 #define ANO_VK_MANIFOLD 0u
 #define ANO_VK_BORDER   1u
 #define ANO_VK_LOCKED   2u
@@ -688,8 +676,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     float extent = ano_simplify_scale(vertex_positions, vertex_count, vertex_positions_stride);
     float invscale = extent > 0.0f ? 1.0f / extent : 1.0f;
 
-    // Scratch: scoped heap carved by index domain. Shared-domain arrays share a block.
-    // Separate: weld (freed after weld), guards-on. 16-aligned. Exact sizes via carve offsets.
+    // Scratch: one scoped heap, carved by domain. Weld is separate and freed after the weld pass.
     size_t weldCap = ano_ceil_pow2(vertex_count * 2 + 16);
     size_t ecap    = ano_ceil_pow2(tri0 * 4 + 16);
 
@@ -699,7 +686,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
         return ic;
     }
 
-    // Per-vertex working state. Widest members first so each carve stays naturally aligned.
+    // Widest members first so each carve stays naturally aligned.
     size_t vBytes = 0;
     size_t vNpos      = carve(&vBytes, vertex_count * 3 * sizeof(float));
     size_t vQ         = carve(&vBytes, vertex_count * sizeof(ano_quadric_t));
@@ -714,13 +701,13 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     size_t vLocked    = carve(&vBytes, vertex_count);
     size_t vFeature   = carve(&vBytes, vertex_count);
 
-    // Per-index working state: adjacency payload plus the working-triangle double buffer.
+    // Adjacency payload plus working-triangle double buffer.
     size_t iBytes = 0;
     size_t iAdjData = carve(&iBytes, ic * sizeof(uint32_t));
     size_t iWtri    = carve(&iBytes, ic * sizeof(uint32_t));
     size_t iWtmp    = carve(&iBytes, ic * sizeof(uint32_t));
 
-    // Edge hash, and on the guarded path the parallel first-incident-normal table.
+    // Edge hash. Guarded path also carves the first-incident-normal table.
     bool guarded  = edge_len_factor > 0.0f;
     size_t eBytes = 0;
     size_t eEkeys = carve(&eBytes, ecap * sizeof(uint64_t));
@@ -731,14 +718,13 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     char* vb = (char*)mi_heap_malloc(pass, vBytes);
     char* ib = (char*)mi_heap_malloc(pass, iBytes);
     char* eb = (char*)mi_heap_malloc(pass, eBytes);
-    // Separate: the weld table is dead once the weld pass ends, and is released there.
     int32_t* weld = mi_heap_mallocn_tp(int32_t, pass, weldCap);
-    // Separate: per-triangle drift reference, guarded path only.
+    // Pass-0 drift reference. Guarded path only.
     char* tb = guarded ? (char*)mi_heap_malloc(pass, align_up(tri0 * 3 * sizeof(float), 16) * 2) : NULL;
 
     if (!vb || !ib || !eb || !weld || (guarded && !tb)) {
         if (destination != indices) memcpy(destination, indices, ic * sizeof(uint32_t));
-        return ic;   // scoped heap discharges whatever did land
+        return ic;   // scoped heap discharges whatever landed
     }
 
     float*          npos      = (float*)(vb + vNpos);
@@ -749,10 +735,10 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     uint32_t*       outid     = (uint32_t*)(vb + vOutid);
     uint32_t*       adjCounts = (uint32_t*)(vb + vAdjCounts);
     uint32_t*       adjOff    = (uint32_t*)(vb + vAdjOff);
-    uint32_t*       linkNbr   = (uint32_t*)(vb + vLinkNbr);   // link-cond ring stamp (both paths)
+    uint32_t*       linkNbr   = (uint32_t*)(vb + vLinkNbr);   // link-condition ring stamp (both paths)
     uint8_t*        kind      = (uint8_t*)(vb + vKind);
     uint8_t*        locked    = (uint8_t*)(vb + vLocked);
-    uint8_t*        feature   = (uint8_t*)(vb + vFeature);    // pass-0 dihedral feature flags (both paths)
+    uint8_t*        feature   = (uint8_t*)(vb + vFeature);    // pass-0 dihedral flags (both paths)
 
     uint32_t* adjData = (uint32_t*)(ib + iAdjData);
     uint32_t* wtri    = (uint32_t*)(ib + iWtri);
@@ -760,13 +746,13 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
 
     uint64_t* ekeys = (uint64_t*)(eb + eEkeys);
     uint32_t* ecnt  = (uint32_t*)(eb + eEcnt);
-    float*    efn   = guarded ? (float*)(eb + eEfn) : NULL;   // feature detection: 1st incident normal per edge
+    float*    efn   = guarded ? (float*)(eb + eEfn) : NULL;   // first incident normal per edge
     uint8_t*  ehas  = guarded ? (uint8_t*)(eb + eEhas) : NULL;
 
-    // pass-0 face normal per wtri slot (drift ref), ping-pong pair.
+    // Pass-0 face normal per wtri slot (drift ref). Ping-pong pair.
     float* orig_n     = guarded ? (float*)tb : NULL;
     float* orig_n_tmp = guarded ? (float*)(tb + align_up(tri0 * 3 * sizeof(float), 16)) : NULL;
-    memset(feature, 0, vertex_count);   // off path stays all-zero -> feature-slide inert
+    memset(feature, 0, vertex_count);   // off path stays zero: feature-slide is inert
 
     // Unit-extent normalize. +0.0f folds -0. Result error *= extent.
     const char* vbase = (const char*)vertex_positions;
@@ -794,9 +780,9 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
         }
         collapse[v] = v;
     }
-    mi_free(weld);   // weld pass over: release ahead of the collapse loop's peak
+    mi_free(weld);   // release ahead of the collapse loop's peak
 
-    // Working tris in welded space. Drop index-degenerate post-weld.
+    // Working tris in welded space. Drop index-degenerate faces.
     size_t tris = 0;
     for (size_t t = 0; t < tri0; ++t) {
         uint32_t a = remap[indices[t*3+0]], b = remap[indices[t*3+1]], c = remap[indices[t*3+2]];
@@ -861,7 +847,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
         }
     }
 
-    // Pass-0 features: manifold edge with dihedral past ANO_FEATURE_COS flags both ends. O(tris).
+    // Pass-0 features: manifold dihedral past ANO_FEATURE_COS flags both ends.
     if (edge_len_factor > 0.0f) {
         memset(ehas, 0, ecap);
         for (size_t t = 0; t < tris; ++t) {
@@ -873,7 +859,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
             const uint32_t tri[3] = { ia, ib, ic2 };
             for (int k = 0; k < 3; ++k) {
                 uint32_t x = tri[k], y = tri[(k+1)%3];
-                if (ano_edge_get(ekeys, ecnt, ecap, x, y) != 2) continue;   // manifold edges only
+                if (ano_edge_get(ekeys, ecnt, ecap, x, y) != 2) continue;   // manifold only
                 size_t s = ano_edge_slot(ekeys, ecap, x, y);
                 if (!ehas[s]) { v3_copy(n, &efn[s*3]); ehas[s]=1; continue; }
                 float dd = efn[s*3]*n[0] + efn[s*3+1]*n[1] + efn[s*3+2]*n[2]; // cos(dihedral deviation)
@@ -908,7 +894,6 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     for (size_t pass = 0; pass < ANO_SIMPLIFY_MAX_PASSES && tris > target_tris; ++pass) {
         size_t tris_before = tris;
 
-        // Incident tris per canonical vertex.
         build_triangle_adjacency(&adj, wtri, tris_before * 3, vertex_count);
 
         // Edge uses -> kind (border / locked-complex / manifold). Rebuild each pass; quadrics are not.
@@ -926,7 +911,6 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
             }
         }
 
-        // Cheapest legal collapse per vertex.
         size_t ncand = 0;
         for (uint32_t v = 0; v < (uint32_t)vertex_count; ++v) {
             if (adjCounts[v] == 0 || kind[v] == ANO_VK_LOCKED) continue;
@@ -942,10 +926,9 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
                         if (ano_edge_get(ekeys, ecnt, ecap, v, nb) != 1) continue;
                     } else {
                         if (kind[nb] == ANO_VK_LOCKED) continue;
-                        // Feature-slide: feature vert snaps only onto another feature vert (crease/rim along itself, never inward).
+                        // Feature-slide: feature verts snap only onto feature verts (crease/rim, never inward).
                         if (feature[v] && !feature[nb]) continue;
                     }
-                    // Reject move longer than growth cap (inert when off).
                     float dv[3]; v3_sub(&npos[nb*3], &npos[v*3], dv);
                     if (dot_product(dv, dv) > maxEdge2) continue;
                     float cost = ano_quadric_error(&Q[v], &npos[nb*3]);
@@ -958,7 +941,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
         }
         qsort(cand, ncand, sizeof(ano_collapse_t), ano_collapse_cmp);
 
-        // Maximal matching, cheapest first. Skip flips. Stop at count/error budget.
+        // Maximal matching, cheapest first. Stop at count or error budget.
         memset(locked, 0, vertex_count);
         size_t collapses = 0;
         size_t rtris = tris_before;
@@ -1022,7 +1005,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
                 v3_sub(o1, o0, ne1); v3_sub(o2, o0, ne2);
                 cross_product(ne1, ne2, nn);
                 float nlen2 = dot_product(nn, nn);
-                // Fold/needle + growth. nlen2==(2*newArea)^2.
+                // nlen2 == (2*newArea)^2.
                 if (nlen2 < 1e-20f) { flip = 1; }               // sliver
                 else if (maxEdge2 == FLT_MAX) {                 // guards off: sign fold only
                     if (dot_product(on, nn) < 0.0f) flip = 1;
@@ -1038,7 +1021,6 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
                     float olen2 = dot_product(on, on);
                     if (dot_product(on, nn) <= 0.25f * sqrtf(olen2 * nlen2)) flip = 1;
                     else {
-                        // Growth cap: reject if any resulting edge exceeds maxEdge2.
                         float ne3[3]; v3_sub(o2, o1, ne3);
                         if (dot_product(ne1, ne1) > maxEdge2 || dot_product(ne2, ne2) > maxEdge2 ||
                             dot_product(ne3, ne3) > maxEdge2) flip = 1;
@@ -1061,7 +1043,6 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
             collapses++;
         }
 
-        // Rebuild tris through collapse map. Drop degenerates.
         size_t newtris = 0;
         for (size_t t = 0; t < tris_before; ++t) {
             uint32_t a = ano_resolve(collapse, wtri[t*3+0]);
@@ -1073,10 +1054,10 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
             newtris++;
         }
         uint32_t* swap = wtri; wtri = wtmp; wtmp = swap;
-        if (orig_n) { float* ns = orig_n; orig_n = orig_n_tmp; orig_n_tmp = ns; }  // parallel swap
+        if (orig_n) { float* ns = orig_n; orig_n = orig_n_tmp; orig_n_tmp = ns; }  // keep orig_n aligned with wtri
         tris = newtris;
 
-        if (collapses == 0 || tris >= tris_before) break;  // converged / no progress
+        if (collapses == 0 || tris >= tris_before) break;
     }
 
     // outid: survivor keeps own id (seam wedges distinct); collapsed snaps to canonical survivor.
@@ -1101,5 +1082,5 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
 
     if (out_result_error) *out_result_error = sqrtf(result_err2) * extent;
 
-    return outcount;   // scratch discharged by the scoped heap
+    return outcount;
 }

@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Private: per-platform primitives for filesystem.c.
+// Per-platform primitives for filesystem.c.
 
 #ifndef FILESYSTEM_INTERNAL_H
 #define FILESYSTEM_INTERNAL_H
@@ -12,8 +12,8 @@
 
 /* Directory */
 
-// Create `path` if absent (mkdir / _mkdir). Parents must already exist.
-// EEXIST alone is not success: the existing entry must itself be a directory.
+// Create `path` if absent. Parents must already exist.
+// EEXIST is success only when the existing entry is a directory.
 // Output: 0 when `path` is a directory afterwards, -1 otherwise.
 int fs_mkdir(const char *path);
 

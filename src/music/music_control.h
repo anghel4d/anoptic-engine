@@ -30,7 +30,6 @@ static inline AnoAffect ano_affect_default(void)
 
 AnoAffect ano_affect_clamped(AnoAffect a);
 
-// Live layer held until energy drops below threshold - layerHysteresis.
 double ano_map_tempo(AnoAffect a, const AnoMappingTable *t);
 int    ano_map_register(AnoAffect a, const AnoMappingTable *t);
 double ano_map_density(AnoAffect a, const AnoMappingTable *t);
@@ -55,7 +54,8 @@ AnoMode ano_brighter_mode(AnoMode mode, int steps);
 void ano_pick_instruments(const uint8_t current[ANO_MUSIC_LAYER_COUNT], double energy,
                           const AnoMappingTable *t, uint8_t out[ANO_MUSIC_LAYER_COUNT]);
 
-// Layer gates in table order. energy compared STRICTLY >. Returns gated count.
+// Layer gates in table order. energy compared STRICTLY >.
+// Live layer held until energy drops below threshold - layerHysteresis.
 uint32_t ano_gate_layers(const uint8_t *current, uint32_t currentCount, double energy,
                          const AnoMappingTable *t, uint8_t out[ANO_MUSIC_LAYER_COUNT]);
 

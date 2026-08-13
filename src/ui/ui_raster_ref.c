@@ -26,9 +26,9 @@ static float clampf(float v, float lo, float hi)
 
 /* Path Fill */
 
-// Path fill: monotone-quad sweep over shared curve stream (mirrors textcoverage.glsl curve_area).
+// Path fill: monotone-quad sweep over the shared curve stream (mirrors textcoverage.glsl curve_area).
 
-// Single monotone-component root hitting target, clamped [0,1], citardauq form.
+// Single monotone-component root at target, clamped [0,1], citardauq form.
 static float solve_mono(float c0, float c1, float c2, float target)
 {
     float span = c2 - c0;
@@ -42,7 +42,7 @@ static float solve_mono(float c0, float c1, float c2, float target)
     return clampf(2.0f * c / den, 0.0f, 1.0f);
 }
 
-// Signed area: monotone quad vs window right edge, clip [0,w]x[0,h], window-local. Mirrors curve_area().
+// Signed area of one monotone quad vs the window right edge, clipped to [0,w]x[0,h]. Mirrors curve_area().
 static float curve_area(float x0, float y0, float x1, float y1, float x2, float y2,
                         float w, float h)
 {
@@ -82,8 +82,8 @@ static float curve_area(float x0, float y0, float x1, float y1, float x2, float 
 static float half_lo(uint32_t u) { return ano_half_unpack((uint16_t)(u & 0xFFFFu)); }
 static float half_hi(uint32_t u) { return ano_half_unpack((uint16_t)(u >> 16)); }
 
-// Path coverage over window at (wx,wy) size (ww,wh), prim-local: walk curveCount monotone
-// quads from word `off` (SENTINEL restarts contour), / window area.
+// Path coverage over the prim-local window at (wx,wy) size (ww,wh): walk curveCount
+// monotone quads from word `off` (SENTINEL restarts a contour), divide by window area.
 // Mirrors ui_path_sum in uicoverage.glsl.
 static float ui_path_sum(const AnoUiScene *s, uint32_t off, uint32_t curveCount,
                          float wx, float wy, float ww, float wh)
@@ -115,7 +115,6 @@ static float ui_path_sum(const AnoUiScene *s, uint32_t off, uint32_t curveCount,
 
 /* SDF + Shadow */
 
-// In: p relative to box center (y-down), half, radii (tl,tr,br,bl). Out: signed distance.
 float ano_ui_ref_sd_rrect(const float p[2], const float half[2], const float radii[4])
 {
     // y-down quadrant: x<0,y<0 tl; x>=0,y<0 tr; x>=0,y>=0 br; x<0,y>=0 bl.
@@ -150,7 +149,6 @@ static float shadow_x(float x, float y, float sigma, float corner, const float h
     return 0.5f * (ui_erf((x + curved) * k) - ui_erf((x - curved) * k));
 }
 
-// In: p relative to center, half, uniform corner, sigma >= 1e-3. Out: intensity [0,1].
 float ano_ui_ref_shadow(const float p[2], const float half[2], float corner, float sigma)
 {
     // 4-sample Gaussian quadrature over y offsets intersecting the box, truncated at 3 sigma.
@@ -212,7 +210,6 @@ static void ui_stop_color(const AnoUiScene *s, uint32_t first, uint32_t count, f
     for (int k = 0; k < 4; k++) out[k] = st[last].color[k];
 }
 
-// In: scene, paintRef, pixel, base tint. Out: fill * base. NONE -> base. OOR -> transparent.
 void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py,
                       const float base[4], float out[4])
 {
@@ -225,7 +222,7 @@ void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py
         return;
     }
     const AnoUiPaint *pa = &s->paints[paintRef];
-    // Overflow-safe stop window: stopFirst/stopCount vs stopCount.
+    // Overflow-safe stop window vs s->stopCount.
     if (pa->stopCount == 0 || pa->stopFirst >= s->stopCount
         || pa->stopCount > s->stopCount - pa->stopFirst) {
         out[0] = out[1] = out[2] = out[3] = 0.0f;
@@ -239,7 +236,7 @@ void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py
     else if (pa->kind == ANO_UI_GRAD_CONIC)
         t = atan2f(gy, gx) * 0.15915494309189535f + 0.5f;
     else
-        t = gx; // linear
+        t = gx;
     float col[4];
     ui_stop_color(s, pa->stopFirst, pa->stopCount, t, col);
     for (int k = 0; k < 4; k++)
@@ -249,15 +246,13 @@ void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py
 
 /* Shade + Eval */
 
-// In: scene, prim, window origin. Out: premultiplied contribution over the unit window.
-// IMAGE/GLYPHS -> zero here.
 void ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, float out[4])
 {
     out[0] = out[1] = out[2] = out[3] = 0.0f;
     if (prim >= s->primCount)
         return;
     const AnoUiPrim *p = &s->prims[prim];
-    // Window center through prim transform (rows).
+    // Window center through prim inv (rows).
     float dx = px + 0.5f - p->origin[0], dy = py + 0.5f - p->origin[1];
     float l[2] = { p->inv[0] * dx + p->inv[1] * dy, p->inv[2] * dx + p->inv[3] * dy };
     float cov;
@@ -274,13 +269,13 @@ void ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, fl
         float a = ano_ui_ref_shadow(l, p->halfExt, p->radii[0], p->param[0]);
         if (p->flags & ANO_UI_FLAG_INNER) {
             float d = ano_ui_ref_sd_rrect(l, p->halfExt, p->radii);
-            a = (1.0f - a) * clamp01(0.5f - d); // blur of complement, masked inside
+            a = (1.0f - a) * clamp01(0.5f - d);
         }
         cov = a;
         break;
     }
     case ANO_UI_PATH: {
-        // Prim-local window box (v0: identity inv). Walk shared curve stream.
+        // Prim-local window box. Identity inv only: the window is not transformed.
         if (s->curves == NULL || p->aux0 >= s->curveCount)
             return;
         cov = clamp01(ui_path_sum(s, p->aux0, p->aux1, l[0] - 0.5f, l[1] - 0.5f, 1.0f, 1.0f));
@@ -325,9 +320,8 @@ void ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4])
 static_assert((ANO_UI_ENTRY_INDEX_MASK ^ ANO_UI_ENTRY_SOLID) == UINT32_MAX, // disjoint + total
               "tile entry: solid bit and index mask partition the word");
 
-// One tile entry: normal shade, or solid (cov=1, skip SDF) through clip+paint.
-// Sole entry->index decode; OOR -> transparent OVER. Mirrors GPU tiled branch.
-// In: scene, entry, pixel. Out: src. Returns blend mode (ANO_UI_BLEND_MASK).
+// One tile entry: shade, or solid (cov=1, skip SDF) through clip+paint.
+// Sole entry->index decode. OOR -> transparent OVER. Mirrors the GPU tiled branch.
 static uint32_t shade_entry(const AnoUiScene *s, uint32_t entry, int32_t px, int32_t py,
                             float src[4])
 {
@@ -351,7 +345,6 @@ static uint32_t shade_entry(const AnoUiScene *s, uint32_t entry, int32_t px, int
     return p->flags & ANO_UI_BLEND_MASK;
 }
 
-// Painter's-order blend over the tile list for (px,py). Same as ano_ui_ref_eval. GPU mirrors this. No glyphs.
 void ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY, const uint32_t *offsets,
                            const uint32_t *entries, int32_t px, int32_t py, float out[4])
@@ -365,7 +358,7 @@ void ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
     uint32_t tile = (uint32_t)ty * tilesX + (uint32_t)tx;
     for (uint32_t k = offsets[tile]; k < offsets[tile + 1]; k++) {
         float src[4];
-        uint32_t mode = shade_entry(s, entries[k], px, py, src); // sole decode of the entry word
+        uint32_t mode = shade_entry(s, entries[k], px, py, src);
         if (mode == ANO_UI_BLEND_ADD) {
             acc[0] += src[0];
             acc[1] += src[1];

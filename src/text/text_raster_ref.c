@@ -4,11 +4,11 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// CPU float32 ref of Scanline Sweeper coverage math in resources/shaders/textcoverage.glsl.
-// solve_mono, curve_area, ano_text_window_sum mirror GLSL; ano_text_raster_ref is harness-only.
-// Blank (curveCount 0) guarded in ano_text_window_sum here; GLSL leaves it to callers. Both yield 0.0.
-// Port: copysignf vs sign ternary; half_lo/half_hi vs vec2/unpackHalf2x16.
-// Stream grammar in text_internal.h. No gamma. Linear coverage like FT_Render_Glyph.
+// CPU float32 ref of resources/shaders/textcoverage.glsl coverage math.
+// solve_mono, curve_area, and ano_text_window_sum mirror GLSL. ano_text_raster_ref is harness-only.
+// Blank (curveCount 0): guarded here; GLSL leaves it to callers. Both yield 0.0.
+// Port diffs: copysignf vs a sign ternary; half_lo/half_hi vs unpackHalf2x16.
+// No gamma. Linear coverage like FT_Render_Glyph.
 
 #include "anoptic_text.h"
 #include "text/text_internal.h"
@@ -35,14 +35,15 @@ static float solve_mono(float c0, float c1, float c2, float target)
     return clampf(2.0f * c / den, 0.0f, 1.0f);
 }
 
-// Signed area of one monotone quad vs window right edge, clipped to ([0,w] x [0,h]). y-band param range, split at x-boundary crossings (at most one each), chord trapezoids with endpoints clamped. Outside pieces -> 0 or full-width rect.
+// Signed area of one monotone quad vs the window right edge, clipped to [0,w]x[0,h].
+// At most one crossing per x-boundary. Chord trapezoids; outside pieces are 0 or a full-width rect.
 static float curve_area(float x0, float y0, float x1, float y1, float x2, float y2,
                         float w, float h)
 {
     if (y0 == y2)
         return 0.0f; // horizontal: sweeps nothing
     if (fmaxf(y0, y2) <= 0.0f || fminf(y0, y2) >= h || fminf(x0, x2) >= w)
-        return 0.0f; // below, above, or right of window
+        return 0.0f;
 
     if (x0 == x2) // vertical: whole curve at x0
     {
@@ -90,8 +91,6 @@ static float curve_area(float x0, float y0, float x1, float y1, float x2, float 
 static inline float half_lo(uint32_t u) { return ano_half_unpack((uint16_t)(u & 0xFFFFu)); }
 static inline float half_hi(uint32_t u) { return ano_half_unpack((uint16_t)(u >> 16)); }
 
-// Unclamped coverage sum for one em-space window: walk stream, signed swept area / window area.
-// Blank (curveCount 0): 0.0, never touches pts.
 float ano_text_window_sum(const uint32_t *pts, const AnoGlyphEntry *g, float wx, float wy,
                           float w, float h)
 {
@@ -103,7 +102,7 @@ float ano_text_window_sum(const uint32_t *pts, const AnoGlyphEntry *g, float wx,
     float area = 0.0f;
     for (uint32_t c = 0; c < g->curveCount; c++)
     {
-        if (pts[i] == ANO_TEXT_POINT_SENTINEL) // contour restart
+        if (pts[i] == ANO_TEXT_POINT_SENTINEL)
         {
             i++;
             p0x = half_lo(pts[i]) - wx;
@@ -138,7 +137,6 @@ void ano_text_raster_ref(const uint32_t *points, const AnoGlyphEntry *glyph,
                 float wx = (float)(left + c) * invS;
                 float sum = ano_text_window_sum(points, glyph, wx, wy, invS, invS);
                 maxSum = fmaxf(maxSum, sum);
-                // Per-glyph clamp. No gamma.
                 out[r * width + c] = (uint8_t)(clampf(sum, 0.0f, 1.0f) * 255.0f + 0.5f);
             }
         }

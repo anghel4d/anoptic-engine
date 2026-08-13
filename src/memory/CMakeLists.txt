@@ -1,4 +1,3 @@
-# Conditionally compile platform-specific source files.
 # APPLE before UNIX: both true on macOS.
 if (WIN32)
     target_sources(anoptic_core PRIVATE
@@ -14,7 +13,6 @@ elseif (UNIX)
     )
 endif()
 
-# Common sources
 target_sources(anoptic_core PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/memory.c
         ${CMAKE_CURRENT_SOURCE_DIR}/memory_region.c

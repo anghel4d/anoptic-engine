@@ -25,7 +25,7 @@ typedef struct AnoDspDelay
 {
     float   *buf;
     uint32_t mask; // capacity - 1 (pow2, >= 1)
-    uint32_t w;    // write cursor
+    uint32_t w;
 } AnoDspDelay;
 
 static inline uint32_t ano_dsp_delay_pow2_(uint32_t v)

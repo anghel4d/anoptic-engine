@@ -14,7 +14,6 @@
 // Commit-last idiom: publish implementationCount only after the array exists.
 bool ano_pipeline_additive_init(VulkanContext* ctx, RendererState* state, PipelinePrototype* proto)
 {
-	// 1. Setup cache
 	VkPipelineCacheCreateInfo cacheInfo = {};
 	cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 	if (vkCreatePipelineCache(ctx->device, &cacheInfo, NULL, &proto->cache) != VK_SUCCESS)
@@ -26,7 +25,6 @@ bool ano_pipeline_additive_init(VulkanContext* ctx, RendererState* state, Pipeli
 	bool useTask = state->taskCull;
 	VkShaderStageFlagBits geometryStage = useMesh ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT;
 
-	// 2. Setup layout (sets 0/1/2 + geometry-stage push constant).
 	VkPushConstantRange pushConstantRange = {};
 	pushConstantRange.stageFlags = geometryStage | VK_SHADER_STAGE_FRAGMENT_BIT | (useTask ? VK_SHADER_STAGE_TASK_BIT_EXT : 0);
 	pushConstantRange.offset = 0;

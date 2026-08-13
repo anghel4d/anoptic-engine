@@ -11,10 +11,8 @@ target_sources(anoptic_core PRIVATE
 
 # Per-platform device (APPLE before UNIX).
 if (WIN32)
-    # WASAPI + DirectSound. ole32/avrt/dsound runtime-loaded.
     target_sources(anoptic_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/audio_win64.c)
 elseif (APPLE)
-    # CoreAudio default-output AudioUnit
     target_sources(anoptic_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/audio_macos.c)
     target_link_libraries(anoptic_core PUBLIC
             "-framework CoreAudio" "-framework AudioUnit" "-framework AudioToolbox")

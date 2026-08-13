@@ -31,7 +31,7 @@ enum {
 
 // Entry head-line marker. Only `tag` is atomic (publish gate). timestamp/text ride its release/acquire.
 typedef struct {
-    ANO_ATOMIC(uint64_t) tag;   // 0 = free, nonzero = committed. Publish last (release), read first (acquire).
+    ANO_ATOMIC(uint64_t) tag;   // 0 = free, nonzero = committed
     uint64_t timestamp;     // raw ticks, rendered at drain
 } log_marker_t;
 static_assert(sizeof(log_marker_t) == ANO_LOG_HDR, "marker is 16 bytes");
@@ -41,8 +41,8 @@ static_assert(ANO_LOG_HDR <= ANO_CACHE_LINE, "marker fits in one cache line");
 typedef union {
     // `len` is low 16 bits of `w`. 2+1+1+4 packs to 8 with zero padding.
     struct {
-        uint16_t len;       // stored text bytes, span = ceil((16 + len) / ANO_CL)
-        uint8_t  level;     // ano_loglevel_t for flusher routing
+        uint16_t len;       // stored text bytes
+        uint8_t  level;
         uint8_t  flags;     // COMMITTED + DEFERRED + sink bits
         uint32_t cycle;     // lap (pos >> shift): stale prior-lap tag != this lap, no zeroing
     };
@@ -65,13 +65,11 @@ static inline uint32_t log_cycle(const log_ring_t *r, uint64_t pos) { return (ui
 /* Pure Helpers */
 
 // Cache lines for `len` text bytes, at least 1. Marker shares the head line.
-
 static inline uint64_t log_span(uint16_t len)
 {
     return (ANO_LOG_HDR + (uint64_t)len + ANO_CL - 1) / ANO_CL;
 }
 
-// Capacity in lines (N) and bytes.
 static inline uint64_t log_lines(const log_ring_t *r) { return r->mask + 1; }
 static inline size_t   log_bytes(const log_ring_t *r) { return (size_t)log_lines(r) * ANO_CL; }
 
@@ -81,7 +79,7 @@ static inline log_marker_t *log_marker_at(const log_ring_t *r, uint64_t pos)
     return (log_marker_t *)(r->buf + (pos & r->mask) * ANO_CL);
 }
 
-// Copy `len` bytes into entry body at `pos`, seam-aware. Marker never wraps.
+// Copy `len` bytes into the entry body. Marker never wraps.
 static inline void log_write_body(const log_ring_t *r, uint64_t pos, const char *src, uint16_t len)
 {
     char  *body  = (char *)log_marker_at(r, pos) + ANO_LOG_HDR;

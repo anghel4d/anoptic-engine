@@ -6,10 +6,6 @@
 
 // Logic<->audio transport (private to src/audio/): SPSC rings + seqlock lanes.
 // Completes opaque AnoAudioBridge. Public contract: include/anoptic_audio.h.
-//   logic --AnoAudioCommand--> mixer   (commands, lossless)
-//   mixer --AnoAudioEvent----> logic   (events. retirement re-emits until landed)
-//   logic publishes AnoAudioListener   (seqlock, latest-wins)
-//   mixer publishes AnoAudioTelemetry  (seqlock, latest-wins)
 
 #ifndef ANO_AUDIO_BRIDGE_INTERNAL_H
 #define ANO_AUDIO_BRIDGE_INTERNAL_H

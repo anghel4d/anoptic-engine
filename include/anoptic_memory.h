@@ -73,23 +73,22 @@ extern "C" {
 #endif
 
 // Hardware interference sizes. Compile-time only (alignas / struct layout); not a runtime query.
-// ANO_CACHE_LINE: true coherency grain for packing / line-granular reservation (128 Apple aarch64, else 64).
-// ANO_THREAD_LINE: false-sharing isolation for hot per-thread atomics. Align cursors to it.
-// Default ANO_THREAD_LINE is 128 on every target.
+// ANO_CACHE_LINE: coherency grain for packing (128 Apple aarch64, else 64).
+// ANO_THREAD_LINE: false-sharing isolation for hot per-thread atomics. Default 128.
 // Override: -DANO_CACHE_LINE=N / -DANO_THREAD_LINE=N.
 #ifndef ANO_CACHE_LINE
 #if defined(__APPLE__) && defined(__aarch64__)
 #define ANO_CACHE_LINE 128
 #else
-#define ANO_CACHE_LINE 64       // x86-64 and generic arm64
+#define ANO_CACHE_LINE 64
 #endif
 #endif
 #ifndef ANO_THREAD_LINE
 #define ANO_THREAD_LINE 128
 #endif
 
-// First-class lifetime heaps accept allocations from every thread. Destroying
-// one winks out all of its live allocations after its users have stopped.
+// First-class heap: any thread may allocate. Destroy winks out every live
+// allocation after users have stopped.
 mi_heap_t *ano_heap_create(void);
 void ano_heap_destroy(mi_heap_t *heap);
 void ano_heap_cleanup(mi_heap_t **heap);
@@ -100,11 +99,10 @@ void ano_heap_cleanup(mi_heap_t **heap);
 // Stack alloc. Overflow risk.
 #define ano_salloc(bytes) alloca((size_t)bytes)
 
-// Allocates size bytes aligned to alignment (power of 2). mi_malloc_aligned wrapper.
-// Returns pointer, or NULL on failure. NULL if size or alignment is 0.
+// mi_malloc_aligned wrapper. Power-of-2 alignment. NULL if size or alignment is 0.
 void* ano_aligned_malloc(size_t size, size_t alignment);
 
-// Frees a block from ano_aligned_malloc. Else UB.
+// Only a pointer from ano_aligned_malloc. Else UB.
 void ano_aligned_free(void* ptr);
 
 #ifdef __cplusplus
@@ -154,8 +152,8 @@ struct MemoryLayoutCursor final {
 struct MemoryRegion;
 struct MemoryVolume;
 
-// A region is a unique mimalloc lifetime domain. Reset and destruction are
-// legal only after every allocation made from the region is unreachable.
+// Unique mimalloc lifetime domain. Reset and destroy only after every
+// allocation is unreachable.
 [[nodiscard]] MemoryRegion *memory_region_create() noexcept;
 void memory_region_destroy(MemoryRegion *region) noexcept;
 [[nodiscard]] bool memory_region_reset(MemoryRegion *region) noexcept;
@@ -164,9 +162,8 @@ void memory_region_destroy(MemoryRegion *region) noexcept;
 [[nodiscard]] void *memory_region_allocate_zero(
     MemoryRegion *region, size_t size, size_t alignment) noexcept;
 
-// A volume owns an exclusive region and exactly one contiguous payload.
-// Construction views are available before sealing; immutable views are
-// available afterwards. The final owner reference winks out the region.
+// Exclusive region plus one contiguous payload. Write before seal; view after.
+// Last release winks out the region.
 [[nodiscard]] MemoryVolume *memory_volume_create(
     MemoryLayoutCursor layout) noexcept;
 [[nodiscard]] bool memory_volume_retain(MemoryVolume *volume) noexcept;

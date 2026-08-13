@@ -24,7 +24,6 @@ static_assert(alignof(AnoAudioBlockHeader) >= alignof(float)
                    && sizeof(AnoAudioBlockHeader) % alignof(float) == 0u,
                "AnoAudioBlockHeader must not misalign the payload sharing its allocation");
 
-// Audio world singleton.
 static AnoAudioMixer *g_mixer;
 static mi_heap_t     *g_heap;
 
@@ -58,7 +57,6 @@ static const AnoAudioDeviceApi *backend_api(AnoAudioBackend which)
     return NULL;
 }
 
-// ANO_AUDIO_BACKEND env override.
 static AnoAudioBackend backend_env_override(AnoAudioBackend want)
 {
     const char *env = getenv("ANO_AUDIO_BACKEND");
@@ -105,7 +103,6 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
         return false;
     }
 
-    // zero fields -> defaults
     AnoAudioConfig c = cfg ? *cfg : (AnoAudioConfig){0};
     uint32_t rate      = c.sampleRate ? c.sampleRate : 48000u;
     uint32_t bf        = c.blockFrames ? c.blockFrames : 512u;
@@ -231,10 +228,7 @@ fail_heap:
     return false;
 }
 
-// Free adopted blocks (cmd regs, unpolled retires, owned slots) via ano_audio_block_free.
-// in:  mx joined, device stopped, producer idle
-// out: bridge rings empty; owned buffer slots FREE
-// inv: single-threaded; populations disjoint; module-heap untouched; borrowed stays with producer
+// Free adopted blocks still in rings or owned slots. Join first. Borrowed stays with the producer.
 static void audio_discharge_blocks(AnoAudioMixer *mx)
 {
     AnoAudioCommand cmd;
@@ -333,7 +327,7 @@ bool ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
     AnoAudioCommand c = { .kind = ACMD_BUFFER_REGISTER, .source_id = buffer_id, .block = h };
     if (!bridge->commands.push(c)) {
         mi_free(h);
-        return false; // backpressure
+        return false;
     }
     return true;
 }

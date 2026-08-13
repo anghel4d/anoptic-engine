@@ -75,7 +75,6 @@ bool loadFile(const char* filename, struct Buffer* buffer)
 		return false;
 	}
 
-	//buffer->data[size] = 0;
 	buffer->size = size;
 	
 	fclose(file);
@@ -87,7 +86,7 @@ VkShaderModule createShaderModule(VkDevice device, struct Buffer* code)
 	VkShaderModuleCreateInfo createInfo = {};
 	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	createInfo.codeSize = code->size;
-	createInfo.pCode = (uint32_t *) code->data; // cursed
+	createInfo.pCode = (uint32_t *) code->data; // SPIR-V must be uint32_t-aligned
 	
 	VkShaderModule shaderModule;
 	if (vkCreateShaderModule(device, &createInfo, NULL, &shaderModule) != VK_SUCCESS)
@@ -149,8 +148,6 @@ bool ano_pipeline_task_stage(VulkanContext* ctx, VkBool32 shadowPass, VkBool32 c
 
 
 // TODO: write two garbo removers for the shader buffers and modules
-
-// The juicy part
 
 bool ano_vk_init_pipelines(VulkanContext* ctx, RendererState* state)
 {

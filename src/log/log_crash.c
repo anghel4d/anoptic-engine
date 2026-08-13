@@ -48,7 +48,6 @@ int ano_log_crash_init(void)
     return bb_install();
 }
 
-// Route to per-platform arm/release.
 int ano_log_crash_thread_arm(void)
 {
     return bb_thread_arm();

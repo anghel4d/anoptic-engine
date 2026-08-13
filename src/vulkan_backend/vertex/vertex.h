@@ -4,8 +4,6 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-/* Provides structures and function interfaces for handling vertex data */
-
 #ifndef VERTEX_H
 #define VERTEX_H
 
@@ -62,31 +60,24 @@ typedef struct GlobalUBO
 
 /* Functions */
 
-// Vertex input binding (load rate through the vertices).
 VkVertexInputBindingDescription getBindingDescription(void);
 
-// Extracts vertex attributes into an array of two attribute descriptions.
 void getAttributeDescriptions(VkVertexInputAttributeDescription*);
 
-// Performs matrix rotation
 void rotateMatrix(float mat[4][4], char axis, float angle);
 
-// Builds a view matrix.
 void lookAt(float mat[4][4], float eye[3], float center[3], float up[3]);
 
-// 3D translation.
 void translate(float mat[4][4], float x, float y, float z);
 
-// Builds a perspective matrix.
 void perspective(float matrix[4][4], float fovDegrees, float aspect, float near, float far);
 
-// Multiplies two 4x4 matrices: result = a * b
+// result = a * b
 void multiplyMat4(mat4 result, const mat4 a, const mat4 b);
 
-// Extracts the 6 frustum planes from a view-projection matrix
 void extractFrustumPlanes(Vector4 planes[6], const mat4 viewProj);
 
-// Inverts a 4x4 matrix. out = m^-1, returns false if m is singular.
+// out = m^-1. False if m is singular.
 bool invertMat4(mat4 out, const mat4 m);
 
 

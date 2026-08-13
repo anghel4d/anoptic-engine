@@ -78,7 +78,6 @@ typedef struct AnoTempoPoint
     double bpm;
 } AnoTempoPoint;
 
-// Affect triple published per bar.
 typedef struct AnoMusicAffect
 {
     float valence; // -1 .. 1
@@ -487,7 +486,6 @@ typedef struct AnoMusicMeaning
     bool   motifStated;
 } AnoMusicMeaning;
 
-// One bar for the synth.
 typedef struct AnoMusicBar
 {
     AnoNoteEvent     events[ANO_MUSIC_MAX_BAR_EVENTS];
@@ -499,7 +497,7 @@ typedef struct AnoMusicBar
     AnoMusicMeaning  meaning;
 } AnoMusicBar;
 
-// Next bar. Safe on the audio thread at a bar edge.
+// Safe on the audio thread at a bar edge.
 void ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out);
 
 // Bar length in quarter-note beats (4/4 -> 4.0, 6/8 -> 3.0).

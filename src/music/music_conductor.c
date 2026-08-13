@@ -474,7 +474,6 @@ static AnoChord plan_inversion(AnoMusicEngine *e, AnoChord chord, AnoPhrasePos p
     return chord;
 }
 
-// One bar of symbolic harmony (the lookahead generator).
 static AnoChord gen_chord(AnoMusicEngine *e, int bar)
 {
     const AnoEngineConfig *cfg = &e->config;
@@ -998,7 +997,6 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
         apex = &st->apexes[ap];
     }
 
-    // the one-bar chord lookahead
     while (st->chordQueueLen < 2) {
         int nextNeeded = st->chordQueueLen ? st->chordQueue[st->chordQueueLen - 1].bar + 1
                                            : bar;

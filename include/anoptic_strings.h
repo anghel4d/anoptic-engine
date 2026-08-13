@@ -62,9 +62,8 @@ static_assert(offsetof(anostr_t, prefix) == 4 && offsetof(anostr_t, suffix) == 8
 
 /* Construction */
 
-// All total: bad input yields the empty string, never UB.
+// Total: bad input yields empty, never UB.
 
-// Empty string: inline, len 0, all zero.
 static inline anostr_t anostr_empty(void)
 {
     anostr_t s = {0};
@@ -77,7 +76,7 @@ anostr_t anostr_from(mi_heap_t *heap, const void *bytes, size_t len);
 // anostr_from over strlen(cstr). NULL -> empty.
 anostr_t anostr_from_cstr(mi_heap_t *heap, const char *cstr);
 
-// Wrap bytes without copy. len <= 12 copies inline; len > 12 borrows (bytes outlive every use; never mutate underneath).
+// len <= 12 copies inline; len > 12 borrows without copy (bytes outlive every use; never mutate underneath).
 // For literals use anostr_lit.
 anostr_t anostr_view(const char *bytes, size_t len);
 
@@ -98,7 +97,7 @@ static inline const char *anostr_bytes(const anostr_t *s)
     return s->len <= ANOSTR_INLINE_CAP ? s->prefix : s->ptr;
 }
 
-// printf "%.*s" adapter (no anostr_to_cstr copy):
+// printf "%.*s" adapter (no anostr_to_cstr copy). Compound literal so `s` may be an rvalue:
 //     ano_log(ANO_INFO, "loading %.*s", anostr_fmt(path));
 #define anostr_fmt(s) (int)anostr_len((s)), anostr_bytes((const anostr_t[]){ (s) })
 
@@ -148,8 +147,7 @@ static inline int anostr_compare(anostr_t a, anostr_t b)
     return a.len == b.len ? 0 : (a.len < b.len ? -1 : 1);
 }
 
-// FNV-1a 64 over the bytes. For tables/dedup. Equal strings hash equal across variant/heap.
-// Runtime twin of ANOSTR_SID: anostr_hash(anostr_lit(x)) == ANOSTR_SID(x).
+// FNV-1a 64. Equal strings hash equal across variant/heap. Runtime twin of ANOSTR_SID.
 uint64_t anostr_hash(anostr_t s);
 
 // FNV-1a 32. Runtime twin of ANOSTR_SID32.
@@ -161,8 +159,7 @@ uint32_t anostr_hash32(anostr_t s);
 // Sub-string [start, end). Clamped, total, allocation-free. <= 12: fresh inline; longer borrows s's backing (same lifetime as s).
 anostr_t anostr_slice(anostr_t s, size_t start, size_t end);
 
-// Promote s to live as long as heap. Inline: identity. Long: copy into the
-// first-class lifetime heap, which may be shared by threads. Empty on alloc fail.
+// Inline: identity. Long: copy into heap (must outlive the result; may be shared). Empty on alloc fail.
 anostr_t anostr_keep(mi_heap_t *heap, anostr_t s);
 
 // NUL-terminated copy from heap (len + 0x00). NULL on alloc fail. Embedded 0x00 truncates the C view.
@@ -291,7 +288,6 @@ int anostr_builder_append(anostr_builder_t *b, const void *bytes, size_t n);
 
 int anostr_builder_append_str(anostr_builder_t *b, anostr_t s);
 
-// Append a NUL-terminated C string. Same returns as anostr_builder_append.
 int anostr_builder_append_cstr(anostr_builder_t *b, const char *cstr);
 
 // printf into the builder (grows to fit). Same returns as anostr_builder_append.

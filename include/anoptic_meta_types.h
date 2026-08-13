@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Included by anoptic_meta.h. These value contracts share its reflected enum proofs.
+// Value contracts. EnumValue needs anoptic_meta.h's reflected enum proofs.
 
 #ifndef ANOPTICENGINE_ANOPTIC_META_H
 #error "Include <anoptic_meta.h> instead of <anoptic_meta_types.h>"
@@ -86,7 +86,7 @@ private:
 template<Enum E>
 inline constexpr std::size_t enum_count = reflected_enum_count<E>;
 
-// A reflected zero-based dense enum proven inside [0, *_COUNT).
+// Proven occupant of [0, *_COUNT).
 template<Enum E>
 class EnumValue final {
 public:
@@ -137,7 +137,7 @@ private:
     E value_;
 };
 
-// A raw bit field masked to the only bits this boundary understands.
+// Unknown bits are stripped at ingress.
 template<Enum E, std::uintmax_t ValidMask>
 class EnumFlags final {
 public:

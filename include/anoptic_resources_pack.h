@@ -32,7 +32,7 @@ typedef struct AnoResourceManifestEntry {
     uint64_t dependencyCount;
 } AnoResourceManifestEntry;
 
-// Opening copies and completely validates canonical manifest bytes.
+// Copies and fully validates canonical manifest bytes.
 AnoResourceError ano_resource_manifest_open(AnoResourceBytes bytes,
                                             AnoResourceManifest **manifest);
 void ano_resource_manifest_close(AnoResourceManifest *manifest);
@@ -47,15 +47,15 @@ AnoResourceError ano_resource_manifest_dependency(
     const AnoResourceManifest *manifest, AnoAssetId asset, uint64_t index,
     AnoResourceDependency *dependency);
 
-// Opening copies the pack and authenticates its manifest and every artifact.
+// Copies the pack and authenticates its manifest and every artifact.
 AnoResourceError ano_resource_pack_open(AnoResourceBytes bytes,
                                         AnoResourcePack **pack);
 void ano_resource_pack_close(AnoResourcePack *pack);
 const AnoResourceManifest *ano_resource_pack_manifest(
     const AnoResourcePack *pack);
 
-// Reads borrow the immutable authentication established by pack_open.
-// packSize receives the unpacked size on success or insufficient capacity.
+// Copies an authenticated artifact. packSize receives the artifact size on
+// success or insufficient capacity.
 AnoResourceError ano_resource_pack_read(const AnoResourcePack *pack,
                                         AnoAssetId asset,
                                         AnoResourceMutableBytes output,
@@ -68,7 +68,7 @@ AnoResourceError ano_resource_pack_view(const AnoResourcePack *pack,
 AnoResourceError ano_resource_pack_revision(
     const AnoResourcePack *pack, const AnoCookedRevision **revision);
 
-// Shipping serialization is an explicit operation over a cooked revision.
+// Shipping serialization is explicit; cook does not emit a pack.
 AnoResourceError ano_resource_revision_export_pack(
     const AnoCookedRevision *revision, AnoResourceMutableBytes *pack);
 void ano_resource_exported_pack_release(AnoResourceMutableBytes pack);

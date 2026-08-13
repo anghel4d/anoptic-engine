@@ -10,9 +10,7 @@
 
 #include <anoptic_time.h>
 
-// in:  arg = AnoAudioMixer*
-// out: NULL
-// inv: touches only blockRing (consumer side), deviceScratch, underruns, deviceRun
+// Consumer only: blockRing, deviceScratch, underruns, deviceRun.
 static void *null_device_main(void *arg)
 {
     AnoAudioMixer *mx = static_cast<AnoAudioMixer *>(arg);

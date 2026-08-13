@@ -52,14 +52,12 @@ void enumerateMonitors(Monitors* monitors) // Instance creation helper
 
 static void forward_input(const AnoInputEvent* ie); // defined below
 
-static void framebufferResizeCallback(GLFWwindow* window, int width, int height) // GLFW window-resize callback
+static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
 {
 	static uint32_t count = 0;
-	// VulkanContext* ctx = glfwGetWindowUserPointer(window);
 	ano_debug_log(ANO_INFO, "Resize: %d", count);
 	count++;
 	rendererState.framebufferResized = true; // swapchain recreate stays render-owned
-	// Forward to logic
 	AnoInputEvent ie = { .kind = ANO_INPUT_FRAMEBUFFER_RESIZE };
 	ie.u.resize.width = (uint32_t)width;
 	ie.u.resize.height = (uint32_t)height;
@@ -229,7 +227,6 @@ GLFWwindow* initWindow(VulkanContext* ctx, Monitors* monitors) // Initializes a 
 		chosenMonitor = glfwGetPrimaryMonitor();
 	}
 
-	// If borderless fullscreen is requested
 	Dimensions2D resolution = getChosenResolution();
 	if (getChosenBorderless() && chosenMonitor)
 	{
@@ -271,7 +268,6 @@ GLFWwindow* initWindow(VulkanContext* ctx, Monitors* monitors) // Initializes a 
 		applyContentScale(xs, ys);
 	}
 	glfwSetWindowContentScaleCallback(window, contentScaleCallback);
-	// All input flows to logic via the events ring.
 	glfwSetKeyCallback(window, keyCallback);            // also tunes render-side debug state (L/H/[]/;')
 	glfwSetMouseButtonCallback(window, mouseButtonCallback);
 	glfwSetCursorPosCallback(window, cursorPosCallback);

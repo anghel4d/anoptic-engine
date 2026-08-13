@@ -160,37 +160,8 @@ bool updateMeshTransforms(VulkanContext* ctx, RenderEntity* entity, float move)
 }
 
 
-
-
-/*bool createDescriptorPool(VulkanContext* ctx)
-{ // Central to init
-	VkDescriptorPoolSize poolSizes[2] = {};
-	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	poolSizes[0].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT;
-	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizes[1].descriptorCount = (uint32_t)MAX_FRAMES_IN_FLIGHT;
-
-	VkDescriptorPoolCreateInfo poolInfo = {};
-	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = (uint32_t)(sizeof(poolSizes) / sizeof(VkDescriptorPoolSize));
-	poolInfo.pPoolSizes = poolSizes;
-	poolInfo.maxSets = (uint32_t)MAX_FRAMES_IN_FLIGHT;
-
-	if (vkCreateDescriptorPool(ctx->device, &poolInfo, NULL, &(ctx->renderComp.descriptorPool)) != VK_SUCCESS)
-	{
-		printf("Failed to create descriptor pool!\n");
-		return false;
-	}
-
-	return true;
-}*/
-
-
-
-
-
 uint32_t findMemoryType(VulkanContext* ctx, uint32_t typeFilter, VkMemoryPropertyFlags properties)
-{ // Central to init, also used externally post-init
+{
 	VkPhysicalDeviceMemoryProperties memProperties;
 	vkGetPhysicalDeviceMemoryProperties(ctx->physicalDevice, &memProperties);
 

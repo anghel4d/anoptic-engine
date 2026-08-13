@@ -10,7 +10,7 @@
 
 #include <vulkan/vulkan.h>
 
-#include <anoptic_render.h> // public engine<->renderer contract (lifecycle + command protocol)
+#include <anoptic_render.h> // lifecycle + command protocol; defined in this translation unit
 
 #include "vulkan_backend/structs.h"
 
@@ -30,7 +30,7 @@ extern uint32_t g_ValidationErrors;
 
 /* Render World / Logic Producer */
 
-// Public contract in <anoptic_render.h>, defined here. Render+GLFW on main thread; logic via lock-free bridge.
+// Render+GLFW on the main thread; logic talks through the lock-free bridge.
 
 void deferred_delete_resource(RendererState* state, DeletionResourceType type, uint32_t handle);
 void flush_deletion_queue(VulkanContext* ctx, RendererState* state, uint32_t frameIndex);

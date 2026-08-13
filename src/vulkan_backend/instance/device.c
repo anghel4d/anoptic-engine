@@ -23,10 +23,10 @@
 #include "vulkan_backend/text_raster.h"
 
 // Hard-required device extensions. VK_EXT_mesh_shader appended dynamically when supported.
-static const char* requiredExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME }; // Make dynamic, determined at runtime
+static const char* requiredExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME };
 
 
-struct QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR *surface) { // Extend with more queue family checks
+struct QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR *surface) {
 	//!TODO add error-case returns and associated checking to all invoking functions
 	struct QueueFamilyIndices indices = {};
 	indices.graphicsPresent = false;
@@ -49,16 +49,14 @@ struct QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKH
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies);
 
 	// Select the first queue family satisfying each capability.
-	//!TODO Implement these as required further into development
 	// Prefer dedicated compute, else first compute-capable.
 	bool haveDedicatedCompute = false;
 	for (uint32_t i = 0; i < queueFamilyCount; i++)
-	{	//Queue checks go here
+	{
 		if ((queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && indices.graphicsPresent == false)
 		{
 			indices.graphicsFamily = i;
 			indices.graphicsPresent = true;
-			//printf("Graphics: %d\n", i);
 		}
 		if (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT)
 		{
@@ -68,14 +66,12 @@ struct QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKH
 				indices.computeFamily = i;
 				indices.computePresent = true;
 				haveDedicatedCompute = dedicated;
-				//printf("Compute: %d\n", i);
 			}
 		}
 		if ((queueFamilies[i].queueFlags & VK_QUEUE_TRANSFER_BIT) && indices.transferPresent == false)
 		{
 			indices.transferFamily = i;
 			indices.transferPresent = true;
-			//printf("Transfer: %d\n", i);
 		}
 
 		if (surface != NULL)
@@ -89,23 +85,14 @@ struct QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKH
 					indices.presentFamily = i;	
 				}
 				indices.presentPresent = true;
-				//printf("Present: %d\n", indices.presentFamily);
 			}
 		}
-		else
-		{
-			//printf("Surface invalid in queue selection!\n");
-		}
-		//printf("Queue family %d flags: %d\n", i, queueFamilies[i].queueFlags);
 	}
-	//printf("Final output:\n  Graphics Family: %d\n  Compute family: %d
-	// \n  Transfer Family: %d\n  Present Family: %d\n\n",
-	// indices.graphicsFamily, indices.computeFamily, indices.transferFamily, indices.presentFamily);
 	free(queueFamilies);
 	return indices;
 }
 
-struct DeviceCapabilities populateCapabilities(VkPhysicalDevice device) // Select required capabilities, extend with checks and error states
+struct DeviceCapabilities populateCapabilities(VkPhysicalDevice device)
 {
 	struct DeviceCapabilities capabilities;
 
@@ -122,7 +109,6 @@ struct DeviceCapabilities populateCapabilities(VkPhysicalDevice device) // Selec
 
 	vkGetPhysicalDeviceFeatures2(device, &features2);
 
-	//Device features checks
 	capabilities.float64 = features2.features.shaderFloat64;
 	capabilities.int64 = features2.features.shaderInt64;
 	capabilities.drawIndirectCount = features12.drawIndirectCount;
@@ -152,7 +138,6 @@ struct DeviceCapabilities populateCapabilities(VkPhysicalDevice device) // Selec
 	if (getenv("ANO_FORCE_NO_FP16")) capabilities.shaderFloat16 = false;
 	ano_log(ANO_INFO, "CDF reconstruct: %s", capabilities.shaderFloat16 ? "fp16" : "fp32 (no shaderFloat16)");
 
-	//Queue family checks
 	struct QueueFamilyIndices indices = findQueueFamilies(device, NULL);
 	capabilities.graphics = indices.graphicsPresent;
 	capabilities.compute = indices.computePresent;
@@ -160,7 +145,7 @@ struct DeviceCapabilities populateCapabilities(VkPhysicalDevice device) // Selec
 	return capabilities;
 }
 
-bool checkDeviceExtensionSupport(VkPhysicalDevice device) { // Rework extensions system, add a definition interface
+bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
 	size_t requiredExtensionsCount = sizeof(requiredExtensions) / sizeof(requiredExtensions[0]);
 	
 	uint32_t extensionCount;
@@ -185,15 +170,15 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device) { // Rework extensions
 		if (!found) 
 		{
 			free(availableExtensions);
-			return false; // Required extension missing
+			return false;
 		}
 	}
 
 	free(availableExtensions);
-	return true; // All found
+	return true;
 }
 
-bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR *surface) // Extend and integrate with capability checks, expose via interface
+bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR *surface)
 {
 	struct QueueFamilyIndices indices = findQueueFamilies(device, surface);
 	bool extensionsSupported = checkDeviceExtensionSupport(device);
@@ -373,7 +358,6 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 	vkEnumeratePhysicalDevices(ctx->instance, &ctx->deviceCount, devices);
 	
 	VkPhysicalDeviceProperties deviceProperties;
-	// VkPhysicalDeviceFeatures deviceFeatures;
 	VkPhysicalDeviceMemoryProperties memProperties;
 
 	VkDeviceSize maxDedicatedMemory = 0;
@@ -497,8 +481,6 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 	ctx->msaaSamples = getMaxUsableSampleCount(ctx);
 	ano_log(ANO_INFO, "MSAA samples used: %d", ctx->msaaSamples);
 
-	//printf("Graphics family: %d\nCompute family: %d\nTransfer family: %d\nPresent family: %d\n", (ctx->queueFamilyIndices.graphicsFamily), (ctx->queueFamilyIndices.computeFamily), (ctx->queueFamilyIndices.transferFamily), (ctx->queueFamilyIndices.presentFamily));
-
 	free(devices);
 	return true;
 }
@@ -573,7 +555,6 @@ VkResult createLogicalDevice(VkPhysicalDevice physicalDevice, VkDevice* device, 
 		}
 	}
 	
-	// Create the device
 	VkPhysicalDeviceVulkan12Features features12 = {};
 	features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	// Request only what the device supports

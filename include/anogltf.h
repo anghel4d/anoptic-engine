@@ -1,15 +1,11 @@
 /*
- * Anoptic-native glTF 2.0 loader for C+Ultra translation units.
+ * Anoptic-native glTF 2.0 loader. The .h extension is intentional.
+ * Public entry points use the C ABI. Define ANOGLTF_IMPLEMENTATION in exactly
+ * one first-party .c translation unit.
  *
- * LANGUAGE CONTRACT: C++26 with standardized reflection (P2996R13 or newer).
- * The .h extension is intentional. The API is C-shaped, uses C ABI entry points,
- * raw arrays, final plain-data structures, strong indices and no C++ runtime.
- * Define ANOGLTF_IMPLEMENTATION in exactly one first-party .c translation unit.
- *
- * cgltf provenance: parsing and validation behavior was developed and tested
- * differentially against cgltf 1.15. The bounded JSON tokenizer below is adapted
- * from the jsmn copy shipped by cgltf. Copyright and MIT terms appear
- * at the end of this file and must remain with substantial derived portions.
+ * Parse and validate like cgltf 1.15. The bounded JSON tokenizer is adapted
+ * from the jsmn copy shipped by cgltf. Keep the MIT terms at the end of this
+ * file with substantial derived portions.
  */
 
 #pragma once

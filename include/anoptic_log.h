@@ -6,7 +6,7 @@
 
 // Lock-free MPSC logger: producers capture/format off-ring, publish into a shared ring, one owned consumer drains.
 // ano_log_flush drains inline on the caller. NOW drains then write-through (+ fsync when a file is open).
-// Four macros over ano_log_write. Severity = how bad, route = where/when.
+// Four macro families over ano_log_write. Severity = how bad, route = where/when.
 //   ano_log(ANO_WARN, "fmt %d", x);                        level's default route
 //   ano_rlog(ANO_ERROR, ANO_TERM | ANO_NOW, "fmt %d", x);  explicit route
 //   ano_debug_log(...) / ano_debug_rlog(...)               Debug builds only
@@ -39,7 +39,6 @@ typedef enum {
     ANO_FATAL
 } ano_loglevel_t;
 
-// Route: when-where a record lands.
 typedef enum {
     ANO_ROUTE_DEFAULT = 0,           // use the level's configured route
     ANO_FILE = 1 << 0,              // output file (terminal when none open)
@@ -51,7 +50,7 @@ typedef enum {
 
 /* Lifecycle Functions */
 
-// Startup / shutdown. 0 on success.
+// 0 on success.
 int ano_log_init(void);
 int ano_log_cleanup(void);
 
@@ -66,7 +65,6 @@ int ano_log_write(ano_loglevel_t level, ano_logroute_t route,
                   /* printFormat MUST be a string literal. */
                   const char* printFormat, ...) __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 6)));
 
-// va_list variant for wrappers.
 int ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
                    const char* sourceFile, int lineNumber,
                    const char* printFormat, va_list args) __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 0)));

@@ -18,8 +18,6 @@
 #include "vulkan_backend/scene_buffers.h"
 #include "vulkan_backend/frame/schema/cull_ubo.h"
 
-//Init and cleanup functions
-
 // Sole mint for this file's scene buffers. in: create info, memory props; out: handle, allocation.
 // Failures leave VK_NULL_HANDLE + zeroed allocation.
 [[nodiscard]] static bool mintSceneBuffer(VulkanContext* ctx, const VkBufferCreateInfo* info,

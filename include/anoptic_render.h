@@ -9,28 +9,19 @@
  * @brief Public engine<->renderer contract: lifecycle + logic->render commands.
  *
  * Sole renderer header for the engine entry point. Render world (Vulkan + GLFW) on main thread;
- * logic/ECS is sole command producer via opaque AnoRenderBridge. Transport (SPSC rings, bridge,
- * render->logic events, DisplayState) stays private in src/render_bridge/.
+ * logic/ECS is the sole command producer via opaque AnoRenderBridge.
+ * Transport (SPSC rings, events, snapshot, viewstate) stays private in src/render_bridge/.
  */
-
-/*
-This is where the renderer contract is declared:
-- Function Signatures
-- Constants
-- Types used as inputs or outputs by those functions
-
-It is the bridge betwixt engine <===> renderer.
-*/
 
 #ifndef ANOPTIC_RENDER_H
 #define ANOPTIC_RENDER_H
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <anoptic_results.h> // ANO_RESULT_TYPE / ANO_RESULT
-#include <anoptic_math.h> // mat4, Vector4
-#include <anoptic_text.h> // AnoFontBake, AnoGlyphInstance (logic-side text shaping)
-#include <anoptic_ui.h>   // AnoUiPrim/Clip/Paint/Stop + builder (logic-side UI layout)
+#include <anoptic_results.h>
+#include <anoptic_math.h>
+#include <anoptic_text.h> // logic-side shaping
+#include <anoptic_ui.h>   // logic-side layout
 #include <anoptic_resources_runtime.h>
 
 #ifdef __cplusplus
@@ -48,17 +39,17 @@ extern "C" {
 // ---------------------------------------------------------------------------
 // GLFW pins window + events to main thread (macOS-mandatory).
 
-// Bring up the render world (window, device, assets). false on failure.
+// Window, device, assets. false on failure.
 bool initVulkan(AnoResourceManager *resources);
 
-// A celebration. Tears the render world down; destroys the bridge.
+// Tear down the render world and the bridge.
 void unInitVulkan(void);
 
-// Render one frame; drains pending render commands.
+// One frame; drains pending commands.
 void drawFrame(void);
 
-// Copies the next fully composited swapchain image to a binary PPM at path.
-// The path is copied. Returns false when capture is unsupported or already pending.
+// Copy the next fully composited swapchain image to a binary PPM at path.
+// The path is copied. false when capture is unsupported or already pending.
 bool ano_render_capture_next_frame(const char *path);
 
 // true once the window has been asked to close.
@@ -68,8 +59,7 @@ bool anoShouldClose(void);
 // Bridge handle
 // ---------------------------------------------------------------------------
 
-// Opaque logic<->render channel. Created in initVulkan(), destroyed in unInitVulkan().
-// Producer submits commands; transport is private in src/render_bridge/.
+// Opaque logic<->render channel. Created in initVulkan(); destroyed in unInitVulkan().
 typedef struct AnoRenderBridge AnoRenderBridge;
 
 // Producer endpoint. Valid once initVulkan() has returned.
@@ -87,7 +77,7 @@ typedef struct AnoRenderableDesc
     uint32_t resource_primitive;
 } AnoRenderableDesc;
 
-// Returns the total primitive count and fills out[0..min(count, cap)).
+// Total primitive count; fills out[0..min(count, cap)).
 uint32_t anoRenderAssetPrimitives(AnoAssetId asset, const mat4 root,
                                   AnoRenderableDesc *out, uint32_t cap);
 
@@ -115,7 +105,7 @@ uint32_t anoRenderStaticLightBase(void);
 // Geometry pool index of the fallback cube; assigned first at upload time.
 #define FALLBACK_MESH_INDEX 0
 
-// glTF KHR_lights_punctual. Photometrics only; world pos/dir from driving renderable's transform.
+// glTF KHR_lights_punctual. Photometrics only; world pos/dir from the driving renderable's transform.
 typedef enum RenderLightType
 {
     RENDER_LIGHT_DIRECTIONAL = 0,
@@ -125,19 +115,19 @@ typedef enum RenderLightType
 
 typedef struct RenderLightParams
 {
-    float           color[3];     // linear RGB, normalized (intensity carries magnitude)
+    float           color[3];     // linear RGB; intensity carries magnitude
     float           intensity;    // candela-like (point/spot) or lux-like (directional)
-    float           range;        // attenuation cutoff; <= 0 == unbounded (ignored for directional)
-    float           innerConeCos; // spot inner cone half-angle cosine
-    float           outerConeCos; // spot outer cone half-angle cosine
-    // Outside {0,1,2}: CREATE/UPDATE drop light payload; LIGHT_ATTACH dropped; LIGHT_UPDATE only if mask names TYPE.
+    float           range;        // cutoff; <= 0 unbounded (ignored for directional)
+    float           innerConeCos; // spot inner half-angle cosine
+    float           outerConeCos; // spot outer half-angle cosine
+    // Outside {0,1,2}: CREATE/UPDATE drop the light payload; LIGHT_ATTACH dropped; LIGHT_UPDATE only if the mask names TYPE.
     RenderLightType type;
-    // Spot/dir aim in parent MODEL space; world forward = rotate(parent, localDir).
+    // Spot/dir aim in parent MODEL space. World forward = rotate(parent, localDir).
     // (0,0,0) -> parent -Z. Point: ignored.
     float           localDir[3];
-    // Attach: 1 allocates shadow frustum (budget; silent if full). dir/spot = 1, point = 6.
+    // 1 allocates a shadow frustum (silent if the budget is full). dir/spot = 1, point = 6.
     // Toggle via ano_render_light_update_fields + ANO_LIGHT_FIELD_CAST.
-    // STATIC row: CREATE-only grants; UPDATE 1 refreshes owned volumes; UPDATE 0 revokes.
+    // STATIC row: CREATE-only grant; UPDATE 1 refreshes owned volumes; UPDATE 0 revokes.
     uint32_t        castsShadow;
 } RenderLightParams;
 
@@ -153,24 +143,24 @@ uint32_t anoRenderAssetLights(AnoAssetId asset, const mat4 root,
 
 // Field mask for ano_render_light_update_fields. Unnamed fields preserved. ALL = full overwrite.
 enum {
-    ANO_LIGHT_FIELD_COLOR     = 1 << 0, // color[3]
-    ANO_LIGHT_FIELD_INTENSITY = 1 << 1, // intensity
-    ANO_LIGHT_FIELD_RANGE     = 1 << 2, // range
+    ANO_LIGHT_FIELD_COLOR     = 1 << 0,
+    ANO_LIGHT_FIELD_INTENSITY = 1 << 1,
+    ANO_LIGHT_FIELD_RANGE     = 1 << 2,
     ANO_LIGHT_FIELD_CONE      = 1 << 3, // innerConeCos + outerConeCos
-    ANO_LIGHT_FIELD_TYPE      = 1 << 4, // type
+    ANO_LIGHT_FIELD_TYPE      = 1 << 4,
     ANO_LIGHT_FIELD_OFFSET    = 1 << 5, // light_offset[3]
-    ANO_LIGHT_FIELD_DIRECTION = 1 << 6, // localDir[3] (spot/dir aim)
-    ANO_LIGHT_FIELD_ALL       = (1 << 7) - 1, // full overwrite (bits 0..6); preserves cast state
-    // Outside ALL: casting allocates/frees frustum; flips only on explicit request.
-    ANO_LIGHT_FIELD_CAST      = 1 << 7, // toggle shadow casting via castsShadow
+    ANO_LIGHT_FIELD_DIRECTION = 1 << 6, // localDir[3]
+    ANO_LIGHT_FIELD_ALL       = (1 << 7) - 1, // bits 0..6; preserves cast
+    // CAST is outside ALL: frustum alloc/free only on explicit request.
+    ANO_LIGHT_FIELD_CAST      = 1 << 7,
 };
 
-// Occlusion model: shadow map vs radiance cascades per light type. Default = all shadow-mapped. Toggle: L key.
+// Occlusion model: shadow maps vs radiance cascades per light type. Default = all shadow-mapped. Toggle: L key.
 typedef enum AnoLightingMode
 {
-    ANO_LIGHTING_SHADOWMAP  = 0, // all sources shadow-mapped (default; current renderer)
-    ANO_LIGHTING_HYBRID     = 1, // radiance cascades for point lights, shadow maps for directional + spot
-    ANO_LIGHTING_RC         = 2, // all sources via radiance cascades (no shadow maps rendered)
+    ANO_LIGHTING_SHADOWMAP  = 0, // all sources shadow-mapped (default)
+    ANO_LIGHTING_HYBRID     = 1, // radiance cascades for points; shadow maps for directional + spot
+    ANO_LIGHTING_RC         = 2, // all sources via radiance cascades (no shadow maps)
     ANO_LIGHTING_MODE_COUNT = 3,
 } AnoLightingMode;
 
@@ -195,9 +185,9 @@ typedef enum AnoMotionType
 //                  p1 = (argPeriapsis, meanAnomalyAtEpoch, meanMotion, _) [rad]
 typedef struct AnoMotionDescriptor
 {
-    uint32_t type;   // AnoMotionType
+    uint32_t type;
     uint32_t flags;  // reserved
-    float    epoch;  // t0: global-time stamp the motion was established
+    float    epoch;
     float    _pad;   // aligns p0 to a 16-byte boundary
     Vector4  p0;
     Vector4  p1;
@@ -228,14 +218,14 @@ typedef enum RenderCommandKind
     RCMD_UI_CLEAR ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::ui_clear, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}),
 } RenderCommandKind;
 
-// Payload fields for CREATE/UPDATE. Multiple bits = multi-field update in one message.
+// CREATE/UPDATE payload bits. Multiple bits = multi-field update in one message.
 typedef enum RenderFieldBits
 {
     RFIELD_TRANSFORM = 1 << 0, // teleport: rewrite the BASE pose (initialTransform), never the GPU-output transform
     RFIELD_MESH_MAT  = 1 << 1, // mesh and/or material index
-    RFIELD_ANIM      = 1 << 2, // GPU animation parameters (establishes/changes continuous motion)
-    RFIELD_LIGHT     = 1 << 3, // light photometric parameters
-    RFIELD_USERDATA  = 1 << 4, // packed per-entity instance channel (tint/flags/scalars)
+    RFIELD_ANIM      = 1 << 2, // establishes or changes continuous GPU motion
+    RFIELD_LIGHT     = 1 << 3,
+    RFIELD_USERDATA  = 1 << 4, // AnoInstanceData
 } RenderFieldBits;
 
 #ifdef __cplusplus
@@ -244,31 +234,31 @@ struct AnoRenderBulkRequired final {};
 struct AnoRenderOwnedPayloadFor final { uint32_t commands; };
 #endif
 
-// Per-renderable instance channel: packed[4] + params. Game owns pack/unpack.
+// Per-renderable instance channel. Game owns pack/unpack.
 //
-// Convention (v1):
+// Convention:
 //   packed[0] : RGBA8 tint               (GLSL unpackUnorm4x8)
 //   packed[1] : flag bits                 (bit 0 = tint enabled; rest reserved)
 //   packed[2] : reserved (e.g. two fp16 scalars / two u16 texture-layer indices)
 //   packed[3] : reserved
 //   params    : reserved full-precision scalars (e.g. anim phase, build progress)
-// All-zero = inert (renderer ignores until game opts in).
+// All-zero = inert (renderer ignores until the game opts in).
 typedef struct AnoInstanceData
 {
     uint32_t packed[4];
     Vector4  params;
 } AnoInstanceData; // 32 bytes; matches std430 { uvec4 packed; vec4 params; }
 
-// Initial-state batch referenced by RCMD_BULK_CREATE. init owns-and-frees its stack batch
-// UPDATE/DESTROY helpers copy-at-submit and render frees
+// Initial-state batch for RCMD_BULK_CREATE. No public copy helper: producer owns the arrays unless bulk_owned.
+// UPDATE/DESTROY helpers copy at submit; render frees the copy.
 typedef struct RenderCreateBatch
 {
     uint32_t        count;
     const uint32_t *render_ids;  // [count] logical names
     const mat4     *transforms;  // [count] base poses
-    const AnoMotionDescriptor *motion; // [count] GPU motion descriptors (ANO_MOTION_STATIC for none)
-    const uint32_t *mesh;        // [count] geometry pool indices (ANO_RENDER_NO_MESH allowed)
-    const uint32_t *material;    // [count] material palette indices
+    const AnoMotionDescriptor *motion; // [count]; ANO_MOTION_STATIC for none
+    const uint32_t *mesh;        // [count]; ANO_RENDER_NO_MESH allowed
+    const uint32_t *material;    // [count]
 } RenderCreateBatch;
 
 // Mass field change (RCMD_BULK_UPDATE): one shared `fields` mask across a render_id array.
@@ -277,9 +267,9 @@ typedef struct RenderCreateBatch
 typedef struct RenderUpdateBatch
 {
     uint32_t        count;
-    uint32_t        fields;       // RenderFieldBits shared by every entry; only these arrays are consumed
-    const uint32_t *render_ids ANO_RENDER_META(AnoRenderBulkRequired{}); // [count] targets (unresolved ids are skipped)
-    const mat4 *transforms ANO_RENDER_META(AnoRenderFieldUse{RFIELD_TRANSFORM, 1u << RCMD_BULK_UPDATE}); // [count] teleport rewrites base pose
+    uint32_t        fields;       // RenderFieldBits shared by every entry
+    const uint32_t *render_ids ANO_RENDER_META(AnoRenderBulkRequired{}); // [count]; unresolved ids are skipped
+    const mat4 *transforms ANO_RENDER_META(AnoRenderFieldUse{RFIELD_TRANSFORM, 1u << RCMD_BULK_UPDATE}); // teleport rewrites base pose
     const AnoMotionDescriptor *motion ANO_RENDER_META(AnoRenderFieldUse{RFIELD_ANIM, 1u << RCMD_BULK_UPDATE});
     const uint32_t *mesh ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, 1u << RCMD_BULK_UPDATE});
     const uint32_t *material ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, 1u << RCMD_BULK_UPDATE});
@@ -290,7 +280,7 @@ typedef struct RenderUpdateBatch
 typedef struct RenderDestroyBatch
 {
     uint32_t        count;
-    const uint32_t *render_ids;  // [count] logical names to retire (unresolved ids are skipped)
+    const uint32_t *render_ids;  // [count]; unresolved ids are skipped
 } RenderDestroyBatch;
 
 // Screen-text region capacity. One block never exceeds it; union of live blocks truncates in block order.
@@ -314,7 +304,7 @@ typedef struct RenderTextBlock
 #define ANO_RENDER_UI_MAX_GLYPHS 2048u
 
 // UI surface id. Block coords are logical units of that surface; fold at compose (docs/ui/ui-render.md §3.11).
-// v0: overlay only (content scale; extent = RenderSnapshot.uiWidth/uiHeight).
+// Overlay only (content scale; extent = RenderSnapshot.uiWidth/uiHeight).
 #define ANO_UI_SURFACE_OVERLAY 0u
 
 // UI block (RCMD_UI_SET): z-ordered prims + tables + glyphs, addressed by producer ui_id.
@@ -324,7 +314,7 @@ typedef struct RenderTextBlock
 typedef struct RenderUiBlock
 {
     uint32_t layer;
-    uint32_t surface;  // ANO_UI_SURFACE_* (v0: always OVERLAY)
+    uint32_t surface;  // ANO_UI_SURFACE_*; overlay only today
     float    scroll[2];
     uint32_t primCount;
     uint32_t clipCount;
@@ -340,14 +330,14 @@ typedef struct RenderUiBlock
     const AnoGlyphInstance *glyphs;
 } RenderUiBlock;
 
-// Zero-copy streamed-transform write region (Path B v2).
-// begin reserves GPU ring slice; write ids/xforms; commit publishes RCMD_STREAM_TRANSFORMS.
+// Zero-copy streamed-transform write region.
+// begin reserves a GPU ring slice; write ids/xforms; commit publishes RCMD_STREAM_TRANSFORMS.
 // Valid between successful begin and commit; single-producer.
 typedef struct AnoStreamRegion
 {
-    uint32_t *ids;       // [capacity] destination for streamed render_ids
-    mat4     *xforms;    // [capacity] destination for live world transforms (initialTransform space)
-    uint32_t  capacity;  // entries this slice holds (STREAM_CAPACITY)
+    uint32_t *ids;       // [capacity] streamed render_ids
+    mat4     *xforms;    // [capacity] live world transforms (initialTransform space)
+    uint32_t  capacity;  // entries this slice holds
     uint64_t  token;     // opaque slice identity; pass back to ano_render_stream_commit
 } AnoStreamRegion;
 
@@ -370,25 +360,22 @@ typedef struct RenderCommand
     RenderLightParams light ANO_RENDER_META(AnoRenderFieldUse{RFIELD_LIGHT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}); // also LIGHT_ATTACH/UPDATE
     uint32_t          light_id;         // RCMD_LIGHT_* : producer-owned logical light handle
     float             light_offset[3];  // RCMD_LIGHT_ATTACH/UPDATE : offset in the parent's model space
-    uint32_t          light_fields;     // RCMD_LIGHT_UPDATE : ANO_LIGHT_FIELD_* mask (0 == ALL, full overwrite)
+    uint32_t          light_fields;     // RCMD_LIGHT_UPDATE : ANO_LIGHT_FIELD_* mask (0 == ALL)
     AnoInstanceData instance_data ANO_RENDER_META(AnoRenderFieldUse{RFIELD_USERDATA, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
 
     const RenderCreateBatch *batch ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_BULK_CREATE});
     const RenderUpdateBatch *update ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_BULK_UPDATE});
     const RenderDestroyBatch *destroy ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_BULK_DESTROY});
-    const RenderTextBlock *text ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_TEXT_SET});
-                                         // render-owned copy; registry adopts it
+    const RenderTextBlock *text ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_TEXT_SET}); // render-owned copy; registry adopts it
     uint32_t          text_id;          // RCMD_TEXT_SET/CLEAR : producer-owned logical block handle
-    const RenderUiBlock *ui ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_UI_SET});
-                                         // render-owned copy; registry adopts it
+    const RenderUiBlock *ui ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_UI_SET}); // render-owned copy; registry adopts it
     uint32_t          ui_id;            // RCMD_UI_SET/CLEAR : producer-owned logical block handle
-    bool              bulk_owned;       // render side frees the batch block after consumption (set by the bulk submit helpers)
+    bool              bulk_owned;       // render frees the owned payload after consume or drop (bulk/text/ui submit helpers set this)
     uint64_t          stream_seq;       // RCMD_STREAM_TRANSFORMS: published ring-slice token
     uint32_t          stream_count;     // RCMD_STREAM_TRANSFORMS: entries in the slice
 } RenderCommand;
 
 // Enqueue one command. false = ring full (BACKPRESSURE): retain and retry; never drop.
-// Mass events use bulk commands below.
 bool ano_render_submit(AnoRenderBridge *bridge, const RenderCommand *cmd);
 
 // Outcome of owned-payload producer endpoints below. Inspect result.code only; ACCEPTED is 0.
@@ -409,8 +396,8 @@ ANO_RESULT_TYPE(AnoRenderSubmitResult,
 AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, const RenderUpdateBatch *batch);
 AnoRenderSubmitResult ano_render_submit_bulk_destroy(AnoRenderBridge *bridge, const uint32_t *render_ids, uint32_t count);
 
-// Streamed-transform lane (ANO_MOTION_STREAMED). begin reserves slice into `out`; false if all in flight
-// (drop tick; last published slice repeats). Fill ids/xforms, then commit. commit false = ring full.
+// Streamed-transform lane (ANO_MOTION_STREAMED). begin reserves a slice into `out`; false if all in flight
+// (drop the tick; last published slice repeats). Fill ids/xforms, then commit. commit false = ring full.
 // Single-producer; valid after init.
 bool ano_render_stream_begin(AnoStreamRegion *out);
 bool ano_render_stream_commit(const AnoStreamRegion *region, uint32_t count);
@@ -423,7 +410,7 @@ bool ano_render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_
 
 bool ano_render_light_update(AnoRenderBridge *bridge, uint32_t light_id,
         const RenderLightParams *params, float ox, float oy, float oz);
-        
+
 // Partial update: only fields named in `fields` written. Same backpressure contract.
 bool ano_render_light_update_fields(AnoRenderBridge *bridge, uint32_t light_id,
         const RenderLightParams *params, float ox, float oy, float oz, uint32_t fields);
@@ -503,7 +490,7 @@ typedef union AnoInputPayload
 // One input sample. Fixed-size POD, sub-tagged on `kind`; rides the events ring inside a RenderEvent.
 typedef struct AnoInputEvent
 {
-    uint32_t kind; // AnoInputKind
+    uint32_t kind;
     AnoInputPayload u; // key is the largest arm (16 B); cursor is in overlay logical units
 } AnoInputEvent;
 
@@ -544,7 +531,7 @@ typedef struct RenderEvent
 typedef struct RenderSnapshot
 {
     mat4     viewProj;     // proj * view for view 0 this frame (column-major)
-    mat4     invViewProj;  // its inverse: unproject a cursor texel to a world-space picking ray
+    mat4     invViewProj;  // unproject a cursor texel to a world-space picking ray
     Vector4  frustum[6];   // view-0 frustum planes (same packing as the cull pass)
     uint32_t vpWidth;      // framebuffer extent the matrices were built for
     uint32_t vpHeight;
@@ -557,13 +544,13 @@ typedef struct RenderSnapshot
 } RenderSnapshot;
 
 // View-0 camera pose for the renderer. Pose only; renderer owns projection. Latest-wins.
-// Until first publish, renderer uses built-in camera. eye/center/up = lookAt.
+// Until first publish, renderer uses the built-in camera. eye/center/up = lookAt.
 typedef struct AnoViewState
 {
-    float    eye[3];     // camera world position
-    float    center[3];  // look-at target (world)
-    float    up[3];      // world up
-    float    fovYDeg;    // vertical field of view, degrees
+    float    eye[3];
+    float    center[3];
+    float    up[3];
+    float    fovYDeg;    // vertical FOV, degrees
     uint64_t seq;        // producer's monotonic publish counter (diagnostics)
 } AnoViewState;
 
@@ -575,7 +562,7 @@ bool ano_render_poll_event(AnoRenderBridge *bridge, RenderEvent *out);
 // Copy latest RenderSnapshot into `out`. false if no frame published yet.
 bool ano_render_acquire_snapshot(AnoRenderBridge *bridge, RenderSnapshot *out);
 
-// Publish view-0 camera for next recorded frame. Latest-wins; at most once per logic tick.
+// Publish view-0 camera for the next recorded frame. Latest-wins; at most once per logic tick.
 // Degenerate pose rejected (previous stands; warn once). Before any accept: built-in camera.
 void ano_render_publish_view(AnoRenderBridge *bridge, const AnoViewState *view);
 

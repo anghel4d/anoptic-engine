@@ -121,7 +121,7 @@ AnoChord ano_ctx_chord_at(const AnoHarmonicContext *ctx, double beatOffset);
 
 /* Tier-2 Parameters */
 
-// Multiplier knobs are double (see music_theory.h).
+// doubles, never floats: Python-float parity.
 // layers ordered for gate/conductor: pad/bass/melody/perc/arp (not a bitmask).
 typedef struct AnoGenParams
 {

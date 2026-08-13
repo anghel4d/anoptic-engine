@@ -22,37 +22,36 @@
 #include <stdbool.h>
 #include <mimalloc.h>
 #include <anoptic_math.h>
-#include <anoptic_render.h> // command/event protocol + opaque AnoRenderBridge
+#include <anoptic_render.h>
 #include <anoptic_threads_typed.h>
 
 // Event protocol / RenderSnapshot / AnoViewState are public in anoptic_render.h. Transport only here.
 
-
 /* DisplayState */
 
-// Dirty bits from the parallel update stage. Graphics-extract consumes them.
+// Dirty bits that map DisplayState to render commands.
 typedef enum RenderDirtyBits
 {
-    RENDER_DIRTY_SPAWN    = 1 << 0, // first time renderable        -> RCMD_CREATE
-    RENDER_DIRTY_TELEPORT = 1 << 1, // discontinuous pose change    -> RFIELD_TRANSFORM (NOT continuous motion)
-    RENDER_DIRTY_MESH_MAT = 1 << 2, // mesh/material swap           -> RFIELD_MESH_MAT
-    RENDER_DIRTY_ANIM     = 1 << 3, // GPU motion parameters changed -> RFIELD_ANIM
-    RENDER_DIRTY_LIGHT    = 1 << 4, // light parameters changed     -> RFIELD_LIGHT
-    RENDER_DIRTY_DESTROY  = 1 << 5, // renderable should be removed  -> RCMD_DESTROY
-    RENDER_DIRTY_USERDATA = 1 << 6, // instance channel changed     -> RFIELD_USERDATA
+    RENDER_DIRTY_SPAWN    = 1 << 0, // first appearance -> RCMD_CREATE
+    RENDER_DIRTY_TELEPORT = 1 << 1, // discontinuous pose -> RFIELD_TRANSFORM (not continuous motion)
+    RENDER_DIRTY_MESH_MAT = 1 << 2,
+    RENDER_DIRTY_ANIM     = 1 << 3,
+    RENDER_DIRTY_LIGHT    = 1 << 4,
+    RENDER_DIRTY_DESTROY  = 1 << 5,
+    RENDER_DIRTY_USERDATA = 1 << 6,
 } RenderDirtyBits;
 
 // ECS component: discrete render transitions + name. GPU motion via `motion` once (RFIELD_ANIM).
 typedef struct DisplayState
 {
-    uint32_t render_id;          // stable logical name while renderable
+    uint32_t render_id;          // stable logical name while live
     mat4     transform;          // base pose; payload for SPAWN / TELEPORT
-    AnoMotionDescriptor motion;  // GPU motion descriptor (type + params); ANO_MOTION_STATIC for none
-    uint32_t mesh_index;         // geometry pool index, or ANO_RENDER_NO_MESH
-    uint32_t material_index;     // material palette index
+    AnoMotionDescriptor motion;  // ANO_MOTION_STATIC for none
+    uint32_t mesh_index;         // or ANO_RENDER_NO_MESH
+    uint32_t material_index;
     uint32_t light_index;        // ANO_RENDER_NO_LIGHT if not a light
-    AnoInstanceData instance_data; // packed per-entity channel (tint/flags/scalars); zero == inert
-    uint32_t dirty;              // RenderDirtyBits accumulated this tick
+    AnoInstanceData instance_data; // zero == inert
+    uint32_t dirty;              // RenderDirtyBits this tick
 } DisplayState;
 
 
@@ -100,8 +99,6 @@ struct AnoRenderBridge
     bool viewRejectWarned; // publisher-private: degenerate-pose warning once (never read by render)
 };
 
-// in:  bridge, heap, cmd_capacity_pow2, evt_capacity_pow2
-// out: true on success; false on allocation failure
 // inv: both rings allocate from `heap`; destroy the bridge before releasing it.
 bool ano_render_bridge_init(AnoRenderBridge *bridge, mi_heap_t *heap,
                             uint32_t cmd_capacity_pow2, uint32_t evt_capacity_pow2);
@@ -109,8 +106,6 @@ bool ano_render_bridge_init(AnoRenderBridge *bridge, mi_heap_t *heap,
 // Drains and discharges any command still enqueued, then releases both ring buffers.
 void ano_render_bridge_destroy(AnoRenderBridge *bridge);
 
-// in:  cmd, a command being DROPPED before any consumer adopts its payload
-// out: nothing; releases the render-owned block if any
 // inv: sole decode of RenderCommand ownership. Drop paths only (not after registry handoff). Honors bulk_owned.
 void ano_render_command_release(const RenderCommand *cmd);
 

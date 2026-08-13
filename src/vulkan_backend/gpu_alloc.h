@@ -31,20 +31,19 @@ typedef struct GpuAllocator
 
 typedef struct GpuAllocation
 {
-    VkDeviceMemory  memory;     // which block
-    VkDeviceSize    offset;     // offset within block
-    VkDeviceSize    size;       // allocation size
+    VkDeviceMemory  memory;
+    VkDeviceSize    offset;
+    VkDeviceSize    size;
     void*           mapped;     // mapped pointer + offset, or NULL
 } GpuAllocation;
 
-// Allocate a region from the appropriate memory type.
-// Alignment is handled internally. Creates a new block if needed.
+// Alignment is applied internally. Creates a new block if needed.
 GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs,
                         VkMemoryPropertyFlags props);
 void gpu_free(GpuAllocator* alloc, GpuAllocation allocation);
 
 // Reset/teardown remain available for generation-local arenas.
-void gpu_alloc_reset(GpuAllocator* alloc);   // reset all blocks to offset=0
+void gpu_alloc_reset(GpuAllocator* alloc);   // all blocks back to offset 0
 void gpu_alloc_destroy(GpuAllocator* alloc);  // free all VkDeviceMemory
 
 extern GpuAllocator gpuAllocator;

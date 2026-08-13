@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// C++26 structural reflection and value contracts. Header-only; no runtime surface.
+// Structural reflection and value contracts. Header-only.
 
 #ifndef ANOPTICENGINE_ANOPTIC_META_H
 #define ANOPTICENGINE_ANOPTIC_META_H
@@ -67,7 +67,7 @@ struct ReflectedEnumDomain final {
     bool valid;
 };
 
-// Dense values occupy [0, *_COUNT). Negative policy sentinels may follow the count.
+// Dense values occupy [0, *_COUNT). Negative policy sentinels sit outside that domain.
 template<class Enum>
 consteval ReflectedEnumDomain reflect_enum_domain()
 {

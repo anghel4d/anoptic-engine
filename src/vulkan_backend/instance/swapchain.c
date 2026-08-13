@@ -198,7 +198,6 @@ bool initSwapChain(VulkanContext* ctx, GLFWwindow* window, VkPresentModeKHR pref
         return false;
     }
 
-    // Swap chain images
     vkGetSwapchainImagesKHR(ctx->device, swapChain, &imageCount, NULL);
     VkImage* swapChainImages = mi_mallocn_tp(VkImage, imageCount);
     vkGetSwapchainImagesKHR(ctx->device, swapChain, &imageCount, swapChainImages);
@@ -365,7 +364,6 @@ void cleanupSwapChain(VulkanContext* ctx, RendererState* state)
 // Obligation: new descriptor-named resource gets its rebind beside its creator here
 void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 {
-	// Wait for device idle
 	vkDeviceWaitIdle(ctx->device);
 	const bool captureRequested =
 		rendererState.frameCapture.status == FRAME_CAPTURE_REQUESTED;
@@ -382,17 +380,8 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 			rendererState.frameCapture.frame);
 
 	// Do not recreate FIF semaphores on reinit (bugs).
-	// for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-	// 	vkDestroySemaphore(ctx->device, rendererState.frames[i].imageAvailable, NULL);
-	// 	vkDestroySemaphore(ctx->device, rendererState.frames[i].renderFinished, NULL);
-		
-	// 	VkSemaphoreCreateInfo semaphoreInfo = { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-	// 	vkCreateSemaphore(ctx->device, &semaphoreInfo, NULL, &rendererState.frames[i].imageAvailable);
-	// 	vkCreateSemaphore(ctx->device, &semaphoreInfo, NULL, &rendererState.frames[i].renderFinished);
-	// }
 
-    // Clean up previous swapchain
-	cleanupSwapChain(ctx, &rendererState);
+    cleanupSwapChain(ctx, &rendererState);
     
 	int width = 0, height = 0;
 	glfwGetFramebufferSize(window, &width, &height);
@@ -402,10 +391,9 @@ void recreateSwapChain(VulkanContext* ctx, GLFWwindow* window)
 		glfwGetFramebufferSize(window, &width, &height);
 		glfwWaitEvents();
 	}
-    // Update extents for recreation
+
     rendererState.imageExtent.width = width;
     rendererState.imageExtent.height = height;
-	// Save outdated swapchain
 	VkSwapchainKHR oldSwapChain = rendererState.swapChain;
 	rendererState.swapChain = VK_NULL_HANDLE;
 

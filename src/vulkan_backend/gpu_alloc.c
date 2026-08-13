@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <anoptic_log.h>
 
-#define DEFAULT_BLOCK_SIZE (256 * 1024 * 1024) // 256 MiB
+#define DEFAULT_BLOCK_SIZE (256 * 1024 * 1024)
 
 static bool reserve_free_spans(GpuBlock* block, uint32_t required)
 {
@@ -75,7 +75,6 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
         return empty;
     }
     
-    // Find an existing block with enough space and matching type
     for (uint32_t i = 0; i < alloc->blockCount; i++)
     {
         GpuBlock* block = &alloc->blocks[i];
@@ -83,7 +82,6 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
         {
             GpuAllocation recycled = allocate_free_span(block, reqs);
             if (recycled.memory != VK_NULL_HANDLE) return recycled;
-            // Align offset
             VkDeviceSize alignedOffset = (block->offset + reqs.alignment - 1) & ~(reqs.alignment - 1);
             if (alignedOffset + reqs.size <= block->size)
             {
@@ -100,10 +98,8 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
         }
     }
 
-    // Need a new block
     VkDeviceSize blockSize = reqs.size > DEFAULT_BLOCK_SIZE ? reqs.size : DEFAULT_BLOCK_SIZE;
     
-    // Expand blocks array
     GpuBlock* temp = mi_reallocn_tp(
         GpuBlock, alloc->blocks, alloc->blockCount + 1u);
     if (!temp) {
@@ -131,7 +127,6 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
     if (vkAllocateMemory(alloc->device, &allocInfo, NULL, &newBlock->memory) != VK_SUCCESS)
     {
         ano_log(ANO_ERROR, "Failed to allocate GPU block memory!");
-        // Revert block count expansion
         alloc->blockCount--;
         GpuAllocation empty = {0};
         return empty;

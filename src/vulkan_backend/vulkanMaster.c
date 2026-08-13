@@ -29,7 +29,6 @@
 
 // Variables
 
-// Global, declared extern in backend.h.
 VulkanContext ctx;
 PFN_vkCmdDrawMeshTasksEXT pfnVkCmdDrawMeshTasksEXT = NULL;
 PFN_vkCmdDrawMeshTasksIndirectEXT pfnVkCmdDrawMeshTasksIndirectEXT = NULL;
@@ -52,14 +51,14 @@ static bool renderUnrecoverable = false;
 
 static Monitors monitors =
 {
-	.monitorInfos = NULL,	// Array of MonitorInfo for each monitor
-	.monitorCount = 0		// Total number of monitors
+	.monitorInfos = NULL,
+	.monitorCount = 0
 };
 
 
 // Assorted utility functions
 
-void unInitVulkan() // A celebration
+void unInitVulkan()
 {
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
@@ -80,7 +79,7 @@ void unInitVulkan() // A celebration
     }
 	ano_render_resources_collect_retired(rendererState.completedFrameSerial);
 
-	// Drain last signaled async Hi-Z / light-cull / text ordinals before teardown.
+	// Drain last signaled async Hi-Z / light-cull / text ordinals before destroying those semaphores.
 	if (rendererState.asyncHiz && rendererState.hizTimeline != VK_NULL_HANDLE
 		&& ctx.device != VK_NULL_HANDLE && rendererState.timelineOrdinal > 0)
 	{
@@ -98,7 +97,6 @@ void unInitVulkan() // A celebration
 	}
 	ano_render_unload_scene_assets();
 
-	// ECS<->render bridge teardown.
 	ano_render_bridge_destroy(&rendererState.bridge);
 	render_slots_destroy(&rendererState.slots);
 	light_registry_destroy(&rendererState.lightRegistry);
@@ -130,7 +128,6 @@ void unInitVulkan() // A celebration
 	glfwTerminate(); // no-op when GLFW never came up; the initWindow refusal arm lands here too
 
 	#ifdef DEBUG_BUILD
-	// WARNING+ validation messages this run.
 	ano_log(ANO_INFO, "Validation messages (warning+) this run: %u", g_ValidationErrors);
 	#endif
 }
@@ -173,7 +170,7 @@ void flush_deletion_queue(VulkanContext* ctx, RendererState* state, uint32_t fra
                 geometry_pool_free(&state->globalGeometryPool, task.handle);
                 break;
             case RESOURCE_TYPE_BINDLESS_TEXTURE:
-                // bindless_register_texture handles index, no free yet.
+                // Bindless texture indices have no free path yet.
                 break;
         }
     }
@@ -233,8 +230,6 @@ void drawFrame()
 		return;
 	}
 
-    // ECS->render transitions arrive via the bridge, drained in render_apply_commands.
-
     if (rendererState.frames[rendererState.frameIndex].frameSubmitted == true)
     {
         VkResult frameWait = vkWaitForFences(
@@ -257,10 +252,9 @@ void drawFrame()
         ano_frame_capture_collect(&rendererState,
                                   rendererState.frameIndex);
 
-        // Per-pass timestamps ready to read.
         ano_collect_frame_stats(rendererState.frameIndex);
 
-        // Fence-gated picking readback, id-texel copy retired.
+        // Fence-gated: the id-texel copy has retired.
         ano_collect_pick(rendererState.frameIndex);
 
         // Reclaim streamed-transform ring slices below the oldest in-flight frame's seq.
@@ -270,7 +264,6 @@ void drawFrame()
                               qmin ? qmin - 1u : 0u, memory_order_release);
     }
 
-    // Process deferred deletions for this frame.
     flush_deletion_queue(&ctx, &rendererState, rendererState.frameIndex);
     
 	uint32_t imageIndex;
@@ -288,12 +281,6 @@ void drawFrame()
 
 	updateUniformBuffer(&ctx, &rendererState);
 
-	// Update entity transforms
-	// float moveOffsets[3] = {2.0f, -2.0f, 0.0f};
-	// for (uint32_t i = 0; i < rendererState.entityCount && i < 3; i++) {
-		//updateMeshTransforms(&ctx, &rendererState.entities[i], moveOffsets[i]);
-	// }
-
 	updateTransformBuffer(&ctx, &rendererState, rendererState.frameIndex);
 	updateCullingBuffers(&ctx, &rendererState, rendererState.frameIndex);
 
@@ -301,10 +288,9 @@ void drawFrame()
 	// entity bindings after this frame slot's fence and before recording it.
 	ano_render_resources_apply_pending(rendererState.frameIndex);
 
-	// Ingest ECS->render transitions for this frame slot.
 	render_apply_commands(&rendererState, rendererState.frameIndex);
 
-	// Copy pending on-screen text + UI tables into this slot's buffers (post-fence).
+	// Post-fence: copy pending text and UI tables into this slot.
 	ano_vk_text_frame_refresh(&rendererState, rendererState.frameIndex);
 	ano_vk_ui_frame_refresh(&rendererState, rendererState.frameIndex);
 
@@ -317,8 +303,6 @@ void drawFrame()
 		dischargeAcquire(rendererState.frameIndex);
 		return;
 	}
-
-	//updateUniformBuffer(&ctx, &rendererState);
 
 	// Async Hi-Z 1-based ordinal, monotonic across swapchain recreates.
 	uint64_t ordinal = rendererState.timelineOrdinal + 1u;
@@ -334,7 +318,6 @@ void drawFrame()
 		}
 		recordHiZCompute(rendererState.frameIndex);
 	}
-	// Async light-cull CB for this frame (see recordLightcullCompute).
 	if (rendererState.asyncLc)
 		recordLightcullCompute(rendererState.frameIndex);
 
@@ -352,8 +335,6 @@ void drawFrame()
 	rendererState.frames[rendererState.frameIndex].frameSubmitted = true;
 	ano_frame_capture_submitted(&rendererState, rendererState.frameIndex);
 
-    // Present before submitting a new frame's commands.
-
 	VkPresentInfoKHR presentInfo = {};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	
@@ -364,14 +345,12 @@ void drawFrame()
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = swapChains;
 	presentInfo.pImageIndices = &imageIndex;
-	presentInfo.pResults = NULL; // Optional
+	presentInfo.pResults = NULL;
 
 	VkResult presentResult = vkQueuePresentKHR(ctx.presentQueue, &presentInfo);
 
-	//printUniformTransferState();
-
 	// Slot advance rides the submit, not the presentation: this slot is in flight either way.
-	rendererState.frameIndex += 1; // Advance frame-in-flight index
+	rendererState.frameIndex += 1;
 	if (rendererState.frameIndex == MAX_FRAMES_IN_FLIGHT)
 	{
 		rendererState.frameIndex = 0;
@@ -394,7 +373,7 @@ void drawFrame()
 }
 
 
-bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
+bool initVulkan(AnoResourceManager *resources)
 {
 	renderUnrecoverable = false; // a fresh renderer, whatever the previous one latched
 
@@ -435,9 +414,8 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 	requestPresentMode(VK_PRESENT_MODE_IMMEDIATE_KHR);
 
 	ctx.enableValidationLayers = true;
-	rendererState.frameIndex = 0; // Current frame-in-flight index
+	rendererState.frameIndex = 0;
 
-	// Initialize Vulkan
 	if (createInstance(&ctx) != VK_SUCCESS)
 	{
 		ano_log(ANO_FATAL, "Failed to create Vulkan instance!");
@@ -446,7 +424,6 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 	}
 	vulkanGarbage.ctx = &ctx;
 
-	// Create a window surface
 	if (createSurface(ctx.instance, window, &(ctx.surface)) != VK_SUCCESS)
 	{
 		ano_log(ANO_FATAL, "Failed to create window surface!");
@@ -454,7 +431,6 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 		return false;
 	}
 
-	// Pick physical device
 	DeviceCapabilities capabilities;
 	ctx.physicalDevice = VK_NULL_HANDLE;
 
@@ -507,12 +483,10 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 	                       && !getenv("ANO_FORCE_NO_ASYNC_TEXT");
 	ano_log(ANO_INFO, "Async text raster: %s", rendererState.asyncText ? "on (lag-0 compute lane)" : "off (in-frame)");
 
-	// UI overlay gate rides the text lane. ANO_FORCE_NO_UI pins compose off, the table
-	// buffers stay resident under textOverlay.
+	// UI overlay rides the text lane. ANO_FORCE_NO_UI pins compose off; tables stay resident under textOverlay.
 	rendererState.uiOverlay = rendererState.textOverlay && !getenv("ANO_FORCE_NO_UI");
 	ano_log(ANO_INFO, "UI overlay: %s", rendererState.uiOverlay ? "enabled" : "off");
 
-    // Mesh-shader entry points, loaded only on the mesh path.
     if (ctx.deviceCapabilities.meshShader) {
         pfnVkCmdDrawMeshTasksEXT = (PFN_vkCmdDrawMeshTasksEXT)vkGetDeviceProcAddr(ctx.device, "vkCmdDrawMeshTasksEXT");
         pfnVkCmdDrawMeshTasksIndirectEXT = (PFN_vkCmdDrawMeshTasksIndirectEXT)vkGetDeviceProcAddr(ctx.device, "vkCmdDrawMeshTasksIndirectEXT");
@@ -556,7 +530,7 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 		return false;
 	}
 
-	initSwapChain(&ctx, window, getChosenPresentMode(), VK_NULL_HANDLE, &rendererState); // Initialize a swap chain
+	initSwapChain(&ctx, window, getChosenPresentMode(), VK_NULL_HANDLE, &rendererState);
 	if (rendererState.swapChain == NULL)
 	{
 		ano_log(ANO_FATAL, "Quitting init: swap chain failure.");
@@ -621,7 +595,6 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 		return false;
 	}
 
-	// Hi-Z occlusion pyramid images, built each frame from depth.
 	if(!createHiZResources(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: Hi-Z resource creation failure!");
@@ -676,7 +649,6 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 	// UI overlay lane table buffers, non-fatal (rides the text overlay's raster set).
 	ano_vk_ui_init(&ctx, &rendererState);
 
-	// Depth-only shadow pipeline + compare sampler.
 	if (!ano_vk_init_shadow(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: shadow pipeline failure!");
@@ -707,16 +679,13 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 		return false;
 	}
 
-	// Parse + register the scene's glTF assets.
 	if (resources != nullptr && !ano_render_load_scene_assets(resources))
 		return false;
 
-
-	// ECS <-> render bridge, render-owned slot authority + command/event rings.
+	// Render-owned slot authority plus command/event rings.
 	rendererState.renderHeap = ano_heap_create();
 	if (!rendererState.renderHeap ||
 	    !render_slots_init(&rendererState.slots, rendererState.renderHeap, maxEntities, MAX_FRAMES_IN_FLIGHT) ||
-	    // Events ring widened to 4096.
 	    !ano_render_bridge_init(&rendererState.bridge, rendererState.renderHeap, 4096, 4096))
 	{
 		ano_log(ANO_FATAL, "Quitting init: render bridge / slot authority failure!");
@@ -742,7 +711,6 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 	rendererState.globalFrame = 0;
 	rendererState.completedFrameSerial = 0;
 
-	// Zero the light palette + shadow config/info device buffers once.
 	{
 		VkCommandBuffer up = beginSingleTimeCommands(&ctx);
 		if (up == VK_NULL_HANDLE)

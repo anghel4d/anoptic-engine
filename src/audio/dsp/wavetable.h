@@ -49,7 +49,6 @@ static inline float ano_dsp_wavetable_read(const float *bank, float phase, float
     return va + (vb - va) * ff;
 }
 
-// phase [0,1). morph [0,1) clamped here.
 static inline float ano_dsp_wavetable_read(const AnoDspWavetable *w, float phase, float morph)
 {
     if (morph < 0.0f) morph = 0.0f;

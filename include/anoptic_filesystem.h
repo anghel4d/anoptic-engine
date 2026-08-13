@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>   // size_t
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,26 +20,24 @@ extern "C" {
 
 #define MAXPATH 256
 
-// Game dir name under the platform user-data root.
+// Directory name under the platform user-data root. Callers lay out Config/, Saves/, etc. inside it.
 // Windows: `%APPDATA%\ANO_GAME_NAME`  Linux: `~/.ANO_GAME_NAME`  macOS: `~/Library/Application Support/ANO_GAME_NAME`
-// Callers lay out Config/, Saves/, etc. inside it.
 #define ANO_GAME_NAME "anoptic"
 
-// Path value: NUL-terminated str (hand to syscalls/fopen), length = bytes before NUL.
-// length == 0 = unresolved. Borrow: anostr_view(p.str, p.length), valid while p lives.
+// Path value: NUL-terminated str (hand to syscalls/fopen). length is bytes before NUL.
+// length == 0 means unresolved or failed. Borrow: anostr_view(p.str, p.length), valid while p lives.
 typedef struct {
     uint16_t length;
     char str[MAXPATH];
 } ano_fspath;
 
-// Executable directory: no file name, no trailing separator (kept for drive/FS root).
-// Thread-safe -- computed fresh per call, no shared state, no dirname().
+// Executable directory: no file name, no trailing separator except drive/FS root.
+// Thread-safe: computed fresh per call, no shared state, no dirname().
 // Output: path by value. length == 0 if unresolved or exceeds MAXPATH - 1.
 ano_fspath ano_fs_gamepath(void);
 
 // User data path (profiles, saves, settings). Creates if absent. Thread-safe.
-// Output: path by value. length == 0 if unresolved or mkdir failed.
-// Non-empty result is ready to write into.
+// Output: path by value. length == 0 if unresolved or mkdir failed. Non-empty is writable.
 ano_fspath ano_fs_userpath(void);
 
 // Log directory: "<gamepath>/logs", home of <stamp>_ano.log / <stamp>_CRASH.log.
@@ -59,7 +57,7 @@ bool ano_fs_chdir_gamepath(void);
 
 /* Append-Only File */
 
-// Opaque handle: platform fd/HANDLE stays in the per-OS source. Open once, write many.
+// Opaque handle: platform fd/HANDLE stays in the per-OS source.
 typedef struct ano_file ano_file;
 
 // Open `path` for append (OS append mode), create if absent. Concurrent appends do not interleave.
@@ -72,15 +70,15 @@ ano_file *ano_fs_open_append(const char *path);
 ano_file *ano_fs_open_trunc(const char *path);
 
 // Write all `length` bytes, looping past short writes.
-// Input: open handle, buffer, byte count. Output: 0 on success, -1 on error.
+// Output: 0 on success, -1 on error.
 int ano_fs_write(ano_file *file, const void *data, size_t length);
 
-// Flush buffered data to the device (fsync / FlushFileBuffers).
-// Input: open handle. Output: 0 on success, -1 on error.
+// Flush to the device (fsync / FlushFileBuffers).
+// Output: 0 on success, -1 on error.
 int ano_fs_sync(ano_file *file);
 
 // Close and free without sync. Call ano_fs_sync for durability.
-// Input: open handle. Output: 0 on success, -1 on error. Handle freed either way.
+// Output: 0 on success, -1 on error. Handle freed either way.
 int ano_fs_close(ano_file *file);
 
 #ifdef __cplusplus

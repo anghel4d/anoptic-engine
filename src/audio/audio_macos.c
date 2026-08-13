@@ -113,7 +113,7 @@ static bool coreaudio_start(AnoAudioMixer *mx)
     AudioUnitSetProperty(st->unit, kAudioUnitProperty_MaximumFramesPerSlice,
                          kAudioUnitScope_Global, 0, &maxSlice, sizeof maxSlice);
 
-    // publish state before the unit starts: the render callback reads it
+    // Publish before the unit starts: the render callback reads deviceState.
     mx->deviceState = st;
     atomic_store_explicit(&mx->deviceRun, true, memory_order_release);
 

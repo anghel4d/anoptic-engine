@@ -4,11 +4,9 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Mixer world (private to src/audio/): pools, block-loop state, device API.
-// Mixer thread owns the graph after init. Device thread: cooked ring + underruns.
-// Pools from module heap at init. Steady-state block loop: no alloc, no locks.
-// Adopted sample blocks return via AEVT_BUFFER_RETIRED (reject-on-full frees at boundary).
-// Teardown: shutdown frees resident rings and buffer table.
+// Mixer world (private to src/audio/). Mixer thread owns the graph after init.
+// Steady-state block loop: no alloc, no locks. Device thread: cooked ring + underruns.
+// Adopted blocks return via AEVT_BUFFER_RETIRED; reject-on-full frees at the boundary.
 
 #ifndef ANO_AUDIO_INTERNAL_H
 #define ANO_AUDIO_INTERNAL_H
@@ -17,7 +15,7 @@
 #include <anoptic_threads.h>
 #include "audio_bridge.h"
 #include "audio_format.h"
-#include "audio_fx.h" // effect chains + dsp/smooth.h (AnoAudioSmooth)
+#include "audio_fx.h"
 #include "audio_source.h"
 #include "dsp/noise.h"
 
@@ -126,7 +124,6 @@ struct AnoAudioMixer
     ano::ByteSpscRing blockRing;
     float       *blockScratch;  // mixer render target before push
     float       *deviceScratch; // device pop / pull carry (one backend at a time)
-    // Own cache line.
     alignas(ANO_THREAD_LINE) ANO_ATOMIC(uint32_t) underruns; // device increments; mixer reports in telemetry
 
     const AnoAudioDeviceApi *device;

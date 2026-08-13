@@ -12,8 +12,6 @@
 
 #define INTERN_INITIAL_SLOTS 64u    // power of two; grows at 70% load
 
-// struct anostr_intern_t lives in ano_strings_internal.h.
-
 anostr_intern_t *anostr_intern_make(mi_heap_t *heap)
 {
     if (heap == NULL)
@@ -31,7 +29,7 @@ anostr_intern_t *anostr_intern_make(mi_heap_t *heap)
     return t;
 }
 
-// Symbol holding (hash, s), or ANOSTR_SYM_NONE at the first empty slot.
+// Found symbol, or ANOSTR_SYM_NONE at the first empty slot.
 static anostr_sym probe_find(const anostr_intern_t *t, uint64_t hash, anostr_t s)
 {
     uint32_t idx = (uint32_t)hash & t->slotMask;
@@ -52,7 +50,7 @@ static void slot_insert(uint32_t *slots, uint32_t mask, uint64_t hash, anostr_sy
     slots[idx] = sym + 1;
 }
 
-// Double the slot table and reinsert from cached hashes -- no string bytes touched.
+// Double the slot table and reinsert from cached hashes 〜 no string bytes touched.
 static int grow_slots(anostr_intern_t *t)
 {
     uint64_t newCap = ((uint64_t)t->slotMask + 1) * 2;
@@ -99,7 +97,7 @@ anostr_sym anostr_intern(anostr_intern_t *t, anostr_t s)
     if (found != ANOSTR_SYM_NONE)
         return found;
 
-    // Insert path. Grow first so failure leaves the table as it was.
+    // Grow first so failure leaves the table as it was.
     if (t->count >= UINT32_MAX - 1)     // sym + 1 must fit a slot; NONE stays reserved
         return ANOSTR_SYM_NONE;
     if ((uint64_t)(t->count + 1) * 10 > ((uint64_t)t->slotMask + 1) * 7 && grow_slots(t) != 0)

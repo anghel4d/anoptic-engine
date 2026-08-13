@@ -14,24 +14,23 @@
 
 /* Precision Timestamps */
 
-// Linux CLOCK_MONOTONIC is already nanoseconds: counter IS ns.
+// Returned ticks are nanoseconds (CLOCK_MONOTONIC timespec).
 uint64_t ano_timestamp_ticks() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);   // constant clockid + valid pointer: cannot fail
     return (uint64_t)(ts.tv_sec * 1000000000LL) + ts.tv_nsec;
 }
 
-// Linux ticks are already nanoseconds: identity.
+// Identity: Linux ticks are already ns.
 uint64_t ano_ticks_to_ns(uint64_t ticks) {
     return ticks;
 }
 
-// Identity with ticks (already ns).
 uint64_t ano_timestamp_raw() {
     return ano_timestamp_ticks();
 }
 
-// CLOCK_MONOTONIC in microseconds (direct timespec; not ano_timestamp_raw / 1000).
+// Direct timespec; not ano_timestamp_raw / 1000.
 uint64_t ano_timestamp_us() {
     struct timespec ts;
 
@@ -39,7 +38,7 @@ uint64_t ano_timestamp_us() {
     return (uint64_t)(ts.tv_sec * 1000000LL) + (ts.tv_nsec / 1000);
 }
 
-// CLOCK_MONOTONIC truncated to ms (direct timespec; not ano_timestamp_raw / 1e6).
+// Direct timespec; not ano_timestamp_raw / 1e6.
 uint32_t ano_timestamp_ms() {
     struct timespec ts;
 
@@ -50,21 +49,18 @@ uint32_t ano_timestamp_ms() {
 
 /* Generic Date-Time Stamps */
 
-// Unix UTC timestamp.
 int64_t ano_timestamp_unix() {
     time_t currentTime;
     currentTime = time(NULL);
 
-    // Error handling
     if (currentTime == (time_t)-1) {
         perror("time()");
-        return INT64_MIN; // Out-of-range sentinel value
+        return INT64_MIN; // Out-of-range sentinel.
     }
 
     return (int64_t)currentTime;
 }
 
-// Convert a Unix timestamp to broken-down local civil time.
 ano_datetime ano_localtime(int64_t unix_seconds) {
     time_t t = (time_t)unix_seconds;
     struct tm tm;
@@ -77,20 +73,19 @@ ano_datetime ano_localtime(int64_t unix_seconds) {
     };
 }
 
-// Network Time Protocol-adjusted timestamp. NOT guaranteed monotonic.
+// NTP-adjusted timestamp. Not monotonic. Stub.
 int64_t ano_timestamp_ntp(){
     printf("ano_timestamp_ntp\tTest!\n");
-    // TODO: Fill with network socket stuff etc
+    // TODO: network socket path.
     return 0;
 }
 
 /* Waiting Facilities */
 
-// Spinlock the current thread for approximately ns nanoseconds.
 int ano_busywait(uint64_t ns) {
     if (ns > MAX_BUSYWAIT_NS) {
         printf("Requested busywait time exceeds maximum limit. Returning.\n");
-        return -1; // failure
+        return -1;
     }
 
     uint64_t startTime = ano_timestamp_raw();
@@ -100,33 +95,30 @@ int ano_busywait(uint64_t ns) {
         endTime = ano_timestamp_raw();
     } while (endTime - startTime < ns);
 
-    return 0; // success
+    return 0;
 }
 
-// High-res sleep: relative clock_nanosleep(CLOCK_MONOTONIC); restarts on EINTR.
+// Relative clock_nanosleep(CLOCK_MONOTONIC). Restarts on EINTR.
 int ano_sleep(uint64_t us) {
     struct timespec request = {0};
     struct timespec remaining = {0};
 
-    // Convert the sleep time from microseconds to seconds and nanoseconds
     request.tv_sec = us / 1000000LL;
     request.tv_nsec = (us % (uint64_t)1000000LL) * 1000;
 
-    // Sleep for the relative time
     int sleepStatus;
     while ((sleepStatus = clock_nanosleep(CLOCK_MONOTONIC, 0, &request, &remaining)) != 0) {
         if (sleepStatus == EINTR) {
             request = remaining;
             printf("Interrupted by signal handler\n");
         } else {
-            // clock_nanosleep reports by return value and does not set errno; perror/errno here
-            // would print and return stale state, possibly 0 (success).
+            // clock_nanosleep returns the error; it does not set errno.
             printf("clock_nanosleep error with status: %d\n", sleepStatus);
             return sleepStatus;
         }
     }
 
-    return 0; // success
+    return 0;
 }
 
 #endif

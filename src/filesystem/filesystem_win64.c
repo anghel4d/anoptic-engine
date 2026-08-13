@@ -10,11 +10,11 @@
 #include "filesystem/filesystem_internal.h"
 
 #include <stdio.h>
-#include <stdlib.h>       // getenv
-#include <string.h>       // memcpy
-#include <direct.h>       // _chdir, _mkdir
-#include <errno.h>        // errno, EEXIST
-#include <windows.h>      // CreateFileA, WriteFile, FlushFileBuffers, CloseHandle
+#include <stdlib.h>
+#include <string.h>
+#include <direct.h>
+#include <errno.h>
+#include <windows.h>
 #include <libloaderapi.h>
 #include <mimalloc.h>
 
@@ -23,8 +23,6 @@
 
 // GetModuleFileNameA (not TCHAR). -A mangles paths outside the active codepage.
 // Debt: GetModuleFileNameW + UTF-8.
-// Output: executable directory, no file name, by value.
-// length == 0 on failure or path exceeding MAXPATH - 1.
 ano_fspath ano_fs_gamepath(void) {
 
     ano_fspath result = {0};
@@ -34,7 +32,6 @@ ano_fspath ano_fs_gamepath(void) {
     if (len == 0 || len >= MAX_PATH)
         return result; // failed or truncated
 
-    // Trim file name, leave containing directory.
     while (len > 0 && pathBuffer[len - 1] != '\\' && pathBuffer[len - 1] != '/')
         len--;
     // Drop trailing separator; keep for drive root ("C:" is drive-relative, "C:\" is root).
@@ -42,14 +39,13 @@ ano_fspath ano_fs_gamepath(void) {
         len--;
 
     if (len >= MAXPATH)
-        return result; // exceeds value type
+        return result;
     memcpy(result.str, pathBuffer, len);
     result.str[len] = '\0';
     result.length = (uint16_t)len;
     return result;
 }
 
-// %APPDATA%\anoptic, created if absent.
 ano_fspath ano_fs_userpath(void) {
     ano_fspath result = {0};
 
@@ -62,21 +58,19 @@ ano_fspath ano_fs_userpath(void) {
         return (ano_fspath){0};
 
     if (fs_mkdir(result.str) != 0)
-        return (ano_fspath){0}; // absent and uncreatable, or squatted by a non-directory
+        return (ano_fspath){0};
 
     result.length = (uint16_t)len;
     return result;
 }
 
-// Sets CWD to ano_fs_gamepath(). Output: true on success.
 bool ano_fs_chdir_gamepath(void)
 {
     ano_fspath dir = ano_fs_gamepath();
     return dir.length > 0 && _chdir(dir.str) == 0;
 }
 
-// Output: 0 when path is a directory afterwards, -1 otherwise.
-// EEXIST: success only for a real directory (FILE_ATTRIBUTE_DIRECTORY).
+// 0 when path is a directory afterwards. EEXIST succeeds only if it is a real directory.
 int fs_mkdir(const char *path)
 {
     if (_mkdir(path) == 0)
@@ -91,12 +85,10 @@ int fs_mkdir(const char *path)
 
 /* Append-Only File */
 
-// Opaque handle wraps a single Win32 HANDLE.
 struct ano_file {
     HANDLE handle;
 };
 
-// Output: FILE_APPEND_DATA handle, or NULL. OPEN_ALWAYS creates if absent.
 // FILE_SHARE_DELETE: POSIX unlink parity while open.
 ano_file *ano_fs_open_append(const char *path)
 {
@@ -118,8 +110,7 @@ ano_file *ano_fs_open_append(const char *path)
     return file;
 }
 
-// Truncate via throwaway CREATE_ALWAYS, reopen FILE_APPEND_DATA. NULL on failure.
-// CREATE_ALWAYS needs GENERIC_WRITE.
+// Truncate with a throwaway CREATE_ALWAYS (needs GENERIC_WRITE), then reopen FILE_APPEND_DATA.
 ano_file *ano_fs_open_trunc(const char *path)
 {
     if (path == NULL)
@@ -134,7 +125,6 @@ ano_file *ano_fs_open_trunc(const char *path)
     return ano_fs_open_append(path);
 }
 
-// Output: 0 once all bytes written, -1 on error. Loops past short writes.
 // written == 0 on TRUE is error (not retry).
 int ano_fs_write(ano_file *file, const void *data, size_t length)
 {
@@ -144,7 +134,7 @@ int ano_fs_write(ano_file *file, const void *data, size_t length)
     const char *cursor = static_cast<const char *>(data);
     size_t remaining = length;
     while (remaining > 0) {
-        DWORD chunk = remaining > 0x7fffffff ? 0x7fffffff : (DWORD)remaining;
+        DWORD chunk = remaining > 0x7fffffff ? 0x7fffffff : (DWORD)remaining; // DWORD cap; 2 GiB-1 per call
         DWORD written = 0;
         if (!WriteFile(file->handle, cursor, chunk, &written, NULL) || written == 0)
             return -1;
@@ -154,7 +144,6 @@ int ano_fs_write(ano_file *file, const void *data, size_t length)
     return 0;
 }
 
-// Output: 0 on success, -1 on error.
 int ano_fs_sync(ano_file *file)
 {
     if (file == NULL)
@@ -162,7 +151,7 @@ int ano_fs_sync(ano_file *file)
     return FlushFileBuffers(file->handle) ? 0 : -1;
 }
 
-// Output: 0 on success, -1 on error. Handle freed either way.
+// Handle freed either way.
 int ano_fs_close(ano_file *file)
 {
     if (file == NULL)

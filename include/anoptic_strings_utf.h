@@ -4,14 +4,12 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// UTF-8 extension to the Anoptic String API.
-
-// UTF-8 for storage always. Byte ops already work; memcmp order IS code point order.
-// UTF-16 only at OS boundaries -- convert there, never store. Malformed -> U+FFFD, advance one. Total, no error paths.
+// UTF-8 storage. memcmp order is code-point order. UTF-16 only at OS boundaries; never store.
+// Malformed -> U+FFFD, advance one. Total: no error paths.
 // Simple 1:1 case mapping (caseless = identity; no locale; no round-trip / final sigma).
 // Positions are byte offsets. No rune-at-index.
-// Collation/case/class cover: Latin European, Greek, Cyrillic, Runic, kana, Han (code point), punct.
-// Everything else falls back to code point (= byte) order.
+// Collation/case/class: Latin, Greek, Cyrillic, Runic, kana, Han (code point), punct.
+// Unlisted scripts fall back to code-point order.
 
 #ifndef ANOPTICENGINE_ANOPTIC_STRINGS_UTF_H
 #define ANOPTICENGINE_ANOPTIC_STRINGS_UTF_H
@@ -63,7 +61,7 @@ int anorune_encode(char buf[4], anorune_t r);
 // Encode r and append. Same returns as anostr_builder_append.
 int anostr_builder_append_rune(anostr_builder_t *b, anorune_t r);
 
-// Case/class tables: Latin, Greek, Cyrillic, Runic, kana, Han, punctuation. Outside: caseless, no flags.
+// Outside the shipped scripts: caseless, no flags.
 
 // r uppercased, or r if unmapped. Never fails.
 anorune_t anorune_to_upper(anorune_t r);

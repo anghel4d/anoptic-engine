@@ -7,7 +7,7 @@
 // Human lexicographic order: UCA/DUCET (ano_collate_tables.h), shipped scripts only.
 // Decompose to NFD, map to CEs, compare one level at a time (primary/secondary/tertiary).
 // Unlisted code points get UCA implicit weights.
-// Sort: u64 collate-prefix keys, stable LSD radix, key-equal runs restream or full-key memcmp.
+// Sort: u64 prefix keys, stable LSD radix. Key-equal runs take the next four primaries (MSD), then restream or full-key memcmp.
 
 #include <stdlib.h>
 
@@ -137,8 +137,6 @@ int anostr_collate(anostr_t a, anostr_t b)
 
 /* Collation Prefix Keys */
 
-// First four nonzero primaries, big-endian.
-
 // Next four nonzero primaries after skipping `skip`. skip = 0 is the public prefix key.
 static uint64_t collate_prefix_skip(anostr_t s, uint32_t skip)
 {
@@ -167,7 +165,7 @@ static uint64_t collate_prefix_skip(anostr_t s, uint32_t skip)
     if (i >= s.len)
         return key;
 
-    // Non-ASCII from byte i: full streaming pipeline.
+    // Resume the full pipeline at the first non-ASCII byte.
     ce_iter_t it = { .s = s, .i = i };
     uint32_t w;
     while (got < 4 && next_weight(&it, 0, &w)) {
@@ -266,7 +264,7 @@ typedef struct sort_rec_t {
 static_assert(sizeof(sort_rec_t) == sizeof(anostr_t),
               "the radix ping-pong buffer doubles as the gather buffer");
 
-// Compile-time accessors keep record lookup out of the recursive hot path.
+// Inlined string lookup for the recursive tie path.
 struct item_strings_t {
     const anostr_t *items;
 
@@ -403,7 +401,7 @@ static bool tie_bulk(sort_rec_t *r, size_t n, const StrOf &str_of)
 
     qsort(views, n, sizeof *views, tie_view_cmp_);
     for (size_t i = 0; i < n; i++)
-        r[i].idx = views[i].idx;    // keys equal across the run, only idx moves
+        r[i].idx = views[i].idx;
 
     mi_free(kb.p);
     mi_free(views);
@@ -675,6 +673,6 @@ size_t anostr_find_base(anostr_t s, anostr_t needle, size_t from)
             return i;
         if (i >= len)
             return ANOSTR_NPOS;
-        anostr_rune_next(s, &i);    // next candidate start
+        anostr_rune_next(s, &i);    // rune-aligned starts
     }
 }

@@ -102,8 +102,6 @@ static double voicing_cost(const int *cand, uint32_t n, const int *prev, uint32_
     return (double)movement + topSmoothness + perVoiceExcess;
 }
 
-// Inputs: chordPcs/pcCount; prev/prevLen (0 = none); cfg (NULL = default). Voices > MAX_VOICES clamp.
-// Outputs: out[0..V-1], *outCost if non-NULL, V (0 if nothing places).
 // Invariant: cands is call-transient thread-local scratch; no state across calls.
 uint32_t ano_voice_chord(const uint8_t *chordPcs, uint32_t pcCount,
                          const int *prev, uint32_t prevLen,
@@ -112,7 +110,6 @@ uint32_t ano_voice_chord(const uint8_t *chordPcs, uint32_t pcCount,
     AnoVoicingConfig def = ano_voicing_config_default();
     if (!cfg)
         cfg = &def;
-    // V in [1, MAX_VOICES] or return 0
     if (cfg->voices == 0u)
         return 0;
     const uint32_t V = cfg->voices < MAX_VOICES ? cfg->voices : MAX_VOICES;
@@ -125,7 +122,6 @@ uint32_t ano_voice_chord(const uint8_t *chordPcs, uint32_t pcCount,
     uint32_t candCount = 0;
 
     for (uint32_t o = 0; o < optCount; ++o) {
-        // per-voice octave option lists
         int opts[MAX_VOICES][MAX_OCTAVES];
         uint32_t optN[MAX_VOICES];
         for (uint32_t v = 0; v < V; ++v) {
@@ -156,7 +152,6 @@ uint32_t ano_voice_chord(const uint8_t *chordPcs, uint32_t pcCount,
                 }
                 combo[j] = key;
             }
-            // dedup by first occurrence, then the unison / gap filters
             bool dup = false;
             for (uint32_t c = 0; c < candCount && !dup; ++c) {
                 dup = true;
@@ -175,7 +170,6 @@ uint32_t ano_voice_chord(const uint8_t *chordPcs, uint32_t pcCount,
                     candCount++;
                 }
             }
-            // advance the product counter
             uint32_t v = V;
             while (v-- > 0) {
                 if (++idx[v] < optN[v])

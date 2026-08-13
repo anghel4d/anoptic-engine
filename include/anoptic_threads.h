@@ -39,8 +39,8 @@ typedef pthread_rwlockattr_t anothread_rwlockattr_t;
 #if defined(__APPLE__)
 // Darwin: POSIX barrier stand-in (C23 atomics). attr ignored.
 typedef struct {
-    unsigned int count;       // required arrivals, set at init
-    atomic_uint  arrived;     // whole round in one word: [phase : high half][arrivals : low half]
+    unsigned int count;       // cohort size, set at init
+    atomic_uint  arrived;     // [phase : high half][arrivals : low half]
 } pthread_barrier_t;
 typedef struct {
     int pshared;              // accepted, unused
@@ -52,20 +52,17 @@ typedef pthread_barrierattr_t anothread_barrierattr_t;
 typedef pthread_key_t anothread_key_t;
 
 
-//typedef void *(*ano_thread_func)(void *arg);
-
-
 /* Thread Management */
 
-// Stack reserve for engine threads (NULL attr). Win64: PE --stack sizes those and the main thread.
+// Engine-thread stack reserve when attr is NULL. Win64: PE --stack sizes those threads and the main thread.
 #define ANO_THREAD_STACK_SIZE ((size_t)8 << 20)
 
 int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(* func)(void *), void *arg);
 
-// Logical processors available to this process, or one when unavailable.
+// Online logical processors, or one when unavailable.
 uint32_t ano_thread_concurrency(void);
 
-// Initial-thread stack budget. POSIX soft RLIMIT_STACK (SIZE_MAX if unlimited), win64 PE reserve, else 0.
+// Initial-thread stack budget. POSIX: soft RLIMIT_STACK (SIZE_MAX if unlimited), 0 if the query fails. Win64: PE reserve.
 size_t ano_thread_main_stack(void);
 
 int ano_thread_join(anothread_t thread, void **res);
@@ -94,7 +91,7 @@ int ano_thread_cond_init(anothread_cond_t *conditionVariable, const anothread_co
 
 int ano_thread_cond_wait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex);
 
-// Absolute CLOCK_REALTIME deadline. 0 / ETIMEDOUT / errno. Build with timespec_get(TIME_UTC).
+// Absolute deadline on the cond's clock (default CLOCK_REALTIME). 0 / ETIMEDOUT / errno. Default clock: timespec_get(TIME_UTC).
 int ano_thread_cond_timedwait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex,
                               const struct timespec *abstime);
 
@@ -157,12 +154,11 @@ void* ano_thread_getspecific(anothread_key_t key);
 
 /* Synchronization Barriers */
 
-// EINVAL on count 0, and on Darwin past 65535 (the state word's arrival half); elsewhere the platform's own EINVAL. 
-// An unchecked init leaves an unusable barrier.
+// EINVAL on count 0, and on Darwin past 65535 (arrival half of the state word). An ignored failure leaves the barrier unusable.
 [[nodiscard]] int ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count);
 
-// out: 0 to every waiter but one; exactly one per cohort gets the serial return, a platform-defined
-// non-zero value that is not exported. Portable test: `!= 0` is the serial thread, never a literal.
+// 0 to every waiter but one. Exactly one waiter per cohort gets a platform-defined
+// non-zero serial return (not exported). Test `!= 0`, never a literal.
 int ano_thread_barrier_wait(anothread_barrier_t *barrier);
 
 int ano_thread_barrier_destroy(anothread_barrier_t *barrier);

@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: LGPL-3.0
  * Anoptic targets ISO C++26. */
 
-// Decoding is parallel; importer errors are structured and image policy is fixed.
+// No stb TLS: decode runs in parallel. No stb failure strings: errors are
+// AnoResourceError.
 #define STBI_NO_FAILURE_STRINGS
 #define STBI_NO_THREAD_LOCALS
 #define STB_IMAGE_IMPLEMENTATION

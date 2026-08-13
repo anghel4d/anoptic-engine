@@ -4,8 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Stable-address, hole-reusing storage. Uses the standard facility when the
-// selected library provides it and otherwise the P0447 reference implementation.
+// Stable-address, hole-reusing storage. std::hive when <hive> exists; else P0447 plf::hive.
 
 #ifndef ANOPTICENGINE_ANOPTIC_HIVE_H
 #define ANOPTICENGINE_ANOPTIC_HIVE_H

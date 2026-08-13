@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 
-// Retired 5-tier severities for the baseline.
+// Baseline 5-tier severities (includes DEBUG).
 typedef enum {
     LOG_DEBUG,
     LOG_INFO,

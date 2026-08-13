@@ -1,4 +1,3 @@
-# Always compile the common source file
 target_sources(anoptic_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/time.c)
 
 # Platform source. APPLE before UNIX (both true on macOS).

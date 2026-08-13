@@ -15,7 +15,7 @@
 #include <anoptic_log.h>
 #include <anoptic_time.h>
 
-#define ANO_AUDIO_TAU_F  6.28318530717958647692f // 2*pi
+#define ANO_AUDIO_TAU_F  6.28318530717958647692f
 
 static inline float clampf(float v, float lo, float hi)
 {
@@ -31,7 +31,7 @@ bool ano_audio_graph_init(AnoAudioMixer *mx, const AnoAudioBusDesc *layout)
         float    gain   = 1.0f;
         if (layout) {
             if (b > 0u && layout[b].parent >= b)
-                return false; // parents before children
+                return false;
             parent = layout[b].parent;
             if (layout[b].gain != 0.0f)
                 gain = layout[b].gain;
@@ -70,7 +70,7 @@ bool ano_audio_graph_init(AnoAudioMixer *mx, const AnoAudioBusDesc *layout)
 
 /* Spatialization */
 
-// Per positional voice: pan, distance gain, air-absorption cutoff. Glides via smoothers.
+// Positional: pan from listener right, inverse-distance gain, air cutoff. Glides via smoothers.
 static void source_spatialize(AnoAudioMixer *mx, AnoAudioSource *s)
 {
     float panT = 0.0f, spatT = 1.0f, airT = 20000.0f;
@@ -170,7 +170,6 @@ static void buffer_reject(AnoAudioMixer *mx, uint32_t buffer_id, const void *blo
             }
         }
         if (!slot) {
-            // voice pool exhausted: drop the cue, advise best-effort
             if (mx->bridge) {
                 AnoAudioEvent evt = { .kind = AEVT_CAPACITY };
                 ano_audio_emit_event(mx->bridge, &evt);
@@ -369,8 +368,7 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
     const size_t   bytes  = (size_t)frames * ANO_AUDIO_CHANNELS * sizeof(float);
     const float    fsInv  = 1.0f / (float)mx->sampleRate;
 
-    // 1) generator desk cmds  2) zero buses  3) generator write  4) voices
-    // 5) fold high->low (chain, parent, sends)  6) master  7) retirement passes
+    // Desk cmds first. Fold high->low so send targets are still unprocessed. Retirement last.
     if (mx->generatorCommands) {
         AnoAudioCommand gc[ANO_AUDIO_GEN_CMDS];
         uint32_t gn = mx->generatorCommands(mx->generatorUser, gc, ANO_AUDIO_GEN_CMDS);
@@ -381,7 +379,6 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
     for (uint32_t b = 0; b < mx->busCount; ++b)
         memset(mx->buses[b].mix, 0, bytes);
 
-    // generator writes into the zeroed bus mixes ahead of the fold
     if (mx->generator) {
         float *busMix[ANO_AUDIO_MAX_BUSES];
         for (uint32_t b = 0; b < mx->busCount; ++b)
@@ -390,7 +387,6 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
                       mx->blockIndex * (uint64_t)frames);
     }
 
-    // voices: spatial targets per block, then accumulate into their bus
     uint32_t active = 0;
     for (uint32_t i = 0; i < ANO_AUDIO_MAX_SOURCES; ++i) {
         AnoAudioSource *s = &mx->sources[i];
@@ -402,7 +398,6 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
     }
     mx->sourcesActive = active;
 
-    // fold high->low: chain, then parent + post-fader sends (targets not yet processed this block)
     for (uint32_t b = mx->busCount; b-- > 1u;) {
         AnoAudioBus *bus = &mx->buses[b];
         bus_chain_block(mx, bus, frames);
@@ -428,7 +423,6 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
         }
     }
 
-    // master: chain, gain, peak meter, clip guard, output write
     AnoAudioBus *master = &mx->buses[0];
     bus_chain_block(mx, master, frames);
     float peak = 0.0f;
@@ -480,7 +474,7 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
             if (!ano_audio_emit_event(mx->bridge, &evt))
                 continue; // retry next block; the block stays valid meanwhile
         }
-        memset(slot, 0, sizeof *slot); // FREE
+        memset(slot, 0, sizeof *slot);
     }
 
     // staged generator events, re-offer until taken
@@ -506,10 +500,7 @@ void ano_audio_render_block(AnoAudioMixer *mx, float *out)
 // One pacing turn: the wait a consumer that is merely behind needs to free a slot.
 #define ANO_AUDIO_PACE_US 1000u
 
-// in:  mx (mixer thread, bridge non-NULL), cpuNs (last block render cost; 0 if idle turn)
-// out: none (publishes latest-wins telemetry after generator fills its fields)
-// inv: mixer thread only; ano_audio_mixer_main never runs offline
-// inv: cpuNs 0 with unchanged blockIndex == alive, producing nothing
+// Mixer thread only (never offline). cpuNs 0 with frozen blockIndex means alive, producing nothing.
 static void publish_stats(AnoAudioMixer *mx, uint64_t cpuNs)
 {
     AnoAudioTelemetry t = {
@@ -540,7 +531,6 @@ void *ano_audio_mixer_main(void *arg)
     uint64_t stalledUs = 0;
 
     while (atomic_load_explicit(&mx->mixerRun, memory_order_acquire)) {
-        // structural change lands only here, at the block boundary
         AnoAudioCommand c;
         while (ano_audio_next_command(mx->bridge, &c))
             ano_audio_apply(mx, &c);
@@ -577,7 +567,6 @@ void *ano_audio_mixer_main(void *arg)
     return NULL;
 }
 
-// Offline: sync drive, no device/telemetry. Deterministic for identical desc+frames.
 bool ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames)
 {
     if (!out)

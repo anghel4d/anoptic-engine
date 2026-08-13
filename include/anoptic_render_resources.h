@@ -22,13 +22,13 @@ typedef enum AnoRenderResourceReloadStatus {
     ANO_RENDER_RESOURCE_RELOAD_REJECTED,
 } AnoRenderResourceReloadStatus;
 
-// Preparation takes ownership of reload. The caller keeps preparationHeap live
-// until polling or cancellation consumes the publication.
+// Takes ownership of reload. Keep preparationHeap live until poll or cancel
+// consumes the publication.
 extern "C" AnoResourceError ano_render_resources_prepare_reload(
     AnoResourceReload *reload, mi_heap_t *preparationHeap,
     AnoRenderResourcePublication **publication);
 // Polls owner work and commits a ready candidate. A terminal result consumes
-// *publication and sets it to null; rejection preserves the current epoch.
+// *publication and sets it to null. Rejection preserves the current epoch.
 extern "C" AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
     AnoRenderResourcePublication **publication);
 // Cancels and consumes an unpublished candidate.

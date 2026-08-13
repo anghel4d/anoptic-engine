@@ -476,7 +476,6 @@ static void fx_reverb(AnoAudioFxReverb *r, float *m, uint32_t frames, float fs)
     }
     for (uint32_t i = 0; i < frames; ++i) {
         float dryL = m[2u * i], dryR = m[2u * i + 1u];
-        // mono -> predelay -> diffusers
         ano_dsp_delay_write(&r->pre, 0.5f * (dryL + dryR));
         float v = ano_dsp_delay_read_frac(&r->pre, pre < 1.0f ? 1.0f : pre);
         v = ano_dsp_allpass_step(&r->ap[0], v);
@@ -512,7 +511,6 @@ static void fx_pingpong(AnoAudioFxPingpong *p, float *m, uint32_t frames, float 
         float dryL = m[2u * i], dryR = m[2u * i + 1u];
         float outL = ano_dsp_delay_read_frac(&p->dl[0], time);
         float outR = ano_dsp_delay_read_frac(&p->dl[1], time);
-        // cross-feedback is the ping-pong
         ano_dsp_delay_write(&p->dl[0], dryL + fb * outR);
         ano_dsp_delay_write(&p->dl[1], dryR + fb * outL);
         m[2u * i]      = dryL + (outL - dryL) * mix;

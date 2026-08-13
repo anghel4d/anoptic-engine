@@ -240,10 +240,8 @@ typedef struct AnoWasapiState
     AnoAudioPull pull;
 } AnoWasapiState;
 
-// GetBuffer + ReleaseBuffer one packet. NULL dst still acquired: ReleaseBuffer(0).
-//   in:  render (non-NULL), frames (>0, <= writable), mx/pull (NULL mx = silence)
-//   out: true if filled+released. *outHr always written. S_OK on success and NULL-dst arm
-//   inv: every succeeded GetBuffer gets exactly one ReleaseBuffer
+// GetBuffer + ReleaseBuffer one packet. NULL dst: ReleaseBuffer(0). NULL mx writes silence.
+// *outHr is always written. Every succeeded GetBuffer gets exactly one ReleaseBuffer.
 [[nodiscard]] static bool wasapi_write_checked(AnoIAudioRenderClient *render, UINT32 frames,
                                                AnoAudioMixer *mx, AnoAudioPull *pull, HRESULT *outHr)
 {
@@ -266,7 +264,6 @@ typedef struct AnoWasapiState
 }
 
 // Prefill write with no refusal latch (caller has no loop).
-//   out: true if filled+released
 [[nodiscard]] static bool wasapi_write(AnoIAudioRenderClient *render, UINT32 frames,
                                        AnoAudioMixer *mx, AnoAudioPull *pull)
 {
@@ -277,18 +274,14 @@ typedef struct AnoWasapiState
 // Undocumented refusal budget per render-loop arm (padding and packet counted apart).
 #define ANO_WASAPI_REFUSAL_LIMIT 50u
 
-// IAudioClient terminal refusals (invalidate, service down, not-init, E_POINTER).
-//   in:  FAILED hr from a client call in the render loop
-//   out: true if same client can never succeed again
+// True if this IAudioClient can never succeed again (invalidate, service down, not-init, E_POINTER).
 [[nodiscard]] static bool wasapi_terminal(HRESULT hr)
 {
     return hr == ANO_AUDCLNT_E_DEVICE_INVALIDATED || hr == ANO_AUDCLNT_E_SERVICE_NOT_RUNNING
         || hr == ANO_AUDCLNT_E_NOT_INITIALIZED    || hr == E_POINTER;
 }
 
-// IAudioRenderClient terminal refusals (wasapi_terminal + OUT_OF_ORDER + INVALID_SIZE).
-//   in:  FAILED hr from a render-client call in the loop
-//   out: true if same stream can never succeed again
+// True if this render stream can never succeed again (wasapi_terminal, OUT_OF_ORDER, INVALID_SIZE).
 [[nodiscard]] static bool wasapi_packet_terminal(HRESULT hr)
 {
     return wasapi_terminal(hr) || hr == ANO_AUDCLNT_E_OUT_OF_ORDER
@@ -368,7 +361,6 @@ static void *wasapi_main(void *arg)
     if (FAILED(client->v->GetService(client, &ANO_IID_IAudioRenderClient, (void **)&render)))
         goto fail;
 
-    // prefill silence
     if (!wasapi_write(render, bufferFrames, NULL, NULL))
         ano_log(ANO_WARN, "audio/wasapi: silence prefill refused; starting on an unfilled buffer.");
 
@@ -476,7 +468,6 @@ static bool wasapi_start(AnoAudioMixer *mx)
     if (ano_thread_create(&mx->deviceThread, NULL, wasapi_main, mx) != 0)
         goto fail;
 
-    // wait for device-thread init (bounded)
     for (uint32_t waited = 0; waited < 5000u; waited += 5u) {
         int s = atomic_load_explicit(&st->init, memory_order_acquire);
         if (s == ANO_WIN_INIT_OK)
@@ -596,7 +587,6 @@ typedef struct AnoDsoundState
     AnoDspRng    dither;
 } AnoDsoundState;
 
-// Fill one mixer block into locked region (s16 convert if needed).
 static void dsound_fill(AnoAudioMixer *mx, AnoDsoundState *st, float *fbuf,
                         void *dst, uint32_t frames, AnoAudioFormat format)
 {
@@ -610,16 +600,13 @@ static void dsound_fill(AnoAudioMixer *mx, AnoDsoundState *st, float *fbuf,
 }
 
 // Ring needs recover when lost or not playing (lost may still report PLAYING).
-//   in:  status from GetStatus
-//   out: true when dsound_recover must run
 [[nodiscard]] static bool dsound_needs_recovery(DWORD status)
 {
     return (status & (ANO_DSBSTATUS_BUFFERLOST | ANO_DSBSTATUS_PLAYING)) != ANO_DSBSTATUS_PLAYING;
 }
 
 // Restore lost ring: silence, re-anchor writeCursor to 0, Play looping.
-//   in:  buf, bufferBytes
-//   out: true if silent+playing and *writeCursor in phase. false leaves stopped, cursor untouched
+// False leaves the buffer stopped and *writeCursor untouched.
 [[nodiscard]] static bool dsound_recover(AnoIDirectSoundBuffer *buf, uint32_t bufferBytes, DWORD *writeCursor)
 {
     if (FAILED(buf->v->Restore(buf)))

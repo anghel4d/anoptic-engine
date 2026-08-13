@@ -4,8 +4,10 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// GPOS PairPos kern reader. Raw GPOS bytes, every read bounds-checked. Malformed -> EIO (dense may be partial). Accumulates latn/DFLT 'kern' xAdvance into a dense FUnit matrix. FreeType-free.
-// Semantics: script latn (fallback DFLT), default LangSys feature list only (requiredFeatureIndex ignored). Feature 'kern', lookups deduped then sorted by index, accumulate in that order. Within a lookup, first applying subtable wins (fmt1 listed pair, fmt2 covered first glyph / class 0). Type 2 PairPos or type 9 Extension. Value = ValueRecord1.xAdvance. LookupFlag ignored.
+// GPOS PairPos kern reader. Bounds-checked. Malformed -> EIO (dense may be partial). FreeType-free.
+// latn, else DFLT; default LangSys feature list only (requiredFeatureIndex ignored).
+// 'kern' lookups, deduped, sorted by index, then accumulated. First applying subtable wins.
+// Type 2 PairPos or type 9 Extension. Value = ValueRecord1.xAdvance. LookupFlag ignored.
 
 #include "anoptic_text.h"
 #include "text/text_internal.h"
@@ -327,7 +329,7 @@ int ano_gpos_extract_kerns(const uint8_t *gpos, uint32_t len, const uint32_t *sl
         if (!ok)
             return EIO;
         if (type != 2u && type != 9u)
-            continue; // not PairPos
+            continue; // not PairPos or Extension
         if (subCount > subCap)
         {
             uint32_t *grown = mi_heap_reallocn_tp(

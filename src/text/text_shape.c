@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Shaper: UTF-8 iteration, slot lookup, advances + pair kern, newlines. Pure over immutable AnoFontBake, any thread. No ligatures/marks/bidi.
+// Shaper over immutable AnoFontBake. Any thread. No ligatures, marks, or bidi.
 
 #include "anoptic_text.h"
 #include "anoptic_strings_utf.h"
@@ -46,7 +46,8 @@ float ano_text_kern(const AnoFontBake *bake, uint32_t leftSlot, uint32_t rightSl
                                                                 : 0.0f;
 }
 
-// Pen walk behind shape/measure x plain/runs. Validated args. Pair-kern chain survives a boundary iff size unchanged. Returns instance count. Optional pen / max line / lines / line step of the last run that styled a codepoint (byteCount 0 runs are no-ops and never set it).
+// Shared pen walk for shape/measure. Pair-kern survives a run boundary iff size is unchanged.
+// endStepOut is lineHeight * sizePx of the last run that styled a codepoint; byteCount 0 never sets it.
 static uint32_t shape_core(const AnoFontBake *bake, anostr_t text,
                            const AnoTextRun *runs, uint32_t runCount,
                            const float origin[2], AnoGlyphInstance *out, uint32_t cap,
@@ -61,7 +62,7 @@ static uint32_t shape_core(const AnoFontBake *bake, anostr_t text,
     size_t runEnd = runs[0].byteCount;
     uint32_t runIdx = 0;
     uint32_t prevSlot = UINT32_MAX; // pair-kern chain: broken by newline/gap/size change
-    float prevSize = 0.0f;          // sizePx that shaped prevSlot
+    float prevSlotSizePx = 0.0f;
 
     for (size_t i = 0; i < total;)
     {
@@ -90,10 +91,10 @@ static uint32_t shape_core(const AnoFontBake *bake, anostr_t text,
             prevSlot = UINT32_MAX;
             continue;
         }
-        if (prevSlot != UINT32_MAX && sizePx == prevSize)
+        if (prevSlot != UINT32_MAX && sizePx == prevSlotSizePx)
             penX += ano_text_kern(bake, prevSlot, slot) * sizePx;
         prevSlot = slot;
-        prevSize = sizePx;
+        prevSlotSizePx = sizePx;
         const AnoGlyphEntry *e = &bake->glyphs[slot];
         if (e->curveCount > 0)
         {
@@ -127,7 +128,6 @@ static uint32_t shape_core(const AnoFontBake *bake, anostr_t text,
     return needed;
 }
 
-// Reject NULL runs, empty list, sizePx <= 0, or byteCount sum != text length.
 static bool runs_valid(const AnoTextRun *runs, uint32_t runCount, anostr_t text)
 {
     if (runs == NULL || runCount == 0)

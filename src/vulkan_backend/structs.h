@@ -126,7 +126,7 @@ enum {
 
 /* Structs */
 
-typedef struct DeviceCapabilities // Add queue families, device extensions etc as implemented
+typedef struct DeviceCapabilities
 {
 	bool graphics;
 	bool compute;
@@ -142,7 +142,7 @@ typedef struct DeviceCapabilities // Add queue families, device extensions etc a
 	bool shaderFloat16;         // vk1.2 shaderFloat16: selects the *_fp16.frag lighting variants
 } DeviceCapabilities;
 
-typedef struct QueueFamilyIndices // Which queue families exist and the selected queue for each
+typedef struct QueueFamilyIndices
 {
 	bool graphicsPresent;
     uint32_t graphicsFamily;
@@ -157,7 +157,7 @@ typedef struct QueueFamilyIndices // Which queue families exist and the selected
 
 
 typedef struct RenderEntity
-{ // To be extended with animation data
+{
     uint32_t meshIndex;       // geometry pool index, or NO_MESH_INDEX
     uint32_t materialIndex;   // index into MaterialSSBO
     uint32_t lightIndex;      // light SSBO index, or NO_LIGHT_INDEX
@@ -198,31 +198,30 @@ typedef struct WindowParameters
     uint32_t width;
     uint32_t height;
     uint32_t monitorIndex;        // Fullscreen monitor index, ANO_WINDOWED_MONITOR for windowed
-    bool borderless;         // Borderless
-    // ... other parameters
+    bool borderless;
 } WindowParameters;
 
 typedef struct VulkanSettings
 {
-	const char* preferredDevice; // Physical GPU to use for rendering
-	VkPresentModeKHR preferredMode; // Frame present mode
+	const char* preferredDevice;
+	VkPresentModeKHR preferredMode;
 	uint32_t preferredMsaa;	// MSAA sample count (2/4/8), clamped to device support
 } VulkanSettings;
 
 typedef struct MonitorInfo 
 {
-    const GLFWvidmode* modes;    // Video modes supported by the monitor
-    int modeCount;               // Number of video modes supported
+    const GLFWvidmode* modes;
+    int modeCount;
 } MonitorInfo;
 
 typedef struct Monitors 
 {
-    MonitorInfo* monitorInfos;   // Array of MonitorInfo for each monitor
-    int monitorCount;           // Total number of monitors
+    MonitorInfo* monitorInfos;
+    int monitorCount;
 } Monitors;
 
 
-struct VulkanGarbage // Resources to destroy
+struct VulkanGarbage
 {
 	struct VulkanContext *ctx;
 	GLFWwindow *window;
@@ -577,10 +576,10 @@ typedef struct RendererState
     uint32_t                entityCount;
     VkFormat                depthFormat;
 
-    // Pipeline system (Stage 0+)
+    // Pipeline system
     PipelinePrototype       prototypes[PIPELINE_TYPE_COUNT];
 
-    // Descriptor infrastructure (to be populated per-stage)
+    // Descriptor infrastructure
     VkDescriptorPool        globalDescriptorPool;
     VkDescriptorSetLayout   globalSetLayout;        // Set 0
 

@@ -9,13 +9,12 @@
 #include <anoptic_memory.h>
 #include <mimalloc.h>
 
-// macOS ano_aligned_malloc. Zero size/alignment -> NULL.
+// mi_malloc_aligned returns a live block for size 0.
 void* ano_aligned_malloc(size_t size, size_t alignment) {
     if (size == 0 || alignment == 0) return NULL;
     return mi_malloc_aligned(size, alignment);
 }
 
-// macOS ano_aligned_free.
 void ano_aligned_free(void* ptr) {
     mi_free(ptr);
 }

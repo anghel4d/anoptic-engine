@@ -24,7 +24,7 @@ extern "C" {
 
 /* Module lifecycle */
 
-// Init. Returns 0 or errno. Idempotent.
+// Returns 0 or errno. Idempotent.
 int ano_text_init(void);
 
 // Teardown including fonts. Safe if never init'd.
@@ -95,8 +95,7 @@ int ano_text_font_bake(AnoFontId font, uint32_t firstCodepoint, uint32_t lastCod
 
 /* Shaping */
 
-// v0 shaping: UTF-8 -> positioned glyph instances over a bake. Any thread, concurrent.
-// Walk: decode -> slot lookup -> advance (+ pair kern) -> emit. No ligatures/marks/bidi.
+// v0: UTF-8 -> positioned instances over a bake. Any thread, concurrent. No ligatures, marks, or bidi.
 // AnoGlyphInstance: std430 SSBO element (offsets 0/16/32/40/44, stride 48).
 //   inv: 2x2 pixel->em inverse as rows on (pixel - origin). v0: (1/size, 0, 0, -1/size).
 //   color: premultiplied linear RGBA. origin: baseline pen, screen px, y-down.
@@ -122,7 +121,7 @@ typedef struct AnoTextRun {
     float    color[4];  // premultiplied linear RGBA
 } AnoTextRun;
 
-// Shape UTF-8 at sizePx from origin (screen px, y-down baseline). Writes <=cap, returns total need (out=NULL,cap=0 sizes). Blank advances without emit. '\n' resets penX to origin[0], penY += lineHeight*sizePx; '\r' ignored. Out-of-bake codepoints (incl. U+FFFD from bad UTF-8) advance half-em. Adjacent in-range glyphs kern; newline/gap resets chain. penOut optional final pen. Kern does not bridge calls.
+// Shape UTF-8 at sizePx from origin (screen px, y-down baseline). Writes <=cap, returns total need (out=NULL, cap=0 sizes). Blank advances without emit. '\n' resets penX to origin[0] and penY += lineHeight*sizePx. '\r' ignored. Out-of-bake codepoints (incl. U+FFFD from bad UTF-8) advance half-em. Adjacent in-range glyphs kern; newline/gap resets the chain. penOut is the optional final pen. Kern does not bridge calls.
 uint32_t ano_text_shape(const AnoFontBake *bake, anostr_t text,
                         float sizePx, const float origin[2], const float color[4],
                         AnoGlyphInstance *out, uint32_t cap, float *penOut);
@@ -137,7 +136,7 @@ uint32_t ano_text_shape_runs(const AnoFontBake *bake, anostr_t text,
                              const float origin[2],
                              AnoGlyphInstance *out, uint32_t cap, float *penOut);
 
-// Measure over runs. Width = max line pen. Height = sum of newline steps (lineHeight * that run's sizePx) + final lineHeight * last run's sizePx.
+// Measure over runs. Width = max line pen. Height = sum of newline steps (lineHeight * that run's sizePx) + final lineHeight * sizePx of the last run that styled a codepoint.
 void ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
                            const AnoTextRun *runs, uint32_t runCount,
                            float *width, float *height);

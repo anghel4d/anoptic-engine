@@ -95,7 +95,6 @@ uint32_t ano_meter_strong_slots(AnoMeter m, int out[ANO_METER_MAX_SLOTS])
     return n;
 }
 
-// Gen params -> public bridge (layers list -> bitmask).
 AnoMusicalParams ano_gen_params_bridge(const AnoGenParams *p)
 {
     AnoMusicalParams o = {
@@ -144,7 +143,7 @@ bool ano_note_event_valid(const AnoNoteEvent *ev)
     return true;
 }
 
-// Merge tie chains in place (in == out ok). Head dur accumulates via round(.,10).
+// Head dur accumulates via round(.,10).
 uint32_t ano_merge_ties(const AnoMusicEvent *in, uint32_t n,
                         AnoMusicEvent *out, uint32_t cap)
 {
@@ -164,7 +163,7 @@ uint32_t ano_merge_ties(const AnoMusicEvent *in, uint32_t n,
             if (h >= 0 && fabs(out[h].core.start + out[h].core.dur - ev.core.start) < 1e-9) {
                 out[h].core.dur = ano_music_round(out[h].core.dur + ev.core.dur, 10);
                 if (ev.core.tie == ANO_MUSIC_TIE_IN)
-                    open[l][p] = -1; // the chain closed
+                    open[l][p] = -1;
                 continue;
             }
         }

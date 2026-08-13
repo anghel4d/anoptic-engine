@@ -34,7 +34,7 @@ enum class VoiceShape {
 };
 
 // PLAYING/STOPPING into bus mix. May flip RETIRING mid-block.
-// Smoothers advance once per frame so a skipped sample can never shift them.
+// Smoothers advance every frame so a skipped sample cannot desync them.
 template<VoiceShape Shape, bool Loop, bool Positional>
 void render(AnoAudioSource *s, float *mix, uint32_t frames, float fsInv)
 {

@@ -71,7 +71,6 @@ AnoTextureResult createTextureImageFromPixels(
     uint32_t width, uint32_t height, TextureUsageFlags usage);
 void destroyTexturePackage(VulkanContext* ctx, TexturePackage* pkg);
 
-// Creates a sampler definition for use in shaders
 bool createTextureSampler(VulkanContext* ctx, RendererState* state);
 
 
@@ -83,9 +82,6 @@ bool createTextureSampler(VulkanContext* ctx, RendererState* state);
 uint32_t bindless_register_texture(VulkanContext* ctx, BindlessTextureArray* bta, VkImageView view, VkSampler sampler);
 void bindless_release_texture(BindlessTextureArray* bta, uint32_t slot);
 
-// Helper functions
-
-// Generic function for parametrized image creation
 bool createImage(VulkanContext* ctx, GpuAllocator* allocator, uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format,
 				VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage* image, GpuAllocation* imageAlloc, bool flag16);
 // createImage with a queue-family share list, >= 2 distinct families selects CONCURRENT sharing.

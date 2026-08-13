@@ -6,20 +6,13 @@
 
 /**
  * @file anoptic_collections.h
- * @brief Lock-free collections interface for the Anoptic Engine.
+ * @brief Reserved name; no semantic collections module.
+ *
+ * An empty header is neither the zero polynomial nor the tensor unit.
+ * include.md deletes this file when the factorization lands.
  */
 
-// include guard
 #ifndef ANOPTIC_COLLECTIONS_H
 #define ANOPTIC_COLLECTIONS_H
-
-/*
-*
-*
-*
-*
-*
-*
-*/
 
 #endif // ANOPTIC_COLLECTIONS_H

@@ -38,8 +38,8 @@ struct anostr_intern_t {
     uint32_t   count;       // interned strings, dense syms 0..count-1
     uint32_t   slotMask;    // slot capacity minus 1
     uint32_t  *slots;       // sym + 1, 0 marks empty
-    uint64_t  *hashes;      // per-symbol cached hash
-    anostr_t  *strs;        // canonical value per symbol
+    uint64_t  *hashes;
+    anostr_t  *strs;
     uint32_t   arrCap;      // hashes/strs capacity
     // Collation-key cache, filled lazily by anostr_sym_sort. Watermark, no per-entry flag.
     uint64_t  *collateKeys; // per-symbol prefix key, [0 .. collateKeyed)

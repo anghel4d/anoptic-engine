@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Byte-level ops: find, replace, concat, join, split. Total: bad input -> empty / ANOSTR_NPOS.
+// Byte ops. Total: bad input -> empty / ANOSTR_NPOS.
 
 #include "strings/ano_strings_internal.h"
 
@@ -19,9 +19,8 @@ size_t anostr_find(anostr_t s, anostr_t needle, size_t from)
 
     const char *hay = anostr_bytes(&s);
     const char *nd  = anostr_bytes(&needle);
-    size_t last = s.len - needle.len;       // last viable start index
+    size_t last = s.len - needle.len;
     for (size_t i = from; i <= last; i++) {
-        // memchr to next candidate first byte.
         const char *hit = static_cast<const char *>(memchr(hay + i, nd[0], last - i + 1));
         if (hit == NULL)
             return ANOSTR_NPOS;
@@ -37,21 +36,19 @@ anostr_t anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, anostr
     if (needle.len == 0 || needle.len > s.len)
         return s;
 
-    // Pass one: count non-overlapping matches.
     size_t matches = 0;
     for (size_t at = 0; (at = anostr_find(s, needle, at)) != ANOSTR_NPOS; at += needle.len)
         matches++;
     if (matches == 0)
-        return s;   // untouched, same backing
+        return s;   // same backing
 
-    // Exact size in u64.
+    // Overflow-safe size.
     uint64_t total = repl.len >= needle.len
         ? (uint64_t)s.len + (uint64_t)(repl.len - needle.len) * matches
         : (uint64_t)s.len - (uint64_t)(needle.len - repl.len) * matches;
     if (total > UINT32_MAX)
         return anostr_empty();
 
-    // Pass two: assemble into destination.
     char inlineBuf[ANOSTR_INLINE_CAP];
     char *dst = inlineBuf;
     if (total > ANOSTR_INLINE_CAP) {
@@ -84,7 +81,7 @@ anostr_t anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_
     if (count == 0 || parts == NULL)
         return anostr_empty();
 
-    // Exact size in u64. Reject on wrap.
+    // Overflow-safe size. Reject on wrap.
     if (sep.len != 0 && (uint64_t)(count - 1) > (uint64_t)UINT32_MAX / sep.len)
         return anostr_empty();
     uint64_t total = (uint64_t)sep.len * (count - 1);
@@ -94,7 +91,6 @@ anostr_t anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_
         total += parts[i].len;
     }
 
-    // Inline result: assemble on the stack.
     if (total <= ANOSTR_INLINE_CAP) {
         char buf[ANOSTR_INLINE_CAP];
         size_t off = 0;
@@ -147,7 +143,7 @@ bool anostr_split_next(anostr_split_t *it, anostr_t *piece)
     size_t idx = anostr_find(it->src, it->sep, it->pos);
     if (idx == ANOSTR_NPOS) {
         *piece = anostr_slice(it->src, it->pos, it->src.len);
-        it->done = true;        // final piece (possibly empty)
+        it->done = true;
         return true;
     }
     *piece = anostr_slice(it->src, it->pos, idx);

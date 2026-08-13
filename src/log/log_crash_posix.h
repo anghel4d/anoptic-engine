@@ -28,7 +28,6 @@
 // From handler entry, BB_DEADMAN_S to finish dying (SIGALRM default = terminate).
 #define BB_DEADMAN_S 5u
 
-// Hooked signals.
 static const struct { int sig; const char *name; } bb_hooked[] = {
     { SIGSEGV, "SIGSEGV" },
     { SIGABRT, "SIGABRT" },
@@ -61,7 +60,6 @@ typedef struct {
 static bb_mod_t bb_mods[BB_MAXMODS];
 static int      bb_nmods;
 
-// Native pieces from including platform TU.
 static void bb_modmap_build(void);
 static void bb_crash_regs(void *uctx, uintptr_t *pc, uintptr_t *fp, uintptr_t *lr);
 
@@ -171,7 +169,7 @@ static void bb_backtrace(int fd, void *uctx)
         if (ret == 0)
             return;
         bb_frame(fd, ret);
-        if (next <= fp)     // strictly ascending
+        if (next <= fp)
             return;
         fp = next;
     }

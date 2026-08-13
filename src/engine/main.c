@@ -14,15 +14,13 @@
 #include "anoptic_time.h"
 #include "anoptic_threads.h"
 #include "anoptic_filesystem.h"
-#include "anoptic_log_crash.h"   // anoptic_log.h + crash blackbox
+#include "anoptic_log_crash.h"   // logger + crash blackbox
 
 #ifndef HEADLESS_BUILD
-// Graphical: renderer + GLFW
 #include <anoptic_render.h>
-#include <anoptic_text.h> // logic-side shaping over anoRenderTextBake()
+#include <anoptic_text.h> // logic shapes; bake is render-owned
 #include <anoptic_ui.h>
-// MusicGen is build-time opt-in through ANOPTIC_ENGINE_MUSIC. When enabled,
-// the composer runs inside the audio callback and logic only uses the bridge.
+// MusicGen (ANOPTIC_ENGINE_MUSIC): composer in the audio callback; logic uses the bridge only.
 #include <anoptic_audio.h>
 #include <anoptic_music.h>
 #include <anoptic_synth.h>
@@ -39,8 +37,8 @@
 /* Variables */
 
 #ifndef HEADLESS_BUILD
-// Logic/ECS master: sole render-command producer (own thread; render world owns main).
-// main() sets g_logicShouldStop on close, joins before unInitVulkan() destroys the bridge.
+// Sole render-command producer. Render world owns main.
+// Stop and join before unInitVulkan() destroys the bridge.
 static atomic_bool g_logicShouldStop = false;
 static atomic_bool g_resourceReloadRequested = false;
 static atomic_bool g_frameCaptureRequested = false;
@@ -204,6 +202,7 @@ AnoResourceError create_startup_resources(StartupResources *startup)
     if (startup == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *startup = {};
+    // Startup scenes occupy ids 1-5.
     AnoResourceError result = ano_resource_cooker_create(
         {.firstDerivedAsset = {6}}, &startup->cooker);
     const AnoCookedRevision *revision = nullptr;
@@ -422,7 +421,7 @@ void reload_worker_stop(ReloadWorker& worker)
 
 /* Scene Composition. Logic owns the scene. */
 
-// Logic composes scene + emits creates. Render world owns GPU assets.
+// Logic emits creates. Render world owns GPU assets.
 
 // in:  bridge, c
 // out: true once enqueued; false on shutdown (command dropped)
@@ -435,9 +434,9 @@ void reload_worker_stop(ReloadWorker& worker)
 	return true;
 }
 
-// One renderable per primitive of asset_id at root. Shares motion (+ speed for spin/orbit).
+// One renderable per primitive. Shared motion; speed is +Y rate for spin/orbit.
 // Returns first render_id. Advances *nextId.
-#define SPAWN_ASSET_MAX_PRIMS 256u // max primitives per call
+#define SPAWN_ASSET_MAX_PRIMS 256u
 static uint32_t spawn_asset(
                             AnoRenderBridge* bridge, uint32_t* nextId,
                             ano::AssetRef<ano::asset_schema::Scene> asset,
@@ -462,7 +461,7 @@ static uint32_t spawn_asset(
 	return first;
 }
 
-// Static fallback-cube box at transform. Advances *nextId. Returns render_id.
+// Fallback cube at transform. Advances *nextId. Returns render_id.
 static uint32_t spawn_box(AnoRenderBridge* bridge, uint32_t* nextId, const mat4 transform) {
 	uint32_t id = (*nextId)++;
 	RenderCommand c = { .kind = RCMD_CREATE, .render_id = id,
@@ -474,8 +473,8 @@ static uint32_t spawn_box(AnoRenderBridge* bridge, uint32_t* nextId, const mat4 
 	return id;
 }
 
-// Mesh-less light-entity: pos = col3, forward = -col2 (dir/spot; localDir default -Z). light_index = static palette row.
-// Casting takes static-region shadow frustums (dir/spot 1, point 6). Advances *nextId. Returns render_id.
+// Pose: pos = col3, forward = -col2 (localDir default -Z). light_index is the static palette row.
+// Casters take static-region shadow frustums (dir/spot 1, point 6).
 static uint32_t spawn_light_entity(AnoRenderBridge* bridge, uint32_t* nextId, const mat4 transform,
                                    uint32_t light_index, const RenderLightParams* params,
                                    AnoMotionType motion, float speed) {
@@ -531,25 +530,25 @@ static void attach_candle_lighting(AnoRenderBridge *bridge, uint32_t candleSlot)
 	}
 }
 
-// Compose scene once. render_id + static light_index are the logic master's namespaces.
+// Compose once. render_id and static light_index are this producer's namespaces.
 static void spawn_scene(AnoRenderBridge* bridge) {
 	uint32_t nextId = 0u;
 
-	// Viking room: Z-up glTF -> Y-up (-90 X). Spins +Y at 1 rad/s.
+	// Viking room: Z-up glTF -> Y-up (-90 X).
 	mat4 vikingRoot = {{1,0,0,0},{0,0,-1,0},{0,1,0,0},{0,0,0,1}};
 	spawn_asset(bridge, &nextId, VIKING_ROOM, vikingRoot, ANO_MOTION_SPIN, 1.0f);
 
-	// Candle holders orbit +Y at 0.5 rad/s (r=2.0 / 2.2). First anchors decorative lights.
+	// First holder anchors the decorative lights.
 	mat4 candle1 = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.0f,0,0,1}};
 	mat4 candle2 = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{2.2f,0,0,1}};
 	uint32_t candleSlot = spawn_asset(bridge, &nextId, CANDLE_HOLDER, candle1, ANO_MOTION_ORBIT, 0.5f);
 	spawn_asset(bridge, &nextId, CANDLE_HOLDER, candle2, ANO_MOTION_ORBIT, 0.5f);
 
-	// Sponza environment, Y-up and static at identity.
+	// Sponza is already Y-up.
 	mat4 sponzaRoot = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
 	spawn_asset(bridge, &nextId, SPONZA, sponzaRoot, ANO_MOTION_STATIC, 0.0f);
 
-	// Sun-marker cube (static), decorative pose near overhead light aim.
+	// Sun marker, near the overhead light aim.
 	mat4 sunMarker = {{0.2f,0,0,0},{0,0.2f,0,0},{0,0,0.2f,0},{2.59f,5.18f,1.55f,1}};
 	spawn_box(bridge, &nextId, sunMarker);
 
@@ -559,7 +558,7 @@ static void spawn_scene(AnoRenderBridge* bridge) {
 
 /* HUD Text */
 
-// Logic-side text (v0): shape on this thread, ship named blocks. text_id = producer namespace.
+// Shape on this thread; ship named blocks. text_id is this producer's namespace.
 #define HUD_TEXT_TITLE   1u
 #define HUD_TEXT_NOTICE  2u
 #define HUD_TEXT_CAM     3u
@@ -567,7 +566,6 @@ static void spawn_scene(AnoRenderBridge* bridge) {
 #define HUD_TEXT_HOMER   5u
 #define HUD_TEXT_CAP     128u
 
-// Shape + submit one block. Clamp to HUD_TEXT_CAP.
 static AnoRenderSubmitResult hud_text_submit(AnoRenderBridge* bridge, uint32_t text_id,
                                              AnoGlyphInstance* inst, uint32_t shaped) {
 	if (shaped > HUD_TEXT_CAP) shaped = HUD_TEXT_CAP;
@@ -576,8 +574,7 @@ static AnoRenderSubmitResult hud_text_submit(AnoRenderBridge* bridge, uint32_t t
 
 /* HUD UI */
 
-// Logic-side UI (v0): layout/style/hit-test. Renderer gets prim blocks only.
-// Blocks: status bar + M-toggled menu (resubmit on change).
+// Layout, style, and hit-test here. Renderer gets prim blocks only.
 #define HUD_UI_BAR   1u
 #define HUD_UI_MENU  2u
 #define HUD_UI_GCAP  192u
@@ -630,7 +627,7 @@ static constexpr BarStyle BAR_STYLE = {
 	.label = ano::ui_srgb(0.88f, 0.90f, 0.94f, 1.00f),
 };
 
-// Menu geometry in overlay logical units (render + hit-test).
+// Overlay logical units; shared by render and hit-test.
 typedef struct MenuLayout {
 	float panel[4];      // minX minY maxX maxY
 	float button[3][4];
@@ -648,7 +645,6 @@ static void menu_layout(float vpW, float vpH, MenuLayout* out)
 	}
 }
 
-// Cursor (overlay logical units) -> hovered button, -1 when none.
 static int menu_hit(const MenuLayout* m, float cx, float cy)
 {
 	for (int i = 0; i < 3; i++)
@@ -658,7 +654,7 @@ static int menu_hit(const MenuLayout* m, float cx, float cy)
 	return -1;
 }
 
-// Centered label -> glyph array + UI_GLYPHS prim. Baseline ~0.7 em optical center.
+// Baseline at ~0.7 em, optical center in the rect.
 static void ui_label(AnoUiBuilder* b, const AnoFontBake* bake, anostr_t text, float sizePx,
                      const float rect[4], const float color[4],
                      AnoGlyphInstance* glyphs, uint32_t* gcount)
@@ -679,7 +675,6 @@ static void ui_label(AnoUiBuilder* b, const AnoFontBake* bake, anostr_t text, fl
 	ano_ui_glyphs(b, lo, hi, first, n, white, ANO_UI_REF_NONE, 0);
 }
 
-// Builds + submits the menu block (or clears it). Returns endpoint result.
 static AnoRenderSubmitResult submit_menu(AnoRenderBridge* bridge, const AnoFontBake* bake, const MenuLayout* m,
                                          bool visible, int hovered, uint32_t optionsCount)
 {
@@ -728,7 +723,7 @@ static AnoRenderSubmitResult submit_menu(AnoRenderBridge* bridge, const AnoFontB
 			ui_label(&b, bake, anostr_view(text, (size_t)len), 20.0f, m->button[i],
 			         common.label.rgba, glyphs, &gcount);
 	}
-	// RESUME play-triangle via curve transport.
+	// RESUME play-triangle (curve transport).
 	float rb0 = m->button[0][0], rcy = 0.5f * (m->button[0][1] + m->button[0][3]);
 	AnoUiPathSeg play[3] = {
 		{ ANO_UI_SEG_MOVE, { rb0 + 22.0f, rcy - 9.0f, 0.0f, 0.0f } },
@@ -742,8 +737,8 @@ static AnoRenderSubmitResult submit_menu(AnoRenderBridge* bridge, const AnoFontB
 /* Music World */
 
 #if defined(ANOPTIC_ENGINE_MUSIC)
-// Main-thread bring-up before logic producer; teardown after join. No submit may race destruction.
-// Composer on audio thread (mixer callback), two bars ahead. Logic talks only through the audio bridge.
+// Bring-up on main before the producer; tear down after join. No submit may race destruction.
+// Composer runs in the mixer callback, two bars ahead. Logic uses the audio bridge only.
 
 #define MUSIC_RATE 48000u
 #define MUSIC_SEED 2718u
@@ -769,7 +764,7 @@ static void music_config(AnoMusicConfig *c)
 	c->clock.codetta = c->clock.extension = c->clock.elision = true;
 	c->melody.planApex = c->melody.counterpoint = true;
 	c->useChains = c->performChains = true;
-	// Panel start affect: calm, slightly bright
+	// Panel start affect: calm, slightly bright.
 	c->valence = 0.30f;
 	c->energy = 0.35f;
 	c->tension = 0.20f;
@@ -777,8 +772,7 @@ static void music_config(AnoMusicConfig *c)
 
 static void music_world_stop(bool drain);
 
-// false -> silent run (non-fatal).
-// Fail path: fail: -> music_world_stop(false). Leaves g_synth/g_music NULL, audio world down.
+// false: silent run. Fail path calls music_world_stop(false); g_synth/g_music stay NULL.
 static bool music_world_start(void)
 {
 	bool started = [&]() -> bool {
@@ -814,7 +808,7 @@ static bool music_world_start(void)
 	AnoAudioBridge *ab = anoAudioBridge();
 	AnoAudioOfflineEvent setup[64];
 	uint32_t n = ano_synth_console_setup(setup, 64);
-	// Console setup: 1000 tries at 1 ms. Ring stuck -> fail.
+	// 1000 tries at 1 ms; stuck ring fails setup.
 	for (uint32_t i = 0; i < n; i++) {
 		uint32_t spin = 0;
 		while (!ano_audio_submit(ab, &setup[i].cmd)) {
@@ -826,7 +820,7 @@ static bool music_world_start(void)
 		}
 	}
 
-	// Transport start a few blocks ahead of playhead. No publish in ~1 s -> no seed.
+	// Start transport a few blocks ahead of the playhead. No publish in ~1 s: no seed.
 	AnoAudioTelemetry t;
 	bool haveTelem = false;
 	for (uint32_t spin = 0; spin < 200u; spin++) {
@@ -835,7 +829,7 @@ static bool music_world_start(void)
 	}
 	if (!haveTelem) {
 		ano_log(ANO_WARN, "Music: no mixer telemetry after 1 s; transport not started.");
-		return false; // silent run, as documented
+		return false;
 	}
 	ano_synth_transport_start(g_synth, (t.blockIndex + 8u) * (uint64_t)t.blockFrames);
 	ano_log(ANO_INFO, "Music: composing live at %u Hz (seed %u).", MUSIC_RATE,
@@ -843,17 +837,17 @@ static bool music_world_start(void)
 	return true;
 	}();
 	if (!started)
-		music_world_stop(false); // partial-state unwind; transport never started above
+		music_world_stop(false); // unwind; transport never started
 	return started;
 }
 
-// drain: true -> stop transport + wait for mixer/tails. music_world_start unwind passes false.
-// Total from any partial state. Idempotent.
+// drain: stop transport and wait for mixer tails. Start-unwind passes false.
+// Idempotent from any partial state.
 static void music_world_stop(bool drain)
 {
 	if (drain && g_synth != NULL) {
 		ano_synth_transport_stop(g_synth);
-		ano_sleep(50000); // drain mixer stop + tails
+		ano_sleep(50000); // mixer stop + tails
 	}
 	ano_audio_shutdown();
 	ano_synth_destroy(g_synth);
@@ -865,7 +859,7 @@ static void music_world_stop(bool drain)
 
 /* Music Panel */
 
-// Composer's three axes verbatim (no middle layer): XY = valence (brightness/modes) x energy (tempo/layers); slider = tension (cadence/dissonance).
+// Pad XY is valence (brightness) x energy; slider is tension. No middle layer.
 
 #define HUD_UI_MUSIC 3u
 
@@ -918,11 +912,11 @@ static bool in_rect(const float r[4], float x, float y)
 	return x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3];
 }
 
-// Cursor -> control. Slider grab taller than track.
 static int music_hit(const MusicLayout* m, float x, float y)
 {
 	if (in_rect(m->pad, x, y))
 		return MUS_DRAG_XY;
+	// Hit-rect is taller than the track.
 	float grab[4] = { m->slider[0] - 10.0f, m->slider[1] - 12.0f,
 	                  m->slider[2] + 10.0f, m->slider[3] + 12.0f };
 	if (in_rect(grab, x, y))
@@ -932,13 +926,13 @@ static int music_hit(const MusicLayout* m, float x, float y)
 
 static float clamp01f(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
-// Filled from AEVT_MUSIC_BAR on the bar's downbeat (not when composed).
+// Filled from AEVT_MUSIC_BAR on the audible downbeat, not when composed.
 typedef struct MusicState {
-	float valence, energy, tension; // the three axes, as the panel holds them
+	float valence, energy, tension;
 	int   bar, keyTonic, mode, chordDegree;
 	bool  isCadence;
-	uint32_t genUs;   // compose cost on the audio thread (us)
-	uint64_t flashUntil; // cadence rim until
+	uint32_t genUs;   // audio-thread compose cost (us)
+	uint64_t flashUntil; // cadence-rim deadline (us)
 } MusicState;
 
 static const char *const PC_NAMES[12] = { "C", "C#", "D", "D#", "E", "F",
@@ -946,7 +940,7 @@ static const char *const PC_NAMES[12] = { "C", "C#", "D", "D#", "E", "F",
 static_assert(sizeof PC_NAMES / sizeof *PC_NAMES == 12, "PC_NAMES is a pitch-class table");
 static const char *const ROMAN[8] = { "-", "I", "II", "III", "IV", "V", "VI", "VII" };
 
-// Cursor -> axes (valence x, energy y, tension slider). Drag clamps outside the control.
+// Drag maps the cursor; values clamp outside the control.
 static void music_drag_apply(const MusicLayout* m, int drag, float x, float y,
                              MusicState* st)
 {
@@ -954,13 +948,12 @@ static void music_drag_apply(const MusicLayout* m, int drag, float x, float y,
 		float u = (x - m->pad[0]) / (m->pad[2] - m->pad[0]);
 		float v = (m->pad[3] - y) / (m->pad[3] - m->pad[1]);
 		st->valence = clamp01f(u) * 2.0f - 1.0f; // -1 .. +1
-		st->energy = clamp01f(v);                //  0 .. 1
+		st->energy = clamp01f(v);
 	} else if (drag == MUS_DRAG_TENSION) {
 		st->tension = clamp01f((x - m->slider[0]) / (m->slider[2] - m->slider[0]));
 	}
 }
 
-// Builds + submits the music panel (or clears it). Returns endpoint result.
 static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFontBake* bake,
                                           const MusicLayout* m, bool visible, const MusicState* st,
                                           int hovered, uint64_t now)
@@ -985,7 +978,7 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 	              (float[2]){ m->panel[2] + 6, m->panel[3] + 10 }, 12.0f, 9.0f, common.shadow.rgba,
 	              ANO_UI_REF_NONE, 0);
 
-	// Cadence flash: ADD rim, 0.5s decay.
+	// 0.5 s ADD cadence flash.
 	if (now < st->flashUntil) {
 		float k = (float)(st->flashUntil - now) / 500000.0f;
 		float pulse[4];
@@ -1001,7 +994,7 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 	float titleRect[4] = { m->panel[0], m->panel[1] + 12, m->panel[2], m->panel[1] + 52 };
 	ui_label(&b, bake, anostr_lit("MUSIC"), 24.0f, titleRect, style.title.rgba, glyphs, &gcount);
 
-	// Valence x energy square. Gradient: cold-dark -> warm-bright.
+	// Axis pad: cold-dark -> warm-bright.
 	uint32_t axisGrad = ano::ui_paint_linear(&b, (float[2]){ m->pad[0], m->pad[1] },
 	                                       (float[2]){ m->pad[2], m->pad[1] }, style.axis);
 	ano_ui_rrect(&b, &m->pad[0], &m->pad[2], r6, common.white.rgba, 0.0f, axisGrad,
@@ -1010,7 +1003,6 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 	             hovered == MUS_DRAG_XY ? common.rim.rgba : style.dim.rgba,
 	             hovered == MUS_DRAG_XY ? 2.0f : 1.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0);
 
-	// Knob at (valence, energy)
 	float kx = m->pad[0] + (st->valence * 0.5f + 0.5f) * (m->pad[2] - m->pad[0]);
 	float ky = m->pad[3] - st->energy * (m->pad[3] - m->pad[1]);
 	ano_ui_rrect(&b, (float[2]){ m->pad[0] + 1, ky - 0.5f },
@@ -1019,7 +1011,6 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 	ano_ui_rrect(&b, (float[2]){ kx - 0.5f, m->pad[1] + 1 },
 	             (float[2]){ kx + 0.5f, m->pad[3] - 1 }, (float[4]){ 0, 0, 0, 0 }, style.hair.rgba,
 	             0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0);
-	// Glow radius scales with energy
 	float gr = 10.0f + 16.0f * st->energy;
 	float lit[4];
 	ano_ui_color_srgb((float[4]){ 0.30f * (0.3f + st->energy), 0.70f * (0.3f + st->energy),
@@ -1034,7 +1025,6 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 	ui_label(&b, bake, anostr_lit("dark  <  brightness  >  bright"), 15.0f, axisRow, style.dim.rgba,
 	         glyphs, &gcount);
 
-	// Tension slider
 	ano_ui_rrect(&b, &m->slider[0], &m->slider[2], r6, style.track.rgba, 0.0f, ANO_UI_REF_NONE,
 	             ANO_UI_REF_NONE, 0);
 	float fillX = m->slider[0] + st->tension * (m->slider[2] - m->slider[0]);
@@ -1059,7 +1049,7 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 		ui_label(&b, bake, anostr_view(tenText, (size_t)tl), 15.0f, tenRow, style.dim.rgba, glyphs,
 		         &gcount);
 
-	// AEVT_MUSIC_BAR readout.
+	// Last AEVT_MUSIC_BAR.
 	char line1[64], line2[64];
 	int n1, n2;
 	if (st->bar >= 0) {
@@ -1085,7 +1075,7 @@ static AnoRenderSubmitResult submit_music(AnoRenderBridge* bridge, const AnoFont
 	return ano_render_ui_set(bridge, HUD_UI_MUSIC, 96, &b, glyphs, gcount);
 }
 
-// Status bar, bottom-left. Resubmit on logical viewport change.
+// Bottom-left; resubmit when vpH changes.
 static AnoRenderSubmitResult submit_bar(AnoRenderBridge* bridge, const AnoFontBake* bake, float vpH)
 {
 	AnoUiPrim prims[8];
@@ -1118,7 +1108,7 @@ static void submit_policy(AnoRenderSubmitResult r, uint64_t now, bool* dirty, ui
 {
 	switch (r.code) {
 	case ANO_RENDER_SUBMIT_ACCEPTED:     if (dirty) *dirty = false; if (retryAt) *retryAt = 0; break;
-	case ANO_RENDER_SUBMIT_BACKPRESSURE: if (retryAt) *retryAt = 0; break; // next tick
+	case ANO_RENDER_SUBMIT_BACKPRESSURE: if (retryAt) *retryAt = 0; break; // retry next tick
 	case ANO_RENDER_SUBMIT_OOM:          if (retryAt) *retryAt = now + HUD_OOM_RETRY_US; break;
 	case ANO_RENDER_SUBMIT_INVALID:
 		if (dirty) *dirty = false; if (retryAt) *retryAt = 0;
@@ -1147,7 +1137,7 @@ static AnoRenderSubmitResult hud_text_spin(AnoRenderBridge* bridge, uint32_t tex
 			return r;
 		case ANO_RENDER_SUBMIT_BACKPRESSURE:
 			if (atomic_load(&g_logicShouldStop))
-				return r; // shutdown
+				return r;
 			ano_sleep(1000);
 			break;
 		}
@@ -1161,10 +1151,9 @@ void* anoLogicThreadMain(void* arg)
 	(void)arg;
 	AnoRenderBridge* bridge = anoRenderBridge();
 
-	// Compose scene through the bridge.
 	spawn_scene(bridge);
 
-	// One-time HUD text blocks (below OSD), ring-retried.
+	// One-shot HUD text (below OSD); spin on backpressure.
 	const AnoFontBake* bake = anoRenderTextBake();
 	AnoGlyphInstance hud[HUD_TEXT_CAP];
 	if (bake != NULL) {
@@ -1172,7 +1161,7 @@ void* anoLogicThreadMain(void* arg)
 		#define TITLE_HEAD "logic HUD"
 		#define TITLE_TAIL " :: text bridge v0"
 		const AnoTextRun titleRuns[2] = {
-			{ sizeof TITLE_HEAD - 1, 24.0f, { 1.0f, 0.78f, 0.32f, 1.0f } }, // amber
+			{ sizeof TITLE_HEAD - 1, 24.0f, { 1.0f, 0.78f, 0.32f, 1.0f } },
 			{ sizeof TITLE_TAIL - 1, 24.0f, { 0.9f, 0.9f, 0.9f, 1.0f } },
 		};
 		const float titleOrg[2] = { 24.0f, 150.0f };
@@ -1208,12 +1197,12 @@ void* anoLogicThreadMain(void* arg)
 		if (hud_text_spin(bridge, HUD_TEXT_HOMER, hud, n, "homer").code == ANO_RENDER_SUBMIT_BACKPRESSURE)
 			goto hudDone;
 	}
-// Startup HUD done (or abandoned on shutdown).
+// HUD setup done, or abandoned on shutdown.
 hudDone:
 	uint64_t noticeDeadline = 0; // armed 15s after first frame
 	bool     noticeCleared = false;
 
-	// Free-fly camera (logic): WASD + right-drag look. Fallback eye + pitch so first publish has no jump.
+	// Free-fly: WASD, Space/Ctrl, right-drag look. Seeded eye + pitch so the first publish does not jump.
 	float    camEye[3] = { -4.0f, 1.13f, -0.31f };
 	float    camYaw = 1.5707963f, camPitch = -0.165f;
 	bool     inW = false, inA = false, inS = false, inD = false, inUp = false, inDown = false;
@@ -1223,20 +1212,19 @@ hudDone:
 	uint64_t camSeq = 0;
 	uint64_t lastSnapLog = ano_timestamp_us();
 
-	// UI demo: resubmit on change. ANO_MENU opens menu at boot.
+	// ANO_MENU opens the menu at boot.
 	bool     menuVisible = getenv("ANO_MENU") != NULL;
 	bool     menuDirty = menuVisible, barSubmitted = false;
-	uint64_t menuRetryAt = 0, barRetryAt = 0; // OOM cooldown stamps
+	uint64_t menuRetryAt = 0, barRetryAt = 0;
 	int      menuHovered = -1;
 	uint32_t optionsCount = 0;
-	float    vpW = 0.0f, vpH = 0.0f; // last-known logical viewport (RenderSnapshot)
-	float    barVpH = 0.0f;          // bar layout height
+	float    vpW = 0.0f, vpH = 0.0f; // last logical viewport from RenderSnapshot
+	float    barVpH = 0.0f;
 
-	// Music panel: layout + input. Steers via commands; listens on the audio bridge.
-	AnoAudioBridge* ab = anoAudioBridge(); // NULL when MusicGen is disabled or startup failed
+	AnoAudioBridge* ab = anoAudioBridge(); // NULL if MusicGen is off or start failed
 	MusicState mus = { .valence = 0.30f, .energy = 0.35f, .tension = 0.20f, .bar = -1 };
 	bool musicVisible = false, musicDirty = false, affectDirty = false, flashOn = false;
-	uint64_t musicRetryAt = 0; // OOM cooldown stamp
+	uint64_t musicRetryAt = 0;
 	int  musicDrag = MUS_DRAG_NONE, musicHovered = MUS_DRAG_NONE;
 	uint64_t lastTelem = 0;
 
@@ -1294,7 +1282,6 @@ hudDone:
 					if (ie->u.button.button == GLFW_MOUSE_BUTTON_LEFT
 					    && ie->u.button.action == GLFW_PRESS
 					    && musicVisible && vpW > 0.0f) {
-						// Hit-test against music layout.
 						MusicLayout ml;
 						music_layout(vpW, vpH, &ml);
 						musicDrag = music_hit(&ml, prevCx, prevCy);
@@ -1306,7 +1293,6 @@ hudDone:
 					if (ie->u.button.button == GLFW_MOUSE_BUTTON_LEFT
 					         && ie->u.button.action == GLFW_PRESS
 					         && menuVisible && vpW > 0.0f) {
-						// Hit-test against rendered layout.
 						MenuLayout ml;
 						menu_layout(vpW, vpH, &ml);
 						switch (menu_hit(&ml, prevCx, prevCy)) {
@@ -1331,7 +1317,7 @@ hudDone:
 					if (looking && haveCursor) {
 						camYaw   += (cx - prevCx) * 0.003f;
 						camPitch -= (cy - prevCy) * 0.003f;
-						if (camPitch >  1.5f) camPitch =  1.5f;   // pitch clamp
+						if (camPitch >  1.5f) camPitch =  1.5f;
 						if (camPitch < -1.5f) camPitch = -1.5f;
 					}
 					prevCx = cx; prevCy = cy; haveCursor = true;
@@ -1350,7 +1336,6 @@ hudDone:
 			}
 		}
 
-		// Integrate + publish the camera once per tick.
 		{
 			float dt = (now - lastCam) / 1000000.0f; lastCam = now;
 			if (dt > 0.1f) dt = 0.1f; // clamp hitch
@@ -1375,11 +1360,11 @@ hudDone:
 			ano_render_publish_view(bridge, &view);
 		}
 
-		// Clear transient notice once. ACCEPTED retires it; else retry next tick.
+		// ACCEPTED retires the notice; otherwise retry next tick.
 		if (bake != NULL && !noticeCleared && noticeDeadline != 0 && now > noticeDeadline)
 			noticeCleared = ano_render_text_clear(bridge, HUD_TEXT_NOTICE).code == ANO_RENDER_SUBMIT_ACCEPTED;
 
-		// Menu hover -> dirty resubmit. Ring full keeps dirty.
+		// Hover change dirties; a full ring keeps dirty.
 		if (menuVisible && vpW > 0.0f) {
 			MenuLayout ml;
 			menu_layout(vpW, vpH, &ml);
@@ -1397,9 +1382,8 @@ hudDone:
 			              now, &menuDirty, &menuRetryAt, "menu");
 		}
 
-		// Audiovisual loop
 		if (ab != NULL) {
-			// Down: coalesced one ACMD_MUSIC_AFFECT per tick; urgent = next BARLINE.
+			// One ACMD_MUSIC_AFFECT per tick; urgent = next barline.
 			if (affectDirty) {
 				AnoAudioCommand c = { .kind = ACMD_MUSIC_AFFECT,
 				                      .affect = { mus.valence, mus.energy, mus.tension },
@@ -1408,7 +1392,7 @@ hudDone:
 					affectDirty = false; // else: ring full, try again next tick
 			}
 
-			// Up: AEVT_MUSIC_BAR on downbeat (composed two bars ahead; held until audible).
+			// AEVT_MUSIC_BAR on the audible downbeat (composed two bars ahead).
 			AnoAudioEvent aev;
 			while (ano_audio_poll_event(ab, &aev)) {
 				if (aev.kind != AEVT_MUSIC_BAR)
@@ -1419,12 +1403,12 @@ hudDone:
 				mus.chordDegree = aev.u.music.chordDegree;
 				mus.isCadence = aev.u.music.isCadence;
 				if (aev.u.music.isCadence) {
-					mus.flashUntil = now + 500000ull; // cadence flash 0.5s
+					mus.flashUntil = now + 500000ull; // 0.5 s
 					flashOn = true;
 				}
 				musicDirty = musicVisible;
 			}
-			if (flashOn && now >= mus.flashUntil) { // flash done: one last frame
+			if (flashOn && now >= mus.flashUntil) { // one last flash frame
 				flashOn = false;
 				musicDirty = musicVisible;
 			}
@@ -1438,7 +1422,6 @@ hudDone:
 			}
 		}
 
-		// Music hover -> dirty resubmit.
 		if (musicVisible && vpW > 0.0f) {
 			MusicLayout ml;
 			music_layout(vpW, vpH, &ml);
@@ -1456,21 +1439,19 @@ hudDone:
 			              now, &musicDirty, &musicRetryAt, "music panel");
 		}
 
-		// Snapshot: log frameId ~1/s, refresh cam readout.
+		// ~1 Hz snapshot log and camera readout.
 		{
 			RenderSnapshot snap;
 			if (noticeDeadline == 0 && ano_render_acquire_snapshot(bridge, &snap))
 				noticeDeadline = now + 15000000ull; // first published frame: arm the notice
 			if (ano_render_acquire_snapshot(bridge, &snap)) {
-				// Viewport change -> recenter menu.
 				if (menuVisible && (vpW != snap.uiWidth || vpH != snap.uiHeight))
-					menuDirty = true;
+					menuDirty = true; // layout is centered
 				if (musicVisible && (vpW != snap.uiWidth || vpH != snap.uiHeight))
-					musicDirty = true; // right-anchored: resize moves panel
+					musicDirty = true; // right-anchored: resize moves the panel
 				vpW = snap.uiWidth;
 				vpH = snap.uiHeight;
 			}
-			// Status bar: resubmit on vpH change.
 			if ((!barSubmitted || barVpH != vpH) && vpH > 0.0f && now >= barRetryAt) {
 				bool barDirty = true;
 				submit_policy(submit_bar(bridge, bake, vpH), now, &barDirty, &barRetryAt, "status bar");
@@ -1508,8 +1489,7 @@ hudDone:
 
 int main()
 {
-    // Source-provider bindings and shader paths are game-relative.
-    // The executable directory is the game's filesystem root.
+    // Bindings and shaders are game-relative; the executable directory is the filesystem root.
     if (!ano_fs_chdir_gamepath())
         ano_rlog(ANO_WARN, ANO_TERM | ANO_NOW, "Warning: could not set the working directory to the executable's; "
                "assets will load relative to the current working directory.");
@@ -1523,7 +1503,7 @@ int main()
 
     #endif
 
-    // Process-wide logger. Cleans on scope exit.
+    // Process-wide logger; ANO_LOG_SCOPE_ATTR cleans on scope exit.
     int logAlive ANO_LOG_SCOPE_ATTR = ano_log_init();
     if (logAlive != 0) {
         ano_log(ANO_FATAL, "Logger initialization failed; something is very wrong.");
@@ -1534,7 +1514,6 @@ int main()
     if (ano_log_crash_init() != 0)
         ano_log(ANO_WARN, "Blackbox failed to arm; a crash will leave no CRASH log.");
 
-    // Warn if main stack < ANO_THREAD_STACK_SIZE.
     size_t mainStack = ano_thread_main_stack();
     if (mainStack != 0 && mainStack < ANO_THREAD_STACK_SIZE)
         ano_log(ANO_WARN, "Main-thread stack budget is %zu KiB, under the engine's %zu KiB: "
@@ -1561,12 +1540,12 @@ int main()
     }
 
 #if defined(ANOPTIC_ENGINE_MUSIC)
-    // Audio world before the producer. false -> silent run.
+    // Audio world before the producer. false: silent run.
     if (!music_world_start())
         ano_log(ANO_WARN, "Music: the audio world did not come up; running silent.");
 #endif
 
-    // Logic/ECS master: sole render-command producer.
+    // Sole render-command producer.
     anothread_t logicThread;
     if (ano_thread_create(&logicThread, NULL, anoLogicThreadMain, NULL) != 0)
     {
@@ -1580,7 +1559,7 @@ int main()
         return -1;
     }
 
-    // Render loop (main): poll + draw. Logic feeds ECS->render concurrently.
+    // Poll + draw on main. Logic publishes concurrently.
     bool replacementSourceActive = false;
     ReloadWorker reloadWorker = {
         .manager = resources,
@@ -1653,11 +1632,11 @@ int main()
     if (publication) reload_worker_reclaim(reloadWorker);
     reload_worker_stop(reloadWorker);
 
-    // Stop producer FIRST and join. No submit races bridge destruction in unInitVulkan().
+    // Stop the producer first and join. No submit may race bridge destruction in unInitVulkan().
     atomic_store(&g_logicShouldStop, true);
     ano_thread_join(logicThread, NULL);
 
-    // Producer quiesced; only then destroy the optional audio bridge.
+    // Audio teardown after the producer joins.
 #if defined(ANOPTIC_ENGINE_MUSIC)
     music_world_stop(true);
 #endif

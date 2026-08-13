@@ -23,7 +23,6 @@ static_assert(sizeof ((AnoMusicConfig *)0)->cadencePolicies == CADENCE_CYCLE_MAX
               && sizeof ((AnoEngineConfig *)0)->cadencePolicies == CADENCE_CYCLE_MAX,
               "cadence cycle capacity must match both configs");
 
-// Motif clamp bound == rhythm/contour extent == ANO_MOTIF_MAX.
 static_assert(sizeof ((AnoMotif *)0)->rhythm / sizeof(AnoRhythmNote) == ANO_MOTIF_MAX
               && sizeof ((AnoMotif *)0)->contour / sizeof(int) == ANO_MOTIF_MAX,
               "motif clamp bound must equal the motif buffers' extent");
@@ -78,7 +77,6 @@ AnoMusicConfig ano_music_config_default(void)
     return c;
 }
 
-// Public config -> conductor config. Generator tuning stays default.
 // Clamps: mode/cadence -> sentinel, counts -> array, keyTonic -> pitch class, motif.n -> buffers.
 static void expand(const AnoMusicConfig *c, AnoEngineConfig *e)
 {
@@ -132,7 +130,7 @@ static void expand(const AnoMusicConfig *c, AnoEngineConfig *e)
 
     for (uint32_t i = 0; i < c->motifLibraryCount && i < ANO_SIG_MAX; ++i) {
         e->motifLibrary[i] = c->motifLibrary[i];
-        if (e->motifLibrary[i].motif.n > ANO_MOTIF_MAX) // authored count can't exceed the buffers
+        if (e->motifLibrary[i].motif.n > ANO_MOTIF_MAX)
             e->motifLibrary[i].motif.n = ANO_MOTIF_MAX;
     }
     e->motifLibraryCount = c->motifLibraryCount < ANO_SIG_MAX ? c->motifLibraryCount
@@ -190,7 +188,6 @@ void ano_music_request_motif(AnoMusicEngine *e, const char *tag)
     ano_engine_request_motif(e, tag);
 }
 
-// Pinnable Tier-2 names. Unknown name refused.
 typedef enum OverrideId
 {
     OV_TEMPO_BPM, OV_VELOCITY_CENTER, OV_ARTICULATION, OV_NOTE_DENSITY, OV_ROUGHNESS,
@@ -282,7 +279,6 @@ void ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out)
     for (uint32_t i = 0; i < out->tempoCount; ++i)
         out->tempo[i] = (AnoTempoPoint){ r.tempoPoints[i].beat, r.tempoPoints[i].bpm };
 
-    // what the bar MEANS: the payload gameplay reacts to
     AnoMusicMeaning *m = &out->meaning;
     m->bar = r.bar;
     m->keyTonic = e->scale.tonic;
@@ -293,7 +289,7 @@ void ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out)
                            ? ANO_CADENCE_NONE
                            : r.context.cadencePolicy;
     m->isCadence = r.context.cadenceSlot == ANO_CTX_SLOT_CADENCE;
-    m->keyArrived = e->scale.tonic != keyBefore; // the modulation landed here
+    m->keyArrived = e->scale.tonic != keyBefore;
     m->motifStated = false;
     for (uint32_t i = 0; i < r.eventCount && !m->motifStated; ++i)
         m->motifStated = strcmp(r.events[i].role, "motif") == 0;
@@ -320,7 +316,7 @@ bool ano_music_snapshot(const AnoMusicEngine *e, void *buf, size_t cap)
 {
     if (!e || !buf || cap < sizeof *e)
         return false;
-    memcpy(buf, e, sizeof *e); // pointer-free by construction
+    memcpy(buf, e, sizeof *e);
     return true;
 }
 

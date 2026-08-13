@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // One-shot ASR. Attack 0->1 as t^curve. Release 1->0 as (1-t)^curve.
-// Segment lengths fixed at init. Never retargeted. Total frames = A+S+R known at allocation.
+// Segment lengths fixed at init. Never retargeted. Total frames = A+S+R.
 
 #ifndef ANO_DSP_ENV_H
 #define ANO_DSP_ENV_H

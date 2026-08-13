@@ -102,9 +102,8 @@ template<Data T>
     return true;
 }
 
-// Standard allocator surface backed directly by mimalloc. Containers using
-// it remain independent of the C++ runtime; allocation failure is terminal in
-// this no-exception engine process.
+// mimalloc-backed allocator. Independent of the C++ runtime.
+// Allocation failure is terminal.
 template<class T>
 struct MimallocAllocator {
     using value_type = T;
@@ -179,9 +178,8 @@ consteval bool reflect_memory_plan()
     return true;
 }
 
-// Runtime counts enter through the reflected plan record. Reflection supplies
-// field order, element size, and alignment; this constexpr pass supplies the
-// checked prefix sum and writes each reservation back into the record.
+// Writes each segment reservation from its runtime count. Reflection supplies
+// field order, size, and alignment.
 template<class Plan>
     requires (reflect_memory_plan<Plan>())
 [[nodiscard]] constexpr MemoryLayoutCursor memory_layout(Plan& plan) noexcept

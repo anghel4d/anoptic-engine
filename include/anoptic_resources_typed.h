@@ -80,7 +80,7 @@ struct RelativeSpan final {
     uint64_t count;
 };
 
-// extent contains the live, aligned native objects addressed by value's RelativeSpan fields.
+// extent holds the live, aligned native objects addressed by value's RelativeSpan fields.
 template<class ArtifactType>
 struct ArtifactSource final {
     const ArtifactType *value;
@@ -598,9 +598,8 @@ consteval uint64_t wire_size(std::meta::info type)
     reject("unsupported canonical wire type", type);
 }
 
-// Runtime encoding may copy a reflected wire leaf wholesale when its native
-// layout is already the canonical little-endian layout. Reflection proves the
-// absence of padding recursively; bools and enums retain value validation.
+// Span payloads memcpy when native layout already matches the canonical wire.
+// Bools and enums still visit for value checks.
 consteval bool wire_bulk_copyable(std::meta::info type)
 {
     type = std::meta::dealias(type);

@@ -4,14 +4,9 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// UI per-tile prim lists: CPU-coarse stage of the scaling ladder (ui-render.md §3.7).
+// UI per-tile prim lists: CPU-coarse compose stage (ui-render.md §3.7).
 // Dense tilesX*tilesY grid of 8px tiles. Counting-sort scatter into overlapping tiles.
-// Solid bit = full tile cover -> GPU flat fill (skip SDF). Pure, any thread. Compose cadence.
-//
-// PERF TODO (ui-render.md §3.7.3-4, deferred, measurement-gated):
-//  - opaque-truncation: opaque solid OVER resets its tile list to just it (bounds list depth)
-//  - sparse dispatch: non-empty tiles + compact active-tile list (skip empty dense tiles)
-//  - GPU binning: move scatter to compute for dense dynamic vector content
+// Solid bit = full tile cover -> GPU flat fill (skip SDF). Pure, any thread.
 
 #include "anoptic_ui.h"
 
@@ -20,8 +15,7 @@
 
 /* AABB */
 
-// In: prim (identity inv, v0). Out: padded pixel AABB (half+1px AA; SHADOW +3*sigma+1px).
-// Matches ui_box_hits / ui_pending_bounds.
+// Identity-inv only. Matches ui_box_hits / ui_pending_bounds.
 void ano_ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2])
 {
     float pad = p->kind == ANO_UI_SHADOW ? 3.0f * p->param[0] + 1.0f : 1.0f;
@@ -52,10 +46,6 @@ static bool prim_solid_over(const AnoUiPrim *p, float tx0, float ty0, float tx1,
 
 /* Tile Build */
 
-// In: scene, grid origin (overlay px) + tile counts, caller buffers.
-// Out: offsets (tilesX*tilesY+1, prefix-summed so tile t owns [offsets[t],offsets[t+1]))
-// and the prim-index entry stream (ascending = painter order, solid bit set per tile).
-// cursor = tilesX*tilesY scratch. Returns entry count; *ok false if a cap is too small.
 uint32_t ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY,
                            uint32_t *offsets, uint32_t offsetsCap,

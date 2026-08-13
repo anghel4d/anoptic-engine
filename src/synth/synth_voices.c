@@ -263,7 +263,7 @@ static void spawn_chime(AnoSynth *s, AnoSynthVoice *v, float dur, uint8_t pitch)
         ano_dsp_asr_init(&v->u.chime.penv[i], 0.001f, 0.0f,
                          fmaxf(ring / decays[i], 0.05f), fs);
     }
-    (void)ratios; // read in step
+    (void)ratios; // sounding copy is in voice_step
     ano_dsp_asr_init(&v->u.chime.chiff, 0.0005f, 0.0f, 0.02f, fs);
     ano_dsp_svf_coef(&v->u.chime.bpc, 5200.0f, q_from_res(0.4f), fs);
     v->u.chime.bps = (AnoDspSvfState){0};

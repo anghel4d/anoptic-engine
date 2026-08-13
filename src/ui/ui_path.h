@@ -6,7 +6,7 @@
 
 // Scanline-sweeper bake helpers shared with src/text (both in anoptic_core).
 // Narrow decls only: keeps text_internal.h out of the UI module.
-// AnoQuad mirror must match text_internal.h. ui_path.c static_asserts its size.
+// AnoQuad layout must match text_internal.h (ui_path.c static_asserts size).
 
 #ifndef ANO_UI_PATH_H
 #define ANO_UI_PATH_H
@@ -15,8 +15,6 @@
 
 
 /* Curve Stream */
-
-// Public ABI sentinel (anoptic_ui.h). Identical to ANO_TEXT_POINT_SENTINEL.
 
 // One quadratic Bezier in bake space (double): p0, p1 (control), p2.
 typedef struct AnoQuad {

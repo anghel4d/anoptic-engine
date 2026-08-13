@@ -5,8 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Synth: music IR (anoptic_music.h) into audio buses via AnoAudioGenerator.
-// Owns voice pool, patches, BeatClock, deadline schedule. Console = bus layout/setup + ACMD_BUS_SET / ACMD_FX_SET.
-// Score load + transport on logic thread while idle. Once started, generator (mixer thread) is sole runtime toucher: no alloc, lock, or bridge. Offline: same generator on caller via AnoAudioOfflineDesc.
+// Owns voice pool, patches, BeatClock, deadline schedule. Console = layout/setup + ACMD_BUS_SET / ACMD_FX_SET.
+// Score load + transport on the logic thread while idle. After start, mixer-thread hooks are the sole runtime touchers: no alloc, lock, or bridge. Offline: same generator on the caller via AnoAudioOfflineDesc.
 
 #ifndef ANOPTIC_SYNTH_H
 #define ANOPTIC_SYNTH_H
@@ -35,7 +35,7 @@ extern "C" {
 
 /* Patches */
 
-// Registry ids (MusicalParams.instruments). 0 = layer default (pad WARM, bass ROUND, melody SOFT, counter MELLOW, arp PLUCK). BREEZE / WHISTLE / BAD_GROUND reserved -> layer default.
+// Registry ids (MusicalParams.instruments). 0 and reserved BREEZE / WHISTLE / BAD_GROUND map to the layer default (pad WARM, bass ROUND, melody SOFT, counter MELLOW, arp PLUCK).
 typedef enum AnoSynthPatch
 {
     ANO_SYNTH_PATCH_DEFAULT = 0,
@@ -83,7 +83,7 @@ void      ano_synth_destroy(AnoSynth *s);
 /* Score Loading */
 
 // Logic thread, synth idle. Order: begin -> tempo (monotonic) -> bars (ascending) -> events (emission order, ties unmerged) -> end.
-// end: merge ties, build full tempo map, beats -> frames, deadline-sorted schedule (stable seq tiebreaker). begin counts size allocations.
+// begin sizes the allocations. end merges ties, builds the tempo map, converts beats to frames, and deadline-sorts (stable seq tiebreaker).
 bool ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCount,
                            uint32_t tempoCount, uint32_t eventCount);
 bool ano_synth_score_tempo(AnoSynth *s, double beat, double bpm);
@@ -95,19 +95,19 @@ bool ano_synth_score_end(AnoSynth *s);
 // Score start -> last note end + tailSeconds. After score_end.
 uint64_t ano_synth_score_frames(const AnoSynth *s, float tailSeconds);
 
-// Score start -> beat via tempo map (BeatClock time_at). After score_end. Live: pace cmds against playhead.
+// Score start -> beat via the tempo map (BeatClock time_at). After score_end. Live: pace cmds against the playhead.
 double ano_synth_time_at(const AnoSynth *s, double beat);
 
 
 /* Transport */
 
-// Stage a start at worldFrame. The runtime reset (voices, cursors, smoothers, rngs, shimmer) lands on the rendering thread at its next hook, before the next rendered block. Idle only. Offline: worldFrame 0.
+// Stage a start at worldFrame. Runtime reset (voices, cursors, smoothers, rngs, shimmer) runs on the rendering thread at its next hook, before the next rendered block. Restarts are legal. Offline: worldFrame 0.
 void ano_synth_transport_start(AnoSynth *s, uint64_t worldFrame);
 
 // Idle: generator stops at next call. Live mixer: wait one block before reload. Offline: stop immediate.
 void ano_synth_transport_stop(AnoSynth *s);
 
-// AnoAudioGenerator: .generator + .generatorUser. Sample-accurate spans at note onsets and bar edges. Ducks pad+arp under kicks. Feeds shimmer.
+// AnoAudioGenerator: .generator + .generatorUser. Sample-accurate spans at note onsets and bar edges. Ducks pad and arp under kicks. Feeds shimmer.
 void ano_synth_generator(void *user, float *const *busMix, uint32_t busCount,
                          uint32_t frames, uint64_t startFrame);
 
@@ -117,8 +117,8 @@ uint32_t ano_synth_dropped(const AnoSynth *s);
 
 /* Live Scoring */
 
-// Live = same schedule as batch, one bar at a time (audio thread); schedule is a ring. Bit-identical (shared merge/clock/deadline/spans).
-// Append before playhead reaches the bar. Keep pending >= ANO_SYNTH_LIVE_LOOKAHEAD (tie out of N needs N+1). Late does not corrupt: ties -> plain notes; ano_synth_live_late counts them.
+// Live = the batch schedule one bar at a time on the audio thread; the schedule is a ring. Bit-identical (shared merge/clock/deadline/spans).
+// Append before the playhead reaches the bar. Keep pending >= ANO_SYNTH_LIVE_LOOKAHEAD (a tie out of bar N needs N+1). Late does not corrupt: ties become plain notes; ano_synth_live_late counts them.
 #define ANO_SYNTH_LIVE_LOOKAHEAD 2u
 
 // Idle only. Then LOOKAHEAD bars, then transport_start.
@@ -141,8 +141,8 @@ uint32_t ano_synth_live_overflow(const AnoSynth *s);
 
 /* Music Driver */
 
-// Attach music engine: generator tops schedule to LOOKAHEAD in-thread. Idle only, and before the mixer goes live. Engine outlives attach; audio thread only after attach.
-// Mid-piece attach/SEEK rebases schedule (not renumber) via constant beat offset. Same machinery as ACMD_MUSIC_SEEK.
+// Attach a music engine: the generator tops the schedule to LOOKAHEAD in-thread. Idle only. The engine outlives attach; audio thread only after attach.
+// Mid-piece attach/SEEK rebases the schedule (does not renumber) by a constant beat offset. Same machinery as ACMD_MUSIC_SEEK.
 bool ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music);
 
 // Idle only. Scheduled bars still play; schedule stops growing.
@@ -155,7 +155,7 @@ void ano_synth_detach_music(AnoSynth *s);
 uint32_t ano_synth_music_bar_us(const AnoSynth *s);
 uint32_t ano_synth_music_bar_us_max(const AnoSynth *s);
 
-// Generator back-channel (anoptic_audio.h): .generatorControl / .generatorPoll / .generatorStats + .generatorUser. Offline: .generatorControl only.
+// Generator back-channel (anoptic_audio.h): .generatorControl / .generatorPoll / .generatorStats + .generatorUser. Offline: .generatorControl; no poll/stats.
 void     ano_synth_control(void *user, const AnoAudioCommand *cmd);
 uint32_t ano_synth_poll(void *user, AnoAudioEvent *out, uint32_t cap);
 void     ano_synth_stats(void *user, AnoAudioTelemetry *t);

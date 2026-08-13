@@ -11,7 +11,7 @@
 
 #if defined(__APPLE__)
 
-#include <anoptic_threads.h>   // pthread_spinlock_t / pthread_barrier_t (Darwin types)
+#include <anoptic_threads.h>   // Darwin pthread_spinlock_t / pthread_barrier_t
 
 #define PTHREAD_BARRIER_SERIAL_THREAD (-1)
 

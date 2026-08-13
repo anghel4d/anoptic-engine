@@ -312,11 +312,9 @@ static inline void record_graphics_pass(VkCommandBuffer cmd, uint32_t v,
         ano_vk_text_record_world(&rendererState, cmd, rendererState.frameIndex, v);
 }
 
-// Per view light-cull then geometry into this view's HDR target + depth, reading its cull partition. Picking readback on view 0.
 void ano_record_views(VkCommandBuffer cmd, uint32_t entityCount, uint32_t drawSlotCount)
 {
-    // === Per view: light-cull (this view's froxel lists) then geometry into this view's
-    // HDR target + depth, reading this view's cull partition. ===
+    // === Per view: light-cull then geometry into this view's HDR target + depth. Picking readback on view 0. ===
     for (uint32_t v = 0; v < ANO_VIEW_COUNT; v++) {
         ViewResources* vr = &rendererState.frames[rendererState.frameIndex].views[v];
 
@@ -416,7 +414,6 @@ void ano_record_views(VkCommandBuffer cmd, uint32_t entityCount, uint32_t drawSl
     }
 }
 
-// Composite: tonemap each view HDR -> swapchain + text/UI overlay.
 void ano_record_composite(VkCommandBuffer cmd, uint32_t imageIndex)
 {
     // --- Composite: tonemap each view's HDR target onto the swapchain ---

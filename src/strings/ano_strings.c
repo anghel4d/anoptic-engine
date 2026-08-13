@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// anostr_t value type, hash, slicing, keep, builder. Long bytes live in backing (caller heap or external borrow).
+// anostr_t, hash, slice, keep, builder. Long bytes live in backing (caller heap or external borrow).
 
 #include "strings/ano_strings_internal.h"
 
@@ -86,7 +86,7 @@ anostr_t anostr_slice(anostr_t s, size_t start, size_t end)
 anostr_t anostr_keep(mi_heap_t *heap, anostr_t s)
 {
     if (s.len <= ANOSTR_INLINE_CAP)
-        return s;   // inline: identity
+        return s;
     return anostr_from(heap, s.ptr, s.len);
 }
 

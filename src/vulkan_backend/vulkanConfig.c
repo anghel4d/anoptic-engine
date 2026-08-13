@@ -93,10 +93,8 @@ bool updateWindow(GLFWwindow *window)
 {
     if (!window) return false;
 
-    // Current context
     GLFWwindow* currentContext = glfwGetCurrentContext();
 
-    // 1. Window size
     int currentWidth, currentHeight;
     glfwGetWindowSize(window, &currentWidth, &currentHeight);
     if (currentWidth != windowParameters.width || currentHeight != windowParameters.height)
@@ -104,7 +102,7 @@ bool updateWindow(GLFWwindow *window)
         glfwSetWindowSize(window, (int)windowParameters.width, (int)windowParameters.height);
     }
 
-    // 2. Monitor. -1 wraps to UINT32_MAX, ignored (structs.h)
+    // -1 wraps to UINT32_MAX and is ignored (structs.h).
     if (windowParameters.monitorIndex != ANO_WINDOWED_MONITOR)
     {
         int count;
@@ -114,15 +112,12 @@ bool updateWindow(GLFWwindow *window)
             GLFWmonitor* targetMonitor = monitors[windowParameters.monitorIndex];
             const GLFWvidmode* mode = glfwGetVideoMode(targetMonitor);
             
-            // Fullscreen on target monitor
             glfwSetWindowMonitor(window, targetMonitor, 0, 0, mode->width, mode->height, mode->refreshRate);
         }
     }
 
-    // 3. Borderless
     if (windowParameters.borderless)
     {
-        // Native res borderless
         GLFWmonitor* primary = glfwGetPrimaryMonitor();
         const GLFWvidmode* mode = glfwGetVideoMode(primary);
 
@@ -133,7 +128,7 @@ bool updateWindow(GLFWwindow *window)
         glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
     }
 
-    // Restore context
+    // Restore the GLFW context glfwSetWindowMonitor may have switched.
     glfwMakeContextCurrent(currentContext);
 
     return true;

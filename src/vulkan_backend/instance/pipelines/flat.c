@@ -22,7 +22,6 @@ static bool flat_init_with_cull(VulkanContext* ctx, RendererState* state, Pipeli
 	constexpr VkCullModeFlags cullMode =
 		Type == PIPELINE_FLAT ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE;
 
-	// 1. Setup cache
 	VkPipelineCacheCreateInfo cacheInfo = {};
 	cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 	if (vkCreatePipelineCache(ctx->device, &cacheInfo, NULL, &proto->cache) != VK_SUCCESS)
@@ -34,7 +33,6 @@ static bool flat_init_with_cull(VulkanContext* ctx, RendererState* state, Pipeli
 	bool useTask = state->taskCull;
 	VkShaderStageFlagBits geometryStage = useMesh ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT;
 
-	// 2. Setup layout
 	// Push: transformBaseOffset + shadowFrustumIndex. Task stage flag joins the range.
 	VkPushConstantRange pushConstantRange = {};
 	// FRAGMENT joins the range: shadow_depth.frag reads shadowFrustumIndex.

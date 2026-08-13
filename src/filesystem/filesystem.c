@@ -19,7 +19,6 @@
 /* Session Stamp */
 
 // One stamp per process, latched by first caller. Racing loser spins on winner.
-// Output: "YYYY-MM-DD_XXXXXX" (local date + low 6 digits of raw ticks), static storage.
 const char *ano_fs_session_stamp(void)
 {
     static ANO_ATOMIC(int) state;   // 0 unset, 1 building, 2 ready
@@ -29,7 +28,7 @@ const char *ano_fs_session_stamp(void)
         if (atomic_compare_exchange_strong_explicit(&state, &expect, 1,
                 memory_order_acquire, memory_order_acquire)) {
             ano_datetime d = ano_localtime(ano_timestamp_unix());
-            unsigned ctr = (unsigned)(ano_timestamp_ticks() % 1000000u);  // low 6 digits of raw counter
+            unsigned ctr = (unsigned)(ano_timestamp_ticks() % 1000000u);
             snprintf(stamp, sizeof stamp, "%04d-%02d-%02d_%06u", d.year, d.month, d.day, ctr);
             atomic_store_explicit(&state, 2, memory_order_release);
         } else {
@@ -43,7 +42,6 @@ const char *ano_fs_session_stamp(void)
 
 /* Log Path */
 
-// "<gamepath>/logs", created if absent. Session log names live in the public header.
 ano_fspath ano_fs_logpath(void)
 {
     ano_fspath dir = ano_fs_gamepath();

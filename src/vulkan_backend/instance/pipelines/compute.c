@@ -96,7 +96,7 @@ bool ano_vk_init_compute(VulkanContext* ctx, RendererState* state)
     if (!compute_build<PIPELINE_COMPUTE_UPDATE>(ctx, state))
         return false;
     
-    // Compute Scatter Pipeline (streamed transforms, Path B)
+    // Compute Scatter Pipeline (streamed transforms)
     const auto& scatterSpecs = ANO_VK_SCATTER_BINDINGS;
     VkDescriptorSetLayoutBinding scatterBindings[ANO_VK_SCATTER_BINDINGS.count] = {};
     if (!ano_vk_materialize_layout_bindings(scatterSpecs, scatterBindings))

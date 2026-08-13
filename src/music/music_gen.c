@@ -4,8 +4,6 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Rhythm + phrase structure. rough_cell: merge draw only if successor exists; split only if dur >= 2;
-// drop never draws for first note.
 // effective_tension keeps float op order, including the (1.30 - 0.85) constant.
 
 #include "music_gen.h"
@@ -41,7 +39,6 @@ uint32_t ano_rough_cell(AnoMusicRng *rng, double density, double roughness,
     for (int s = 0; s < slots && n < ANO_RHYTHM_MAX; s += baseStep)
         notes[n++] = (AnoRhythmNote){ s, baseStep };
 
-    // merge adjacent pairs ~ roughness (syncopation across beat boundaries)
     AnoRhythmNote merged[ANO_RHYTHM_MAX];
     uint32_t m = 0;
     uint32_t i = 0;
@@ -56,7 +53,6 @@ uint32_t ano_rough_cell(AnoMusicRng *rng, double density, double roughness,
         }
     }
 
-    // split long notes at high density
     AnoRhythmNote split[ANO_RHYTHM_MAX];
     uint32_t sp = 0;
     double negD = density - 0.6;
@@ -72,7 +68,7 @@ uint32_t ano_rough_cell(AnoMusicRng *rng, double density, double roughness,
         }
     }
 
-    // drop notes at low density (rests are content); the first never draws
+    // rests are content; first note never draws
     double negK = 1.0 - density;
     double dropProb = (negK > 0.0 ? negK : 0.0) * 0.55;
     uint32_t kept = 0;

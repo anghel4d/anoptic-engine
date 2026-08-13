@@ -30,7 +30,6 @@ static struct FT_MemoryRec_ g_ftMemory;  // hook table handed to FT_New_Library
 static FT_Library           g_ftLibrary; // non-NULL <=> module initialized
 static FT_Face              g_faces[ANO_TEXT_MAX_FONTS]; // slot i <-> AnoFontId i+1
 
-// FT_Alloc_Func: malloc into the module heap.
 static void *text_ft_alloc(FT_Memory memory, long size)
 {
     return mi_heap_malloc(static_cast<mi_heap_t *>(memory->user), (size_t)size);
@@ -50,7 +49,6 @@ static void *text_ft_realloc(FT_Memory memory, long cur_size, long new_size, voi
     return mi_heap_realloc(static_cast<mi_heap_t *>(memory->user), block, (size_t)new_size);
 }
 
-// Module heap + FreeType library through it, default font-format modules. Idempotent. Calling thread owns the module.
 int ano_text_init(void)
 {
     if (g_ftLibrary != NULL)
@@ -84,7 +82,7 @@ int ano_text_init(void)
     return 0;
 }
 
-// Destroy faces, FreeType library, then module heap. Init thread.
+// Faces, then library, then heap. Init thread.
 void ano_text_shutdown(void)
 {
     for (uint32_t i = 0; i < ANO_TEXT_MAX_FONTS; i++)
@@ -107,7 +105,6 @@ void ano_text_shutdown(void)
     }
 }
 
-// Linked FreeType version via non-NULL pointers. Zeros before init.
 void ano_text_version(int *major, int *minor, int *patch)
 {
     FT_Int maj = 0, min = 0, pat = 0;
@@ -121,7 +118,7 @@ void ano_text_version(int *major, int *minor, int *patch)
         *patch = pat;
 }
 
-// Open scalable face into first free registry slot. 1-based handle, or 0. Init thread.
+// 1-based handle, or 0. Init thread.
 AnoFontId ano_text_font_load(anostr_t path)
 {
     if (g_ftLibrary == NULL || anostr_is_empty(path))
@@ -174,7 +171,6 @@ AnoFontId ano_text_font_load(anostr_t path)
     return slot + 1u;
 }
 
-// FT_Face behind a handle as opaque pointer. NULL if invalid.
 void *ano_text_face(AnoFontId font)
 {
     if (font == 0 || font > ANO_TEXT_MAX_FONTS)
@@ -182,7 +178,6 @@ void *ano_text_face(AnoFontId font)
     return g_faces[font - 1u];
 }
 
-// FreeType smooth AA ground truth (unhinted) into buf. Sets pixel sizes on the face. Module thread.
 int ano_text_ref_ft_render(AnoFontId font, uint32_t codepoint, uint32_t pixelsPerEm,
                            uint8_t *buf, uint32_t cap, int *width, int *rows,
                            int *left, int *top)

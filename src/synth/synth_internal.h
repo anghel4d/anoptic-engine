@@ -5,8 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Private synth: voices, patches, BeatClock, schedule, per-block controls.
-// Idle = logic thread (no mixer hooks). Live = mixer. Render: no alloc, no locks. Seeds at transport_start.
-// transport_start stages epoch + startFrame. First mixer hook resets. Logic never touches runtime after start.
+// Idle transport: logic thread, no mixer hooks. After start: mixer owns runtime. Render: no alloc, no locks. Seeds at transport_start.
+// transport_start stages epoch + startFrame. First mixer hook resets. Logic never touches mixer-owned fields after start.
 // DSP: src/audio/dsp/ (sanctioned private include).
 
 #ifndef ANO_SYNTH_INTERNAL_H
@@ -83,7 +83,7 @@ typedef struct AnoSynthVoice
             float ph[3];
             float dt[3];
             float og[3][2]; // per-osc L/R
-            bool  stereo;   // bright: filter per channel
+            bool  stereo;
         } pad;
         struct { // WTPAD
             float     ph, dt;
@@ -180,7 +180,7 @@ struct AnoSynth
 
     // Live: open tie chains across barline -> absolute head note index.
     bool     live;
-    uint32_t liveNextBar; // bar index live_bar expects next
+    uint32_t liveNextBar;
     int32_t  openChain[ANO_MUSIC_LAYER_COUNT][128];
     uint32_t liveLate, liveOverflow;
 

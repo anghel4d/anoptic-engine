@@ -229,7 +229,6 @@ static void sort_ints(int *a, uint32_t n)
     }
 }
 
-// Collect the events of one layer, in emission order.
 static uint32_t collect(const AnoMusicEvent *ev, uint32_t n, int layer,
                         const AnoMusicEvent **out, uint32_t cap)
 {

@@ -89,7 +89,7 @@ static inline void ano_dsp_grain_step(AnoDspGrainEngine *e, float in, float fs,
         AnoDspGrain *g = &e->g[i];
         if (!g->active)
             continue;
-        // clamp into [write - capacity + 2, write - 1]
+        // Clamp into [write - mask, write - 1].
         double lo = (double)e->write - (double)e->mask;
         if (lo < 0.0) lo = 0.0;
         double hi = (double)(e->write - 1u);

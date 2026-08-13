@@ -254,7 +254,7 @@ bool createDescriptorSets(VulkanContext* ctx, RendererState* state)
             rendererState.frames[i].views[v].tonemapSet = tonemapSetsTemp[i*ANO_VIEW_COUNT + v];
     }
 
-    // Hi-Z build sets (review 4.9 step 3): one per mip per view per frame, allocated for ANO_MAX_HIZ_MIPS.
+    // Hi-Z build sets: one per mip per view per frame, allocated for ANO_MAX_HIZ_MIPS.
     VkDescriptorSetLayout hizLayouts[MAX_FRAMES_IN_FLIGHT * ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS];
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT * ANO_VIEW_COUNT * ANO_MAX_HIZ_MIPS; ++i)
         hizLayouts[i] = rendererState.hizSetLayout;

@@ -23,7 +23,6 @@
 #include <string.h>
 #include <time.h>
 
-// Terminal detection + Windows VT enable.
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -38,7 +37,7 @@
 // Level names padded to 5.
 static const char   logPad[4][8] = {"INFO ", "WARN ", "ERROR", "FATAL"};
 
-static log_ring_t   g_ring;         // shared MPSC ring
+static log_ring_t   g_ring;
 static atomic_bool  g_initialized;  // logger live (NOW / flush / config)
 // Severity gate (one relaxed load). INT_MAX until init / at cleanup. NOW skips it.
 static atomic_int   g_minLevel = INT_MAX;
@@ -84,14 +83,13 @@ static uint64_t     g_anchorUnixNs;
 
 // Drainer-private under g_drainMtx. g_scratch = wrap gather, g_batch = one pass, g_drainHMS = per-sec cache.
 static char         g_scratch[ANO_LOG_MSG_MAX];
-static char        *g_batch;    // ANO_LOG_BATCH_CAP bytes
+static char        *g_batch;
 static uint64_t     g_drainSec;
 static char         g_drainHMS[8];
 static bool         g_drainHMSValid;
 
 /* Formatting (eager, on the producer) */
 
-// Decimal of v at p, advance.
 static inline char *put_u32(char *p, uint32_t v)
 {
     char tmp[10];
@@ -142,7 +140,7 @@ static int fast_format(char *out, int cap, const char *fmt, va_list ap)
     char *p = out, *end = out + cap;
     const char *f = fmt;
     while (*f) {
-        if (*f != '%') {                                   // literal run to next %
+        if (*f != '%') {
             const char *s = f;
             do { ++f; } while (*f && *f != '%');
             size_t n = (size_t)(f - s);
@@ -190,7 +188,7 @@ static int fast_format(char *out, int cap, const char *fmt, va_list ap)
 }
 
 // Compose "<LEVEL> <file>:<line>:  <message>" into out (no time, no newline). NULL file omits callsite.
-// Length clamped to cap-1. Prefix hand-rolled; message via fast_format / vsnprintf. format(printf, 6, 0).
+// Length clamped to cap-1. Prefix hand-rolled; message via fast_format / vsnprintf.
 __attribute__((format(ANO_PRINTF_FORMAT_KIND, 6, 0)))
 static int format_line(char *out, int cap, ano_loglevel_t level,
                        const char *file, int line, const char *fmt, va_list ap)
@@ -221,8 +219,7 @@ static int format_line(char *out, int cap, ano_loglevel_t level,
 /* Deferred formatting: capture at call site, render at drain. */
 
 // Capture blob: [u16 fileLen][fileBytes+NUL][line] or [u16 FILE_NONE], then [fmt*][args...].
-// printFormat is a literal by contract (anoptic_log.h:53); sourceFile carries no such
-// requirement, so it is deep-copied at capture like every %s argument below.
+// printFormat is a literal by contract (anoptic_log.h); sourceFile is deep-copied like each %s.
 // Returns blob length, or -1 -> eager (%n, long-double L, wide %lc/%ls, no room for the file).
 #define FILE_NONE 0xFFFFu   // out of range of the 256-byte cap, so never a real length
 static int capture_deferred(char *out, int cap, const char *file, int line, const char *fmt, va_list ap)
@@ -297,7 +294,7 @@ static int capture_deferred(char *out, int cap, const char *file, int line, cons
     return (int)(p - out);
 }
 
-// Render capture blob at drain. Re-parse fmt, resolve '*', snprintf from captured values. Returns bytes.
+// Render capture blob. Re-parse fmt, resolve '*', snprintf from captured values.
 static int format_deferred(char *out, int cap, ano_loglevel_t level, const char *blob)
 {
     const char *b = blob;
@@ -414,7 +411,6 @@ static int format_deferred(char *out, int cap, ano_loglevel_t level, const char 
     return (int)(p - out);
 }
 
-// Two digits (00-99) at p.
 static inline char *put2(char *p, int v)
 {
     *p++ = (char)('0' + (v / 10) % 10);
@@ -457,7 +453,6 @@ static ano_file *open_log(const char *dir, bool fresh)
     return fresh ? ano_fs_open_trunc(path) : ano_fs_open_append(path);
 }
 
-// Persist targets, bound by select_output().
 static void persist_file(const void *data, size_t len)
 {
     if (ano_fs_write(g_outFile, data, len) != 0)
@@ -523,7 +518,6 @@ static void echo_console(ano_loglevel_t level, const char *hms, const char *body
     fputc('\n', stream);
 }
 
-// Write finished batch under one lock.
 static void write_batch(const char *data, size_t len)
 {
     if (len == 0)
@@ -638,7 +632,6 @@ static uint64_t drain(void)
     return n;
 }
 
-// Wake parked drainer.
 static void wake_drainer(void)
 {
     ano_mutex_lock(&g_wakeMtx);
@@ -665,7 +658,7 @@ static void drainer_park(void)
     ano_mutex_unlock(&g_wakeMtx);
 }
 
-// Owned consumer: drain while work, park on empty. ano_log_flush still drains inline.
+// Drain while work, park on empty.
 static void *drainer_main(void *arg)
 {
     (void)arg;
@@ -697,7 +690,6 @@ static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, i
     uint16_t len  = (uint16_t)n;
     uint64_t need = log_span(len);
 
-    // Entry = marker + inline text in reserved cache lines.
     uint64_t cap = log_lines(&g_ring);
     uint64_t pos = atomic_load_explicit(&g_ring.tail, memory_order_relaxed);
     uint64_t lastHead = 0;

@@ -25,15 +25,13 @@
 
 /* Half pack */
 
-// binary16 round-to-nearest-even, bit-exact. Overflow -> +-inf.
-
 uint16_t ano_half_pack(float v)
 {
     uint32_t x;
     memcpy(&x, &v, 4);
     uint32_t sign = (x >> 16) & 0x8000u;
     x &= 0x7FFFFFFFu;
-    if (x >= 0x47800000u) // >= 65536 after rounding: inf/nan/overflow
+    if (x >= 0x47800000u) // |v| >= 65536, inf, or nan
         return (uint16_t)(sign | (x > 0x7F800000u ? 0x7E00u : 0x7C00u));
     if (x < 0x38800000u) // subnormal or zero
     {
@@ -84,7 +82,7 @@ float ano_half_unpack(uint16_t h)
 
 /* Quad utilities */
 
-// De Casteljau split at t into l (before) and r (after).
+// De Casteljau split at t.
 static void quad_split_at(const AnoQuad *q, double t, AnoQuad *l, AnoQuad *r)
 {
     double ax = q->x[0] + (q->x[1] - q->x[0]) * t;
@@ -99,7 +97,7 @@ static void quad_split_at(const AnoQuad *q, double t, AnoQuad *l, AnoQuad *r)
 
 int ano_quad_split_monotone(const AnoQuad *q, AnoQuad out[3])
 {
-    const double T = 1e-6; // interior-band threshold
+    const double bandEps = 1e-6;
     double ts[2];
     int    n = 0;
     for (int axis = 0; axis < 2; axis++)
@@ -109,7 +107,7 @@ int ano_quad_split_monotone(const AnoQuad *q, AnoQuad out[3])
         if (a != 0.0)
         {
             double t = (c[0] - c[1]) / a;
-            if (t > T && t < 1.0 - T)
+            if (t > bandEps && t < 1.0 - bandEps)
                 ts[n++] = t;
         }
     }
@@ -121,7 +119,7 @@ int ano_quad_split_monotone(const AnoQuad *q, AnoQuad out[3])
             ts[0] = ts[1];
             ts[1] = tmp;
         }
-        if (ts[1] - ts[0] < T)
+        if (ts[1] - ts[0] < bandEps)
             n = 1;
     }
     if (n == 0)
@@ -208,7 +206,6 @@ typedef struct BakeCollect {
     bool         oom; // sticky, aborts the decompose
 } BakeCollect;
 
-// Grow capacity to fit need. NULL on OOM.
 static void *bake_grow(mi_heap_t *heap, void *p, uint32_t *cap, uint32_t need, size_t elem)
 {
     if (need <= *cap)
@@ -238,7 +235,7 @@ static void bake_push_quad(BakeCollect *c, double x0, double y0, double x1, doub
     con->quads[con->count++] = (AnoQuad){ .x = { x0, x1, x2 }, .y = { y0, y1, y2 } };
 }
 
-// Close open contour: emit closing line if needed, drop empty.
+// Emit a closing line if needed, then drop an empty contour.
 static void bake_close_contour(BakeCollect *c)
 {
     if (!c->open)
@@ -310,7 +307,6 @@ static int bake_cubic_to(const FT_Vector *c1, const FT_Vector *c2, const FT_Vect
     return c->oom ? 1 : 0;
 }
 
-// Reverse contour in place: flip quad order, swap each p0/p2.
 static AnoQuad quad_reversed(AnoQuad q)
 {
     return (AnoQuad){ .x = { q.x[2], q.x[1], q.x[0] }, .y = { q.y[2], q.y[1], q.y[0] } };
@@ -404,7 +400,6 @@ static bool bake_pack_glyph(mi_heap_t *scratch, StreamVec *stream, const BakeCon
             float q2x, q2y;
             uint16_t h2x = bake_quant(q->x[2], &q2x);
             uint16_t h2y = bake_quant(q->y[2], &q2y);
-            // Clamp control to quantized endpoint box, then quantize.
             float c1x = (float)q->x[1];
             float c1y = (float)q->y[1];
             float lox = fminf(q0x, q2x), hix = fmaxf(q0x, q2x);
@@ -509,7 +504,6 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
 /* Bake entry */
 
 // Module thread. Scratch for temps. Result blobs on caller heap.
-// Per glyph: load outline -> decompose -> fill-right -> monotonize -> pack. Then GPOS kern.
 // Failures leave *out zeroed with no caller-heap block live.
 
 int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
@@ -537,7 +531,7 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
     AnoKernPair   *kerns = NULL;
     uint32_t       kernCount = 0;
     StreamVec      stream = { 0 }; // scratch-backed
-    int            rc = ENOMEM;    // arms refine. ENOMEM is the default
+    int            rc = ENOMEM;
     FT_Face       *slotFace = NULL;
     uint32_t      *slotCp = NULL;
     double        *slotInvUpem = NULL;
@@ -546,7 +540,6 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
     FT_Face        metricsFace = NULL;
     double         metricsInv = 0.0;
 
-    // First acquisition. Arms below stay in this heap's scope.
     mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
     if (scratch == NULL)
         goto fail;
@@ -556,7 +549,6 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
     if (glyphs == NULL || map == NULL)
         goto fail;
 
-    // Per-slot face/codepoint/upem for glyph loop + kern pass.
     slotFace = mi_heap_mallocn_tp(FT_Face, scratch, (size_t)glyphCount);
     slotCp = mi_heap_mallocn_tp(uint32_t, scratch, (size_t)glyphCount);
     slotInvUpem = mi_heap_mallocn_tp(double, scratch, (size_t)glyphCount);
@@ -625,7 +617,7 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
             for (uint32_t ci = 0; ci < col.contourCount; ci++)
                 bake_reverse_contour(&col.contours[ci]);
 
-        // Monotonize each contour, drop collapsed points.
+        // Monotonize. Drop collapsed points.
         for (uint32_t ci = 0; ci < col.contourCount; ci++)
         {
             BakeContour *con = &col.contours[ci];
@@ -688,8 +680,7 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
     out->upem       = (uint32_t)metricsFace->units_per_EM;
     return 0;
 
-// Fail path. Discharge unpublished caller-heap blobs (glyphs/map/points/kerns). mi_free null-safe.
-// Scratch via ANO_SCOPED_HEAP. *out stays zeroed.
+// Unpublished caller-heap blobs. mi_free is null-safe. *out stays zeroed.
 fail:
     mi_free(glyphs);
     mi_free(map);

@@ -14,7 +14,7 @@
 
 /* Write Functions */
 
-// Preferred GPU by name; matched at instance init
+// Preferred GPU by name; matched at instance init.
 bool requestDevice(const char* deviceName);
 
 // Prefer this present mode when available at swapchain create.
@@ -23,30 +23,23 @@ bool requestPresentMode(VkPresentModeKHR presentMode);
 // Preferred MSAA samples (2/4/8). Clamped at init; <2 raised to 2. !TODO before initVulkan
 bool requestMsaaSamples(uint32_t samples);
 
-// Sets the desired resolution for window creation/update
 bool setResolution(Dimensions2D dimensions);
 
-// Sets the monitor the window will be created at, or moved to
 bool setMonitor(uint32_t index);
 
-// Sets whether the window will be created or updated to use borderless mode
 bool setBorderless(bool borderless);
 
-// Enables or disables Vulkan debugging functionality !TODO currently must be set before initVulkan is called
+// !TODO must be set before initVulkan
 bool setVulkanDebug(bool debug);
 
 /* Read Functions */
 
-// Retrieves the current preferred GPU
 const char* getChosenDevice();
 
-// Ditto but for the present mode
 VkPresentModeKHR getChosenPresentMode();
 
-// Ditto but for the preferred MSAA sample count
 uint32_t getChosenMsaaSamples();
 
-// You get the idea
 Dimensions2D getChosenResolution();
 
 uint32_t getChosenMonitor();
@@ -55,11 +48,7 @@ bool getChosenBorderless();
 
 /* Active Functions */
 
-// Updates the window to the currently set configuration
 bool updateWindow(GLFWwindow *window);
-
-
-/* More configuration options to come as development continues */
 
 
 #endif

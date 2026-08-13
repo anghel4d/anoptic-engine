@@ -44,7 +44,6 @@ static inline void ano_dsp_biquad_peak(AnoDspBiquad *c, float freq, float q, flo
     c->a2 = (1.0f - alpha / A) / a0;
 }
 
-// Shelf. slope S = 1.
 static inline void ano_dsp_biquad_shelf(AnoDspBiquad *c, float freq, float gainDb, float fs, int high)
 {
     freq = ano_dsp_bq_clampf_(freq, 10.0f, 0.45f * fs);
