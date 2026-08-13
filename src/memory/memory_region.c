@@ -4,9 +4,16 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-#include <anoptic_memory_region.h>
+#include <anoptic_memory.h>
 
-struct AnoMemoryRegion final {
+namespace ano {
+
+struct MemoryRegion final {
+    mi_heap_t *heap;
+};
+
+struct MemoryVolume final {
+    MemoryRegion region;
     unsigned char *data;
     size_t size;
     size_t alignment;
@@ -14,118 +21,177 @@ struct AnoMemoryRegion final {
     unsigned sealed;
 };
 
-static bool reservation_fits(const AnoMemoryRegion *region,
-                             AnoMemoryReservation reservation)
+namespace {
+
+bool valid_alignment(size_t alignment)
 {
-    return reservation.offset <= region->size
-        && reservation.size <= region->size - reservation.offset;
+    return alignment != 0 && (alignment & (alignment - 1)) == 0;
 }
 
-extern "C" AnoMemoryRegion *ano_memory_region_create(AnoMemoryLayout layout)
+bool reservation_fits(const MemoryVolume *volume,
+                      MemoryReservation reservation)
 {
-    if (!layout.valid || layout.alignment == 0
-        || (layout.alignment & (layout.alignment - 1)) != 0)
-        return nullptr;
+    return reservation.offset <= volume->size
+        && reservation.size <= volume->size - reservation.offset;
+}
 
-    const size_t allocationAlignment = layout.alignment > alignof(AnoMemoryRegion)
-        ? layout.alignment : alignof(AnoMemoryRegion);
-    size_t dataOffset = 0;
-    size_t allocationSize = 0;
-    if (!ano_size_align(sizeof(AnoMemoryRegion), layout.alignment, &dataOffset)
-        || !ano_size_add(dataOffset, layout.size, &allocationSize))
-        return nullptr;
-    AnoMemoryRegion *region = static_cast<AnoMemoryRegion *>(
-        mi_zalloc_aligned(allocationSize, allocationAlignment));
+} // namespace
+
+MemoryRegion *memory_region_create() noexcept
+{
+    MemoryRegion *region = mi_zalloc_tp(MemoryRegion);
     if (region == nullptr)
         return nullptr;
-
-    region->data = layout.size == 0 ? nullptr
-        : reinterpret_cast<unsigned char *>(region) + dataOffset;
-    region->size = layout.size;
-    region->alignment = layout.alignment;
-    __atomic_store_n(&region->references, size_t{1}, __ATOMIC_RELAXED);
-    __atomic_store_n(&region->sealed, 0u, __ATOMIC_RELAXED);
+    region->heap = ano_heap_create();
+    if (region->heap == nullptr) {
+        mi_free(region);
+        return nullptr;
+    }
     return region;
 }
 
-extern "C" bool ano_memory_region_retain(AnoMemoryRegion *region)
+void memory_region_destroy(MemoryRegion *region) noexcept
+{
+    if (region == nullptr)
+        return;
+    ano_heap_destroy(region->heap);
+    mi_free(region);
+}
+
+bool memory_region_reset(MemoryRegion *region) noexcept
 {
     if (region == nullptr)
         return false;
-    size_t references = __atomic_load_n(&region->references, __ATOMIC_RELAXED);
+    mi_heap_t *replacement = ano_heap_create();
+    if (replacement == nullptr)
+        return false;
+    mi_heap_t *retired = region->heap;
+    region->heap = replacement;
+    ano_heap_destroy(retired);
+    return true;
+}
+
+void *memory_region_allocate(MemoryRegion *region, size_t size,
+                             size_t alignment) noexcept
+{
+    if (region == nullptr || size == 0 || !valid_alignment(alignment))
+        return nullptr;
+    return mi_heap_malloc_aligned(region->heap, size, alignment);
+}
+
+void *memory_region_allocate_zero(MemoryRegion *region, size_t size,
+                                  size_t alignment) noexcept
+{
+    if (region == nullptr || size == 0 || !valid_alignment(alignment))
+        return nullptr;
+    return mi_heap_zalloc_aligned(region->heap, size, alignment);
+}
+
+MemoryVolume *memory_volume_create(MemoryLayoutCursor layout) noexcept
+{
+    if (!layout.valid || !valid_alignment(layout.alignment))
+        return nullptr;
+    MemoryVolume *volume = mi_zalloc_tp(MemoryVolume);
+    if (volume == nullptr)
+        return nullptr;
+    volume->region.heap = ano_heap_create();
+    if (volume->region.heap == nullptr) {
+        mi_free(volume);
+        return nullptr;
+    }
+    if (layout.size != 0) {
+        volume->data = static_cast<unsigned char *>(mi_heap_zalloc_aligned(
+            volume->region.heap, layout.size, layout.alignment));
+        if (volume->data == nullptr) {
+            ano_heap_destroy(volume->region.heap);
+            mi_free(volume);
+            return nullptr;
+        }
+    }
+    volume->size = layout.size;
+    volume->alignment = layout.alignment;
+    __atomic_store_n(&volume->references, size_t{1}, __ATOMIC_RELAXED);
+    __atomic_store_n(&volume->sealed, 0u, __ATOMIC_RELAXED);
+    return volume;
+}
+
+bool memory_volume_retain(MemoryVolume *volume) noexcept
+{
+    if (volume == nullptr)
+        return false;
+    size_t references = __atomic_load_n(&volume->references, __ATOMIC_RELAXED);
     do {
         if (references == 0 || references == SIZE_MAX)
             return false;
     } while (!__atomic_compare_exchange_n(
-        &region->references, &references, references + 1, true,
+        &volume->references, &references, references + 1, true,
         __ATOMIC_RELAXED, __ATOMIC_RELAXED));
     return true;
 }
 
-extern "C" void ano_memory_region_release(AnoMemoryRegion *region)
+void memory_volume_release(MemoryVolume *volume) noexcept
 {
-    if (region == nullptr)
+    if (volume == nullptr)
         return;
-    if (__atomic_fetch_sub(&region->references, size_t{1},
+    if (__atomic_fetch_sub(&volume->references, size_t{1},
                            __ATOMIC_ACQ_REL) != 1)
         return;
-    mi_free(region);
+    ano_heap_destroy(volume->region.heap);
+    mi_free(volume);
 }
 
-extern "C" size_t ano_memory_region_size(const AnoMemoryRegion *region)
+size_t memory_volume_size(const MemoryVolume *volume) noexcept
 {
-    return region == nullptr ? 0 : region->size;
+    return volume == nullptr ? 0 : volume->size;
 }
 
-extern "C" size_t ano_memory_region_alignment(const AnoMemoryRegion *region)
+size_t memory_volume_alignment(const MemoryVolume *volume) noexcept
 {
-    return region == nullptr ? 0 : region->alignment;
+    return volume == nullptr ? 0 : volume->alignment;
 }
 
-extern "C" bool ano_memory_region_write(
-    AnoMemoryRegion *region, AnoMemoryReservation reservation,
-    AnoMemoryMutableView *view)
+bool memory_volume_write(MemoryVolume *volume,
+                         MemoryReservation reservation,
+                         MemoryMutableView& view) noexcept
 {
-    if (view == nullptr)
+    view = {};
+    if (volume == nullptr
+        || __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) != 0
+        || !reservation_fits(volume, reservation))
         return false;
-    *view = {};
-    if (region == nullptr
-        || __atomic_load_n(&region->sealed, __ATOMIC_ACQUIRE) != 0
-        || !reservation_fits(region, reservation))
-        return false;
-    view->data = reservation.size == 0
-        ? nullptr : region->data + reservation.offset;
-    view->size = reservation.size;
+    view.data = reservation.size == 0
+        ? nullptr : volume->data + reservation.offset;
+    view.size = reservation.size;
     return true;
 }
 
-extern "C" bool ano_memory_region_seal(AnoMemoryRegion *region)
+bool memory_volume_seal(MemoryVolume *volume) noexcept
 {
-    if (region == nullptr)
+    if (volume == nullptr)
         return false;
-    __atomic_store_n(&region->sealed, 1u, __ATOMIC_RELEASE);
+    __atomic_store_n(&volume->sealed, 1u, __ATOMIC_RELEASE);
     return true;
 }
 
-extern "C" bool ano_memory_region_is_sealed(const AnoMemoryRegion *region)
+bool memory_volume_is_sealed(const MemoryVolume *volume) noexcept
 {
-    return region != nullptr
-        && __atomic_load_n(&region->sealed, __ATOMIC_ACQUIRE) != 0;
+    return volume != nullptr
+        && __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) != 0;
 }
 
-extern "C" bool ano_memory_region_view(
-    const AnoMemoryRegion *region, AnoMemoryReservation reservation,
-    AnoMemoryView *view)
+bool memory_volume_view(const MemoryVolume *volume,
+                        MemoryReservation reservation,
+                        MemoryView& view) noexcept
 {
-    if (view == nullptr)
+    view = {};
+    if (volume == nullptr
+        || __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) == 0
+        || !reservation_fits(volume, reservation))
         return false;
-    *view = {};
-    if (region == nullptr
-        || __atomic_load_n(&region->sealed, __ATOMIC_ACQUIRE) == 0
-        || !reservation_fits(region, reservation))
-        return false;
-    view->data = reservation.size == 0
-        ? nullptr : region->data + reservation.offset;
-    view->size = reservation.size;
+    view.data = reservation.size == 0
+        ? nullptr : volume->data + reservation.offset;
+    view.size = reservation.size;
     return true;
 }
+
+} // namespace ano

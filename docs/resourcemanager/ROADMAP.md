@@ -40,6 +40,12 @@ include/
 `- anoptic_text_resources.h
 ```
 
+The module builds its immutable storage on the engine-wide pair
+`anoptic_memory.h` and `anoptic_memory_typed.h`. The former exposes lifetime
+regions and sealed contiguous volumes; the latter reflects typed segment plans
+into checked layouts. Resource headers consume this substrate without adding a
+resource-specific arena API.
+
 | Header | Public responsibility |
 |---|---|
 | `anoptic_resources.h` | C-compatible stable IDs, content IDs, schema fingerprints, byte/range values, quality values, errors, and the compiled-language view |
@@ -379,6 +385,7 @@ reported by the C++ compiler and no second language to drift.
 
 | Feature implementation | Repository home |
 |---|---|
+| Checked regions, reflected volume layouts, and scratch storage | `include/anoptic_memory*.h` and `src/memory/` |
 | Reflection compiler and generated typed operations | Header-only in `anoptic_resources_typed.h`; instantiated by `src/resources/resource_universe.c` |
 | Checked bytes, canonical identity, and artifact validation | `src/resources/artifact/` |
 | General import front end and portable source handling | `src/resources/import/`, with format declarations and effects in their owning modules |
@@ -419,6 +426,57 @@ regardless of directory. A ceiling breach is an architecture defect: the design
 must consolidate duplicated structure, generate direct operations from reflected
 declarations, or remove an unnecessary abstraction before the feature is
 complete. A new format does not silently raise the ceiling.
+
+## Feature: immutable memory regions and reflected volumes
+
+**Public surface:** `anoptic_memory.h` and `anoptic_memory_typed.h`.
+
+The shared allocation mechanism is independent of each module's allocation
+policy. A `MemoryRegion` owns one mimalloc lifetime heap. Destruction winks out
+all allocations after users have quiesced; reset replaces the heap and then
+destroys the retired heap. Regions provide scratch and other scoped allocations,
+not individual object ownership.
+
+A `MemoryVolume` owns an exclusive region and one explicitly contiguous,
+aligned payload. Construction receives a checked `MemoryLayoutCursor`, permits
+bounded writes through trivial `{offset, size}` reservations, seals once, and
+then exposes only bounded immutable views. One owner-level reference count
+retains the complete volume. No payload allocation carries its own reference
+count, free-list entry, or teardown callback.
+
+The C++26 extension declares layouts as ordinary records of
+`MemorySegment<T, Alignment>` fields. `reflect_memory_plan` inspects the actual
+members, rejects any non-segment field at translation, and `memory_layout`
+performs the checked aligned prefix sum with runtime element counts:
+
+```cpp
+struct RevisionPlan final {
+    MemorySegment<RevisionItem> items;
+    MemorySegment<Dependency> dependencies;
+    MemorySegment<MemoryVolume *> retainedVolumes;
+};
+```
+
+The resource policy applies this mechanism as follows:
+
+1. Exact source snapshots occupy sealed volumes.
+2. A cook groups changed artifacts by reflected type and commit group into
+   bounded volumes, isolates oversized artifacts, assigns aligned reservations
+   once, fills disjoint ranges in parallel, and seals each volume.
+3. Unchanged revision items retain prior volumes once per distinct volume.
+4. Opened shipping packs keep copied bytes, decoded manifest columns, and
+   physical placements in one sealed volume.
+5. Residency epochs keep only dense bindings, changed IDs, and retained-owner
+   rows in a sealed volume. They retain revision metadata plus the artifact
+   volumes in the demanded closure, not the complete cooked revision.
+6. Persistent executor workers reset private scratch regions between batches.
+
+The substrate contains no asset IDs, schemas, hashes, DAG nodes, packs, epochs,
+Vulkan memory types, geometry holes, frame quarantine, size classes, or general
+free lists. Those remain module policies. GPU heaps, audio pools, render-slot
+quarantine, and geometry allocation therefore do not inherit a universal
+allocator hierarchy. A size-class multipool is introduced only for a measured
+independent-lifetime workload.
 
 ## Feature: addressable cell identities and canonical artifacts
 
@@ -524,6 +582,13 @@ legal materialization route.
 The cooker evaluates asset instances. It does not rebuild the C++ type graph and
 does not require engine recompilation when an asset is added.
 
+`AnoResourceCooker` is a long-lived evaluator. Stable-address source and
+artifact-instance records live in `ano::hive`; each artifact node retains only
+its current successful action/result pair. One persistent executor belongs to
+the cooker, its caller participates in every batch, and background workers reset
+private scratch regions between batches. No cook or reload creates another
+worker group.
+
 For each source asset the cooker:
 
 - Imports source bytes through the compiled importer table.
@@ -536,6 +601,34 @@ For each source asset the cooker:
 - Reuses a verified CAS result or executes the direct typed transform.
 - Stores canonical outputs by content ID.
 - Invalidates only transitive dependants whose action inputs changed.
+
+Source acquisition opens each actual input once, reads the exact byte count into
+one immutable snapshot, hashes that snapshot, and compares file metadata before
+and after acquisition. External glTF buffers and images are explicit selected
+inputs read and hashed by the persistent executor. Metadata only identifies a
+candidate change; it never substitutes for content identity. Candidate source
+snapshots and topology inventories publish transactionally with their cooked
+revision, so a failed cook preserves the complete prior source/result pair.
+
+Candidate revisions compile the persistent graph into dense nodes plus forward
+and reverse adjacency. Dirty propagation traverses only selected-producer reverse
+edges. Changed artifacts encode directly into disjoint final reservations.
+Validation, schema lookup, SHA-256, and reflected dependency extraction complete
+in the encoding worker phase. The opaque revision records successful validation,
+so manager construction and explicit pack export do not repeat those scans. An
+equal current action reuses its span; a rerun
+whose output content is equal discards the candidate span and terminates that
+branch's upward propagation.
+
+Cooking returns an opaque immutable revision containing dense semantic metadata
+and `{volume, offset, size}` artifact spans. It never serializes and reopens a
+pack on the live path. Pack offsets are physical serialization data and do not
+belong to the semantic revision.
+
+SHA-256 dispatches to SHA-NI on supporting x86-64 processors and retains the
+standard scalar path elsewhere. Canonical bulk movement uses tuned `memcpy`.
+The image decoder already produces the final RGBA8 extent consumed by reflected
+encoding, leaving no material pixel-conversion loop for a separate SIMD kernel.
 
 The transform type graph and each cell's sum-of-products provenance shape are
 computed by `consteval`; the instance DAG is runtime tool data. Runtime cooking
@@ -587,6 +680,11 @@ range read repeats the arithmetic and authentication needed for untrusted pack
 bytes. No range becomes a pointer until its bounds, codec, unpacked size, and
 content identity are valid.
 
+An opened pack owns one sealed backing volume containing its authenticated bytes
+and decoded dense columns. It exposes the same `AnoCookedRevision`
+representation as a live cook; retaining that revision keeps the backing volume
+alive after the pack handle closes.
+
 ## Feature: runtime demand and residency epochs
 
 **Public surface:** `anoptic_resources_runtime.h`.
@@ -607,6 +705,13 @@ Workers perform pack I/O, authentication, validation, decompression, decoding,
 and CPU preparation. Cancellation is observed at bounded points. A worker never
 calls Vulkan, mutates the mixer, publishes ECS state, or destroys an owner
 object.
+
+Epoch construction compares content and resident identities before publication.
+Its volume contains only dense bindings, changed IDs, and retained-owner rows;
+artifact payloads remain in their sealed cook or pack volumes. The epoch retains
+the revision metadata owner and only the distinct artifact owners reachable from
+current demand. Releasing the last reader therefore reclaims obsolete volumes
+incrementally rather than pinning an unrelated revision generation.
 
 The runtime product is an immutable, structurally shared residency epoch:
 
@@ -643,8 +748,11 @@ module. There is no handwritten artifact-kind switch.
 ### Renderer ownership
 
 The renderer alone creates and destroys Vulkan objects. Worker preparation ends
-in portable upload data. The render-master consumes generated render jobs and
-returns opaque slots.
+in portable upload data. Validated texture bytes are borrowed directly from the
+epoch and copied exactly once into mapped Vulkan staging. Mesh scratch exists
+only for genuine vertex/index transformation, and scene spans project directly
+into final renderer descriptors. The render-master consumes generated render
+jobs and returns opaque slots.
 
 Render resource declarations annotate vertex fields, index representations,
 material fields, texture formats, shader interfaces, buffer/image uses, memory
@@ -793,6 +901,12 @@ cell. It installs a candidate manifest root without mutating the published
 generation, invalidates superseded queued work, drains executing work while its
 source packs remain alive, materializes every hard-floor member, obtains all
 owner safe-point acknowledgements, and publishes one successor epoch.
+
+Replacement requests carry monotonically increasing generations. A newer request
+cancels the active cooker at its next bounded observation point, discards a ready
+but unpublished renderer candidate, and supersedes queued work. Owner publication
+checks the generation before polling or committing, so only the newest complete
+revision can become visible.
 
 Readers holding the previous epoch continue to resolve the complete previous
 generation. Every addressable focus in one asset route resolves within its

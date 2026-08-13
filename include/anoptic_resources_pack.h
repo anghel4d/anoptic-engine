@@ -17,16 +17,17 @@ extern "C" {
 
 typedef struct AnoResourceManifest AnoResourceManifest;
 typedef struct AnoResourcePack AnoResourcePack;
+typedef struct AnoCookedRevision AnoCookedRevision;
 
 typedef struct AnoResourceManifestEntry {
     AnoAssetId asset;
     AnoResourceTypeId type;
+    uint64_t producer;
+    AnoContentId inputIdentity;
     AnoSchemaFingerprint schema;
     AnoContentId content;
     AnoResourceCommitGroupId commitGroup;
-    uint64_t packOffset;
-    uint64_t packedSize;
-    uint64_t unpackedSize;
+    uint64_t byteSize;
     uint64_t dependencyFirst;
     uint64_t dependencyCount;
 } AnoResourceManifestEntry;
@@ -59,6 +60,18 @@ AnoResourceError ano_resource_pack_read(const AnoResourcePack *pack,
                                         AnoAssetId asset,
                                         AnoResourceMutableBytes output,
                                         uint64_t *packSize);
+// Returns an authenticated immutable range borrowed from the opened pack.
+AnoResourceError ano_resource_pack_view(const AnoResourcePack *pack,
+                                        AnoAssetId asset,
+                                        AnoResourceBytes *bytes);
+// Returns a retained cooked revision over the authenticated pack volume.
+AnoResourceError ano_resource_pack_revision(
+    const AnoResourcePack *pack, const AnoCookedRevision **revision);
+
+// Shipping serialization is an explicit operation over a cooked revision.
+AnoResourceError ano_resource_revision_export_pack(
+    const AnoCookedRevision *revision, AnoResourceMutableBytes *pack);
+void ano_resource_exported_pack_release(AnoResourceMutableBytes pack);
 
 #ifdef __cplusplus
 }

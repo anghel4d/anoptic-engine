@@ -242,7 +242,7 @@ consumes immutable bindings.
 | Stage | Input | Output |
 |---|---|---|
 | C++ compilation | Cell types, fields, transform functions, annotations | Schemas, validators, producer sums, input products, direct operations, navigation, legal routes, invalidation masks |
-| Asset cooking | Source assets, build settings, platform profiles | Content-addressed cell DAG, selected provenance, packed navigation, manifest, packs |
+| Asset cooking | Source assets, build settings, platform profiles | Content-addressed cell DAG, selected provenance, and an immutable cooked revision; shipping packs are an explicit serialization product |
 | Runtime | Typed cell demand and edits, hardware capabilities, current residency | I/O and transform schedule, copy-on-write candidate, immutable residency epochs |
 
 C++ compilation never evaluates an asset-instance graph. The resource language
@@ -267,8 +267,9 @@ The complete data flow is:
              +-----------+-------------+
                          |
                          v
- source bytes -> import -> canonical artifacts -> cook/CAS -> manifest + packs
-                                                            |
+ source bytes -> import -> canonical artifacts -> cook/CAS -> cooked revision
+                                                            |             |
+                                                            |             +--> explicit shipping-pack serialization
  ECS AssetRef<T> + behavioral demand ------------------------+
                                                             |
                                                             v
@@ -445,7 +446,8 @@ artifact or transform does.
 
 The cooker consumes compiler-produced schema descriptions and direct typed
 operations. It emits the content-addressed artifact DAG, dependency graph,
-cell provenance, packed navigation indices, manifest, and physical packs.
+cell provenance, packed navigation indices, and immutable cooked revision.
+Pack construction is a separate deterministic operation over that revision.
 
 ### Module boundary
 
@@ -481,6 +483,69 @@ the only place that closes the type graph. Public headers and that translation
 unit never include another module's private `src/` headers. Private
 implementations consume compiler-produced schemas and operations; they do not
 redeclare artifact inventories, transform routes, or owner maps.
+
+## Allocation and immutable storage boundary
+
+RCRG uses the engine-wide memory substrate rather than defining an asset
+allocator hierarchy. `ano::MemoryRegion` is a mimalloc lifetime domain whose
+reset or destruction winks out all subordinate allocations after quiescence.
+`ano::MemoryVolume` owns one aligned contiguous allocation inside an exclusive
+region, accepts bounded reservation writes during construction, seals once, and
+thereafter exposes only immutable bounded views. A volume has one owner-level
+reference count; its internal spans have none.
+
+Layout declarations are ordinary records of `MemorySegment<T, Alignment>`.
+C++26 reflection verifies every member and derives segment type and alignment;
+one `constexpr` checked prefix sum assigns offsets from runtime counts. The same
+mechanism lays out source snapshots, new artifact generations, opened packs,
+and residency-epoch columns. Persistent workers own scratch regions and reset
+them wholesale between tasks.
+
+The resource layer supplies policy: which values share a generation, which old
+volumes a new revision retains, when a volume seals, and when the last epoch or
+revision releases it. Published spans are never rewritten. Changed artifacts
+are measured into bounded volumes grouped by reflected type and commit group;
+an artifact larger than the target volume size occupies its own volume. A
+successor revision owns one dense metadata volume, retains each distinct
+unchanged or changed artifact volume once, and refers to artifacts by
+`{owner, offset, size}`. The final owner reference winks out a retired volume.
+
+A residency epoch owns only its dense binding and changed-ID columns. It retains
+the revision metadata volume needed by its dependency rows plus the distinct
+artifact volumes in its demanded closure. It does not retain the complete
+revision and does not copy artifact payloads into an epoch arena.
+
+The cooker is long-lived. Stable-address source and artifact instance records,
+their current action/result pair, and one worker group survive transactions.
+Each source file is opened once per acquisition, read into one exact immutable
+snapshot, hashed from those bytes, and rejected if its metadata changes during
+the read. External source files are read and hashed by the persistent executor.
+Candidate source inventories, snapshots, artifact volumes, and graph metadata
+publish in the same transaction as the cooked revision. Candidate artifacts
+encode directly into disjoint final reservations;
+validation, schema lookup, content hashing, and reflected dependency extraction
+finish while those bytes are cache-hot. The resulting opaque revision carries
+that validation fact, so trusted runtime consumers do not rescan or rehash its
+artifacts. A dense selected-producer adjacency
+representation computes only the dirty consequence cone. Equal action keys
+reuse their current span, and equal output content stops upward invalidation.
+
+Runtime SHA-256 uses SHA-NI where the CPU provides it and the scalar standard
+algorithm otherwise. Bulk byte movement remains tuned `memcpy`; image decoding
+already emits the final RGBA8 extent, so no separate pixel-conversion loop
+exists to vectorize.
+
+Workers retain private scratch regions and reset them between batches. A
+monotonic replacement generation coalesces requests; obsolete work checks
+cancellation at source, artifact, and encoding boundaries, and only a complete
+candidate can publish. Third-party decoder calls that cannot be interrupted
+finish privately and their obsolete result is discarded.
+
+This substrate knows nothing about resource identities, schemas, DAGs, packs,
+epochs, Vulkan memory types, geometry holes, frame quarantine, or size classes.
+Renderer, audio, geometry, and other owners keep their purpose-specific
+allocation policies. A general multipool is not part of the architecture
+without a measured workload of many small independently freed objects.
 
 ## ECS boundary
 

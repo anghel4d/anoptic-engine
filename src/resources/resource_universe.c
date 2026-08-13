@@ -45,6 +45,15 @@ extern "C" AnoResourceError ano_resource_import(
         cooker, request->source);
     if (path == nullptr)
         return ANO_RESOURCE_NOT_FOUND;
+    bool execute = false;
+    AnoResourceError result = ano_resource_cooker_import_begin(
+        cooker, request->source, &execute);
+    if (result != ANO_RESOURCE_OK || !execute)
+        return result;
+    const AnoResourceCookCheckpoint checkpoint =
+        ano_resource_cooker_checkpoint(cooker);
+    result = ANO_RESOURCE_UNSUPPORTED;
+    bool matched = false;
     static constexpr auto resourceDeclarations = std::define_static_array(
         std::meta::members_of(^^ano::asset_schema,
                               std::meta::access_context::unchecked()));
@@ -54,11 +63,23 @@ extern "C" AnoResourceError ano_resource_import(
         template for (constexpr std::meta::info annotation : importers) {
             constexpr ano::Importer importer =
                 std::meta::extract<ano::Importer>(annotation);
-            if (importer_matches(path, importer))
-                return [:declaration:](*cooker, *request);
+            if (!matched && importer_matches(path, importer)) {
+                matched = true;
+                constexpr uint64_t producer =
+                    ano::detail::reflected_importer_id(
+                        declaration, importer);
+                ano_resource_cooker_select_producer(cooker, producer);
+                result = [:declaration:](*cooker, *request);
+            }
         }
     }
-    return ANO_RESOURCE_UNSUPPORTED;
+    const AnoResourceError ended = ano_resource_cooker_import_end(
+        cooker, request->source, result == ANO_RESOURCE_OK);
+    if (result == ANO_RESOURCE_OK)
+        result = ended;
+    if (result != ANO_RESOURCE_OK)
+        ano_resource_cooker_rollback(cooker, checkpoint);
+    return result;
 }
 
 extern "C" AnoResourceError ano_resource_artifact_schema(

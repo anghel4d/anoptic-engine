@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_atomic.h>
-#include <anoptic_memory_region.h>
+#include <anoptic_memory_typed.h>
 #include <anoptic_threads.h>
 
 #include <stdint.h>
@@ -26,85 +26,94 @@ struct alignas(32) WideValue final {
     uint64_t words[4];
 };
 
-consteval bool layout_is_constexpr()
+struct TestVolumePlan final {
+    ano::MemorySegment<uint8_t> bytes;
+    ano::MemorySegment<uint64_t> words;
+    ano::MemorySegment<WideValue> wide;
+};
+
+consteval bool layout_is_reflected()
 {
-    AnoMemoryLayout layout = ano_memory_layout();
-    AnoMemoryReservation bytes{};
-    AnoMemoryReservation words{};
-    AnoMemoryReservation wide{};
-    return ano::memory_layout_reserve<uint8_t>(&layout, 3, &bytes)
-        && ano::memory_layout_reserve<uint64_t>(&layout, 2, &words)
-        && ano::memory_layout_reserve<WideValue>(&layout, 2, &wide)
-        && bytes.offset == 0 && bytes.size == 3
-        && words.offset == 8 && words.size == 16
-        && wide.offset == 32 && wide.size == 64
+    TestVolumePlan plan{
+        .bytes = {.count = 3},
+        .words = {.count = 2},
+        .wide = {.count = 2},
+    };
+    const ano::MemoryLayoutCursor layout = ano::memory_layout(plan);
+    return plan.bytes.reservation.offset == 0
+        && plan.bytes.reservation.size == 3
+        && plan.words.reservation.offset == 8
+        && plan.words.reservation.size == 16
+        && plan.wide.reservation.offset == 32
+        && plan.wide.reservation.size == 64
         && layout.size == 96 && layout.alignment == 32 && layout.valid;
 }
 
-static_assert(layout_is_constexpr());
+static_assert(layout_is_reflected());
 
 struct ReaderContext final {
-    AnoMemoryRegion *region;
-    AnoMemoryReservation reservation;
+    ano::MemoryVolume *volume;
+    ano::MemorySegment<uint64_t> words;
     atomic_bool start;
     atomic_bool passed;
 };
 
-void *read_on_retaining_thread(void *opaque)
+void *read_retained_volume(void *opaque)
 {
-    auto *context = static_cast<ReaderContext *>(opaque);
-    while (!atomic_load_explicit(&context->start, memory_order_acquire))
+    auto& context = *static_cast<ReaderContext *>(opaque);
+    while (!atomic_load_explicit(&context.start, memory_order_acquire))
         {}
-    const ano::MemoryRegionSpan<const uint64_t> words =
-        ano::memory_region_view<uint64_t>(context->region,
-                                          context->reservation);
+    const auto words = ano::memory_volume_view(
+        context.volume, context.words);
     atomic_store_explicit(
-        &context->passed,
+        &context.passed,
         words.size() == 2 && words[0] == UINT64_C(0x1776)
             && words[1] == UINT64_C(0x2323),
         memory_order_release);
-    ano_memory_region_release(context->region);
+    ano::memory_volume_release(context.volume);
     return nullptr;
 }
 
-struct HeapContext final {
-    mi_heap_t *heap;
+struct ScratchContext final {
+    ano::MemoryRegion *region;
     uint64_t *values;
 };
 
-void *allocate_from_shared_heap(void *opaque)
+void *allocate_from_scratch_region(void *opaque)
 {
-    auto *context = static_cast<HeapContext *>(opaque);
-    context->values = mi_heap_mallocn_tp(uint64_t, context->heap, 256);
-    if (context->values != nullptr) {
-        context->values[0] = UINT64_C(0x1776);
-        context->values[255] = UINT64_C(0x7123);
+    auto& context = *static_cast<ScratchContext *>(opaque);
+    context.values = ano::memory_region_allocate<uint64_t>(
+        context.region, 256);
+    if (context.values != nullptr) {
+        context.values[0] = UINT64_C(0x1776);
+        context.values[255] = UINT64_C(0x7123);
     }
     return nullptr;
 }
 
-void test_first_class_heap()
+void test_scratch_region()
 {
-    mi_heap_t *heap = ano_heap_create();
-    CHECK(heap != nullptr, "first-class heap creation succeeds");
-    if (heap == nullptr)
+    ano::MemoryRegion *region = ano::memory_region_create();
+    CHECK(region != nullptr, "scratch region creation succeeds");
+    if (region == nullptr)
         return;
-    uint32_t *local = mi_heap_calloc_tp(uint32_t, heap, 64);
-    HeapContext context{ .heap = heap, .values = nullptr };
+    uint32_t *local = ano::memory_region_allocate_zero<uint32_t>(region, 64);
+    ScratchContext context{region, nullptr};
     anothread_t thread{};
     const bool started = ano_thread_create(
-        &thread, nullptr, allocate_from_shared_heap, &context) == 0;
-    CHECK(started, "a second thread can use the same first-class heap");
+        &thread, nullptr, allocate_from_scratch_region, &context) == 0;
+    CHECK(started, "another worker can allocate from the region");
     if (started)
-        CHECK(ano_thread_join(thread, nullptr) == 0, "heap worker joins");
+        CHECK(ano_thread_join(thread, nullptr) == 0, "scratch worker joins");
     CHECK(local != nullptr && context.values != nullptr
               && context.values[0] == UINT64_C(0x1776)
               && context.values[255] == UINT64_C(0x7123),
-          "cross-thread heap allocations preserve their values");
-    CHECK(mi_heap_contains(heap, local)
-              && mi_heap_contains(heap, context.values),
-          "both threads allocate into the requested heap");
-    ano_heap_destroy(heap);
+          "region allocations remain valid until reset");
+    CHECK(ano::memory_region_reset(region),
+          "scratch allocation lifetime resets wholesale");
+    CHECK(ano::memory_region_allocate<uint64_t>(region, 1) != nullptr,
+          "a reset region accepts the next task");
+    ano::memory_region_destroy(region);
 }
 
 void test_layout_failure()
@@ -117,103 +126,94 @@ void test_layout_failure()
     CHECK(!ano_size_align(SIZE_MAX, 32, &result) && result == 17,
           "checked alignment leaves output untouched on overflow");
 
-    AnoMemoryLayout layout = ano_memory_layout();
-    AnoMemoryReservation reservation{};
-    CHECK(!ano_memory_layout_reserve(&layout, 4, 3, &reservation),
+    ano::MemoryLayoutCursor layout{};
+    ano::MemoryReservation reservation{};
+    CHECK(!layout.reserve(4, 3, reservation),
           "non-power-of-two alignment is rejected");
-    CHECK(!layout.valid && ano_memory_region_create(layout) == nullptr,
-          "a failed layout cannot be allocated");
+    CHECK(!layout.valid && ano::memory_volume_create(layout) == nullptr,
+          "a poisoned layout cannot become a volume");
+
+    struct OverflowPlan final {
+        ano::MemorySegment<uint64_t> values;
+    } plan{.values = {.count = SIZE_MAX}};
+    const ano::MemoryLayoutCursor reflected = ano::memory_layout(plan);
+    CHECK(!reflected.valid && ano::memory_volume_create(reflected) == nullptr,
+          "a reflected element-size overflow poisons the complete layout");
 }
 
-void test_region_publication()
+void test_volume_publication()
 {
-    AnoMemoryLayout layout = ano_memory_layout();
-    AnoMemoryReservation bytes{};
-    AnoMemoryReservation words{};
-    AnoMemoryReservation wide{};
-    CHECK(ano::memory_layout_reserve<uint8_t>(&layout, 3, &bytes)
-              && ano::memory_layout_reserve<uint64_t>(&layout, 2, &words)
-              && ano::memory_layout_reserve<WideValue>(&layout, 2, &wide),
-          "typed reservations produce one valid layout");
-
-    AnoMemoryRegion *region = ano_memory_region_create(layout);
-    CHECK(region != nullptr, "region allocation succeeds");
-    if (region == nullptr)
+    TestVolumePlan plan{
+        .bytes = {.count = 3},
+        .words = {.count = 2},
+        .wide = {.count = 2},
+    };
+    const ano::MemoryLayoutCursor layout = ano::memory_layout(plan);
+    ano::MemoryVolume *volume = ano::memory_volume_create(layout);
+    CHECK(volume != nullptr, "measured volume allocation succeeds");
+    if (volume == nullptr)
         return;
-    CHECK(ano_memory_region_size(region) == 96
-              && ano_memory_region_alignment(region) == 32,
-          "region preserves measured extent and alignment");
+    CHECK(ano::memory_volume_size(volume) == 96
+              && ano::memory_volume_alignment(volume) == 32,
+          "volume preserves its reflected layout");
 
-    AnoMemoryView unavailable{};
-    CHECK(!ano_memory_region_view(region, words, &unavailable),
-          "immutable views are unavailable during construction");
+    const auto unavailable = ano::memory_volume_view(volume, plan.words);
+    CHECK(unavailable.empty(),
+          "immutable spans are unavailable during construction");
+    auto bytes = ano::memory_volume_write(volume, plan.bytes);
+    auto words = ano::memory_volume_write(volume, plan.words);
+    auto wide = ano::memory_volume_write(volume, plan.wide);
+    CHECK(bytes.size() == 3 && words.size() == 2 && wide.size() == 2,
+          "typed segments resolve to exact mutable spans");
+    CHECK((reinterpret_cast<uintptr_t>(wide.data()) & 31u) == 0,
+          "the strongest reflected segment alignment is honored");
+    bytes[0] = 1;
+    bytes[1] = 2;
+    bytes[2] = 3;
+    words[0] = UINT64_C(0x1776);
+    words[1] = UINT64_C(0x2323);
+    wide[1].words[3] = UINT64_C(0x7123);
 
-    ano::MemoryRegionSpan<uint8_t> byteView =
-        ano::memory_region_write<uint8_t>(region, bytes);
-    ano::MemoryRegionSpan<uint64_t> wordView =
-        ano::memory_region_write<uint64_t>(region, words);
-    ano::MemoryRegionSpan<WideValue> wideView =
-        ano::memory_region_write<WideValue>(region, wide);
-    CHECK(byteView.size() == 3 && wordView.size() == 2 && wideView.size() == 2,
-          "reservations resolve to their exact typed spans");
-    CHECK((reinterpret_cast<uintptr_t>(wideView.data()) & 31u) == 0,
-          "the strongest reservation is correctly aligned");
-
-    byteView[0] = 1;
-    byteView[1] = 2;
-    byteView[2] = 3;
-    wordView[0] = UINT64_C(0x1776);
-    wordView[1] = UINT64_C(0x2323);
-    wideView[1].words[3] = UINT64_C(0x7123);
-
-    CHECK(ano_memory_region_seal(region)
-              && ano_memory_region_is_sealed(region),
-          "sealing publishes the complete region");
-    AnoMemoryMutableView forbidden{};
-    CHECK(!ano_memory_region_write(region, bytes, &forbidden),
-          "sealed regions reject mutable views");
-    const ano::MemoryRegionSpan<const WideValue> published =
-        ano::memory_region_view<WideValue>(region, wide);
+    CHECK(ano::memory_volume_seal(volume)
+              && ano::memory_volume_is_sealed(volume),
+          "sealing publishes all completed writes");
+    CHECK(ano::memory_volume_write(volume, plan.bytes).empty(),
+          "sealed volumes reject mutable spans");
+    const auto published = ano::memory_volume_view(volume, plan.wide);
     CHECK(published.size() == 2
               && published[1].words[3] == UINT64_C(0x7123),
-          "published typed data is retained without copying");
+          "immutable spans borrow the retained volume without copying");
 
     ReaderContext context{
-        .region = region,
-        .reservation = words,
+        .volume = volume,
+        .words = plan.words,
         .start = false,
         .passed = false,
     };
-    CHECK(ano_memory_region_retain(region),
-          "region can be retained for another thread");
+    CHECK(ano::memory_volume_retain(volume),
+          "a volume owner may cross a thread boundary");
     anothread_t reader{};
-    if (ano_thread_create(&reader, nullptr, read_on_retaining_thread,
-                          &context) != 0) {
-        CHECK(false, "reader thread starts");
-        ano_memory_region_release(region);
-        ano_memory_region_release(region);
-        return;
-    }
-
-    ano_memory_region_release(region);
+    const bool started = ano_thread_create(
+        &reader, nullptr, read_retained_volume, &context) == 0;
+    CHECK(started, "retained reader starts");
     atomic_store_explicit(&context.start, true, memory_order_release);
-    CHECK(ano_thread_join(reader, nullptr) == 0, "reader thread joins");
+    if (started)
+        CHECK(ano_thread_join(reader, nullptr) == 0, "retained reader joins");
     CHECK(atomic_load_explicit(&context.passed, memory_order_acquire),
-          "the final retaining thread reads and winks out the region");
-
+          "retained immutable spans survive publication to another thread");
+    if (!started)
+        ano::memory_volume_release(volume);
+    ano::memory_volume_release(volume);
 }
 
 } // namespace
 
 int main()
 {
+    test_scratch_region();
     test_layout_failure();
-    test_first_class_heap();
-    test_region_publication();
-    if (failures == 0) {
-        printf("anotest_memory_region: all checks passed\n");
-        return 0;
-    }
-    printf("anotest_memory_region: %d check(s) failed\n", failures);
-    return 1;
+    test_volume_publication();
+    if (failures != 0)
+        printf("%d memory substrate checks failed\n", failures);
+    return failures == 0 ? 0 : 1;
 }

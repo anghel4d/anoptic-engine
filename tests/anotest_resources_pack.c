@@ -44,8 +44,12 @@ static AnoResourceError cook_artifacts(const TestArtifact *items,
         result = ano_resource_cooker_add(
             cooker, items[i].asset, items[i].type, items[i].commitGroup,
             items[i].bytes);
+    const AnoCookedRevision *revision = nullptr;
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, pack);
+        result = ano_resource_cook(cooker, &revision);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_revision_export_pack(revision, pack);
+    ano_resource_revision_release(revision);
     ano_resource_cooker_destroy(cooker);
     return result;
 }
@@ -143,8 +147,8 @@ static void test_pack_round_trip(void)
           && opened != nullptr,
           "authenticated pack opens");
     if (opened == nullptr) {
-        ano_resource_cooked_pack_release(second);
-        ano_resource_cooked_pack_release(first);
+        ano_resource_exported_pack_release(second);
+        ano_resource_exported_pack_release(first);
         return;
     }
     const AnoResourceManifest *manifest = ano_resource_pack_manifest(opened);
@@ -169,8 +173,13 @@ static void test_pack_round_trip(void)
           && ano_resource_manifest_find(manifest, {3}, &materialEntry)
               == ANO_RESOURCE_OK,
           "dense asset IDs resolve directly");
-    CHECK(firstTexture.packOffset == secondTexture.packOffset
-          && firstTexture.packedSize == secondTexture.packedSize,
+    AnoResourceBytes firstView = {};
+    AnoResourceBytes secondView = {};
+    CHECK(ano_resource_pack_view(opened, {1}, &firstView) == ANO_RESOURCE_OK
+          && ano_resource_pack_view(opened, {2}, &secondView)
+              == ANO_RESOURCE_OK
+          && firstView.data == secondView.data
+          && firstView.size == secondView.size,
           "identical content occupies one physical pack extent");
     CHECK(materialEntry.type.value == materialType.value
           && materialEntry.dependencyCount == 1,
@@ -199,7 +208,23 @@ static void test_pack_round_trip(void)
           && memcmp(readback, materialBytes,
                     static_cast<size_t>(material.size)) == 0,
           "range read authenticates and copies canonical artifact bytes");
+    const AnoCookedRevision *openedRevision = nullptr;
+    AnoResourceBytes revisionView{};
+    CHECK(ano_resource_pack_revision(opened, &openedRevision)
+              == ANO_RESOURCE_OK
+          && ano_resource_revision_resolve(
+                 openedRevision, {3}, materialType, &revisionView)
+              == ANO_RESOURCE_OK
+          && revisionView.size == material.size
+          && memcmp(revisionView.data, materialBytes,
+                    static_cast<size_t>(material.size)) == 0,
+          "pack opening constructs the runtime cooked revision");
     ano_resource_pack_close(opened);
+    CHECK(ano_resource_revision_resolve(
+              openedRevision, {3}, materialType, &revisionView)
+              == ANO_RESOURCE_OK,
+          "retained pack revision owns its authenticated backing volume");
+    ano_resource_revision_release(openedRevision);
 
     first.data[64] ^= 1;
     CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
@@ -208,13 +233,15 @@ static void test_pack_round_trip(void)
     first.data[64] ^= 1;
 
     const uint64_t payloadOffset = read_u64(first.data + 24);
-    first.data[payloadOffset + firstTexture.packOffset] ^= 1;
+    const uint64_t manifestSize = read_u64(first.data + 8);
+    const uint64_t firstOffset = read_u64(first.data + 64 + manifestSize);
+    first.data[payloadOffset + firstOffset] ^= 1;
     CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
               == ANO_RESOURCE_BAD_PACK,
           "artifact authentication rejects modified payload bytes");
-    first.data[payloadOffset + firstTexture.packOffset] ^= 1;
-    ano_resource_cooked_pack_release(second);
-    ano_resource_cooked_pack_release(first);
+    first.data[payloadOffset + firstOffset] ^= 1;
+    ano_resource_exported_pack_release(second);
+    ano_resource_exported_pack_release(first);
 }
 
 static void test_pack_rejects_bad_closure(void)
@@ -249,7 +276,7 @@ static void test_pack_rejects_bad_closure(void)
     CHECK(cook_artifacts(duplicate, 2, &pack)
               == ANO_RESOURCE_DUPLICATE_ASSET,
           "builder rejects duplicate stable asset IDs");
-    ano_resource_cooked_pack_release(pack);
+    ano_resource_exported_pack_release(pack);
 }
 
 int main(void)

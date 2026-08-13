@@ -8,6 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 using namespace ano::asset_schema;
 
@@ -32,6 +38,185 @@ typedef struct SceneCounts {
     uint64_t renderables;
     uint64_t lights;
 } SceneCounts;
+
+static bool copy_file(const char *source, const char *destination)
+{
+    FILE *input = fopen(source, "rb");
+    FILE *output = input == nullptr ? nullptr : fopen(destination, "wb");
+    uint8_t buffer[64 * 1024];
+    bool copied = input != nullptr && output != nullptr;
+    while (copied) {
+        const size_t read = fread(buffer, 1, sizeof(buffer), input);
+        if (read != 0 && fwrite(buffer, 1, read, output) != read)
+            copied = false;
+        if (read != sizeof(buffer)) {
+            copied = copied && feof(input) && !ferror(input);
+            break;
+        }
+    }
+    if (output != nullptr)
+        copied = fclose(output) == 0 && copied;
+    if (input != nullptr)
+        copied = fclose(input) == 0 && copied;
+    return copied;
+}
+
+static bool append_json_whitespace(const char *path)
+{
+    FILE *file = fopen(path, "ab");
+    if (file == nullptr)
+        return false;
+    const uint8_t whitespace[] = {'\n', ' '};
+    const bool written = fwrite(whitespace, 1, sizeof(whitespace), file)
+        == sizeof(whitespace);
+    return fclose(file) == 0 && written;
+}
+
+static void test_incremental_external_image(void)
+{
+    const char *directory = ANO_TEST_BINARY_DIR "/resource-incremental";
+#if defined(_WIN32)
+    (void)_mkdir(directory);
+#else
+    (void)mkdir(directory, 0700);
+#endif
+    const char *gltf = ANO_TEST_BINARY_DIR
+        "/resource-incremental/viking_room.gltf";
+    const char *binary = ANO_TEST_BINARY_DIR
+        "/resource-incremental/viking_room.bin";
+    const char *image = ANO_TEST_BINARY_DIR
+        "/resource-incremental/viking_room.png";
+    const char *alternate = ANO_TEST_BINARY_DIR
+        "/resource-incremental/hat_loli.png";
+    const char *cursed = ANO_TEST_BINARY_DIR
+        "/resource-incremental/cursed.png";
+    const bool staged = copy_file(
+            ANO_TEST_SOURCE_DIR "/assets/viking_room.gltf", gltf)
+        && copy_file(ANO_TEST_SOURCE_DIR "/assets/viking_room.bin", binary)
+        && copy_file(ANO_TEST_SOURCE_DIR "/assets/viking_room.png", image)
+        && copy_file(ANO_TEST_SOURCE_DIR "/assets/hat_loli.png", alternate)
+        && copy_file(ANO_TEST_SOURCE_DIR "/assets/cursed.png", cursed);
+    CHECK(staged, "incremental fixture stages exact source files");
+    if (!staged)
+        return;
+
+    AnoResourceCooker *cooker = nullptr;
+    AnoResourceError result = ano_resource_cooker_create(
+        {.firstDerivedAsset = {2}}, &cooker);
+    const AnoResourceImportRequest request = {{1}, {1}, {1}};
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_source_bind(cooker, {1}, gltf);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_import(cooker, &request);
+    const AnoCookedRevision *first = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, &first);
+
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_begin(cooker);
+    if (result == ANO_RESOURCE_OK
+        && !copy_file(ANO_TEST_SOURCE_DIR "/assets/hat_loli.png", image))
+        result = ANO_RESOURCE_IO_ERROR;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_import(cooker, &request);
+    const AnoCookedRevision *second = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, &second);
+    CHECK(result == ANO_RESOURCE_OK
+              && ano_resource_cooker_executed_actions(cooker) == 1
+              && ano_resource_cooker_allocated_artifacts(cooker) == 1
+              && ano_resource_revision_asset_count(first)
+                  == ano_resource_revision_asset_count(second),
+          "one external image edit rebuilds exactly its texture cell");
+
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_begin(cooker);
+    if (result == ANO_RESOURCE_OK && !append_json_whitespace(gltf))
+        result = ANO_RESOURCE_IO_ERROR;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_import(cooker, &request);
+    const AnoCookedRevision *equivalent = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, &equivalent);
+    CHECK(result == ANO_RESOURCE_OK
+              && ano_resource_cooker_executed_actions(cooker) > 1
+              && ano_resource_cooker_allocated_artifacts(cooker) == 0,
+          "a rerun with equal outputs stops invalidation at content identity");
+
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_begin(cooker);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_import(cooker, &request);
+    const AnoCookedRevision *unchanged = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, &unchanged);
+    CHECK(result == ANO_RESOURCE_OK
+              && ano_resource_cooker_executed_actions(cooker) == 0
+              && ano_resource_cooker_allocated_artifacts(cooker) == 0,
+          "the exact post-edit snapshot is a zero-work no-op");
+
+    const char *relocatedDirectory = ANO_TEST_BINARY_DIR
+        "/resource-incremental-relocated";
+#if defined(_WIN32)
+    (void)_mkdir(relocatedDirectory);
+#else
+    (void)mkdir(relocatedDirectory, 0700);
+#endif
+    const char *relocatedGltf = ANO_TEST_BINARY_DIR
+        "/resource-incremental-relocated/viking_room.gltf";
+    const char *relocatedBinary = ANO_TEST_BINARY_DIR
+        "/resource-incremental-relocated/viking_room.bin";
+    const char *relocatedImage = ANO_TEST_BINARY_DIR
+        "/resource-incremental-relocated/viking_room.png";
+    const char *relocatedAlternate = ANO_TEST_BINARY_DIR
+        "/resource-incremental-relocated/hat_loli.png";
+    const char *relocatedCursed = ANO_TEST_BINARY_DIR
+        "/resource-incremental-relocated/cursed.png";
+    if (result == ANO_RESOURCE_OK
+        && (!copy_file(gltf, relocatedGltf)
+            || !copy_file(binary, relocatedBinary)
+            || !copy_file(image, relocatedImage)
+            || !copy_file(alternate, relocatedAlternate)
+            || !copy_file(cursed, relocatedCursed)))
+        result = ANO_RESOURCE_IO_ERROR;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_begin(cooker);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_source_bind(cooker, {1}, relocatedGltf);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_import(cooker, &request);
+    const AnoCookedRevision *relocated = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, &relocated);
+    CHECK(result == ANO_RESOURCE_OK
+              && ano_resource_cooker_executed_actions(cooker) == 0
+              && ano_resource_cooker_allocated_artifacts(cooker) == 0,
+          "rebinding a source handle to equal inputs reuses current actions");
+
+    ano_resource_revision_release(relocated);
+    ano_resource_revision_release(unchanged);
+    ano_resource_revision_release(equivalent);
+    ano_resource_revision_release(second);
+    ano_resource_revision_release(first);
+    ano_resource_cooker_destroy(cooker);
+    (void)remove(image);
+    (void)remove(alternate);
+    (void)remove(cursed);
+    (void)remove(binary);
+    (void)remove(gltf);
+    (void)remove(relocatedImage);
+    (void)remove(relocatedAlternate);
+    (void)remove(relocatedCursed);
+    (void)remove(relocatedBinary);
+    (void)remove(relocatedGltf);
+#if defined(_WIN32)
+    (void)_rmdir(directory);
+    (void)_rmdir(relocatedDirectory);
+#else
+    (void)rmdir(directory);
+    (void)rmdir(relocatedDirectory);
+#endif
+}
 
 static bool import_sources(const char *const *relativePaths,
                            uint32_t sourceCount, ImportedCounts *counts,
@@ -78,17 +263,40 @@ static bool import_sources(const char *const *relativePaths,
         }
     }
 
+    const AnoCookedRevision *revision = nullptr;
+    result = ano_resource_cook(cooker, &revision);
+    const AnoCookedRevision *unchanged = nullptr;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_begin(cooker);
+    for (uint32_t source = 0;
+         source < sourceCount && result == ANO_RESOURCE_OK; ++source) {
+        const AnoResourceImportRequest request = {
+            .source = {source + 1},
+            .rootAsset = {source + 1},
+            .commitGroup = {source + 1},
+        };
+        result = ano_resource_import(cooker, &request);
+    }
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cook(cooker, &unchanged);
+    CHECK(result == ANO_RESOURCE_OK
+          && ano_resource_cooker_executed_actions(cooker) == 0
+          && ano_resource_cooker_allocated_artifacts(cooker) == 0,
+          "unchanged source graph reuses its current action results");
+    ano_resource_revision_release(unchanged);
     AnoResourceMutableBytes cooked = {};
-    result = ano_resource_cook(cooker, &cooked);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_revision_export_pack(revision, &cooked);
+    ano_resource_revision_release(revision);
     ano_resource_cooker_destroy(cooker);
     if (result != ANO_RESOURCE_OK) {
-        ano_resource_cooked_pack_release(cooked);
+        ano_resource_exported_pack_release(cooked);
         return false;
     }
 
     AnoResourcePack *pack = nullptr;
     result = ano_resource_pack_open({cooked.data, cooked.size}, &pack);
-    ano_resource_cooked_pack_release(cooked);
+    ano_resource_exported_pack_release(cooked);
     if (result != ANO_RESOURCE_OK)
         return false;
 
@@ -196,5 +404,6 @@ int main(void)
 {
     test_viking_glb();
     test_current_vertical();
+    test_incremental_external_image();
     return failures == 0 ? 0 : 1;
 }

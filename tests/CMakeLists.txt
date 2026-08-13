@@ -44,7 +44,8 @@ set_tests_properties(anoptic_resources_runtime PROPERTIES TIMEOUT 30 LABELS "uni
 add_executable(anotest_resources_gltf anotest_resources_gltf.c)
 target_link_libraries(anotest_resources_gltf PRIVATE anoptic_core)
 target_compile_definitions(anotest_resources_gltf PRIVATE
-        ANO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+        ANO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        ANO_TEST_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}")
 add_test(NAME anoptic_resources_gltf COMMAND anotest_resources_gltf)
 set_tests_properties(anoptic_resources_gltf PROPERTIES TIMEOUT 180 LABELS "integration;resources")
 

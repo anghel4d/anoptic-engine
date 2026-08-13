@@ -5,20 +5,91 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include "cooker_internal.h"
-#include "parallel.h"
 
-#include <anoptic_memory.h>
+#include <anoptic_memory_typed.h>
+#include <anoptic_resources_pack.h>
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 using ResourceManifest = ano::asset_schema::Manifest;
 
+namespace {
+
+inline constexpr uint64_t packHeaderSize = 64;
+inline constexpr uint64_t placementSize = 16;
+inline constexpr uint8_t packMagic[8] = {
+    'A', 'N', 'O', 'P', 'A', 'C', 'K', 2,
+};
+
+struct PackPlacement final {
+    uint64_t offset;
+    uint64_t size;
+};
+
+struct OpenVolumePlan final {
+    ano::MemorySegment<uint8_t, ANO_CACHE_LINE> bytes;
+    ano::MemorySegment<AnoResourceManifestEntry> entries;
+    ano::MemorySegment<AnoResourceDependency> dependencies;
+    ano::MemorySegment<PackPlacement> placements;
+    ano::MemorySegment<AnoResourceRevisionItem> revisionItems;
+    ano::MemorySegment<ano::MemoryVolume *> revisionVolumes;
+};
+
+bool content_equal(const AnoContentId& lhs, const AnoContentId& rhs)
+{
+    return ano::detail::bytes_equal(lhs.bytes, rhs.bytes, sizeof(lhs.bytes));
+}
+
+AnoResourceError validate_manifest_graph(
+    const AnoResourceManifestEntry *entries, uint64_t entryCount,
+    const AnoResourceDependency *dependencies, uint64_t dependencyCount)
+{
+    if ((entries == nullptr && entryCount != 0)
+        || (dependencies == nullptr && dependencyCount != 0))
+        return ANO_RESOURCE_BAD_MANIFEST;
+    for (uint64_t i = 0; i < entryCount; ++i) {
+        const AnoResourceManifestEntry& entry = entries[i];
+        AnoResourceSchema schema{};
+        if (entry.byteSize == 0
+            || ano_resource_artifact_schema(entry.type, &schema)
+                != ANO_RESOURCE_OK
+            || !ano::detail::fingerprint_equal(
+                entry.schema, schema.fingerprint))
+            return ANO_RESOURCE_BAD_MANIFEST;
+    }
+    return ano::resource_detail::validate_dependency_graph(
+        entries, entryCount, dependencies, dependencyCount);
+}
+
+AnoResourceError decode_manifest(
+    AnoResourceBytes bytes, AnoResourceManifestEntry *entries,
+    AnoResourceDependency *dependencies, ResourceManifest *root)
+{
+    const ano::DecodeResult<ResourceManifest> decoded =
+        ano::decode<ResourceManifest>(bytes);
+    if (decoded.error != ANO_RESOURCE_OK)
+        return ANO_RESOURCE_BAD_MANIFEST;
+    if (root != nullptr)
+        *root = decoded.view.value;
+    if (ano::resolve_span(decoded.view, decoded.view.value.entries,
+                          entries, decoded.view.value.entries.count)
+            != ANO_RESOURCE_OK
+        || ano::resolve_span(decoded.view, decoded.view.value.dependencies,
+                             dependencies,
+                             decoded.view.value.dependencies.count)
+            != ANO_RESOURCE_OK)
+        return ANO_RESOURCE_BAD_MANIFEST;
+    return validate_manifest_graph(
+        entries, decoded.view.value.entries.count,
+        dependencies, decoded.view.value.dependencies.count);
+}
+
+} // namespace
+
 struct AnoResourceManifest {
-    uint8_t *bytes;
-    uint64_t byteCount;
+    ano::MemoryVolume *volume;
     ResourceManifest root;
     AnoResourceManifestEntry *entries;
     AnoResourceDependency *dependencies;
@@ -26,467 +97,73 @@ struct AnoResourceManifest {
 };
 
 struct AnoResourcePack {
-    uint8_t *bytes;
+    ano::MemoryVolume *volume;
+    const uint8_t *bytes;
     uint64_t byteCount;
     uint64_t payloadOffset;
+    PackPlacement *placements;
     AnoResourceManifest *manifest;
+    AnoCookedRevision *revision;
 };
 
 namespace {
 
-inline constexpr uint64_t packHeaderSize = 64;
-inline constexpr uint8_t packMagic[8] = {
-    'A', 'N', 'O', 'P', 'A', 'C', 'K', 1,
-};
-
-struct WorkItem final {
-    AnoResourcePackItem source;
-    AnoResourceSchema schema;
-    AnoContentId content;
-    AnoResourceDependency *dependencies;
-    uint64_t dependencyCount;
-    uint64_t canonicalIndex;
-    uint64_t packOffset;
-    AnoResourceError result;
-};
-
-struct ContentOrder final {
-    AnoContentId content;
-    uint64_t index;
-};
-
-struct GraphFrame final {
-    uint64_t entry;
-    uint64_t nextDependency;
-};
-
-int compare_items(const void *lhs, const void *rhs)
+AnoResourceError allocate_open_volume(
+    AnoResourceBytes bytes, uint64_t entryCount, uint64_t dependencyCount,
+    bool withPlacements, ano::MemoryVolume **volume,
+    OpenVolumePlan *plan)
 {
-    const WorkItem& first = *static_cast<const WorkItem *>(lhs);
-    const WorkItem& second = *static_cast<const WorkItem *>(rhs);
-    if (first.source.asset.value < second.source.asset.value)
-        return -1;
-    if (first.source.asset.value > second.source.asset.value)
-        return 1;
-    return 0;
-}
-
-int compare_dependencies(const void *lhs, const void *rhs)
-{
-    const AnoResourceDependency& first =
-        *static_cast<const AnoResourceDependency *>(lhs);
-    const AnoResourceDependency& second =
-        *static_cast<const AnoResourceDependency *>(rhs);
-    if (first.asset.value < second.asset.value)
-        return -1;
-    if (first.asset.value > second.asset.value)
-        return 1;
-    if (first.type.value < second.type.value)
-        return -1;
-    if (first.type.value > second.type.value)
-        return 1;
-    return 0;
-}
-
-int compare_content_order(const void *lhs, const void *rhs)
-{
-    const ContentOrder& first = *static_cast<const ContentOrder *>(lhs);
-    const ContentOrder& second = *static_cast<const ContentOrder *>(rhs);
-    const int digestOrder = memcmp(first.content.bytes, second.content.bytes,
-                                   sizeof(first.content.bytes));
-    if (digestOrder != 0)
-        return digestOrder;
-    if (first.index < second.index)
-        return -1;
-    if (first.index > second.index)
-        return 1;
-    return 0;
-}
-
-AnoResourceError collect_dependencies(AnoResourceTypeId type,
-                                      AnoResourceBytes artifact,
-                                      AnoResourceDependency **dependencies,
-                                      uint64_t *dependencyCount)
-{
-    if (dependencies == nullptr || dependencyCount == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *dependencies = nullptr;
-    *dependencyCount = 0;
-
-    uint64_t required = 0;
-    const AnoResourceError measured = ano_resource_artifact_dependencies(
-        type, artifact, nullptr, 0, &required);
-    if (required == 0)
-        return measured;
-    if (measured != ANO_RESOURCE_DEPENDENCY_CAPACITY)
-        return measured;
-
-    size_t bytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            required, sizeof(AnoResourceDependency), &bytes))
+    if (volume == nullptr || plan == nullptr || bytes.size > SIZE_MAX
+        || entryCount > SIZE_MAX || dependencyCount > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
-    AnoResourceDependency *values =
-        static_cast<AnoResourceDependency *>(mi_malloc(bytes));
-    if (values == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-
-    uint64_t actual = 0;
-    const AnoResourceError extracted = ano_resource_artifact_dependencies(
-        type, artifact, values, required, &actual);
-    if (extracted != ANO_RESOURCE_OK || actual != required) {
-        mi_free(values);
-        return extracted == ANO_RESOURCE_OK ? ANO_RESOURCE_BAD_MANIFEST
-                                            : extracted;
-    }
-
-    qsort(values, static_cast<size_t>(actual), sizeof(*values),
-          compare_dependencies);
-    uint64_t unique = 0;
-    for (uint64_t i = 0; i < actual; ++i) {
-        if (unique != 0
-            && compare_dependencies(&values[unique - 1], &values[i]) == 0)
-            continue;
-        values[unique++] = values[i];
-    }
-    *dependencies = values;
-    *dependencyCount = unique;
-    return ANO_RESOURCE_OK;
-}
-
-void release_work(WorkItem *work, uint64_t count)
-{
-    if (work == nullptr)
-        return;
-    for (uint64_t i = 0; i < count; ++i)
-        mi_free(work[i].dependencies);
-    mi_free(work);
-}
-
-void analyze_work_item(void *context, uint64_t index)
-{
-    WorkItem& item = static_cast<WorkItem *>(context)[index];
-    item.result = ano_resource_artifact_schema(item.source.type, &item.schema);
-    if (item.result == ANO_RESOURCE_OK)
-        item.result = ano_resource_content_id(
-            item.source.artifact, &item.content);
-    if (item.result == ANO_RESOURCE_OK)
-        item.result = collect_dependencies(
-            item.source.type, item.source.artifact, &item.dependencies,
-            &item.dependencyCount);
-}
-
-struct PackCopyContext final {
-    uint8_t *destination;
-    uint64_t payloadOffset;
-    const WorkItem *work;
-};
-
-void copy_pack_item(void *context, uint64_t index)
-{
-    const PackCopyContext& copy =
-        *static_cast<const PackCopyContext *>(context);
-    const WorkItem& item = copy.work[index];
-    if (item.canonicalIndex == index)
-        memcpy(copy.destination + copy.payloadOffset + item.packOffset,
-               item.source.artifact.data,
-               static_cast<size_t>(item.source.artifact.size));
-}
-
-AnoResourceError validate_dependency_graph(
-    const AnoResourceManifestEntry *entries, uint64_t entryCount,
-    const AnoResourceDependency *dependencies, uint64_t dependencyCount)
-{
-    if ((entries == nullptr && entryCount != 0)
-        || (dependencies == nullptr && dependencyCount != 0))
-        return ANO_RESOURCE_BAD_MANIFEST;
-
-    uint64_t expectedDependency = 0;
-    for (uint64_t i = 0; i < entryCount; ++i) {
-        const AnoResourceManifestEntry& entry = entries[i];
-        if (entry.asset.value != i + 1 || entry.type.value == 0
-            || entry.commitGroup.value == 0 || entry.packedSize == 0
-            || entry.packedSize != entry.unpackedSize
-            || entry.dependencyFirst != expectedDependency)
-            return ANO_RESOURCE_BAD_MANIFEST;
-
-        AnoResourceSchema expectedSchema = {};
-        if (ano_resource_artifact_schema(entry.type, &expectedSchema)
-                != ANO_RESOURCE_OK
-            || !ano::detail::fingerprint_equal(
-                entry.schema, expectedSchema.fingerprint))
-            return ANO_RESOURCE_BAD_MANIFEST;
-
-        if (!ano::detail::checked_add(expectedDependency,
-                                      entry.dependencyCount,
-                                      &expectedDependency)
-            || expectedDependency > dependencyCount)
-            return ANO_RESOURCE_BAD_MANIFEST;
-
-        const AnoResourceDependency *previous = nullptr;
-        for (uint64_t j = 0; j < entry.dependencyCount; ++j) {
-            const AnoResourceDependency& dependency =
-                dependencies[entry.dependencyFirst + j];
-            if (dependency.asset.value == 0
-                || dependency.asset.value > entryCount
-                || dependency.type.value == 0
-                || entries[dependency.asset.value - 1].type.value
-                    != dependency.type.value
-                || (previous != nullptr
-                    && compare_dependencies(previous, &dependency) >= 0))
-                return ANO_RESOURCE_BAD_MANIFEST;
-            previous = &dependency;
-        }
-    }
-    if (expectedDependency != dependencyCount)
-        return ANO_RESOURCE_BAD_MANIFEST;
-    if (entryCount == 0)
-        return ANO_RESOURCE_OK;
-
-    size_t colorBytes = 0;
-    size_t stackBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            entryCount, sizeof(uint8_t), &colorBytes)
-        || !ano::detail::checked_allocation_size(
-            entryCount, sizeof(GraphFrame), &stackBytes))
-        return ANO_RESOURCE_OVERFLOW;
-    uint8_t *colors = static_cast<uint8_t *>(mi_zalloc(colorBytes));
-    GraphFrame *stack = static_cast<GraphFrame *>(mi_malloc(stackBytes));
-    if (colors == nullptr || stack == nullptr) {
-        mi_free(colors);
-        mi_free(stack);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-
-    AnoResourceError result = ANO_RESOURCE_OK;
-    for (uint64_t root = 0; root < entryCount && result == ANO_RESOURCE_OK;
-         ++root) {
-        if (colors[root] != 0)
-            continue;
-        uint64_t depth = 1;
-        colors[root] = 1;
-        stack[0] = {.entry = root, .nextDependency = 0};
-        while (depth != 0) {
-            GraphFrame& frame = stack[depth - 1];
-            const AnoResourceManifestEntry& entry = entries[frame.entry];
-            if (frame.nextDependency == entry.dependencyCount) {
-                colors[frame.entry] = 2;
-                --depth;
-                continue;
-            }
-            const AnoResourceDependency& dependency = dependencies[
-                entry.dependencyFirst + frame.nextDependency++];
-            const uint64_t target = dependency.asset.value - 1;
-            if (colors[target] == 1) {
-                result = ANO_RESOURCE_BAD_MANIFEST;
-                break;
-            }
-            if (colors[target] == 0) {
-                colors[target] = 1;
-                stack[depth++] = {.entry = target, .nextDependency = 0};
-            }
-        }
-    }
-
-    mi_free(stack);
-    mi_free(colors);
-    return result;
-}
-
-AnoResourceError canonicalize_work_payloads(WorkItem *work, uint64_t count,
-                                            uint64_t *payloadSize)
-{
-    if (payloadSize == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *payloadSize = 0;
-    if (count == 0)
-        return ANO_RESOURCE_OK;
-
-    size_t orderBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            count, sizeof(ContentOrder), &orderBytes))
-        return ANO_RESOURCE_OVERFLOW;
-    ContentOrder *order = static_cast<ContentOrder *>(mi_malloc(orderBytes));
-    if (order == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    for (uint64_t i = 0; i < count; ++i)
-        order[i] = {.content = work[i].content, .index = i};
-    qsort(order, static_cast<size_t>(count), sizeof(*order),
-          compare_content_order);
-
-    AnoResourceError result = ANO_RESOURCE_OK;
-    for (uint64_t first = 0; first < count && result == ANO_RESOURCE_OK;) {
-        uint64_t last = first + 1;
-        while (last < count
-               && ano::detail::bytes_equal(
-                   order[first].content.bytes, order[last].content.bytes, 32))
-            ++last;
-        const uint64_t canonical = order[first].index;
-        for (uint64_t i = first; i < last; ++i) {
-            WorkItem& candidate = work[order[i].index];
-            const WorkItem& root = work[canonical];
-            if (order[i].index != canonical
-                && (candidate.source.artifact.size != root.source.artifact.size
-                || memcmp(candidate.source.artifact.data,
-                          root.source.artifact.data,
-                          static_cast<size_t>(root.source.artifact.size)) != 0)) {
-                result = ANO_RESOURCE_BAD_PACK;
-                break;
-            }
-            candidate.canonicalIndex = canonical;
-        }
-        first = last;
-    }
-
-    uint64_t cursor = 0;
-    for (uint64_t i = 0; i < count && result == ANO_RESOURCE_OK; ++i) {
-        if (work[i].canonicalIndex == i) {
-            work[i].packOffset = cursor;
-            if (!ano::detail::checked_add(cursor,
-                                          work[i].source.artifact.size,
-                                          &cursor))
-                result = ANO_RESOURCE_OVERFLOW;
-        } else {
-            work[i].packOffset = work[work[i].canonicalIndex].packOffset;
-        }
-    }
-    mi_free(order);
-    *payloadSize = cursor;
-    return result;
-}
-
-AnoResourceError validate_payload(
-    AnoResourceBytes packBytes, uint64_t payloadOffset,
-    const AnoResourceManifest *manifest,
-    const AnoResourceManifestEntry& entry)
-{
-    uint64_t absolute = 0;
-    if (!ano::detail::checked_add(payloadOffset, entry.packOffset, &absolute)
-        || !ano::detail::byte_range(packBytes.size, absolute,
-                                    entry.packedSize))
-        return ANO_RESOURCE_BAD_PACK;
-    const AnoResourceBytes artifact = {
-        .data = packBytes.data + absolute,
-        .size = entry.packedSize,
+    *volume = nullptr;
+    *plan = {
+        .bytes = {.count = static_cast<size_t>(bytes.size)},
+        .entries = {.count = static_cast<size_t>(entryCount)},
+        .dependencies = {.count = static_cast<size_t>(dependencyCount)},
+        .placements = {.count = withPlacements
+            ? static_cast<size_t>(entryCount) : 0},
+        .revisionItems = {.count = withPlacements
+            ? static_cast<size_t>(entryCount) : 0},
+        .revisionVolumes = {.count = withPlacements ? 1u : 0u},
     };
-
-    AnoContentId actualContent = {};
-    if (ano_resource_content_id(artifact, &actualContent) != ANO_RESOURCE_OK
-        || !ano::detail::bytes_equal(
-            entry.content.bytes, actualContent.bytes, 32)
-        || ano_resource_validate_artifact(entry.type, artifact)
-            != ANO_RESOURCE_OK)
-        return ANO_RESOURCE_BAD_PACK;
-    AnoResourceSchema schema = {};
-    if (ano_resource_artifact_schema(entry.type, &schema) != ANO_RESOURCE_OK
-        || !ano::detail::fingerprint_equal(
-            entry.schema, schema.fingerprint))
-        return ANO_RESOURCE_BAD_PACK;
-
-    AnoResourceDependency *actualDependencies = nullptr;
-    uint64_t actualCount = 0;
-    const AnoResourceError extracted = collect_dependencies(
-        entry.type, artifact, &actualDependencies, &actualCount);
-    if (extracted != ANO_RESOURCE_OK)
-        return extracted == ANO_RESOURCE_OUT_OF_MEMORY ? extracted
-                                                       : ANO_RESOURCE_BAD_PACK;
-    bool equal = actualCount == entry.dependencyCount;
-    for (uint64_t i = 0; i < actualCount && equal; ++i) {
-        const AnoResourceDependency& expected = manifest->dependencies[
-            entry.dependencyFirst + i];
-        equal = actualDependencies[i].asset.value == expected.asset.value
-            && actualDependencies[i].type.value == expected.type.value;
-    }
-    mi_free(actualDependencies);
-    return equal ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_PACK;
+    const ano::MemoryLayoutCursor layout = ano::memory_layout(*plan);
+    *volume = ano::memory_volume_create(layout);
+    return *volume == nullptr ? ANO_RESOURCE_OUT_OF_MEMORY : ANO_RESOURCE_OK;
 }
 
-struct PackValidationContext final {
-    AnoResourceBytes bytes;
-    uint64_t payloadOffset;
-    const AnoResourceManifest *manifest;
-    AnoResourceError *results;
-};
-
-void validate_pack_item(void *context, uint64_t index)
+AnoResourceError make_manifest(
+    ano::MemoryVolume *volume, OpenVolumePlan plan, AnoResourceBytes bytes,
+    AnoResourceManifest **manifest)
 {
-    PackValidationContext& validation =
-        *static_cast<PackValidationContext *>(context);
-    validation.results[index] = validate_payload(
-        validation.bytes, validation.payloadOffset, validation.manifest,
-        validation.manifest->entries[index]);
-}
-
-AnoResourceError validate_pack_layout(
-    AnoResourceBytes bytes, uint64_t payloadOffset,
-    const AnoResourceManifest *manifest)
-{
-    const uint64_t count = manifest->root.entries.count;
-    const uint64_t payloadSize = bytes.size - payloadOffset;
-    if (count == 0)
-        return payloadSize == 0 ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_PACK;
-
-    size_t orderBytes = 0;
-    size_t canonicalBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            count, sizeof(ContentOrder), &orderBytes)
-        || !ano::detail::checked_allocation_size(
-            count, sizeof(uint64_t), &canonicalBytes))
-        return ANO_RESOURCE_OVERFLOW;
-    ContentOrder *order = static_cast<ContentOrder *>(mi_malloc(orderBytes));
-    uint64_t *canonical = static_cast<uint64_t *>(mi_malloc(canonicalBytes));
-    if (order == nullptr || canonical == nullptr) {
-        mi_free(order);
-        mi_free(canonical);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+    if (volume == nullptr || manifest == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *manifest = nullptr;
+    auto entries = ano::memory_volume_write(volume, plan.entries);
+    auto dependencies = ano::memory_volume_write(volume, plan.dependencies);
+    ResourceManifest root{};
+    AnoResourceError result = decode_manifest(
+        bytes, entries.data(), dependencies.data(), &root);
+    AnoContentId content{};
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_content_id(bytes, &content);
+    AnoResourceManifest *opened = nullptr;
+    if (result == ANO_RESOURCE_OK) {
+        opened = mi_zalloc_tp(AnoResourceManifest);
+        if (opened == nullptr || !ano::memory_volume_retain(volume))
+            result = ANO_RESOURCE_OUT_OF_MEMORY;
     }
-    for (uint64_t i = 0; i < count; ++i)
-        order[i] = {.content = manifest->entries[i].content, .index = i};
-    qsort(order, static_cast<size_t>(count), sizeof(*order),
-          compare_content_order);
-
-    AnoResourceError result = ANO_RESOURCE_OK;
-    for (uint64_t first = 0; first < count && result == ANO_RESOURCE_OK;) {
-        uint64_t last = first + 1;
-        while (last < count
-               && ano::detail::bytes_equal(
-                   order[first].content.bytes, order[last].content.bytes, 32))
-            ++last;
-        const uint64_t rootIndex = order[first].index;
-        const AnoResourceManifestEntry& root = manifest->entries[rootIndex];
-        const uint8_t *rootBytes = bytes.data + payloadOffset + root.packOffset;
-        for (uint64_t i = first; i < last; ++i) {
-            const uint64_t index = order[i].index;
-            const AnoResourceManifestEntry& candidate = manifest->entries[index];
-            if (candidate.packedSize != root.packedSize
-                || memcmp(bytes.data + payloadOffset + candidate.packOffset,
-                          rootBytes, static_cast<size_t>(root.packedSize)) != 0) {
-                result = ANO_RESOURCE_BAD_PACK;
-                break;
-            }
-            canonical[index] = rootIndex;
-        }
-        first = last;
+    if (result != ANO_RESOURCE_OK) {
+        mi_free(opened);
+        return result;
     }
-
-    uint64_t expectedOffset = 0;
-    for (uint64_t i = 0; i < count && result == ANO_RESOURCE_OK; ++i) {
-        const AnoResourceManifestEntry& entry = manifest->entries[i];
-        if (canonical[i] == i) {
-            if (entry.packOffset != expectedOffset
-                || !ano::detail::checked_add(expectedOffset, entry.packedSize,
-                                              &expectedOffset))
-                result = ANO_RESOURCE_BAD_PACK;
-        } else if (entry.packOffset
-                   != manifest->entries[canonical[i]].packOffset) {
-            result = ANO_RESOURCE_BAD_PACK;
-        }
-    }
-    if (result == ANO_RESOURCE_OK && expectedOffset != payloadSize)
-        result = ANO_RESOURCE_BAD_PACK;
-
-    mi_free(canonical);
-    mi_free(order);
-    return result;
+    opened->volume = volume;
+    opened->root = root;
+    opened->entries = entries.data();
+    opened->dependencies = dependencies.data();
+    memcpy(opened->id.bytes, content.bytes, sizeof(opened->id.bytes));
+    *manifest = opened;
+    return ANO_RESOURCE_OK;
 }
 
 } // namespace
@@ -494,85 +171,42 @@ AnoResourceError validate_pack_layout(
 extern "C" AnoResourceError ano_resource_manifest_open(
     AnoResourceBytes bytes, AnoResourceManifest **manifest)
 {
-    if (manifest == nullptr)
+    if (manifest == nullptr || (bytes.data == nullptr && bytes.size != 0))
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *manifest = nullptr;
-    if (bytes.data == nullptr && bytes.size != 0)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-
     const ano::DecodeResult<ResourceManifest> decoded =
         ano::decode<ResourceManifest>(bytes);
     if (decoded.error != ANO_RESOURCE_OK)
         return ANO_RESOURCE_BAD_MANIFEST;
-
-    size_t entryBytes = 0;
-    size_t dependencyBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            decoded.view.value.entries.count,
-            sizeof(AnoResourceManifestEntry), &entryBytes)
-        || !ano::detail::checked_allocation_size(
-            decoded.view.value.dependencies.count,
-            sizeof(AnoResourceDependency), &dependencyBytes)
-        || bytes.size > SIZE_MAX)
-        return ANO_RESOURCE_OVERFLOW;
-
-    AnoResourceManifest *opened = mi_zalloc_tp(AnoResourceManifest);
-    if (opened == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    opened->bytes = static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(bytes.size)));
-    opened->entries = entryBytes == 0 ? nullptr
-        : static_cast<AnoResourceManifestEntry *>(mi_malloc(entryBytes));
-    opened->dependencies = dependencyBytes == 0 ? nullptr
-        : static_cast<AnoResourceDependency *>(mi_malloc(dependencyBytes));
-    if ((bytes.size != 0 && opened->bytes == nullptr)
-        || (entryBytes != 0 && opened->entries == nullptr)
-        || (dependencyBytes != 0 && opened->dependencies == nullptr)) {
-        ano_resource_manifest_close(opened);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+    ano::MemoryVolume *volume = nullptr;
+    OpenVolumePlan plan{};
+    AnoResourceError result = allocate_open_volume(
+        bytes, decoded.view.value.entries.count,
+        decoded.view.value.dependencies.count, false, &volume, &plan);
+    if (result == ANO_RESOURCE_OK) {
+        auto destination = ano::memory_volume_write(volume, plan.bytes);
+        if (bytes.size != 0)
+            memcpy(destination.data(), bytes.data,
+                   static_cast<size_t>(bytes.size));
+        const AnoResourceBytes owned{
+            destination.data(), destination.size()};
+        result = make_manifest(volume, plan, owned, manifest);
     }
-    if (bytes.size != 0)
-        memcpy(opened->bytes, bytes.data, static_cast<size_t>(bytes.size));
-    opened->byteCount = bytes.size;
-    opened->root = decoded.view.value;
-
-    const ano::ArtifactView<ResourceManifest> view = {
-        .value = opened->root,
-        .bytes = {.data = opened->bytes, .size = opened->byteCount},
-    };
-    if (ano::resolve_span(view, opened->root.entries, opened->entries,
-                          opened->root.entries.count) != ANO_RESOURCE_OK
-        || ano::resolve_span(view, opened->root.dependencies,
-                             opened->dependencies,
-                             opened->root.dependencies.count)
-            != ANO_RESOURCE_OK) {
-        ano_resource_manifest_close(opened);
-        return ANO_RESOURCE_BAD_MANIFEST;
+    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(volume))
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result != ANO_RESOURCE_OK) {
+        ano_resource_manifest_close(*manifest);
+        *manifest = nullptr;
     }
-
-    const AnoResourceError graph = validate_dependency_graph(
-        opened->entries, opened->root.entries.count, opened->dependencies,
-        opened->root.dependencies.count);
-    if (graph != ANO_RESOURCE_OK) {
-        ano_resource_manifest_close(opened);
-        return graph;
-    }
-    AnoContentId content = {};
-    if (ano_resource_content_id(bytes, &content) != ANO_RESOURCE_OK) {
-        ano_resource_manifest_close(opened);
-        return ANO_RESOURCE_BAD_MANIFEST;
-    }
-    memcpy(opened->id.bytes, content.bytes, sizeof(opened->id.bytes));
-    *manifest = opened;
-    return ANO_RESOURCE_OK;
+    ano::memory_volume_release(volume);
+    return result;
 }
 
 extern "C" void ano_resource_manifest_close(AnoResourceManifest *manifest)
 {
     if (manifest == nullptr)
         return;
-    mi_free(manifest->dependencies);
-    mi_free(manifest->entries);
-    mi_free(manifest->bytes);
+    ano::memory_volume_release(manifest->volume);
     mi_free(manifest);
 }
 
@@ -612,9 +246,9 @@ extern "C" AnoResourceError ano_resource_manifest_dependency(
 {
     if (dependency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
-    AnoResourceManifestEntry entry = {};
-    const AnoResourceError found =
-        ano_resource_manifest_find(manifest, asset, &entry);
+    AnoResourceManifestEntry entry{};
+    const AnoResourceError found = ano_resource_manifest_find(
+        manifest, asset, &entry);
     if (found != ANO_RESOURCE_OK)
         return found;
     if (index >= entry.dependencyCount)
@@ -624,189 +258,185 @@ extern "C" AnoResourceError ano_resource_manifest_dependency(
 }
 
 AnoResourceError ano_resource_pack_build(
-    const AnoResourcePackItem *items, uint64_t itemCount,
-    AnoResourceMutableBytes *pack)
+    const AnoCookedRevision *revision, AnoResourceMutableBytes *pack)
 {
-    if (pack == nullptr || (items == nullptr && itemCount != 0))
+    if (revision == nullptr || pack == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *pack = {};
-
-    size_t workBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            itemCount, sizeof(WorkItem), &workBytes))
-        return ANO_RESOURCE_OVERFLOW;
-    WorkItem *work = workBytes == 0 ? nullptr
-        : static_cast<WorkItem *>(mi_zalloc(workBytes));
-    if (workBytes != 0 && work == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    for (uint64_t i = 0; i < itemCount; ++i)
-        work[i].source = items[i];
-    if (itemCount != 0)
-        qsort(work, static_cast<size_t>(itemCount), sizeof(*work), compare_items);
-
-    AnoResourceError result = ANO_RESOURCE_OK;
-    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
-        const WorkItem& item = work[i];
-        if (item.source.asset.value != i + 1)
-            result = i != 0
-                    && item.source.asset.value == work[i - 1].source.asset.value
-                ? ANO_RESOURCE_DUPLICATE_ASSET
-                : ANO_RESOURCE_BAD_MANIFEST;
-        else if (item.source.commitGroup.value == 0
-                 || item.source.artifact.data == nullptr
-                 || item.source.artifact.size == 0)
-            result = ANO_RESOURCE_INVALID_ARGUMENT;
-    }
-    if (result == ANO_RESOURCE_OK)
-        ano::resource_detail::parallel_for(
-            itemCount, work, analyze_work_item);
-
-    uint64_t dependencyCount = 0;
-    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
-        const WorkItem& item = work[i];
-        result = item.result;
-        if (result != ANO_RESOURCE_OK)
-            break;
-        if (result == ANO_RESOURCE_OK
-            && !ano::detail::checked_add(dependencyCount,
-                                         item.dependencyCount,
-                                         &dependencyCount))
-            result = ANO_RESOURCE_OVERFLOW;
-    }
+    AnoResourceError result = ano_resource_revision_validate(revision);
+    const uint64_t itemCount = revision->itemCount;
+    PackPlacement *placements = itemCount == 0 ? nullptr
+        : mi_calloc_tp(PackPlacement, static_cast<size_t>(itemCount));
+    AnoResourceManifestEntry *entries = itemCount == 0 ? nullptr
+        : mi_calloc_tp(AnoResourceManifestEntry,
+                       static_cast<size_t>(itemCount));
+    if (result == ANO_RESOURCE_OK && itemCount != 0
+        && (placements == nullptr || entries == nullptr))
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
 
     uint64_t payloadSize = 0;
-    if (result == ANO_RESOURCE_OK)
-        result = canonicalize_work_payloads(work, itemCount, &payloadSize);
+    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
+        const AnoResourceRevisionItem& item = revision->items[i];
+        entries[i] = {
+            .asset = item.asset,
+            .type = item.type,
+            .producer = item.producer,
+            .inputIdentity = item.inputIdentity,
+            .schema = item.schema,
+            .content = item.content,
+            .commitGroup = item.commitGroup,
+            .byteSize = item.artifact.size,
+            .dependencyFirst = item.dependencyFirst,
+            .dependencyCount = item.dependencyCount,
+        };
+        uint64_t canonical = i;
+        for (uint64_t j = 0; j < i; ++j)
+            if (content_equal(item.content, revision->items[j].content)) {
+                AnoResourceBytes lhs{};
+                AnoResourceBytes rhs{};
+                if (ano_resource_revision_resolve(
+                        revision, item.asset, item.type, &lhs)
+                        != ANO_RESOURCE_OK
+                    || ano_resource_revision_resolve(
+                        revision, revision->items[j].asset,
+                        revision->items[j].type, &rhs) != ANO_RESOURCE_OK
+                    || lhs.size != rhs.size
+                    || memcmp(lhs.data, rhs.data,
+                              static_cast<size_t>(lhs.size)) != 0) {
+                    result = ANO_RESOURCE_BAD_MANIFEST;
+                    break;
+                }
+                canonical = j;
+                break;
+            }
+        if (result != ANO_RESOURCE_OK)
+            break;
+        if (canonical == i) {
+            placements[i] = {payloadSize, item.artifact.size};
+            if (!ano::detail::checked_add(
+                    payloadSize, item.artifact.size, &payloadSize))
+                result = ANO_RESOURCE_OVERFLOW;
+        } else {
+            placements[i] = placements[canonical];
+        }
+    }
 
     size_t entryBytes = 0;
     size_t dependencyBytes = 0;
-    uint64_t extentSize64 = 0;
+    uint64_t extentSize = 0;
     if (result == ANO_RESOURCE_OK
         && (!ano::detail::checked_allocation_size(
                 itemCount, sizeof(AnoResourceManifestEntry), &entryBytes)
             || !ano::detail::checked_allocation_size(
-                dependencyCount, sizeof(AnoResourceDependency),
+                revision->dependencyCount, sizeof(AnoResourceDependency),
                 &dependencyBytes)
-            || !ano::detail::checked_add(entryBytes, dependencyBytes,
-                                         &extentSize64)
-            || extentSize64 > SIZE_MAX))
+            || !ano::detail::checked_add(
+                entryBytes, dependencyBytes, &extentSize)
+            || extentSize > SIZE_MAX))
         result = ANO_RESOURCE_OVERFLOW;
-
-    uint8_t *extent = nullptr;
-    if (result == ANO_RESOURCE_OK && extentSize64 != 0) {
-        extent = static_cast<uint8_t *>(
-            mi_malloc(static_cast<size_t>(extentSize64)));
-        if (extent == nullptr)
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-    AnoResourceManifestEntry *entries =
-        reinterpret_cast<AnoResourceManifestEntry *>(extent);
-    AnoResourceDependency *dependencies = extent == nullptr ? nullptr
-        : reinterpret_cast<AnoResourceDependency *>(extent + entryBytes);
-
-    uint64_t dependencyCursor = 0;
-    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
-        const WorkItem& item = work[i];
-        entries[i] = {
-            .asset = item.source.asset,
-            .type = item.source.type,
-            .schema = item.schema.fingerprint,
-            .content = item.content,
-            .commitGroup = item.source.commitGroup,
-            .packOffset = item.packOffset,
-            .packedSize = item.source.artifact.size,
-            .unpackedSize = item.source.artifact.size,
-            .dependencyFirst = dependencyCursor,
-            .dependencyCount = item.dependencyCount,
-        };
-        if (item.dependencyCount != 0)
-            memcpy(dependencies + dependencyCursor, item.dependencies,
-                   static_cast<size_t>(item.dependencyCount
-                                       * sizeof(AnoResourceDependency)));
-        dependencyCursor += item.dependencyCount;
-    }
-    if (result == ANO_RESOURCE_OK)
-        result = validate_dependency_graph(entries, itemCount, dependencies,
-                                           dependencyCount);
-
+    uint8_t *extent = result == ANO_RESOURCE_OK && extentSize != 0
+        ? static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(extentSize)))
+        : nullptr;
+    if (result == ANO_RESOURCE_OK && extentSize != 0 && extent == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK && entryBytes != 0)
+        memcpy(extent, entries, entryBytes);
+    if (result == ANO_RESOURCE_OK && dependencyBytes != 0)
+        memcpy(extent + entryBytes, revision->dependencies, dependencyBytes);
     const ResourceManifest root = {
         .entries = itemCount == 0
             ? ano::RelativeSpan<AnoResourceManifestEntry>{0, 0}
             : ano::RelativeSpan<AnoResourceManifestEntry>{0, itemCount},
-        .dependencies = dependencyCount == 0
+        .dependencies = revision->dependencyCount == 0
             ? ano::RelativeSpan<AnoResourceDependency>{0, 0}
-            : ano::RelativeSpan<AnoResourceDependency>{entryBytes,
-                                                       dependencyCount},
+            : ano::RelativeSpan<AnoResourceDependency>{
+                  entryBytes, revision->dependencyCount},
     };
-    ano::EncodeResult manifestSize = {result, 0};
+    ano::EncodeResult manifestSize{result, 0};
     if (result == ANO_RESOURCE_OK)
-        manifestSize = ano::encoded_size(ano::ArtifactSource<ResourceManifest>{
-            .value = &root,
-            .extent = {.data = extent, .size = extentSize64},
-        });
-    if (result == ANO_RESOURCE_OK)
-        result = manifestSize.error;
+        manifestSize = ano::encoded_size(
+            ano::ArtifactSource<ResourceManifest>{
+                .value = &root,
+                .extent = {.data = extent, .size = extentSize},
+            });
+    result = manifestSize.error;
 
+    uint64_t placementBytes = 0;
     uint64_t payloadOffset = 0;
     uint64_t totalSize = 0;
     if (result == ANO_RESOURCE_OK
-        && (!ano::detail::checked_add(packHeaderSize, manifestSize.size,
-                                      &payloadOffset)
-            || !ano::detail::checked_add(payloadOffset, payloadSize,
-                                         &totalSize)
+        && (!ano::detail::checked_multiply(
+                itemCount, placementSize, &placementBytes)
+            || !ano::detail::checked_add(
+                packHeaderSize, manifestSize.size, &payloadOffset)
+            || !ano::detail::checked_add(
+                payloadOffset, placementBytes, &payloadOffset)
+            || !ano::detail::checked_add(
+                payloadOffset, payloadSize, &totalSize)
             || totalSize > SIZE_MAX))
         result = ANO_RESOURCE_OVERFLOW;
-    uint8_t *built = nullptr;
+    uint8_t *built = result == ANO_RESOURCE_OK
+        ? static_cast<uint8_t *>(mi_zalloc(static_cast<size_t>(totalSize)))
+        : nullptr;
+    if (result == ANO_RESOURCE_OK && built == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
     if (result == ANO_RESOURCE_OK) {
-        built = static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(totalSize)));
-        if (built == nullptr)
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-    if (result == ANO_RESOURCE_OK) {
-        memset(built, 0, packHeaderSize);
         memcpy(built, packMagic, sizeof(packMagic));
         ano::detail::write_unsigned(built + 8, manifestSize.size, 8);
-        ano::detail::write_unsigned(built + 16, totalSize, 8);
+        ano::detail::write_unsigned(built + 16, placementBytes, 8);
         ano::detail::write_unsigned(built + 24, payloadOffset, 8);
         const ano::EncodeResult encoded = ano::encode(
             ano::ArtifactSource<ResourceManifest>{
                 .value = &root,
-                .extent = {.data = extent, .size = extentSize64},
+                .extent = {.data = extent, .size = extentSize},
             },
-            {.data = built + packHeaderSize, .size = manifestSize.size});
+            {.data = built + packHeaderSize,
+             .size = manifestSize.size});
         if (encoded.error != ANO_RESOURCE_OK
             || encoded.size != manifestSize.size)
             result = encoded.error == ANO_RESOURCE_OK
-                ? ANO_RESOURCE_BAD_MANIFEST
-                : encoded.error;
+                ? ANO_RESOURCE_BAD_MANIFEST : encoded.error;
     }
     if (result == ANO_RESOURCE_OK) {
-        AnoContentId manifestContent = {};
-        const AnoResourceBytes manifestBytes = {
-            .data = built + packHeaderSize,
-            .size = manifestSize.size,
-        };
-        if (ano_resource_content_id(manifestBytes, &manifestContent)
-                != ANO_RESOURCE_OK)
-            result = ANO_RESOURCE_BAD_MANIFEST;
-        else
-            memcpy(built + 32, manifestContent.bytes,
-                   sizeof(manifestContent.bytes));
+        AnoContentId id{};
+        const AnoResourceBytes manifestBytes{
+            built + packHeaderSize, manifestSize.size};
+        result = ano_resource_content_id(manifestBytes, &id);
+        if (result == ANO_RESOURCE_OK)
+            memcpy(built + 32, id.bytes, sizeof(id.bytes));
+    }
+    const uint64_t placementOffset = packHeaderSize + manifestSize.size;
+    for (uint64_t i = 0; i < itemCount && result == ANO_RESOURCE_OK; ++i) {
+        ano::detail::write_unsigned(
+            built + placementOffset + i * placementSize,
+            placements[i].offset, 8);
+        ano::detail::write_unsigned(
+            built + placementOffset + i * placementSize + 8,
+            placements[i].size, 8);
+        bool canonical = true;
+        for (uint64_t j = 0; j < i; ++j)
+            if (placements[j].offset == placements[i].offset) {
+                canonical = false;
+                break;
+            }
+        if (canonical) {
+            AnoResourceBytes artifact{};
+            result = ano_resource_revision_resolve(
+                revision, revision->items[i].asset,
+                revision->items[i].type, &artifact);
+            if (result == ANO_RESOURCE_OK)
+                memcpy(built + payloadOffset + placements[i].offset,
+                       artifact.data, static_cast<size_t>(artifact.size));
+        }
     }
     if (result == ANO_RESOURCE_OK) {
-        PackCopyContext copy = {built, payloadOffset, work};
-        ano::resource_detail::parallel_for(
-            itemCount, &copy, copy_pack_item);
-    }
-
-    if (result == ANO_RESOURCE_OK) {
-        *pack = {.data = built, .size = totalSize};
+        *pack = {built, totalSize};
         built = nullptr;
     }
-
     mi_free(built);
     mi_free(extent);
-    release_work(work, itemCount);
+    mi_free(entries);
+    mi_free(placements);
     return result;
 }
 
@@ -820,91 +450,224 @@ extern "C" AnoResourceError ano_resource_pack_open(
         return ANO_RESOURCE_BAD_PACK;
     if (memcmp(bytes.data, packMagic, sizeof(packMagic)) != 0)
         return ANO_RESOURCE_BAD_MAGIC;
-
-    const uint64_t manifestSize = ano::detail::read_unsigned(bytes.data + 8, 8);
-    const uint64_t totalSize = ano::detail::read_unsigned(bytes.data + 16, 8);
-    const uint64_t payloadOffset = ano::detail::read_unsigned(bytes.data + 24, 8);
-    uint64_t expectedPayloadOffset = 0;
-    if (totalSize != bytes.size
-        || !ano::detail::checked_add(packHeaderSize, manifestSize,
-                                     &expectedPayloadOffset)
-        || payloadOffset != expectedPayloadOffset
-        || payloadOffset > bytes.size)
+    const uint64_t manifestSize = ano::detail::read_unsigned(
+        bytes.data + 8, 8);
+    const uint64_t placementBytes = ano::detail::read_unsigned(
+        bytes.data + 16, 8);
+    const uint64_t payloadOffset = ano::detail::read_unsigned(
+        bytes.data + 24, 8);
+    uint64_t expectedPayload = 0;
+    if (!ano::detail::checked_add(
+            packHeaderSize, manifestSize, &expectedPayload)
+        || !ano::detail::checked_add(
+            expectedPayload, placementBytes, &expectedPayload)
+        || expectedPayload != payloadOffset || payloadOffset > bytes.size)
         return ANO_RESOURCE_BAD_PACK;
-
-    const AnoResourceBytes manifestBytes = {
-        .data = bytes.data + packHeaderSize,
-        .size = manifestSize,
-    };
-    AnoContentId manifestContent = {};
-    if (ano_resource_content_id(manifestBytes, &manifestContent)
+    const AnoResourceBytes manifestBytes{
+        bytes.data + packHeaderSize, manifestSize};
+    AnoContentId manifestId{};
+    if (ano_resource_content_id(manifestBytes, &manifestId)
             != ANO_RESOURCE_OK
         || !ano::detail::bytes_equal(
-            manifestContent.bytes, bytes.data + 32, 32))
+            manifestId.bytes, bytes.data + 32, sizeof(manifestId.bytes)))
+        return ANO_RESOURCE_BAD_MANIFEST;
+    const ano::DecodeResult<ResourceManifest> decoded =
+        ano::decode<ResourceManifest>(manifestBytes);
+    uint64_t expectedPlacementBytes = 0;
+    if (decoded.error != ANO_RESOURCE_OK
+        || decoded.view.value.entries.count > SIZE_MAX
+        || decoded.view.value.dependencies.count > SIZE_MAX
+        || !ano::detail::checked_multiply(
+            decoded.view.value.entries.count, placementSize,
+            &expectedPlacementBytes)
+        || placementBytes != expectedPlacementBytes)
         return ANO_RESOURCE_BAD_MANIFEST;
 
-    AnoResourceManifest *manifest = nullptr;
-    AnoResourceError result =
-        ano_resource_manifest_open(manifestBytes, &manifest);
-    if (result != ANO_RESOURCE_OK)
-        return result;
-    const uint64_t entryCount = manifest->root.entries.count;
-    size_t validationBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            entryCount, sizeof(AnoResourceError), &validationBytes))
-        result = ANO_RESOURCE_OVERFLOW;
-    AnoResourceError *validations = result != ANO_RESOURCE_OK
-        || validationBytes == 0 ? nullptr
-        : static_cast<AnoResourceError *>(mi_malloc(validationBytes));
-    if (result == ANO_RESOURCE_OK && validationBytes != 0
-        && validations == nullptr)
-        result = ANO_RESOURCE_OUT_OF_MEMORY;
-    if (result == ANO_RESOURCE_OK) {
-        PackValidationContext validation = {
-            .bytes = bytes,
-            .payloadOffset = payloadOffset,
-            .manifest = manifest,
-            .results = validations,
-        };
-        ano::resource_detail::parallel_for(
-            entryCount, &validation, validate_pack_item);
-        for (uint64_t i = 0; i < entryCount && result == ANO_RESOURCE_OK; ++i)
-            result = validations[i];
-    }
-    mi_free(validations);
+    ano::MemoryVolume *volume = nullptr;
+    OpenVolumePlan plan{};
+    AnoResourceError result = allocate_open_volume(
+        bytes, decoded.view.value.entries.count,
+        decoded.view.value.dependencies.count, true, &volume, &plan);
+    auto ownedBytes = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.bytes)
+        : ano::MemorySpan<uint8_t>{};
     if (result == ANO_RESOURCE_OK)
-        result = validate_pack_layout(bytes, payloadOffset, manifest);
-    if (result != ANO_RESOURCE_OK) {
-        ano_resource_manifest_close(manifest);
-        return result;
+        memcpy(ownedBytes.data(), bytes.data, static_cast<size_t>(bytes.size));
+    AnoResourceManifest *manifest = nullptr;
+    if (result == ANO_RESOURCE_OK) {
+        const AnoResourceBytes ownedManifest{
+            ownedBytes.data() + packHeaderSize, manifestSize};
+        result = make_manifest(volume, plan, ownedManifest, &manifest);
     }
-
-    AnoResourcePack *opened = mi_zalloc_tp(AnoResourcePack);
-    uint8_t *copy = bytes.size > SIZE_MAX ? nullptr
-        : static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(bytes.size)));
-    if (opened == nullptr || copy == nullptr) {
-        mi_free(opened);
-        mi_free(copy);
-        ano_resource_manifest_close(manifest);
-        return bytes.size > SIZE_MAX ? ANO_RESOURCE_OVERFLOW
-                                     : ANO_RESOURCE_OUT_OF_MEMORY;
+    auto placements = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.placements)
+        : ano::MemorySpan<PackPlacement>{};
+    uint64_t expectedOffset = 0;
+    for (uint64_t i = 0;
+         i < decoded.view.value.entries.count && result == ANO_RESOURCE_OK;
+         ++i) {
+        const uint8_t *wire = ownedBytes.data()
+            + packHeaderSize + manifestSize + i * placementSize;
+        placements[i] = {
+            ano::detail::read_unsigned(wire, 8),
+            ano::detail::read_unsigned(wire + 8, 8),
+        };
+        const AnoResourceManifestEntry& entry = manifest->entries[i];
+        if (placements[i].size != entry.byteSize
+            || placements[i].offset > bytes.size - payloadOffset
+            || placements[i].size
+                > bytes.size - payloadOffset - placements[i].offset) {
+            result = ANO_RESOURCE_BAD_PACK;
+            break;
+        }
+        bool canonical = true;
+        for (uint64_t j = 0; j < i; ++j) {
+            const bool samePlacement =
+                placements[j].offset == placements[i].offset
+                && placements[j].size == placements[i].size;
+            const bool sameContent = content_equal(
+                manifest->entries[j].content, entry.content);
+            if (samePlacement != sameContent) {
+                result = ANO_RESOURCE_BAD_PACK;
+                break;
+            }
+            if (samePlacement) {
+                canonical = false;
+                break;
+            }
+        }
+        if (canonical) {
+            if (placements[i].offset != expectedOffset
+                || !ano::detail::checked_add(
+                    expectedOffset, placements[i].size, &expectedOffset)) {
+                result = ANO_RESOURCE_BAD_PACK;
+                break;
+            }
+        }
+        const AnoResourceBytes artifact{
+            ownedBytes.data() + payloadOffset + placements[i].offset,
+            placements[i].size};
+        AnoContentId content{};
+        if (result == ANO_RESOURCE_OK
+            && (ano_resource_content_id(artifact, &content)
+                    != ANO_RESOURCE_OK
+                || !content_equal(content, entry.content)
+                || ano_resource_validate_artifact(entry.type, artifact)
+                    != ANO_RESOURCE_OK))
+            result = ANO_RESOURCE_BAD_PACK;
     }
-    ano::resource_detail::parallel_copy(copy, bytes.data, bytes.size);
-    opened->bytes = copy;
-    opened->byteCount = bytes.size;
-    opened->payloadOffset = payloadOffset;
-    opened->manifest = manifest;
-    *pack = opened;
-    return ANO_RESOURCE_OK;
+    if (result == ANO_RESOURCE_OK
+        && expectedOffset != bytes.size - payloadOffset)
+        result = ANO_RESOURCE_BAD_PACK;
+    auto revisionItems = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.revisionItems)
+        : ano::MemorySpan<AnoResourceRevisionItem>{};
+    auto revisionVolumes = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.revisionVolumes)
+        : ano::MemorySpan<ano::MemoryVolume *>{};
+    AnoCookedRevision *revision = result == ANO_RESOURCE_OK
+        ? mi_zalloc_tp(AnoCookedRevision) : nullptr;
+    if (result == ANO_RESOURCE_OK && revision == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    for (uint64_t i = 0;
+         i < decoded.view.value.entries.count && result == ANO_RESOURCE_OK;
+         ++i) {
+        const AnoResourceManifestEntry& entry = manifest->entries[i];
+        size_t artifactOffset = 0;
+        if (!ano_size_add(plan.bytes.reservation.offset,
+                          static_cast<size_t>(payloadOffset), &artifactOffset)
+            || !ano_size_add(
+                artifactOffset, static_cast<size_t>(placements[i].offset),
+                &artifactOffset)) {
+            result = ANO_RESOURCE_OVERFLOW;
+            break;
+        }
+        revisionItems[i] = {
+            .asset = entry.asset,
+            .source = {},
+            .type = entry.type,
+            .producer = entry.producer,
+            .inputIdentity = entry.inputIdentity,
+            .commitGroup = entry.commitGroup,
+            .schema = entry.schema,
+            .content = entry.content,
+            .dependencyFirst = entry.dependencyFirst,
+            .dependencyCount = entry.dependencyCount,
+            .volume = volume,
+            .artifact = {
+                .offset = artifactOffset,
+                .size = static_cast<size_t>(placements[i].size),
+            },
+        };
+    }
+    bool revisionVolumeRetained = false;
+    if (result == ANO_RESOURCE_OK) {
+        revisionVolumes[0] = volume;
+        revisionVolumeRetained = ano::memory_volume_retain(volume);
+        if (!revisionVolumeRetained)
+            result = ANO_RESOURCE_OVERFLOW;
+    }
+    if (result == ANO_RESOURCE_OK) {
+        __atomic_store_n(&revision->references, size_t{1}, __ATOMIC_RELAXED);
+        revision->items = revisionItems.data();
+        revision->itemCount = decoded.view.value.entries.count;
+        revision->dependencies = manifest->dependencies;
+        revision->dependencyCount = decoded.view.value.dependencies.count;
+        revision->volumes = revisionVolumes.data();
+        revision->volumeCount = 1;
+    }
+    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(volume))
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK)
+        revision->validated = true;
+    AnoResourcePack *opened = nullptr;
+    if (result == ANO_RESOURCE_OK) {
+        opened = mi_zalloc_tp(AnoResourcePack);
+        if (opened == nullptr)
+            result = ANO_RESOURCE_OUT_OF_MEMORY;
+    }
+    if (result == ANO_RESOURCE_OK) {
+        opened->volume = volume;
+        opened->bytes = ownedBytes.data();
+        opened->byteCount = ownedBytes.size();
+        opened->payloadOffset = payloadOffset;
+        opened->placements = placements.data();
+        opened->manifest = manifest;
+        opened->revision = revision;
+        *pack = opened;
+        return ANO_RESOURCE_OK;
+    }
+    mi_free(opened);
+    if (revisionVolumeRetained)
+        ano_resource_revision_release(revision);
+    else
+        mi_free(revision);
+    ano_resource_manifest_close(manifest);
+    ano::memory_volume_release(volume);
+    return result;
 }
 
 extern "C" void ano_resource_pack_close(AnoResourcePack *pack)
 {
     if (pack == nullptr)
         return;
+    ano_resource_revision_release(pack->revision);
     ano_resource_manifest_close(pack->manifest);
-    mi_free(pack->bytes);
+    ano::memory_volume_release(pack->volume);
     mi_free(pack);
+}
+
+extern "C" AnoResourceError ano_resource_pack_revision(
+    const AnoResourcePack *pack, const AnoCookedRevision **revision)
+{
+    if (pack == nullptr || revision == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *revision = nullptr;
+    const AnoResourceError retained = ano_resource_revision_retain(
+        pack->revision);
+    if (retained == ANO_RESOURCE_OK)
+        *revision = pack->revision;
+    return retained;
 }
 
 extern "C" const AnoResourceManifest *ano_resource_pack_manifest(
@@ -913,24 +676,41 @@ extern "C" const AnoResourceManifest *ano_resource_pack_manifest(
     return pack == nullptr ? nullptr : pack->manifest;
 }
 
+extern "C" AnoResourceError ano_resource_pack_view(
+    const AnoResourcePack *pack, AnoAssetId asset, AnoResourceBytes *bytes)
+{
+    if (pack == nullptr || bytes == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *bytes = {};
+    AnoResourceManifestEntry entry{};
+    const AnoResourceError found = ano_resource_manifest_find(
+        pack->manifest, asset, &entry);
+    if (found != ANO_RESOURCE_OK)
+        return found;
+    const PackPlacement& placement = pack->placements[asset.value - 1];
+    *bytes = {
+        pack->bytes + pack->payloadOffset + placement.offset,
+        placement.size,
+    };
+    return ANO_RESOURCE_OK;
+}
+
 extern "C" AnoResourceError ano_resource_pack_read(
     const AnoResourcePack *pack, AnoAssetId asset,
     AnoResourceMutableBytes output, uint64_t *packSize)
 {
-    if (pack == nullptr || packSize == nullptr
+    if (packSize == nullptr
         || (output.data == nullptr && output.size != 0))
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *packSize = 0;
-    AnoResourceManifestEntry entry = {};
-    const AnoResourceError found =
-        ano_resource_manifest_find(pack->manifest, asset, &entry);
-    if (found != ANO_RESOURCE_OK)
-        return found;
-    *packSize = entry.unpackedSize;
-    if (output.data == nullptr || output.size < entry.unpackedSize)
+    AnoResourceBytes view{};
+    const AnoResourceError result = ano_resource_pack_view(
+        pack, asset, &view);
+    if (result != ANO_RESOURCE_OK)
+        return result;
+    *packSize = view.size;
+    if (output.data == nullptr || output.size < view.size)
         return ANO_RESOURCE_BUFFER_TOO_SMALL;
-    memmove(output.data,
-            pack->bytes + pack->payloadOffset + entry.packOffset,
-            static_cast<size_t>(entry.unpackedSize));
+    memmove(output.data, view.data, static_cast<size_t>(view.size));
     return ANO_RESOURCE_OK;
 }

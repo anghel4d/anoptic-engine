@@ -31,7 +31,7 @@ struct Fixture final {
     uint64_t textureSize;
     uint8_t material[1200];
     uint64_t materialSize;
-    AnoResourceMutableBytes pack;
+    const AnoCookedRevision *revision;
 };
 
 static bool make_fixture(uint8_t red, Fixture *fixture)
@@ -90,7 +90,7 @@ static bool make_fixture(uint8_t red, Fixture *fixture)
             cooker, {1}, textureType, {7},
             {fixture->texture, fixture->textureSize});
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &fixture->pack);
+        result = ano_resource_cook(cooker, &fixture->revision);
     ano_resource_cooker_destroy(cooker);
     return result == ANO_RESOURCE_OK;
 }
@@ -115,22 +115,21 @@ static void test_residency_epochs(void)
     const bool fixtures = make_fixture(0x10, &original)
         && make_fixture(0x90, &replacement);
     CHECK(fixtures,
-          "runtime fixtures build as complete packs");
+          "runtime fixtures build as complete revisions");
     if (!fixtures) {
-        ano_resource_cooked_pack_release(replacement.pack);
-        ano_resource_cooked_pack_release(original.pack);
+        ano_resource_revision_release(replacement.revision);
+        ano_resource_revision_release(original.revision);
         return;
     }
 
     AnoResourceManager *manager = nullptr;
-    CHECK(ano_resource_manager_create(
-              {original.pack.data, original.pack.size}, &manager)
+    CHECK(ano_resource_manager_create(original.revision, &manager)
               == ANO_RESOURCE_OK
           && manager != nullptr,
-          "manager opens the initial pack");
+          "manager retains the initial revision");
     if (manager == nullptr) {
-        ano_resource_cooked_pack_release(replacement.pack);
-        ano_resource_cooked_pack_release(original.pack);
+        ano_resource_revision_release(replacement.revision);
+        ano_resource_revision_release(original.revision);
         return;
     }
 
@@ -198,27 +197,9 @@ static void test_residency_epochs(void)
           "unchanged reconciliation publishes no redundant epoch");
     ano_resource_epoch_release(unchanged);
 
-    replacement.pack.data[replacement.pack.size - 1] ^= 1;
     AnoResourceReload *prepared = nullptr;
     CHECK(ano_resource_reload_prepare(
-              manager, {replacement.pack.data, replacement.pack.size},
-              &prepared) == ANO_RESOURCE_BAD_PACK
-          && prepared == nullptr,
-          "corrupt candidate reload is rejected");
-    replacement.pack.data[replacement.pack.size - 1] ^= 1;
-    const AnoResidencyEpoch *afterFailure = nullptr;
-    CHECK(ano_resource_epoch_acquire(manager, &afterFailure) == ANO_RESOURCE_OK
-          && ano_resource_epoch_id(afterFailure).value == 2
-          && ano_resource_epoch_resolve(afterFailure, {1}, textureType,
-                                        &resolved) == ANO_RESOURCE_OK
-          && memcmp(resolved.data, original.texture,
-                    static_cast<size_t>(resolved.size)) == 0,
-          "failed reload preserves the published generation");
-    ano_resource_epoch_release(afterFailure);
-
-    CHECK(ano_resource_reload_prepare(
-              manager, {replacement.pack.data, replacement.pack.size},
-              &prepared)
+              manager, replacement.revision, &prepared)
               == ANO_RESOURCE_OK
           && prepared != nullptr
           && ano_resource_reload_has_changes(prepared),
@@ -247,8 +228,7 @@ static void test_residency_epochs(void)
     ano_resource_epoch_release(duringPrepare);
 
     CHECK(ano_resource_reload_prepare(
-              manager, {replacement.pack.data, replacement.pack.size},
-              &prepared)
+              manager, replacement.revision, &prepared)
               == ANO_RESOURCE_OK
           && ano_resource_reload_commit(prepared) == ANO_RESOURCE_OK,
           "owner-approved replacement publishes transactionally");
@@ -296,8 +276,8 @@ static void test_residency_epochs(void)
     ano_resource_epoch_release(reloaded);
     ano_resource_epoch_release(resident);
     ano_resource_epoch_release(empty);
-    ano_resource_cooked_pack_release(replacement.pack);
-    ano_resource_cooked_pack_release(original.pack);
+    ano_resource_revision_release(replacement.revision);
+    ano_resource_revision_release(original.revision);
 }
 
 int main(void)

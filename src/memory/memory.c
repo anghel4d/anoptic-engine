@@ -6,6 +6,17 @@
 
 #include <anoptic_memory.h>
 
+namespace std {
+
+// The no-runtime build supplies the terminal path required by standard
+// containers when exceptions are disabled.
+[[gnu::weak, noreturn]] void terminate() noexcept
+{
+    __builtin_trap();
+}
+
+} // namespace std
+
 mi_heap_t *ano_heap_create(void)
 {
     return mi_heap_new();

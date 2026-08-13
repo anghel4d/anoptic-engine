@@ -40,7 +40,6 @@ struct RenderBinding final {
     bool reuseGeometry;
     bool ownsReservations;
     bool affected;
-    uint8_t *preparedPixels;
     VkDeviceSize uploadOffset;
     AnoPreparedGeometry preparedGeometry;
     schema::GpuTexture texture;
@@ -314,37 +313,6 @@ bool reserve_upload_slice(AnoRenderResidency& residency, VkDeviceSize bytes,
     return true;
 }
 
-AnoResourceError collect_dependencies(
-    AnoResourceTypeId type, AnoResourceBytes artifact,
-    AnoResourceDependency **dependencies, uint64_t *count)
-{
-    *dependencies = nullptr;
-    *count = 0;
-    uint64_t required = 0;
-    AnoResourceError result = ano_resource_artifact_dependencies(
-        type, artifact, nullptr, 0, &required);
-    if (required == 0)
-        return result;
-    if (result != ANO_RESOURCE_DEPENDENCY_CAPACITY
-        || required > SIZE_MAX / sizeof(AnoResourceDependency))
-        return result == ANO_RESOURCE_DEPENDENCY_CAPACITY
-            ? ANO_RESOURCE_OVERFLOW : result;
-    AnoResourceDependency *values = mi_mallocn_tp(
-        AnoResourceDependency, static_cast<size_t>(required));
-    if (values == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    uint64_t actual = 0;
-    result = ano_resource_artifact_dependencies(
-        type, artifact, values, required, &actual);
-    if (result != ANO_RESOURCE_OK || actual != required) {
-        mi_free(values);
-        return result == ANO_RESOURCE_OK ? ANO_RESOURCE_NON_CANONICAL : result;
-    }
-    *dependencies = values;
-    *count = actual;
-    return ANO_RESOURCE_OK;
-}
-
 template<class Output>
 consteval size_t output_member_count()
 {
@@ -554,7 +522,7 @@ template<>
 AnoResourceError prepare_decoded(
     AnoRenderResidency& residency, RenderBinding& binding,
     const schema::Texture& texture,
-    AnoResourceBytes artifact, mi_heap_t* heap)
+    AnoResourceBytes artifact, mi_heap_t*)
 {
     uint64_t pixels = 0;
     uint64_t bytes = 0;
@@ -564,18 +532,19 @@ AnoResourceError prepare_decoded(
         || !ano::detail::checked_multiply(pixels, 4, &bytes)
         || bytes != texture.bytes.count || bytes > SIZE_MAX)
         return ANO_RESOURCE_NON_CANONICAL;
-    binding.preparedPixels = static_cast<uint8_t*>(
-        mi_heap_malloc(heap, static_cast<size_t>(bytes)));
-    if (!binding.preparedPixels) return ANO_RESOURCE_OUT_OF_MEMORY;
     const ano::ArtifactView<schema::Texture> view = {
         .value = texture, .bytes = artifact};
-    const AnoResourceError result = ano::resolve_span(
-        view, texture.bytes, binding.preparedPixels, bytes);
-    return result == ANO_RESOURCE_OK
-            && !reserve_upload_slice(
+    AnoResourceBytes pixelsView = {};
+    const AnoResourceError result = ano::borrow_bytes(
+        view, texture.bytes, &pixelsView);
+    if (result != ANO_RESOURCE_OK)
+        return result;
+    if (pixelsView.size != bytes)
+        return ANO_RESOURCE_NON_CANONICAL;
+    return !reserve_upload_slice(
                 residency, static_cast<VkDeviceSize>(bytes),
                 &binding.uploadOffset)
-        ? ANO_RESOURCE_OVERFLOW : result;
+        ? ANO_RESOURCE_OVERFLOW : ANO_RESOURCE_OK;
 }
 
 template<>
@@ -706,7 +675,6 @@ bool clone_scene_binding(AnoRenderResidency& candidate,
     target = source;
     target.ownsReservations = false;
     target.affected = false;
-    target.preparedPixels = nullptr;
     target.preparedGeometry = {};
     target.uploadOffset = 0;
     target.scene.slot = slot;
@@ -742,11 +710,11 @@ AnoResourceError plan_asset(
     AnoResourceBytes artifact = {};
     AnoResourceError result = ano_resource_epoch_resolve(
         candidate.source, asset, type, &artifact);
-    AnoResourceDependency *dependencies = nullptr;
+    const AnoResourceDependency *dependencies = nullptr;
     uint64_t dependencyCount = 0;
     if (result == ANO_RESOURCE_OK)
-        result = collect_dependencies(
-            type, artifact, &dependencies, &dependencyCount);
+        result = ano_resource_epoch_dependencies(
+            candidate.source, asset, &dependencies, &dependencyCount);
     bool dependencyChanged = false;
     for (uint64_t i = 0; i < dependencyCount
                          && result == ANO_RESOURCE_OK; ++i) {
@@ -764,7 +732,6 @@ AnoResourceError plan_asset(
                     candidate.bindings[dependencyIndex].affected;
         }
     }
-    mi_free(dependencies);
     if (result != ANO_RESOURCE_OK) {
         target->state = BindingState::absent;
         return result;
@@ -779,7 +746,6 @@ AnoResourceError plan_asset(
             *target = source;
             target->ownsReservations = false;
             target->affected = false;
-            target->preparedPixels = nullptr;
             target->preparedGeometry = {};
             target->uploadOffset = 0;
         }
@@ -853,7 +819,6 @@ AnoResourceError realize_planned_asset(
         result = invoke_render_transform(
             target, context, target.sourceType, artifact);
     }
-    target.preparedPixels = nullptr;
     target.preparedGeometry = {};
     target.uploadOffset = 0;
     target.state = result == ANO_RESOURCE_OK
@@ -910,15 +875,23 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
         return false;
     RenderBinding* target = binding(
         *context.residency, context.asset, ano::resource_type_id<Texture>());
-    if (!target || !target->preparedPixels) return false;
+    if (!target) return false;
     AnoRenderResidency& residency = *context.residency;
     if (residency.uploadCommands == VK_NULL_HANDLE
         || residency.uploadStaging == VK_NULL_HANDLE
         || !residency.uploadAllocation.mapped)
         return false;
+    const ArtifactView<Texture> view = {
+        .value = texture,
+        .bytes = context.artifact,
+    };
+    AnoResourceBytes pixels = {};
+    if (borrow_bytes(view, texture.bytes, &pixels) != ANO_RESOURCE_OK
+        || pixels.size != requiredBytes)
+        return false;
     memcpy(static_cast<uint8_t*>(residency.uploadAllocation.mapped)
                + static_cast<size_t>(target->uploadOffset),
-           target->preparedPixels, static_cast<size_t>(requiredBytes));
+           pixels.data, static_cast<size_t>(requiredBytes));
     TexturePackage package = {};
     const TextureUsageFlags usage = static_cast<TextureUsageFlags>(texture.usage);
     const AnoTextureResult built = createTextureImageFromStaging(
@@ -1080,9 +1053,6 @@ bool realize_scene(const Scene& scene, RenderResourceContext& context,
     if (scene.renderables.count > SIZE_MAX / sizeof(SceneRenderable)
         || scene.lights.count > SIZE_MAX / sizeof(SceneLight))
         return false;
-    SceneRenderable *portable = scene.renderables.count == 0 ? nullptr
-        : mi_mallocn_tp(SceneRenderable,
-                        static_cast<size_t>(scene.renderables.count));
     SceneLight *lights = scene.lights.count == 0 ? nullptr
         : mi_mallocn_tp(SceneLight,
                         static_cast<size_t>(scene.lights.count));
@@ -1090,37 +1060,35 @@ bool realize_scene(const Scene& scene, RenderResourceContext& context,
         : mi_calloc_tp(AnoRenderableDesc,
                        static_cast<size_t>(scene.renderables.count));
     if ((scene.renderables.count != 0
-         && (portable == nullptr || renderables == nullptr))
+         && renderables == nullptr)
         || (scene.lights.count != 0 && lights == nullptr)) {
         mi_free(renderables);
         mi_free(lights);
-        mi_free(portable);
         return false;
     }
     const ArtifactView<Scene> view = {
         .value = scene,
         .bytes = context.artifact,
     };
-    bool valid = resolve_span(
-        view, scene.renderables, portable, scene.renderables.count)
-            == ANO_RESOURCE_OK
-        && resolve_span(view, scene.lights, lights, scene.lights.count)
-            == ANO_RESOURCE_OK;
-    for (uint64_t i = 0; i < scene.renderables.count && valid; ++i) {
+    AnoResourceError decoded = resolve_span(
+        view, scene.lights, lights, scene.lights.count);
+    auto project = [&](const SceneRenderable& portable,
+                       uint64_t index) -> AnoResourceError {
         RenderBinding *mesh = binding(
-            *context.residency, portable[i].mesh);
-        if (mesh == nullptr || mesh->state != BindingState::resident) {
-            valid = false;
-            break;
-        }
-        memcpy(renderables[i].transform, portable[i].transform,
-               sizeof(portable[i].transform));
-        renderables[i].mesh_index = mesh->mesh.geometrySlot;
-        renderables[i].material_index = mesh->mesh.materialSlot;
-    }
-    mi_free(portable);
+            *context.residency, portable.mesh);
+        if (mesh == nullptr || mesh->state != BindingState::resident)
+            return ANO_RESOURCE_OWNER_REJECTED;
+        memcpy(renderables[index].transform, portable.transform,
+               sizeof(portable.transform));
+        renderables[index].mesh_index = mesh->mesh.geometrySlot;
+        renderables[index].material_index = mesh->mesh.materialSlot;
+        return ANO_RESOURCE_OK;
+    };
+    if (decoded == ANO_RESOURCE_OK)
+        decoded = visit_span(view, scene.renderables, project);
     uint32_t slot = 0;
-    if (!valid || !reserve_scene(*context.residency, &slot)) {
+    if (decoded != ANO_RESOURCE_OK
+        || !reserve_scene(*context.residency, &slot)) {
         mi_free(renderables);
         mi_free(lights);
         return false;

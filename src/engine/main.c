@@ -112,9 +112,9 @@ inline constexpr SceneLight CANDLE_LIGHTS[] = {
      SceneLightType::spot, false},
 };
 
-struct CookedPack final {
-    uint8_t *bytes;
-    uint64_t size;
+struct StartupResources final {
+    AnoResourceCooker *cooker;
+    AnoResourceManager *manager;
 };
 
 enum ReloadWorkerState : uint32_t {
@@ -129,6 +129,7 @@ enum ReloadWorkerState : uint32_t {
 
 struct ReloadWorker final {
     AnoResourceManager *manager;
+    AnoResourceCooker *cooker;
     StartupSources sources;
     AnoRenderResourcePublication *publication;
     mi_heap_t *heap;
@@ -137,42 +138,26 @@ struct ReloadWorker final {
     anothread_mutex_t mutex;
     anothread_cond_t wake;
     ReloadWorkerState state;
+    uint64_t requestedGeneration;
+    uint64_t completedGeneration;
+    bool discardReady;
 };
-
-template<class Type>
-AnoResourceError add_artifact(
-    AnoResourceCooker *cooker, ano::AssetRef<Type> asset,
-    AnoResourceCommitGroupId group, ano::ArtifactSource<Type> source)
-{
-    const ano::EncodeResult measured = ano::encoded_size(source);
-    if (measured.error != ANO_RESOURCE_OK || measured.size > SIZE_MAX)
-        return measured.error == ANO_RESOURCE_OK
-            ? ANO_RESOURCE_OVERFLOW : measured.error;
-    uint8_t *bytes = static_cast<uint8_t *>(
-        malloc(static_cast<size_t>(measured.size)));
-    if (bytes == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    const ano::EncodeResult encoded = ano::encode(
-        source, {bytes, measured.size});
-    AnoResourceError result = encoded.error;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cooker_add(
-            cooker, asset.id, ano::resource_type_id<Type>(), group,
-            {bytes, encoded.size});
-    free(bytes);
-    return result;
-}
 
 template<size_t Count>
 AnoResourceError add_lighting(
     AnoResourceCooker *cooker, ano::AssetRef<Scene> asset,
     const SceneLight (&lights)[Count])
 {
+    AnoResourceBytes current{};
+    if (ano_resource_cooker_current_resolve(
+            cooker, asset.id, ano::resource_type_id<Scene>(), &current)
+        == ANO_RESOURCE_OK)
+        return ANO_RESOURCE_OK;
     const Scene scene = {
         .renderables = {0, 0},
         .lights = {0, Count},
     };
-    return add_artifact(
+    return ano::cook_artifact(
         cooker, asset, SCENE_GROUP,
         ano::ArtifactSource<Scene>{
             &scene,
@@ -180,15 +165,14 @@ AnoResourceError add_lighting(
         });
 }
 
-AnoResourceError cook_startup_pack(
-    const StartupSources& sources, CookedPack *pack)
+AnoResourceError cook_startup_revision(
+    AnoResourceCooker *cooker, const StartupSources& sources,
+    const AnoCookedRevision **revision)
 {
-    if (pack == nullptr)
+    if (cooker == nullptr || revision == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
-    *pack = {};
-    AnoResourceCooker *cooker = nullptr;
-    AnoResourceError result = ano_resource_cooker_create(
-        {.firstDerivedAsset = {6}}, &cooker);
+    *revision = nullptr;
+    AnoResourceError result = ano_resource_cooker_begin(cooker);
     struct SourceImport final {
         AnoResourceSourceId source;
         const char *path;
@@ -215,26 +199,25 @@ AnoResourceError cook_startup_pack(
     if (result == ANO_RESOURCE_OK)
         result = add_lighting(cooker, CANDLE_LIGHTING, CANDLE_LIGHTS);
 
-    AnoResourceMutableBytes cooked = {};
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &cooked);
-    ano_resource_cooker_destroy(cooker);
-    if (result != ANO_RESOURCE_OK) {
-        ano_resource_cooked_pack_release(cooked);
-        return result;
-    }
-    *pack = {cooked.data, cooked.size};
-    return ANO_RESOURCE_OK;
+        result = ano_resource_cook(cooker, revision);
+    return result;
 }
 
-AnoResourceManager *create_startup_resources()
+AnoResourceError create_startup_resources(StartupResources *startup)
 {
-    CookedPack pack = {};
-    AnoResourceError result = cook_startup_pack(DEFAULT_SOURCES, &pack);
-    AnoResourceManager *manager = nullptr;
+    if (startup == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *startup = {};
+    AnoResourceError result = ano_resource_cooker_create(
+        {.firstDerivedAsset = {6}}, &startup->cooker);
+    const AnoCookedRevision *revision = nullptr;
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_manager_create({pack.bytes, pack.size}, &manager);
-    ano_resource_cooked_pack_release({pack.bytes, pack.size});
+        result = cook_startup_revision(
+            startup->cooker, DEFAULT_SOURCES, &revision);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_manager_create(revision, &startup->manager);
+    ano_resource_revision_release(revision);
     const AnoResourceGoal goals[] = {
         {{1}, VIKING_ROOM.id, ano::resource_type_id<ano::asset_schema::Scene>(),
          SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
@@ -249,31 +232,31 @@ AnoResourceManager *create_startup_resources()
     };
     for (const AnoResourceGoal& goal : goals)
         if (result == ANO_RESOURCE_OK)
-            result = ano_resource_goal_set(manager, goal);
+            result = ano_resource_goal_set(startup->manager, goal);
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_reconcile(manager);
+        result = ano_resource_reconcile(startup->manager);
     if (result != ANO_RESOURCE_OK) {
-        ano_log(ANO_ERROR, "Startup resource graph failed: %s",
-                ano_resource_error_string(result));
-        ano_resource_manager_destroy(manager);
-        return nullptr;
+        ano_resource_manager_destroy(startup->manager);
+        ano_resource_cooker_destroy(startup->cooker);
+        *startup = {};
     }
-    return manager;
+    return result;
 }
 
 AnoResourceError prepare_startup_resources_reload(
-    AnoResourceManager *manager, const StartupSources& sources,
+    AnoResourceCooker *cooker, AnoResourceManager *manager,
+    const StartupSources& sources,
     AnoResourceReload **reload)
 {
     if (reload == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *reload = nullptr;
-    CookedPack pack = {};
-    AnoResourceError result = cook_startup_pack(sources, &pack);
+    const AnoCookedRevision *revision = nullptr;
+    AnoResourceError result = cook_startup_revision(
+        cooker, sources, &revision);
     if (result == ANO_RESOURCE_OK)
-        result = ano_resource_reload_prepare(
-            manager, {pack.bytes, pack.size}, reload);
-    ano_resource_cooked_pack_release({pack.bytes, pack.size});
+        result = ano_resource_reload_prepare(manager, revision, reload);
+    ano_resource_revision_release(revision);
     return result;
 }
 
@@ -287,41 +270,60 @@ void *prepare_reload_worker(void *argument)
                && worker.state != RELOAD_WORKER_STOP)
             ano_thread_cond_wait(&worker.wake, &worker.mutex);
         if (worker.state == RELOAD_WORKER_STOP) break;
-        const StartupSources sources = worker.sources;
         worker.state = RELOAD_WORKER_RUNNING;
-        ano_mutex_unlock(&worker.mutex);
-
         AnoResourceReload *reload = nullptr;
-        mi_heap_t *heap = ano_heap_create();
+        mi_heap_t *heap = nullptr;
         AnoRenderResourcePublication *publication = nullptr;
-        AnoResourceError result = heap
-            ? prepare_startup_resources_reload(
-                worker.manager, sources, &reload)
-            : ANO_RESOURCE_OUT_OF_MEMORY;
-        if (result == ANO_RESOURCE_OK)
-            result = ano_render_resources_prepare_reload(
-                reload, heap, &publication);
-        else
-            ano_resource_reload_abort(reload);
-
-        ano_mutex_lock(&worker.mutex);
+        AnoResourceError result = ANO_RESOURCE_OK;
+        uint64_t generation = 0;
+        for (;;) {
+            const StartupSources sources = worker.sources;
+            generation = worker.requestedGeneration;
+            ano_mutex_unlock(&worker.mutex);
+            heap = ano_heap_create();
+            result = heap
+                ? prepare_startup_resources_reload(
+                    worker.cooker, worker.manager, sources, &reload)
+                : ANO_RESOURCE_OUT_OF_MEMORY;
+            if (result == ANO_RESOURCE_OK)
+                result = ano_render_resources_prepare_reload(
+                    reload, heap, &publication);
+            else
+                ano_resource_reload_abort(reload);
+            reload = nullptr;
+            ano_mutex_lock(&worker.mutex);
+            if (generation == worker.requestedGeneration)
+                break;
+            ano_mutex_unlock(&worker.mutex);
+            ano_render_resources_cancel_reload(publication);
+            publication = nullptr;
+            ano_heap_destroy(heap);
+            heap = nullptr;
+            ano_mutex_lock(&worker.mutex);
+        }
         worker.heap = heap;
         worker.publication = publication;
         worker.result = result;
+        worker.completedGeneration = generation;
         worker.state = RELOAD_WORKER_READY;
         ano_thread_cond_broadcast(&worker.wake);
         while (worker.state != RELOAD_WORKER_RECLAIM
                && worker.state != RELOAD_WORKER_STOP)
             ano_thread_cond_wait(&worker.wake, &worker.mutex);
         const bool stop = worker.state == RELOAD_WORKER_STOP;
+        const bool discard = worker.discardReady;
         heap = worker.heap;
+        publication = discard ? worker.publication : nullptr;
         worker.heap = nullptr;
         worker.publication = nullptr;
+        worker.discardReady = false;
         ano_mutex_unlock(&worker.mutex);
+        ano_render_resources_cancel_reload(publication);
         ano_heap_destroy(heap);
         ano_mutex_lock(&worker.mutex);
         if (stop) break;
-        worker.state = RELOAD_WORKER_IDLE;
+        worker.state = worker.requestedGeneration > worker.completedGeneration
+            ? RELOAD_WORKER_REQUESTED : RELOAD_WORKER_IDLE;
         ano_thread_cond_broadcast(&worker.wake);
     }
     worker.state = RELOAD_WORKER_STOP;
@@ -351,11 +353,20 @@ bool reload_worker_request(ReloadWorker& worker,
                            const StartupSources& sources)
 {
     ano_mutex_lock(&worker.mutex);
-    const bool accepted = worker.state == RELOAD_WORKER_IDLE;
+    const bool accepted = worker.state != RELOAD_WORKER_STOP;
     if (accepted) {
         worker.sources = sources;
-        worker.state = RELOAD_WORKER_REQUESTED;
-        ano_thread_cond_signal(&worker.wake);
+        ++worker.requestedGeneration;
+        if (worker.state == RELOAD_WORKER_IDLE) {
+            worker.state = RELOAD_WORKER_REQUESTED;
+            ano_thread_cond_signal(&worker.wake);
+        } else if (worker.state == RELOAD_WORKER_RUNNING) {
+            ano_resource_cooker_cancel(worker.cooker);
+        } else if (worker.state == RELOAD_WORKER_READY) {
+            worker.discardReady = true;
+            worker.state = RELOAD_WORKER_RECLAIM;
+            ano_thread_cond_signal(&worker.wake);
+        }
     }
     ano_mutex_unlock(&worker.mutex);
     return accepted;
@@ -384,14 +395,6 @@ void reload_worker_reclaim(ReloadWorker& worker)
         ano_thread_cond_signal(&worker.wake);
     }
     ano_mutex_unlock(&worker.mutex);
-}
-
-bool reload_worker_idle(ReloadWorker& worker)
-{
-    ano_mutex_lock(&worker.mutex);
-    const bool idle = worker.state == RELOAD_WORKER_IDLE;
-    ano_mutex_unlock(&worker.mutex);
-    return idle;
 }
 
 void reload_worker_stop(ReloadWorker& worker)
@@ -1544,9 +1547,12 @@ int main()
                 mainStack >> 10, (size_t)ANO_THREAD_STACK_SIZE >> 10);
 
 #ifndef HEADLESS_BUILD
-    AnoResourceManager *resources = create_startup_resources();
-    if (resources == nullptr) {
-        ano_log(ANO_FATAL, "Resource initialization failed.");
+    StartupResources startup{};
+    const AnoResourceError startupResult = create_startup_resources(&startup);
+    AnoResourceManager *resources = startup.manager;
+    if (startupResult != ANO_RESOURCE_OK) {
+        ano_log(ANO_FATAL, "Resource initialization failed: %s",
+                ano_resource_error_string(startupResult));
         return -1;
     }
     // GLFW + Vulkan on main (window/events pinned; mandatory on macOS).
@@ -1555,6 +1561,7 @@ int main()
     {
         ano_log(ANO_FATAL, "Vulkan initialization failed.");
         ano_resource_manager_destroy(resources);
+        ano_resource_cooker_destroy(startup.cooker);
         return -1;
     }
 
@@ -1574,12 +1581,16 @@ int main()
 #endif
         unInitVulkan();
         ano_resource_manager_destroy(resources);
+        ano_resource_cooker_destroy(startup.cooker);
         return -1;
     }
 
     // Render loop (main): poll + draw. Logic feeds ECS->render concurrently.
     bool replacementSourceActive = false;
-    ReloadWorker reloadWorker = {.manager = resources};
+    ReloadWorker reloadWorker = {
+        .manager = resources,
+        .cooker = startup.cooker,
+    };
     AnoRenderResourcePublication *publication = nullptr;
     if (!reload_worker_start(reloadWorker)) {
         ano_log(ANO_FATAL, "Resource reload worker did not start.");
@@ -1587,6 +1598,7 @@ int main()
         ano_thread_join(logicThread, NULL);
         unInitVulkan();
         ano_resource_manager_destroy(resources);
+        ano_resource_cooker_destroy(startup.cooker);
         return -1;
     }
     while (!anoShouldClose())
@@ -1598,6 +1610,22 @@ int main()
                 path = "anoptic-frame.ppm";
             if (!ano_render_capture_next_frame(path))
                 ano_log(ANO_WARN, "Frame capture request was refused.");
+        }
+        const bool reloadRequested = atomic_exchange(
+            &g_resourceReloadRequested, false);
+        if (reloadRequested && publication != nullptr) {
+            ano_render_resources_cancel_reload(publication);
+            publication = nullptr;
+            reload_worker_reclaim(reloadWorker);
+        }
+        if (reloadRequested) {
+            StartupSources selected = DEFAULT_SOURCES;
+            const char *replacement = getenv("ANO_VIKING_RELOAD_SOURCE");
+            if (replacement != nullptr && replacement[0] != '\0'
+                && !replacementSourceActive)
+                selected.viking = replacement;
+            if (!reload_worker_request(reloadWorker, selected))
+                ano_log(ANO_ERROR, "Resource reload worker did not start.");
         }
         if (publication != nullptr) {
             const AnoRenderResourceReloadStatus status =
@@ -1623,18 +1651,6 @@ int main()
             if (publication == nullptr)
                 reload_worker_reclaim(reloadWorker);
         }
-        if (publication == nullptr
-            && atomic_load(&g_resourceReloadRequested)
-            && reload_worker_idle(reloadWorker)
-            && atomic_exchange(&g_resourceReloadRequested, false)) {
-            StartupSources selected = DEFAULT_SOURCES;
-            const char *replacement = getenv("ANO_VIKING_RELOAD_SOURCE");
-            if (replacement != nullptr && replacement[0] != '\0'
-                && !replacementSourceActive)
-                selected.viking = replacement;
-            if (!reload_worker_request(reloadWorker, selected))
-                ano_log(ANO_ERROR, "Resource reload worker did not start.");
-        }
         drawFrame();
     }
 
@@ -1653,6 +1669,7 @@ int main()
 
     unInitVulkan();
     ano_resource_manager_destroy(resources);
+    ano_resource_cooker_destroy(startup.cooker);
 #else
     // Headless engine: no renderer. Idle console loop.
     ano_rlog(ANO_INFO, ANO_TERM, "Anoptic Engine 〜 headless console mode.");

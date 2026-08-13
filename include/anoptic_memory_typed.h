@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// C++ typed allocation for plain engine data. Header-only; no ownership surface.
+// Reflected contiguous-volume layouts and typed allocation for engine data.
 
 #ifndef ANOPTICENGINE_ANOPTIC_MEMORY_TYPED_H
 #define ANOPTICENGINE_ANOPTIC_MEMORY_TYPED_H
@@ -13,8 +13,178 @@
 #include <anoptic_meta.h>
 
 #include <cstddef>
+#include <meta>
+#include <type_traits>
 
 namespace ano {
+
+// Standard allocator surface backed directly by mimalloc. Containers using
+// it remain independent of the C++ runtime; allocation failure is terminal in
+// this no-exception engine process.
+template<class T>
+struct MimallocAllocator {
+    using value_type = T;
+    using size_type = size_t;
+    using difference_type = ptrdiff_t;
+    using is_always_equal = std::true_type;
+
+    template<class U>
+    struct rebind final { using other = MimallocAllocator<U>; };
+
+    constexpr MimallocAllocator() noexcept = default;
+    template<class U>
+    constexpr MimallocAllocator(const MimallocAllocator<U>&) noexcept {}
+
+    [[nodiscard]] T *allocate(size_t count)
+    {
+        if (count > SIZE_MAX / sizeof(T))
+            __builtin_trap();
+        T *result = mi_mallocn_tp(T, count);
+        if (result == nullptr)
+            __builtin_trap();
+        return result;
+    }
+
+    void deallocate(T *allocation, size_t) noexcept
+    {
+        mi_free(allocation);
+    }
+
+    template<class U>
+    constexpr bool operator==(const MimallocAllocator<U>&) const noexcept
+    {
+        return true;
+    }
+};
+
+template<class T, size_t Alignment = alignof(T)>
+struct MemorySegment final {
+    using Value = T;
+    static constexpr size_t alignment = Alignment;
+
+    static_assert(Alignment >= alignof(T) && (Alignment & (Alignment - 1)) == 0,
+                  "segment alignment must be a power of two valid for T");
+
+    size_t count = 0;
+    MemoryReservation reservation{};
+};
+
+template<class Segment>
+concept MemorySegmentDeclaration = requires(Segment segment) {
+    typename Segment::Value;
+    segment.count;
+    segment.reservation;
+} && Data<typename Segment::Value>
+  && std::is_same_v<decltype(Segment::count), size_t>
+  && std::is_same_v<decltype(Segment::reservation), MemoryReservation>;
+
+template<class Plan>
+consteval bool reflect_memory_plan()
+{
+    static_assert(std::is_class_v<Plan> && Data<Plan>,
+                  "a memory plan must be a plain data record");
+    static constexpr auto members = std::define_static_array(
+        std::meta::nonstatic_data_members_of(
+            ^^Plan, std::meta::access_context::current()));
+    static_assert(!members.empty(), "a memory plan requires at least one segment");
+    template for (constexpr auto member : members) {
+        using Segment = [:std::meta::type_of(member):];
+        static_assert(MemorySegmentDeclaration<Segment>,
+                      "every memory-plan field must be ano::MemorySegment<T>");
+    }
+    return true;
+}
+
+// Runtime counts enter through the reflected plan record. Reflection supplies
+// field order, element size, and alignment; this constexpr pass supplies the
+// checked prefix sum and writes each reservation back into the record.
+template<class Plan>
+    requires (reflect_memory_plan<Plan>())
+[[nodiscard]] constexpr MemoryLayoutCursor memory_layout(Plan& plan) noexcept
+{
+    MemoryLayoutCursor cursor{};
+    static constexpr auto members = std::define_static_array(
+        std::meta::nonstatic_data_members_of(
+            ^^Plan, std::meta::access_context::current()));
+    template for (constexpr auto member : members) {
+        using Segment = [:std::meta::type_of(member):];
+        using Value = typename Segment::Value;
+        auto& segment = plan.[:member:];
+        size_t bytes = 0;
+        if (!ano_size_multiply(segment.count, sizeof(Value), &bytes)) {
+            cursor.valid = false;
+            break;
+        }
+        if (!cursor.reserve(bytes, Segment::alignment,
+                            segment.reservation))
+            break;
+    }
+    return cursor;
+}
+
+template<class T>
+struct MemorySpan final {
+    T *values = nullptr;
+    size_t count = 0;
+
+    [[nodiscard]] constexpr T *data() const noexcept { return values; }
+    [[nodiscard]] constexpr size_t size() const noexcept { return count; }
+    [[nodiscard]] constexpr bool empty() const noexcept { return count == 0; }
+    [[nodiscard]] constexpr T& operator[](size_t index) const noexcept
+    {
+        assume(index < count);
+        return values[index];
+    }
+};
+
+template<Data T, size_t Alignment>
+[[nodiscard]] MemorySpan<T> memory_volume_write(
+    MemoryVolume *volume, MemorySegment<T, Alignment> segment) noexcept
+{
+    if ((segment.reservation.offset & (alignof(T) - 1)) != 0
+        || segment.reservation.size % sizeof(T) != 0
+        || segment.reservation.size / sizeof(T) != segment.count)
+        return {};
+    MemoryMutableView view{};
+    if (!memory_volume_write(volume, segment.reservation, view))
+        return {};
+    return {static_cast<T *>(view.data), segment.count};
+}
+
+template<Data T, size_t Alignment>
+[[nodiscard]] MemorySpan<const T> memory_volume_view(
+    const MemoryVolume *volume, MemorySegment<T, Alignment> segment) noexcept
+{
+    if ((segment.reservation.offset & (alignof(T) - 1)) != 0
+        || segment.reservation.size % sizeof(T) != 0
+        || segment.reservation.size / sizeof(T) != segment.count)
+        return {};
+    MemoryView view{};
+    if (!memory_volume_view(volume, segment.reservation, view))
+        return {};
+    return {static_cast<const T *>(view.data), segment.count};
+}
+
+template<Data T>
+[[nodiscard]] T *memory_region_allocate(
+    MemoryRegion *region, size_t count) noexcept
+{
+    size_t bytes = 0;
+    if (!ano_size_multiply(count, sizeof(T), &bytes))
+        return nullptr;
+    return static_cast<T *>(memory_region_allocate(region, bytes, alignof(T)));
+}
+
+template<Data T>
+[[nodiscard]] T *memory_region_allocate_zero(
+    MemoryRegion *region, size_t count) noexcept
+{
+    size_t bytes = 0;
+    if (!ano_size_multiply(count, sizeof(T), &bytes))
+        return nullptr;
+    return static_cast<T *>(
+        memory_region_allocate_zero(region, bytes, alignof(T)));
+}
 
 template<Data T>
 [[nodiscard]] T* allocate(std::size_t count) noexcept

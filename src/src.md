@@ -62,7 +62,7 @@ src/
 
 - `mesh/` (`ano_meshoptimizer.h`): Clean-room reimplementation of the meshoptimizer algorithms (no library linked): vertex-cache optimization, meshlet + bounds decomposition for the GPU geometry pool, and quadric-error edge-collapse simplification (`ano_simplify`) for LOD chain production.
 
-- `memory/` (`anoptic_memory.h`, C++ extension `anoptic_memory_typed.h`, contiguous-region extension `anoptic_memory_region.h`): Aligned and overflow-safe typed allocation, hardware interference constants (`ANO_CACHE_LINE` / `ANO_THREAD_LINE`), first-class cross-thread lifetime heaps, and immutable contiguous regions.
+- `memory/` (`anoptic_memory.h`, C++ extension `anoptic_memory_typed.h`): Checked reflected layouts, aligned lifetime regions, sealed contiguous volumes, scratch reset, and hardware interference constants (`ANO_CACHE_LINE` / `ANO_THREAD_LINE`).
 
 - `threads/` (`anoptic_threads.h`): Platform-agnostic threads, mutexes, condition variables, spinlocks, barriers, and TLS over pthreads / Win32. Spawn shim arms each new thread's crash stack via `ano_log_crash_thread_arm` (see `log/`).
 

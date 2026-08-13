@@ -5,8 +5,9 @@
 #include "../cooker_internal.h"
 #include "../parallel.h"
 
+
 #include <anogltf.h>
-#include <anoptic_memory.h>
+#include <anoptic_memory_typed.h>
 #include <anoptic_render_resources.h>
 #include <stb_image.h>
 
@@ -35,30 +36,52 @@ struct ImportScratch final {
     AnoAssetId defaultMaterial;
 };
 
-struct EncodedArtifact final {
-    uint8_t *bytes;
-    uint64_t size;
+struct PreparedArtifact final {
+    const void *value;
+    AnoResourceBytes extent;
 };
 
 enum class ImportJobKind : uint8_t {
     texture,
     mesh,
+    material,
+    scene,
 };
+
+AnoResourceTypeId import_job_type(ImportJobKind kind)
+{
+    switch (kind) {
+    case ImportJobKind::texture:
+        return resource_type_id<Texture>();
+    case ImportJobKind::mesh:
+        return resource_type_id<Mesh>();
+    case ImportJobKind::material:
+        return resource_type_id<Material>();
+    case ImportJobKind::scene:
+        return resource_type_id<Scene>();
+    }
+    return {};
+}
 
 struct ImportJob final {
     ImportJobKind kind;
     uint32_t first;
     uint32_t second;
     AnoAssetId asset;
-    EncodedArtifact artifact;
+    AnoContentId inputIdentity;
+    PreparedArtifact prepared;
+    AnoResourceCookArtifact artifact;
+    uint8_t *ownedExtent;
     AnoResourceError result;
 };
 
 struct ImportBatch final {
     AnoResourceCooker *cooker;
+    AnoResourceCommitGroupId commitGroup;
     const char *sourcePath;
     const AnoGltfData *data;
     const ImportScratch *scratch;
+    ano::MemoryRegion *region;
     ImportJob *jobs;
 };
 
@@ -293,37 +316,21 @@ void visit_texture_fields(const Object& object, Function& function)
 }
 
 template<class Type>
-Type *zero_array(uint64_t count)
+Type *zero_array(ano::MemoryRegion *region, uint64_t count)
 {
-    if (count == 0)
+    if (count == 0 || count > SIZE_MAX)
         return nullptr;
-    if (count > SIZE_MAX / sizeof(Type))
-        return nullptr;
-    return mi_calloc_tp(Type, static_cast<size_t>(count));
+    return ano::memory_region_allocate_zero<Type>(
+        region, static_cast<size_t>(count));
 }
 
-void release_scratch(ImportScratch& scratch)
+void *gltf_allocate(void *user, size_t bytes)
 {
-    mi_free(scratch.meshFirstPrimitive);
-    mi_free(scratch.primitiveAssets);
-    mi_free(scratch.materialAssets);
-    mi_free(scratch.imageAssets);
-    mi_free(scratch.imageUsage);
-    mi_free(scratch.usedMaterials);
-    mi_free(scratch.usedMeshes);
-    mi_free(scratch.reachableNodes);
-    scratch = {};
+    return ano::memory_region_allocate(
+        static_cast<ano::MemoryRegion *>(user), bytes, alignof(max_align_t));
 }
 
-void *gltf_allocate(void *, size_t bytes)
-{
-    return mi_malloc(bytes);
-}
-
-void gltf_release(void *, void *allocation)
-{
-    mi_free(allocation);
-}
+void gltf_release(void *, void *) {}
 
 AnoResourceError gltf_error(AnoGltfResult result)
 {
@@ -350,46 +357,49 @@ AnoResourceError gltf_error(AnoGltfResult result)
 }
 
 template<class ArtifactType>
-AnoResourceError encode_artifact(ArtifactSource<ArtifactType> source,
-                                 EncodedArtifact *artifact)
+AnoResourceError encode_prepared(void *context,
+                                 AnoResourceMutableBytes destination)
 {
-    if (artifact == nullptr)
+    if (context == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
-    *artifact = {};
-    const EncodeResult measured = encoded_size(source);
-    if (measured.error != ANO_RESOURCE_OK)
-        return measured.error;
-    if (measured.size > SIZE_MAX)
-        return ANO_RESOURCE_OVERFLOW;
-    uint8_t *bytes = static_cast<uint8_t *>(
-        mi_malloc(static_cast<size_t>(measured.size)));
-    if (bytes == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+    const auto& prepared = *static_cast<const PreparedArtifact *>(context);
     const EncodeResult encoded = encode(
-        source, {.data = bytes, .size = measured.size});
-    if (encoded.error != ANO_RESOURCE_OK || encoded.size != measured.size) {
-        mi_free(bytes);
-        return encoded.error == ANO_RESOURCE_OK
-            ? ANO_RESOURCE_NON_CANONICAL : encoded.error;
-    }
-    *artifact = {.bytes = bytes, .size = measured.size};
-    return ANO_RESOURCE_OK;
+        ArtifactSource<ArtifactType>{
+            .value = static_cast<const ArtifactType *>(prepared.value),
+            .extent = prepared.extent,
+        }, destination);
+    return encoded.error != ANO_RESOURCE_OK
+        ? encoded.error
+        : encoded.size == destination.size
+            ? ANO_RESOURCE_OK : ANO_RESOURCE_NON_CANONICAL;
 }
 
 template<class ArtifactType>
-AnoResourceError encode_and_adopt(AnoResourceCooker& cooker, AnoAssetId asset,
-                                  AnoResourceCommitGroupId group,
-                                  ArtifactSource<ArtifactType> source)
+AnoResourceError prepare_artifact(
+    ano::MemoryRegion *region, ImportJob& job, AnoAssetId asset,
+    AnoResourceCommitGroupId group, const ArtifactType& value,
+    AnoResourceBytes extent = {})
 {
-    EncodedArtifact artifact = {};
-    AnoResourceError result = encode_artifact(source, &artifact);
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cooker_adopt(
-            &cooker, asset, resource_type_id<ArtifactType>(), group,
-            artifact.bytes, artifact.size);
-    if (result != ANO_RESOURCE_OK)
-        mi_free(artifact.bytes);
-    return result;
+    ArtifactType *stored = ano::memory_region_allocate<ArtifactType>(
+        region, 1);
+    if (stored == nullptr)
+        return ANO_RESOURCE_OUT_OF_MEMORY;
+    *stored = value;
+    job.prepared = {.value = stored, .extent = extent};
+    const EncodeResult measured = encoded_size(
+        ArtifactSource<ArtifactType>{stored, extent});
+    if (measured.error != ANO_RESOURCE_OK)
+        return measured.error;
+    job.artifact = {
+        .asset = asset,
+        .type = resource_type_id<ArtifactType>(),
+        .commitGroup = group,
+        .encodedSize = measured.size,
+        .inputIdentity = job.inputIdentity,
+        .context = &job.prepared,
+        .encode = encode_prepared<ArtifactType>,
+    };
+    return ANO_RESOURCE_OK;
 }
 
 AnoResourceError texture_image(const AnoGltfData& data,
@@ -589,7 +599,228 @@ AnoResourceError resolved_image_path(const char *gltfPath,
     return ANO_RESOURCE_OK;
 }
 
-AnoResourceError decode_image(const AnoGltfData& data, uint32_t imageIndex,
+AnoContentId finish_input_identity(ano::detail::Sha256& hash)
+{
+    return hash.finish();
+}
+
+void begin_input_identity(ano::detail::Sha256& hash, uint64_t count)
+{
+    hash.append("anoptic.resource.inputs.v1");
+    ano::detail::hash_u64(hash, count);
+}
+
+AnoResourceError append_file_identity(
+    AnoResourceCooker& cooker, const char *path,
+    ano::detail::Sha256& hash)
+{
+    AnoContentId content{};
+    const AnoResourceError result = ano_resource_cooker_source_content(
+        &cooker, path, &content);
+    if (result == ANO_RESOURCE_OK)
+        hash.append(content.bytes, sizeof(content.bytes));
+    return result;
+}
+
+bool external_uri(AnoGltfString uri)
+{
+    return uri.length != 0
+        && !(uri.length >= 5 && memcmp(uri.data, "data:", 5) == 0);
+}
+
+AnoResourceError append_uri_identity(
+    AnoResourceCooker& cooker, const char *sourcePath, AnoGltfString uri,
+    ano::detail::Sha256& hash)
+{
+    char *path = nullptr;
+    AnoResourceError result = resolved_image_path(sourcePath, uri, &path);
+    if (result == ANO_RESOURCE_OK)
+        result = append_file_identity(cooker, path, hash);
+    mi_free(path);
+    return result;
+}
+
+AnoResourceError root_input_identity(
+    AnoResourceCooker& cooker, const char *sourcePath,
+    AnoContentId *identity)
+{
+    ano::detail::Sha256 hash;
+    begin_input_identity(hash, 1);
+    const AnoResourceError result = append_file_identity(
+        cooker, sourcePath, hash);
+    if (result == ANO_RESOURCE_OK)
+        *identity = finish_input_identity(hash);
+    return result;
+}
+
+AnoResourceError mesh_input_identity(
+    AnoResourceCooker& cooker, const char *sourcePath,
+    const AnoGltfData& data, AnoContentId *identity)
+{
+    uint64_t count = 1;
+    for (uint32_t i = 0; i < data.buffersCount; ++i)
+        count += external_uri(data.buffers[i].uri) ? 1u : 0u;
+    ano::detail::Sha256 hash;
+    begin_input_identity(hash, count);
+    AnoResourceError result = append_file_identity(cooker, sourcePath, hash);
+    for (uint32_t i = 0;
+         i < data.buffersCount && result == ANO_RESOURCE_OK; ++i)
+        if (external_uri(data.buffers[i].uri))
+            result = append_uri_identity(
+                cooker, sourcePath, data.buffers[i].uri, hash);
+    if (result == ANO_RESOURCE_OK)
+        *identity = finish_input_identity(hash);
+    return result;
+}
+
+AnoResourceError texture_input_identity(
+    AnoResourceCooker& cooker, const char *sourcePath,
+    const AnoGltfData& data, uint32_t imageIndex, AnoContentId *identity)
+{
+    if (imageIndex >= data.imagesCount || identity == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    AnoGltfString external{};
+    const AnoGltfImage& image = data.images[imageIndex];
+    if (external_uri(image.uri)) {
+        external = image.uri;
+    } else if (ano_gltf_has_index(image.bufferView)) {
+        if (image.bufferView.value >= data.bufferViewsCount)
+            return ANO_RESOURCE_NON_CANONICAL;
+        const AnoGltfBufferIndex buffer =
+            data.bufferViews[image.bufferView.value].buffer;
+        if (!ano_gltf_has_index(buffer) || buffer.value >= data.buffersCount)
+            return ANO_RESOURCE_NON_CANONICAL;
+        if (external_uri(data.buffers[buffer.value].uri))
+            external = data.buffers[buffer.value].uri;
+    }
+    ano::detail::Sha256 hash;
+    begin_input_identity(hash, external_uri(external) ? 2 : 1);
+    AnoResourceError result = append_file_identity(cooker, sourcePath, hash);
+    if (result == ANO_RESOURCE_OK && external_uri(external))
+        result = append_uri_identity(cooker, sourcePath, external, hash);
+    if (result == ANO_RESOURCE_OK)
+        *identity = finish_input_identity(hash);
+    return result;
+}
+
+AnoResourceError register_source_files(AnoResourceCooker& cooker,
+                                       const char *sourcePath,
+                                       const AnoGltfData& data)
+{
+    uint64_t capacity = 0;
+    if (!ano::detail::checked_add(
+            data.buffersCount, data.imagesCount, &capacity)
+        || capacity > SIZE_MAX / sizeof(char *))
+        return ANO_RESOURCE_OVERFLOW;
+    char **paths = capacity == 0 ? nullptr
+        : mi_calloc_tp(char *, static_cast<size_t>(capacity));
+    if (capacity != 0 && paths == nullptr)
+        return ANO_RESOURCE_OUT_OF_MEMORY;
+    uint64_t count = 0;
+    auto registerUri = [&](AnoGltfString uri) {
+        if (uri.length == 0
+            || (uri.length >= 5 && memcmp(uri.data, "data:", 5) == 0))
+            return ANO_RESOURCE_OK;
+        char *path = nullptr;
+        AnoResourceError result = resolved_image_path(
+            sourcePath, uri, &path);
+        if (result == ANO_RESOURCE_OK)
+            paths[count++] = path;
+        return result;
+    };
+    AnoResourceError result = ANO_RESOURCE_OK;
+    for (uint32_t i = 0; i < data.buffersCount
+                         && result == ANO_RESOURCE_OK; ++i)
+        result = registerUri(data.buffers[i].uri);
+    for (uint32_t i = 0; i < data.imagesCount
+                         && result == ANO_RESOURCE_OK; ++i)
+        result = registerUri(data.images[i].uri);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_source_dependencies(
+            &cooker, paths, count);
+    for (uint64_t i = 0; i < count; ++i)
+        mi_free(paths[i]);
+    mi_free(paths);
+    return result;
+}
+
+AnoResourceError bind_external_buffers(AnoResourceCooker& cooker,
+                                       const char *sourcePath,
+                                       AnoGltfData& data)
+{
+    AnoResourceError result = ANO_RESOURCE_OK;
+    for (uint32_t i = 0; i < data.buffersCount
+                         && result == ANO_RESOURCE_OK; ++i) {
+        const AnoGltfString uri = data.buffers[i].uri;
+        if (uri.length == 0
+            || (uri.length >= 5 && memcmp(uri.data, "data:", 5) == 0))
+            continue;
+        char *path = nullptr;
+        result = resolved_image_path(sourcePath, uri, &path);
+        AnoResourceBytes bytes{};
+        if (result == ANO_RESOURCE_OK)
+            result = ano_resource_cooker_source_bytes(
+                &cooker, path, &bytes);
+        if (result == ANO_RESOURCE_OK
+            && gltf_error(ano_gltf_bind_buffer(
+                   &data, {i}, bytes.data, static_cast<size_t>(bytes.size)))
+                != ANO_RESOURCE_OK)
+            result = ANO_RESOURCE_NON_CANONICAL;
+        mi_free(path);
+    }
+    return result;
+}
+
+bool external_file_changed(AnoResourceCooker& cooker,
+                           const char *sourcePath, AnoGltfString uri)
+{
+    if (uri.length == 0
+        || (uri.length >= 5 && memcmp(uri.data, "data:", 5) == 0))
+        return false;
+    char *path = nullptr;
+    const bool changed = resolved_image_path(sourcePath, uri, &path)
+            != ANO_RESOURCE_OK
+        || ano_resource_cooker_source_changed(&cooker, path);
+    mi_free(path);
+    return changed;
+}
+
+bool buffer_changed(AnoResourceCooker& cooker, const char *sourcePath,
+                    const AnoGltfData& data, AnoGltfBufferIndex buffer)
+{
+    return !ano_gltf_has_index(buffer) || buffer.value >= data.buffersCount
+        || external_file_changed(
+            cooker, sourcePath, data.buffers[buffer.value].uri);
+}
+
+bool image_changed(AnoResourceCooker& cooker, const char *sourcePath,
+                   const AnoGltfData& data, uint32_t imageIndex)
+{
+    if (imageIndex >= data.imagesCount)
+        return true;
+    const AnoGltfImage& image = data.images[imageIndex];
+    if (image.uri.length != 0)
+        return external_file_changed(cooker, sourcePath, image.uri);
+    if (!ano_gltf_has_index(image.bufferView)
+        || image.bufferView.value >= data.bufferViewsCount)
+        return true;
+    return buffer_changed(
+        cooker, sourcePath, data,
+        data.bufferViews[image.bufferView.value].buffer);
+}
+
+bool mesh_inputs_changed(AnoResourceCooker& cooker, const char *sourcePath,
+                         const AnoGltfData& data)
+{
+    for (uint32_t i = 0; i < data.buffersCount; ++i)
+        if (external_file_changed(
+                cooker, sourcePath, data.buffers[i].uri))
+            return true;
+    return false;
+}
+
+AnoResourceError decode_image(AnoResourceCooker& cooker,
+                              const AnoGltfData& data, uint32_t imageIndex,
                               const char *gltfPath, stbi_uc **pixels,
                               uint32_t *width, uint32_t *height,
                               uint64_t *byteCount)
@@ -604,13 +835,20 @@ AnoResourceError decode_image(const AnoGltfData& data, uint32_t imageIndex,
     int channels = 0;
     if (image.uri.length != 0) {
         char *path = nullptr;
-        const AnoResourceError resolved = resolved_image_path(
+        AnoResourceError resolved = resolved_image_path(
             gltfPath, image.uri, &path);
+        AnoResourceBytes encoded{};
+        if (resolved == ANO_RESOURCE_OK)
+            resolved = ano_resource_cooker_source_bytes(
+                &cooker, path, &encoded);
+        mi_free(path);
         if (resolved != ANO_RESOURCE_OK)
             return resolved;
-        *pixels = stbi_load(path, &decodedWidth, &decodedHeight, &channels,
-                            STBI_rgb_alpha);
-        mi_free(path);
+        if (encoded.size > INT_MAX)
+            return ANO_RESOURCE_OVERFLOW;
+        *pixels = stbi_load_from_memory(
+            encoded.data, static_cast<int>(encoded.size), &decodedWidth,
+            &decodedHeight, &channels, STBI_rgb_alpha);
     } else if (ano_gltf_has_index(image.bufferView)) {
         if (image.bufferView.value >= data.bufferViewsCount)
             return ANO_RESOURCE_NON_CANONICAL;
@@ -645,18 +883,21 @@ AnoResourceError decode_image(const AnoGltfData& data, uint32_t imageIndex,
     return ANO_RESOURCE_OK;
 }
 
-AnoResourceError build_texture(const char *sourcePath,
+AnoResourceError build_texture(AnoResourceCooker& cooker,
+                                const char *sourcePath,
                                 const AnoGltfData& data,
                                 const ImportScratch& scratch,
                                 uint32_t imageIndex,
-                                EncodedArtifact *artifact)
+                                AnoResourceCommitGroupId group,
+                                ano::MemoryRegion *region,
+                                ImportJob& job)
 {
     stbi_uc *pixels = nullptr;
     uint32_t width = 0;
     uint32_t height = 0;
     uint64_t byteCount = 0;
     AnoResourceError result = decode_image(
-        data, imageIndex, sourcePath, &pixels, &width, &height,
+        cooker, data, imageIndex, sourcePath, &pixels, &width, &height,
         &byteCount);
     if (result != ANO_RESOURCE_OK)
         return result;
@@ -668,13 +909,10 @@ AnoResourceError build_texture(const char *sourcePath,
         .usage = static_cast<TextureUsage>(scratch.imageUsage[imageIndex]),
         .bytes = {0, byteCount},
     };
-    result = encode_artifact(
-        ArtifactSource<Texture>{
-            .value = &texture,
-            .extent = {.data = pixels, .size = byteCount},
-        }, artifact);
-    stbi_image_free(pixels);
-    return result;
+    job.ownedExtent = pixels;
+    return prepare_artifact(
+        region, job, job.asset, group, texture,
+        {.data = pixels, .size = byteCount});
 }
 
 AnoResourceError primitive_accessors(
@@ -714,7 +952,9 @@ AnoResourceError primitive_accessors(
 AnoResourceError build_mesh(const AnoGltfData& data,
                              const ImportScratch& scratch, uint32_t meshIndex,
                              uint32_t primitiveIndex,
-                             EncodedArtifact *artifact)
+                             ano::MemoryRegion *region,
+                             AnoResourceCommitGroupId group,
+                             ImportJob& job)
 {
     const AnoGltfPrimitive& primitive =
         data.meshes[meshIndex].primitives.data[primitiveIndex];
@@ -735,8 +975,8 @@ AnoResourceError build_mesh(const AnoGltfData& data,
     if (!ano::detail::checked_add(vertexBytes, indexBytes, &extentSize)
         || extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
-    uint8_t *extent = static_cast<uint8_t *>(
-        mi_zalloc(static_cast<size_t>(extentSize)));
+    uint8_t *extent = ano::memory_region_allocate_zero<uint8_t>(
+        region, static_cast<size_t>(extentSize));
     if (extent == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     Vertex *vertices = reinterpret_cast<Vertex *>(extent);
@@ -804,13 +1044,10 @@ AnoResourceError build_mesh(const AnoGltfData& data,
             .boundsMaximum = {
                 boundsMaximum[0], boundsMaximum[1], boundsMaximum[2]},
         };
-        result = encode_artifact(
-            ArtifactSource<Mesh>{
-                .value = &mesh,
-                .extent = {.data = extent, .size = extentSize},
-            }, artifact);
+        result = prepare_artifact(
+            region, job, job.asset, group, mesh,
+            {.data = extent, .size = extentSize});
     }
-    mi_free(extent);
     return result;
 }
 
@@ -949,7 +1186,8 @@ AnoResourceError allocate_asset_ids(AnoResourceCooker& cooker,
     return ANO_RESOURCE_OK;
 }
 
-void run_import_job(void *argument, uint64_t index)
+void run_import_job(void *argument, uint64_t index,
+                    ano::MemoryRegion *)
 {
     ImportBatch& batch = *static_cast<ImportBatch *>(argument);
     ImportJob& job = batch.jobs[index];
@@ -957,49 +1195,71 @@ void run_import_job(void *argument, uint64_t index)
         job.result = ANO_RESOURCE_CANCELLED;
     } else if (job.kind == ImportJobKind::texture) {
         job.result = build_texture(
-            batch.sourcePath, *batch.data, *batch.scratch, job.first,
-            &job.artifact);
+            *batch.cooker, batch.sourcePath, *batch.data, *batch.scratch,
+            job.first, batch.commitGroup, batch.region, job);
     } else {
         job.result = build_mesh(
             *batch.data, *batch.scratch, job.first, job.second,
-            &job.artifact);
+            batch.region, batch.commitGroup, job);
     }
 }
+
+AnoResourceError prepare_scene_root(
+    const AnoResourceImportRequest& request, const AnoGltfData& data,
+    const ImportScratch& scratch, ano::MemoryRegion *region,
+    ImportJob& job);
 
 AnoResourceError build_import_artifacts(
     AnoResourceCooker& cooker, const AnoResourceImportRequest& request,
     const char *sourcePath, const AnoGltfData& data,
-    const ImportScratch& scratch)
+    const ImportScratch& scratch, ano::MemoryRegion *region)
 {
+    const bool all = ano_resource_cooker_import_all(&cooker);
+    const bool meshesChanged = all
+        || mesh_inputs_changed(cooker, sourcePath, data);
     uint64_t jobCount = 0;
     for (uint32_t image = 0; image < data.imagesCount; ++image)
-        if (scratch.imageUsage[image] != 0)
+        if (scratch.imageUsage[image] != 0
+            && (all || image_changed(cooker, sourcePath, data, image)))
             ++jobCount;
     for (uint32_t mesh = 0; mesh < data.meshesCount; ++mesh)
-        if (scratch.usedMeshes[mesh]
+        if (meshesChanged && scratch.usedMeshes[mesh]
             && !ano::detail::checked_add(
                 jobCount, data.meshes[mesh].primitives.count, &jobCount))
             return ANO_RESOURCE_OVERFLOW;
+    uint64_t parallelCount = jobCount;
+    if (all) {
+        for (uint32_t material = 0; material < data.materialsCount;
+             ++material)
+            if (scratch.usedMaterials[material]
+                && !ano::detail::checked_add(jobCount, 1, &jobCount))
+                return ANO_RESOURCE_OVERFLOW;
+        const uint64_t tail = (scratch.needsDefaultMaterial ? 1u : 0u) + 1u;
+        if (!ano::detail::checked_add(jobCount, tail, &jobCount))
+            return ANO_RESOURCE_OVERFLOW;
+    }
 
     size_t jobBytes = 0;
     if (!ano::detail::checked_allocation_size(
             jobCount, sizeof(ImportJob), &jobBytes))
         return ANO_RESOURCE_OVERFLOW;
     ImportJob *jobs = jobBytes == 0 ? nullptr
-        : static_cast<ImportJob *>(mi_zalloc(jobBytes));
+        : ano::memory_region_allocate_zero<ImportJob>(
+              region, static_cast<size_t>(jobCount));
     if (jobBytes != 0 && jobs == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
 
     uint64_t cursor = 0;
     for (uint32_t image = 0; image < data.imagesCount; ++image)
-        if (scratch.imageUsage[image] != 0)
+        if (scratch.imageUsage[image] != 0
+            && (all || image_changed(cooker, sourcePath, data, image)))
             jobs[cursor++] = {
                 .kind = ImportJobKind::texture,
                 .first = image,
                 .asset = scratch.imageAssets[image],
             };
     for (uint32_t mesh = 0; mesh < data.meshesCount; ++mesh)
-        if (scratch.usedMeshes[mesh])
+        if (meshesChanged && scratch.usedMeshes[mesh])
             for (uint32_t primitive = 0;
                  primitive < data.meshes[mesh].primitives.count; ++primitive) {
                 const uint64_t index = scratch.meshFirstPrimitive[mesh]
@@ -1014,40 +1274,133 @@ AnoResourceError build_import_artifacts(
 
     ImportBatch batch = {
         .cooker = &cooker,
+        .commitGroup = request.commitGroup,
         .sourcePath = sourcePath,
         .data = &data,
         .scratch = &scratch,
+        .region = region,
         .jobs = jobs,
     };
-    ano::resource_detail::parallel_for(
-        jobCount, &batch, run_import_job);
+    AnoContentId rootInput{};
+    AnoContentId meshInput{};
+    AnoResourceError result = root_input_identity(
+        cooker, sourcePath, &rootInput);
+    if (result == ANO_RESOURCE_OK && meshesChanged)
+        result = mesh_input_identity(
+            cooker, sourcePath, data, &meshInput);
+    for (uint64_t i = 0;
+         i < parallelCount && result == ANO_RESOURCE_OK; ++i) {
+        if (jobs[i].kind == ImportJobKind::texture)
+            result = texture_input_identity(
+                cooker, sourcePath, data, jobs[i].first,
+                &jobs[i].inputIdentity);
+        else
+            jobs[i].inputIdentity = meshInput;
+    }
+    uint64_t requiredParallelCount = 0;
+    for (uint64_t i = 0;
+         i < parallelCount && result == ANO_RESOURCE_OK; ++i) {
+        bool required = true;
+        result = ano_resource_cooker_action_required(
+            &cooker, jobs[i].asset, import_job_type(jobs[i].kind),
+            request.commitGroup, jobs[i].inputIdentity, &required);
+        if (required)
+            jobs[requiredParallelCount++] = jobs[i];
+    }
+    parallelCount = requiredParallelCount;
+    cursor = parallelCount;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_parallel(
+            &cooker, parallelCount, &batch, run_import_job);
 
-    AnoResourceError result = ANO_RESOURCE_OK;
-    for (uint64_t i = 0; i < jobCount && result == ANO_RESOURCE_OK; ++i)
+    for (uint64_t i = 0; i < parallelCount && result == ANO_RESOURCE_OK; ++i)
         result = jobs[i].result;
     if (result == ANO_RESOURCE_OK
         && ano_resource_cooker_cancelled(&cooker))
         result = ANO_RESOURCE_CANCELLED;
-    for (uint64_t i = 0; i < jobCount && result == ANO_RESOURCE_OK; ++i) {
-        ImportJob& job = jobs[i];
-        const AnoResourceTypeId type = job.kind == ImportJobKind::texture
-            ? resource_type_id<Texture>() : resource_type_id<Mesh>();
-        result = ano_resource_cooker_adopt(
-            &cooker, job.asset, type, request.commitGroup,
-            job.artifact.bytes, job.artifact.size);
-        if (result == ANO_RESOURCE_OK)
-            job.artifact = {};
+    if (all) {
+        for (uint32_t material = 0;
+             material < data.materialsCount && result == ANO_RESOURCE_OK;
+             ++material) {
+            if (!scratch.usedMaterials[material])
+                continue;
+            ImportJob& job = jobs[cursor];
+            job.kind = ImportJobKind::material;
+            job.asset = scratch.materialAssets[material];
+            job.inputIdentity = rootInput;
+            bool required = true;
+            result = ano_resource_cooker_action_required(
+                &cooker, job.asset, resource_type_id<Material>(),
+                request.commitGroup, job.inputIdentity, &required);
+            if (result == ANO_RESOURCE_OK && required) {
+                Material value{};
+                result = make_material(
+                    data, &data.materials[material], scratch.imageAssets,
+                    &value);
+                if (result == ANO_RESOURCE_OK)
+                    result = prepare_artifact(
+                        region, job, job.asset, request.commitGroup, value);
+                if (result == ANO_RESOURCE_OK)
+                    ++cursor;
+            }
+        }
+        if (result == ANO_RESOURCE_OK && scratch.needsDefaultMaterial) {
+            ImportJob& job = jobs[cursor];
+            job.kind = ImportJobKind::material;
+            job.asset = scratch.defaultMaterial;
+            job.inputIdentity = rootInput;
+            bool required = true;
+            result = ano_resource_cooker_action_required(
+                &cooker, job.asset, resource_type_id<Material>(),
+                request.commitGroup, job.inputIdentity, &required);
+            if (result == ANO_RESOURCE_OK && required) {
+                Material value{};
+                result = make_material(
+                    data, nullptr, scratch.imageAssets, &value);
+                if (result == ANO_RESOURCE_OK)
+                    result = prepare_artifact(
+                        region, job, job.asset, request.commitGroup, value);
+                if (result == ANO_RESOURCE_OK)
+                    ++cursor;
+            }
+        }
+        if (result == ANO_RESOURCE_OK) {
+            ImportJob& job = jobs[cursor];
+            job.kind = ImportJobKind::scene;
+            job.asset = request.rootAsset;
+            job.inputIdentity = rootInput;
+            bool required = true;
+            result = ano_resource_cooker_action_required(
+                &cooker, job.asset, resource_type_id<Scene>(),
+                request.commitGroup, job.inputIdentity, &required);
+            if (result == ANO_RESOURCE_OK && required) {
+                result = prepare_scene_root(
+                    request, data, scratch, region, job);
+                if (result == ANO_RESOURCE_OK)
+                    ++cursor;
+            }
+        }
     }
+    jobCount = cursor;
+    AnoResourceCookArtifact *artifacts = jobCount == 0 ? nullptr
+        : ano::memory_region_allocate<AnoResourceCookArtifact>(
+            region, static_cast<size_t>(jobCount));
+    if (result == ANO_RESOURCE_OK && jobCount != 0 && artifacts == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    for (uint64_t i = 0; i < jobCount && result == ANO_RESOURCE_OK; ++i)
+        artifacts[i] = jobs[i].artifact;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_cooker_encode_batch(
+            &cooker, artifacts, jobCount);
     for (uint64_t i = 0; i < jobCount; ++i)
-        mi_free(jobs[i].artifact.bytes);
-    mi_free(jobs);
+        stbi_image_free(jobs[i].ownedExtent);
     return result;
 }
 
-AnoResourceError import_scene_root(AnoResourceCooker& cooker,
-                                   const AnoResourceImportRequest& request,
-                                   const AnoGltfData& data,
-                                   const ImportScratch& scratch)
+AnoResourceError prepare_scene_root(
+    const AnoResourceImportRequest& request, const AnoGltfData& data,
+    const ImportScratch& scratch, ano::MemoryRegion *region,
+    ImportJob& job)
 {
     uint64_t renderableCount = 0;
     uint64_t lightCount = 0;
@@ -1078,8 +1431,8 @@ AnoResourceError import_scene_root(AnoResourceCooker& cooker,
         || extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *extent = extentSize == 0 ? nullptr
-        : static_cast<uint8_t *>(
-            mi_zalloc(static_cast<size_t>(extentSize)));
+        : ano::memory_region_allocate_zero<uint8_t>(
+            region, static_cast<size_t>(extentSize));
     if (extentSize != 0 && extent == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     SceneRenderable *renderables =
@@ -1136,28 +1489,26 @@ AnoResourceError import_scene_root(AnoResourceCooker& cooker,
                 ? RelativeSpan<SceneLight>{0, 0}
                 : RelativeSpan<SceneLight>{renderableBytes, lightCount},
         };
-        result = encode_and_adopt(
-            cooker, request.rootAsset, request.commitGroup,
-            ArtifactSource<Scene>{
-                .value = &scene,
-                .extent = {.data = extent, .size = extentSize},
-            });
+        result = prepare_artifact(
+            region, job, request.rootAsset, request.commitGroup, scene,
+            {.data = extent, .size = extentSize});
     }
-    mi_free(extent);
     return result;
 }
 
-AnoResourceError initialize_scratch(const AnoGltfData& data,
+AnoResourceError initialize_scratch(ano::MemoryRegion *region,
+                                    const AnoGltfData& data,
                                     ImportScratch& scratch)
 {
-    scratch.reachableNodes = zero_array<bool>(data.nodesCount);
-    scratch.usedMeshes = zero_array<bool>(data.meshesCount);
-    scratch.usedMaterials = zero_array<bool>(data.materialsCount);
-    scratch.imageUsage = zero_array<uint8_t>(data.imagesCount);
-    scratch.imageAssets = zero_array<AnoAssetId>(data.imagesCount);
-    scratch.materialAssets = zero_array<AnoAssetId>(data.materialsCount);
+    scratch.reachableNodes = zero_array<bool>(region, data.nodesCount);
+    scratch.usedMeshes = zero_array<bool>(region, data.meshesCount);
+    scratch.usedMaterials = zero_array<bool>(region, data.materialsCount);
+    scratch.imageUsage = zero_array<uint8_t>(region, data.imagesCount);
+    scratch.imageAssets = zero_array<AnoAssetId>(region, data.imagesCount);
+    scratch.materialAssets = zero_array<AnoAssetId>(
+        region, data.materialsCount);
     scratch.meshFirstPrimitive = zero_array<uint64_t>(
-        static_cast<uint64_t>(data.meshesCount) + 1);
+        region, static_cast<uint64_t>(data.meshesCount) + 1);
     if ((data.nodesCount != 0 && scratch.reachableNodes == nullptr)
         || (data.meshesCount != 0
             && (scratch.usedMeshes == nullptr
@@ -1178,7 +1529,8 @@ AnoResourceError initialize_scratch(const AnoGltfData& data,
             return ANO_RESOURCE_OVERFLOW;
     }
     scratch.meshFirstPrimitive[data.meshesCount] = scratch.primitiveCount;
-    scratch.primitiveAssets = zero_array<AnoAssetId>(scratch.primitiveCount);
+    scratch.primitiveAssets = zero_array<AnoAssetId>(
+        region, scratch.primitiveCount);
     if (scratch.primitiveCount != 0 && scratch.primitiveAssets == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     return ANO_RESOURCE_OK;
@@ -1197,13 +1549,26 @@ AnoResourceError import_gltf(AnoResourceCooker& cooker,
         return ANO_RESOURCE_NOT_FOUND;
     const AnoResourceCookCheckpoint checkpoint =
         ano_resource_cooker_checkpoint(&cooker);
+    ano::MemoryRegion *region = ano::memory_region_create();
+    if (region == nullptr)
+        return ANO_RESOURCE_OUT_OF_MEMORY;
     AnoGltfOptions options = {
         .allocate = gltf_allocate,
         .free = gltf_release,
+        .user = region,
     };
     AnoGltfData *data = nullptr;
-    AnoResourceError result = gltf_error(
-        ano_gltf_parse_file(sourcePath, &options, &data));
+    AnoResourceBytes rootBytes{};
+    AnoResourceError result = ano_resource_cooker_source_bytes(
+        &cooker, sourcePath, &rootBytes);
+    if (result == ANO_RESOURCE_OK)
+        result = gltf_error(ano_gltf_parse_memory(
+            rootBytes.data, static_cast<size_t>(rootBytes.size),
+            &options, &data));
+    if (result == ANO_RESOURCE_OK)
+        result = register_source_files(cooker, sourcePath, *data);
+    if (result == ANO_RESOURCE_OK)
+        result = bind_external_buffers(cooker, sourcePath, *data);
     if (result == ANO_RESOURCE_OK)
         result = gltf_error(
             ano_gltf_load_buffers(data, sourcePath, &options));
@@ -1212,7 +1577,7 @@ AnoResourceError import_gltf(AnoResourceCooker& cooker,
 
     ImportScratch scratch = {};
     if (result == ANO_RESOURCE_OK)
-        result = initialize_scratch(*data, scratch);
+        result = initialize_scratch(region, *data, scratch);
     if (result == ANO_RESOURCE_OK)
         result = mark_selected_scene(*data, scratch);
     if (result == ANO_RESOURCE_OK)
@@ -1221,33 +1586,10 @@ AnoResourceError import_gltf(AnoResourceCooker& cooker,
         result = allocate_asset_ids(cooker, *data, scratch);
     if (result == ANO_RESOURCE_OK)
         result = build_import_artifacts(
-            cooker, request, sourcePath, *data, scratch);
-    for (uint32_t material = 0;
-         material < (data == nullptr ? 0 : data->materialsCount)
-             && result == ANO_RESOURCE_OK; ++material) {
-        if (!scratch.usedMaterials[material])
-            continue;
-        Material value = {};
-        result = make_material(*data, &data->materials[material],
-                               scratch.imageAssets, &value);
-        if (result == ANO_RESOURCE_OK)
-            result = encode_and_adopt(
-                cooker, scratch.materialAssets[material], request.commitGroup,
-                ArtifactSource<Material>{&value, {nullptr, 0}});
-    }
-    if (result == ANO_RESOURCE_OK && scratch.needsDefaultMaterial) {
-        Material value = {};
-        result = make_material(*data, nullptr, scratch.imageAssets, &value);
-        if (result == ANO_RESOURCE_OK)
-            result = encode_and_adopt(
-                cooker, scratch.defaultMaterial, request.commitGroup,
-                ArtifactSource<Material>{&value, {nullptr, 0}});
-    }
-    if (result == ANO_RESOURCE_OK)
-        result = import_scene_root(cooker, request, *data, scratch);
+            cooker, request, sourcePath, *data, scratch, region);
 
-    release_scratch(scratch);
     ano_gltf_free(data);
+    ano::memory_region_destroy(region);
     if (result != ANO_RESOURCE_OK)
         ano_resource_cooker_rollback(&cooker, checkpoint);
     return result;

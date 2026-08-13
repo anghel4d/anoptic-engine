@@ -540,6 +540,23 @@ consteval AnoResourceTypeId reflected_type_id(std::meta::info type)
     return {value};
 }
 
+consteval uint64_t reflected_importer_id(
+    std::meta::info declaration, const Importer& importer)
+{
+    Sha256 hash;
+    hash.append("anoptic.resource.importer.v1");
+    hash_qualified_name(hash, declaration);
+    hash_u8(hash, importer.length);
+    hash.append(std::string_view(importer.extension, importer.length));
+    const AnoContentId digest = hash.finish();
+    uint64_t value = 0;
+    for (uint32_t i = 0; i < 8; ++i)
+        value |= static_cast<uint64_t>(digest.bytes[i]) << (i * 8u);
+    if (value == 0)
+        reject("reflected importer identity cannot be zero", declaration);
+    return value;
+}
+
 consteval uint64_t checked_wire_add(uint64_t lhs, uint64_t rhs,
                                     std::meta::info declaration)
 {
@@ -1510,6 +1527,33 @@ constexpr AnoResourceError resolve_span(const ArtifactView<Root>& view,
     return ANO_RESOURCE_OK;
 }
 
+template<class Root>
+constexpr AnoResourceError borrow_bytes(const ArtifactView<Root>& view,
+                                        RelativeSpan<uint8_t> span,
+                                        AnoResourceBytes *output)
+{
+    if (output == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *output = {};
+    if (!detail::byte_range(view.bytes.size, span.offset, span.count))
+        return ANO_RESOURCE_OUT_OF_BOUNDS;
+    *output = {
+        .data = span.count == 0 ? nullptr : view.bytes.data + span.offset,
+        .size = span.count,
+    };
+    return ANO_RESOURCE_OK;
+}
+
+template<class Root>
+constexpr AnoResourceError resolve_bytes(const ArtifactView<Root>& view,
+                                         RelativeSpan<uint8_t> span,
+                                         AnoResourceBytes *output)
+{
+    const AnoResourceError valid = validate<Root>(view.bytes);
+    return valid == ANO_RESOURCE_OK
+        ? borrow_bytes(view, span, output) : valid;
+}
+
 template<class Root, class Element>
 constexpr AnoResourceError resolve(const ArtifactView<Root>& view,
                                    RelativeSpan<Element> span, uint64_t index,
@@ -1542,6 +1586,45 @@ constexpr AnoResourceError resolve(const ArtifactView<Root>& view,
     };
     detail::decode_value(offset, context, output);
     return context.error;
+}
+
+template<class Root, class Element, class Visitor>
+constexpr AnoResourceError visit_span(
+    const ArtifactView<Root>& view, RelativeSpan<Element> span,
+    Visitor& visitor)
+{
+    static_assert(!detail::wire_contains(
+                      ^^Element, detail::WireShape::relativeSpan),
+                  "span visitors require fixed elements");
+    const AnoResourceError valid = validate<Root>(view.bytes);
+    uint64_t bytes = 0;
+    if (valid != ANO_RESOURCE_OK)
+        return valid;
+    if (!detail::checked_multiply(
+            span.count, detail::wire_size(^^Element), &bytes)
+        || !detail::byte_range(view.bytes.size, span.offset, bytes))
+        return ANO_RESOURCE_OUT_OF_BOUNDS;
+    detail::DecodeContext context = {
+        .bytes = view.bytes,
+        .payloadCursor = view.bytes.size,
+        .dependencies = nullptr,
+        .dependencyCapacity = 0,
+        .dependencyCount = 0,
+        .collectDependencies = false,
+        .error = ANO_RESOURCE_OK,
+    };
+    for (uint64_t index = 0; index < span.count; ++index) {
+        Element element{};
+        detail::decode_value(
+            span.offset + index * detail::wire_size(^^Element),
+            context, &element);
+        if (context.error != ANO_RESOURCE_OK)
+            return context.error;
+        const AnoResourceError visited = visitor(element, index);
+        if (visited != ANO_RESOURCE_OK)
+            return visited;
+    }
+    return ANO_RESOURCE_OK;
 }
 
 static_assert([] {

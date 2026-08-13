@@ -107,6 +107,92 @@ void ano_aligned_free(void* ptr);
 
 #ifdef __cplusplus
 }
+
+namespace ano {
+
+struct MemoryReservation final {
+    size_t offset = 0;
+    size_t size = 0;
+};
+
+struct MemoryLayoutCursor final {
+    size_t size = 0;
+    size_t alignment = 1;
+    bool valid = true;
+
+    [[nodiscard]] constexpr bool reserve(
+        size_t bytes, size_t requestedAlignment,
+        MemoryReservation& reservation) noexcept
+    {
+        reservation = {};
+        if (!valid || requestedAlignment == 0
+            || (requestedAlignment & (requestedAlignment - 1)) != 0) {
+            valid = false;
+            return false;
+        }
+        if (bytes == 0) {
+            reservation.offset = size;
+            return true;
+        }
+        size_t offset = 0;
+        size_t end = 0;
+        if (!ano_size_align(size, requestedAlignment, &offset)
+            || !ano_size_add(offset, bytes, &end)) {
+            valid = false;
+            return false;
+        }
+        reservation = {offset, bytes};
+        size = end;
+        if (requestedAlignment > alignment)
+            alignment = requestedAlignment;
+        return true;
+    }
+};
+
+struct MemoryMutableView final {
+    void *data = nullptr;
+    size_t size = 0;
+};
+
+struct MemoryView final {
+    const void *data = nullptr;
+    size_t size = 0;
+};
+
+struct MemoryRegion;
+struct MemoryVolume;
+
+// A region is a unique mimalloc lifetime domain. Reset and destruction are
+// legal only after every allocation made from the region is unreachable.
+[[nodiscard]] MemoryRegion *memory_region_create() noexcept;
+void memory_region_destroy(MemoryRegion *region) noexcept;
+[[nodiscard]] bool memory_region_reset(MemoryRegion *region) noexcept;
+[[nodiscard]] void *memory_region_allocate(
+    MemoryRegion *region, size_t size, size_t alignment) noexcept;
+[[nodiscard]] void *memory_region_allocate_zero(
+    MemoryRegion *region, size_t size, size_t alignment) noexcept;
+
+// A volume owns an exclusive region and exactly one contiguous payload.
+// Construction views are available before sealing; immutable views are
+// available afterwards. The final owner reference winks out the region.
+[[nodiscard]] MemoryVolume *memory_volume_create(
+    MemoryLayoutCursor layout) noexcept;
+[[nodiscard]] bool memory_volume_retain(MemoryVolume *volume) noexcept;
+void memory_volume_release(MemoryVolume *volume) noexcept;
+[[nodiscard]] size_t memory_volume_size(const MemoryVolume *volume) noexcept;
+[[nodiscard]] size_t memory_volume_alignment(
+    const MemoryVolume *volume) noexcept;
+[[nodiscard]] bool memory_volume_write(
+    MemoryVolume *volume, MemoryReservation reservation,
+    MemoryMutableView& view) noexcept;
+[[nodiscard]] bool memory_volume_seal(MemoryVolume *volume) noexcept;
+[[nodiscard]] bool memory_volume_is_sealed(
+    const MemoryVolume *volume) noexcept;
+[[nodiscard]] bool memory_volume_view(
+    const MemoryVolume *volume, MemoryReservation reservation,
+    MemoryView& view) noexcept;
+
+} // namespace ano
 #endif
 
 #endif //ANOPTICENGINE_ANOPTIC_MEMORY_H

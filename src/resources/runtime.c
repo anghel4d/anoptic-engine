@@ -5,11 +5,11 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_atomic.h>
-#include <anoptic_memory.h>
+#include <anoptic_memory_typed.h>
 #include <anoptic_resources_runtime.h>
 #include <anoptic_threads.h>
 
-#include "parallel.h"
+#include "cooker_internal.h"
 
 #include <float.h>
 #include <stddef.h>
@@ -21,9 +21,17 @@ namespace {
 struct ResidencyBinding final {
     AnoResourceTypeId type;
     AnoContentId content;
-    uint64_t offset;
-    uint64_t size;
+    uint64_t dependencyFirst;
+    uint64_t dependencyCount;
+    ano::MemoryVolume *volume;
+    ano::MemoryReservation artifact;
     bool resident;
+};
+
+struct EpochPlan final {
+    ano::MemorySegment<ResidencyBinding> bindings;
+    ano::MemorySegment<AnoAssetId> changed;
+    ano::MemorySegment<ano::MemoryVolume *> retainedVolumes;
 };
 
 } // namespace
@@ -32,17 +40,20 @@ struct AnoResidencyEpoch {
     ANO_ATOMIC(uint64_t) references;
     AnoResidencyEpochId id;
     AnoManifestId manifest;
+    ano::MemoryVolume *volume;
     ResidencyBinding *bindings;
     uint64_t bindingCount;
-    uint8_t *arena;
-    uint64_t arenaSize;
     AnoAssetId *changed;
     uint64_t changedCount;
+    const AnoResourceDependency *dependencies;
+    uint64_t dependencyCount;
+    ano::MemoryVolume **retainedVolumes;
+    uint64_t retainedVolumeCount;
 };
 
 struct AnoResourceManager {
     anothread_mutex_t mutex;
-    AnoResourcePack *pack;
+    const AnoCookedRevision *revision;
     AnoResourceGoal *goals;
     uint64_t goalCount;
     uint64_t goalCapacity;
@@ -53,7 +64,7 @@ struct AnoResourceManager {
 
 struct AnoResourceReload {
     AnoResourceManager *manager;
-    AnoResourcePack *pack;
+    const AnoCookedRevision *revision;
     AnoResidencyEpoch *epoch;
     AnoResidencyEpoch *base;
     uint64_t goalRevision;
@@ -62,24 +73,37 @@ struct AnoResourceReload {
 
 namespace {
 
-void destroy_epoch(AnoResidencyEpoch *epoch)
+bool content_equal(const AnoContentId& left, const AnoContentId& right)
 {
-    if (epoch == nullptr)
-        return;
-    mi_free(epoch->changed);
-    mi_free(epoch->arena);
-    mi_free(epoch->bindings);
-    mi_free(epoch);
+    return ano::detail::bytes_equal(
+        left.bytes, right.bytes, sizeof(left.bytes));
 }
 
-void destroy_reload(AnoResourceReload *reload)
+AnoManifestId revision_manifest_id(const AnoCookedRevision *revision)
 {
-    if (reload == nullptr)
-        return;
-    ano_resource_epoch_release(reload->base);
-    ano_resource_epoch_release(reload->epoch);
-    ano_resource_pack_close(reload->pack);
-    mi_free(reload);
+    ano::detail::Sha256 hash;
+    ano::detail::hash_u64(hash, revision->itemCount);
+    ano::detail::hash_u64(hash, revision->dependencyCount);
+    for (uint64_t i = 0; i < revision->itemCount; ++i) {
+        const AnoResourceRevisionItem& item = revision->items[i];
+        ano::detail::hash_u64(hash, item.asset.value);
+        ano::detail::hash_u64(hash, item.type.value);
+        ano::detail::hash_u64(hash, item.producer);
+        hash.append(item.inputIdentity.bytes,
+                    sizeof(item.inputIdentity.bytes));
+        ano::detail::hash_u64(hash, item.commitGroup.value);
+        hash.append(item.schema.bytes, sizeof(item.schema.bytes));
+        hash.append(item.content.bytes, sizeof(item.content.bytes));
+        ano::detail::hash_u64(hash, item.dependencyCount);
+    }
+    for (uint64_t i = 0; i < revision->dependencyCount; ++i) {
+        ano::detail::hash_u64(hash, revision->dependencies[i].asset.value);
+        ano::detail::hash_u64(hash, revision->dependencies[i].type.value);
+    }
+    const AnoContentId digest = hash.finish();
+    AnoManifestId result{};
+    memcpy(result.bytes, digest.bytes, sizeof(result.bytes));
+    return result;
 }
 
 bool retain_epoch(AnoResidencyEpoch *epoch)
@@ -88,251 +112,231 @@ bool retain_epoch(AnoResidencyEpoch *epoch)
         return false;
     uint64_t references = atomic_load_explicit(
         &epoch->references, memory_order_relaxed);
-    for (;;) {
-        if (references == UINT64_MAX)
+    do {
+        if (references == 0 || references == UINT64_MAX)
             return false;
-        if (atomic_compare_exchange_weak_explicit(
-                &epoch->references, &references, references + 1,
-                memory_order_relaxed, memory_order_relaxed))
-            return true;
-    }
+    } while (!atomic_compare_exchange_weak_explicit(
+        &epoch->references, &references, references + 1,
+        memory_order_relaxed, memory_order_relaxed));
+    return true;
 }
 
-struct EpochLoadContext final {
-    const AnoResourcePack *pack;
-    const AnoResourceManifestEntry *entries;
-    const uint8_t *demanded;
-    AnoResidencyEpoch *epoch;
-    AnoResourceError *results;
-};
-
-void load_epoch_artifact(void *context, uint64_t index)
+void destroy_epoch(AnoResidencyEpoch *epoch)
 {
-    EpochLoadContext& load = *static_cast<EpochLoadContext *>(context);
-    if (load.demanded[index] == 0) {
-        load.results[index] = ANO_RESOURCE_OK;
+    if (epoch == nullptr)
         return;
-    }
-    ResidencyBinding& binding = load.epoch->bindings[index];
-    uint64_t size = binding.size;
-    load.results[index] = ano_resource_pack_read(
-        load.pack, load.entries[index].asset,
-        {.data = load.epoch->arena + binding.offset, .size = size}, &size);
-    if (load.results[index] == ANO_RESOURCE_OK && size != binding.size)
-        load.results[index] = ANO_RESOURCE_BAD_PACK;
+    for (uint64_t i = epoch->retainedVolumeCount; i != 0; --i)
+        ano::memory_volume_release(epoch->retainedVolumes[i - 1]);
+    ano::memory_volume_release(epoch->volume);
+    mi_free(epoch);
 }
 
-AnoResourceError load_manifest_entries(
-    const AnoResourceManifest *manifest, AnoResourceManifestEntry *entries,
-    uint64_t count)
+void destroy_reload(AnoResourceReload *reload)
 {
-    for (uint64_t i = 0; i < count; ++i) {
-        const AnoResourceError found =
-            ano_resource_manifest_find(manifest, {i + 1}, &entries[i]);
-        if (found != ANO_RESOURCE_OK)
-            return found;
-    }
-    return ANO_RESOURCE_OK;
+    if (reload == nullptr)
+        return;
+    ano_resource_revision_release(reload->revision);
+    ano_resource_epoch_release(reload->base);
+    ano_resource_epoch_release(reload->epoch);
+    mi_free(reload);
 }
 
-AnoResourceError build_epoch(
-    const AnoResourcePack *pack, const AnoResidencyEpoch *previous,
-    const AnoResourceGoal *goals, uint64_t goalCount,
-    AnoResidencyEpochId epochId, bool recordChanges,
-    AnoResidencyEpoch **epoch)
+AnoResourceError build_demand(
+    const AnoCookedRevision *revision, const AnoResourceGoal *goals,
+    uint64_t goalCount, uint8_t *demanded, uint64_t *stack)
 {
-    if (pack == nullptr || epoch == nullptr
-        || (goals == nullptr && goalCount != 0))
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *epoch = nullptr;
-    const AnoResourceManifest *manifest = ano_resource_pack_manifest(pack);
-    const uint64_t assetCount = ano_resource_manifest_entry_count(manifest);
-
-    size_t entryBytes = 0;
-    size_t demandBytes = 0;
-    size_t stackBytes = 0;
-    size_t bindingBytes = 0;
-    if (!ano::detail::checked_allocation_size(
-            assetCount, sizeof(AnoResourceManifestEntry), &entryBytes)
-        || !ano::detail::checked_allocation_size(
-            assetCount, sizeof(uint8_t), &demandBytes)
-        || !ano::detail::checked_allocation_size(
-            assetCount, sizeof(uint64_t), &stackBytes)
-        || !ano::detail::checked_allocation_size(
-            assetCount, sizeof(ResidencyBinding), &bindingBytes))
-        return ANO_RESOURCE_OVERFLOW;
-
-    AnoResourceManifestEntry *entries = entryBytes == 0 ? nullptr
-        : static_cast<AnoResourceManifestEntry *>(mi_malloc(entryBytes));
-    uint8_t *demanded = demandBytes == 0 ? nullptr
-        : static_cast<uint8_t *>(mi_zalloc(demandBytes));
-    uint64_t *stack = stackBytes == 0 ? nullptr
-        : static_cast<uint64_t *>(mi_malloc(stackBytes));
-    if ((entryBytes != 0 && entries == nullptr)
-        || (demandBytes != 0 && demanded == nullptr)
-        || (stackBytes != 0 && stack == nullptr)) {
-        mi_free(stack);
-        mi_free(demanded);
-        mi_free(entries);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-
-    AnoResourceError result =
-        load_manifest_entries(manifest, entries, assetCount);
+    const uint64_t assetCount = revision->itemCount;
     uint64_t stackCount = 0;
-    for (uint64_t i = 0; i < goalCount && result == ANO_RESOURCE_OK; ++i) {
+    for (uint64_t i = 0; i < goalCount; ++i) {
         const AnoResourceGoal& goal = goals[i];
-        if (goal.asset.value == 0 || goal.asset.value > assetCount) {
-            result = ANO_RESOURCE_NOT_FOUND;
-            break;
-        }
-        const AnoResourceManifestEntry& root = entries[goal.asset.value - 1];
-        if (root.type.value != goal.type.value) {
-            result = ANO_RESOURCE_TYPE_MISMATCH;
-            break;
-        }
-        if (root.commitGroup.value != goal.commitGroup.value) {
-            result = ANO_RESOURCE_BAD_MANIFEST;
-            break;
-        }
-        for (uint64_t j = 0; j < assetCount; ++j) {
-            if (entries[j].commitGroup.value == goal.commitGroup.value
+        const AnoResourceRevisionItem *root = nullptr;
+        AnoResourceError result = ano_resource_revision_item(
+            revision, goal.asset, &root);
+        if (result != ANO_RESOURCE_OK)
+            return result;
+        if (root->type.value != goal.type.value)
+            return ANO_RESOURCE_TYPE_MISMATCH;
+        if (root->commitGroup.value != goal.commitGroup.value)
+            return ANO_RESOURCE_BAD_MANIFEST;
+        for (uint64_t j = 0; j < assetCount; ++j)
+            if (revision->items[j].commitGroup.value
+                    == goal.commitGroup.value
                 && demanded[j] == 0) {
                 demanded[j] = 1;
                 stack[stackCount++] = j;
             }
-        }
     }
-
-    while (stackCount != 0 && result == ANO_RESOURCE_OK) {
-        const uint64_t current = stack[--stackCount];
-        const AnoResourceManifestEntry& entry = entries[current];
-        for (uint64_t i = 0; i < entry.dependencyCount; ++i) {
-            AnoResourceDependency dependency = {};
-            result = ano_resource_manifest_dependency(
-                manifest, entry.asset, i, &dependency);
-            if (result != ANO_RESOURCE_OK)
-                break;
+    while (stackCount != 0) {
+        const AnoResourceRevisionItem& item =
+            revision->items[stack[--stackCount]];
+        for (uint64_t i = 0; i < item.dependencyCount; ++i) {
+            const AnoResourceDependency& dependency =
+                revision->dependencies[item.dependencyFirst + i];
             const uint64_t target = dependency.asset.value - 1;
+            if (target >= assetCount)
+                return ANO_RESOURCE_BAD_MANIFEST;
             if (demanded[target] == 0) {
                 demanded[target] = 1;
                 stack[stackCount++] = target;
             }
         }
     }
+    return ANO_RESOURCE_OK;
+}
 
-    AnoResidencyEpoch *candidate = nullptr;
-    if (result == ANO_RESOURCE_OK) {
-        candidate = mi_zalloc_tp(AnoResidencyEpoch);
-        if (candidate == nullptr)
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-    if (result == ANO_RESOURCE_OK && bindingBytes != 0) {
-        candidate->bindings = static_cast<ResidencyBinding *>(
-            mi_zalloc(bindingBytes));
-        if (candidate->bindings == nullptr)
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
-    }
+AnoResourceError build_epoch(
+    const AnoCookedRevision *revision, const AnoResidencyEpoch *previous,
+    const AnoResourceGoal *goals, uint64_t goalCount,
+    AnoResidencyEpochId id, bool recordChanges,
+    AnoResidencyEpoch **output)
+{
+    if (revision == nullptr || output == nullptr
+        || (goals == nullptr && goalCount != 0))
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *output = nullptr;
+    AnoResourceError result = ANO_RESOURCE_OK;
+    const uint64_t assetCount = revision->itemCount;
+    if (assetCount >= SIZE_MAX)
+        return ANO_RESOURCE_OVERFLOW;
 
-    uint64_t arenaSize = 0;
+    ano::MemoryRegion *scratch = result == ANO_RESOURCE_OK
+        ? ano::memory_region_create() : nullptr;
+    if (result == ANO_RESOURCE_OK && scratch == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    uint8_t *demanded = result == ANO_RESOURCE_OK && assetCount != 0
+        ? ano::memory_region_allocate_zero<uint8_t>(
+              scratch, static_cast<size_t>(assetCount))
+        : nullptr;
+    uint64_t *stack = result == ANO_RESOURCE_OK && assetCount != 0
+        ? ano::memory_region_allocate<uint64_t>(
+              scratch, static_cast<size_t>(assetCount))
+        : nullptr;
+    if (result == ANO_RESOURCE_OK && assetCount != 0
+        && (demanded == nullptr || stack == nullptr))
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK)
+        result = build_demand(
+            revision, goals, goalCount, demanded, stack);
+    ano::MemoryVolume **ownerCandidates = result == ANO_RESOURCE_OK
+        ? ano::memory_region_allocate<ano::MemoryVolume *>(
+            scratch, static_cast<size_t>(assetCount + 1))
+        : nullptr;
+    if (result == ANO_RESOURCE_OK && ownerCandidates == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    uint64_t ownerCount = 0;
+    if (result == ANO_RESOURCE_OK)
+        ownerCandidates[ownerCount++] = revision->volumes[0];
     for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i) {
-        ResidencyBinding& binding = candidate->bindings[i];
-        binding.type = entries[i].type;
-        binding.content = entries[i].content;
         if (demanded[i] == 0)
             continue;
-        binding.offset = arenaSize;
-        binding.size = entries[i].unpackedSize;
-        binding.resident = true;
-        if (!ano::detail::checked_add(
-                arenaSize, binding.size, &arenaSize)
-            || arenaSize > SIZE_MAX)
-            result = ANO_RESOURCE_OVERFLOW;
+        ano::MemoryVolume *owner = revision->items[i].volume;
+        bool known = false;
+        for (uint64_t j = 0; j < ownerCount; ++j)
+            known |= ownerCandidates[j] == owner;
+        if (!known)
+            ownerCandidates[ownerCount++] = owner;
     }
-    if (result == ANO_RESOURCE_OK && arenaSize != 0) {
-        candidate->arena =
-            static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(arenaSize)));
-        if (candidate->arena == nullptr)
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-
-    size_t loadBytes = 0;
-    if (result == ANO_RESOURCE_OK
-        && !ano::detail::checked_allocation_size(
-            assetCount, sizeof(AnoResourceError), &loadBytes))
-        result = ANO_RESOURCE_OVERFLOW;
-    AnoResourceError *loads = result != ANO_RESOURCE_OK || loadBytes == 0
-        ? nullptr : static_cast<AnoResourceError *>(mi_malloc(loadBytes));
-    if (result == ANO_RESOURCE_OK && loadBytes != 0 && loads == nullptr)
-        result = ANO_RESOURCE_OUT_OF_MEMORY;
-    if (result == ANO_RESOURCE_OK) {
-        EpochLoadContext load = {
-            .pack = pack,
-            .entries = entries,
-            .demanded = demanded,
-            .epoch = candidate,
-            .results = loads,
-        };
-        ano::resource_detail::parallel_for(
-            assetCount, &load, load_epoch_artifact);
-        for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i)
-            result = loads[i];
-    }
-    mi_free(loads);
 
     uint64_t compareCount = assetCount;
     if (previous != nullptr && previous->bindingCount > compareCount)
         compareCount = previous->bindingCount;
-    size_t changedBytes = 0;
-    if (result == ANO_RESOURCE_OK && recordChanges
-        && !ano::detail::checked_allocation_size(
-            compareCount, sizeof(AnoAssetId), &changedBytes))
+    if (compareCount > SIZE_MAX)
         result = ANO_RESOURCE_OVERFLOW;
-    if (result == ANO_RESOURCE_OK && changedBytes != 0) {
-        candidate->changed =
-            static_cast<AnoAssetId *>(mi_malloc(changedBytes));
-        if (candidate->changed == nullptr)
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
-    }
+    EpochPlan plan{
+        .bindings = {.count = static_cast<size_t>(assetCount)},
+        .changed = {.count = recordChanges
+            ? static_cast<size_t>(compareCount) : 0},
+        .retainedVolumes = {.count = static_cast<size_t>(ownerCount)},
+    };
+    const ano::MemoryLayoutCursor layout = ano::memory_layout(plan);
+    ano::MemoryVolume *volume = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_create(layout) : nullptr;
+    AnoResidencyEpoch *candidate = result == ANO_RESOURCE_OK
+        ? mi_zalloc_tp(AnoResidencyEpoch) : nullptr;
+    if (result == ANO_RESOURCE_OK
+        && (volume == nullptr || candidate == nullptr))
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
 
+    auto bindings = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.bindings)
+        : ano::MemorySpan<ResidencyBinding>{};
+    auto changed = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.changed)
+        : ano::MemorySpan<AnoAssetId>{};
+    auto retainedVolumes = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(volume, plan.retainedVolumes)
+        : ano::MemorySpan<ano::MemoryVolume *>{};
+    if (result == ANO_RESOURCE_OK && assetCount != 0
+        && bindings.data() == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+
+    for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i) {
+        bindings[i] = {
+            .type = revision->items[i].type,
+            .content = revision->items[i].content,
+            .dependencyFirst = revision->items[i].dependencyFirst,
+            .dependencyCount = revision->items[i].dependencyCount,
+            .volume = demanded[i] != 0 ? revision->items[i].volume : nullptr,
+            .artifact = demanded[i] != 0
+                ? revision->items[i].artifact : ano::MemoryReservation{},
+            .resident = demanded[i] != 0,
+        };
+    }
+    uint64_t changedCount = 0;
     for (uint64_t i = 0;
-         i < compareCount && result == ANO_RESOURCE_OK && recordChanges; ++i) {
-        const bool hasOld = previous != nullptr && i < previous->bindingCount;
+         i < compareCount && result == ANO_RESOURCE_OK && recordChanges;
+         ++i) {
+        const bool hasOld = previous != nullptr
+            && i < previous->bindingCount;
         const bool hasNew = i < assetCount;
         if (hasOld && hasNew
-            && previous->bindings[i].type.value
-                != candidate->bindings[i].type.value) {
+            && previous->bindings[i].type.value != bindings[i].type.value) {
             result = ANO_RESOURCE_BAD_MANIFEST;
             break;
         }
-        const bool changed = hasOld != hasNew
-            || (hasOld && hasNew
-                && (!ano::detail::bytes_equal(
-                        previous->bindings[i].content.bytes,
-                        candidate->bindings[i].content.bytes, 32)
-                    || previous->bindings[i].resident
-                        != candidate->bindings[i].resident));
-        if (changed)
-            candidate->changed[candidate->changedCount++] = {i + 1};
+        if (hasOld != hasNew
+            || (hasOld && (!content_equal(
+                    previous->bindings[i].content, bindings[i].content)
+                || previous->bindings[i].resident
+                    != bindings[i].resident)))
+            changed[changedCount++] = {i + 1};
     }
 
+    uint64_t retainedCount = 0;
+    for (; retainedCount < ownerCount && result == ANO_RESOURCE_OK;
+         ++retainedCount) {
+        if (!ano::memory_volume_retain(ownerCandidates[retainedCount])) {
+            result = ANO_RESOURCE_OVERFLOW;
+            break;
+        }
+        retainedVolumes[retainedCount] = ownerCandidates[retainedCount];
+    }
+    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(volume))
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
     if (result == ANO_RESOURCE_OK) {
-        candidate->id = epochId;
-        candidate->bindingCount = assetCount;
-        candidate->arenaSize = arenaSize;
         atomic_init(&candidate->references, UINT64_C(1));
-        result = ano_resource_manifest_id(manifest, &candidate->manifest);
+        candidate->id = id;
+        candidate->manifest = revision_manifest_id(revision);
+        candidate->volume = volume;
+        candidate->bindings = bindings.data();
+        candidate->bindingCount = assetCount;
+        candidate->changed = changed.data();
+        candidate->changedCount = changedCount;
+        candidate->dependencies = revision->dependencies;
+        candidate->dependencyCount = revision->dependencyCount;
+        candidate->retainedVolumes = retainedVolumes.data();
+        candidate->retainedVolumeCount = retainedCount;
+        *output = candidate;
+        candidate = nullptr;
+        volume = nullptr;
+        retainedCount = 0;
     }
-
-    mi_free(stack);
-    mi_free(demanded);
-    mi_free(entries);
-    if (result != ANO_RESOURCE_OK) {
-        destroy_epoch(candidate);
-        return result;
-    }
-    *epoch = candidate;
-    return ANO_RESOURCE_OK;
+    for (uint64_t i = retainedCount; i != 0; --i)
+        ano::memory_volume_release(retainedVolumes[i - 1]);
+    mi_free(candidate);
+    ano::memory_volume_release(volume);
+    ano::memory_region_destroy(scratch);
+    return result;
 }
 
 bool epoch_has_changes(const AnoResidencyEpoch *candidate,
@@ -340,48 +344,52 @@ bool epoch_has_changes(const AnoResidencyEpoch *candidate,
 {
     return candidate->changedCount != 0
         || !ano::detail::bytes_equal(
-            candidate->manifest.bytes, current->manifest.bytes, 32);
+            candidate->manifest.bytes, current->manifest.bytes,
+            sizeof(candidate->manifest.bytes));
 }
 
 AnoResourceError lock_manager(AnoResourceManager *manager)
 {
     return manager != nullptr && ano_mutex_lock(&manager->mutex) == 0
-        ? ANO_RESOURCE_OK
-        : ANO_RESOURCE_INVALID_ARGUMENT;
+        ? ANO_RESOURCE_OK : ANO_RESOURCE_INVALID_ARGUMENT;
 }
 
 } // namespace
 
 extern "C" AnoResourceError ano_resource_manager_create(
-    AnoResourceBytes packBytes, AnoResourceManager **manager)
+    const AnoCookedRevision *revision, AnoResourceManager **manager)
 {
-    if (manager == nullptr)
+    if (revision == nullptr || manager == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *manager = nullptr;
-    AnoResourcePack *pack = nullptr;
-    AnoResourceError result = ano_resource_pack_open(packBytes, &pack);
-    if (result != ANO_RESOURCE_OK)
-        return result;
-
-    AnoResourceManager *created = mi_zalloc_tp(AnoResourceManager);
-    if (created == nullptr) {
-        ano_resource_pack_close(pack);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+    AnoResourceError result = ano_resource_revision_validate(revision);
+    AnoResourceManager *created = result == ANO_RESOURCE_OK
+        ? mi_zalloc_tp(AnoResourceManager) : nullptr;
+    if (result == ANO_RESOURCE_OK && created == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    bool mutexReady = false;
+    if (result == ANO_RESOURCE_OK) {
+        mutexReady = ano_mutex_init(&created->mutex, nullptr) == 0;
+        if (!mutexReady)
+            result = ANO_RESOURCE_IO_ERROR;
     }
-    if (ano_mutex_init(&created->mutex, nullptr) != 0) {
-        mi_free(created);
-        ano_resource_pack_close(pack);
-        return ANO_RESOURCE_IO_ERROR;
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_revision_retain(revision);
+    if (result == ANO_RESOURCE_OK) {
+        created->revision = revision;
+        created->nextEpoch = 2;
+        created->goalRevision = 1;
+        result = build_epoch(
+            revision, nullptr, nullptr, 0, {1}, false,
+            &created->current);
     }
-    created->pack = pack;
-    created->nextEpoch = 2;
-    created->goalRevision = 1;
-    result = build_epoch(pack, nullptr, nullptr, 0, {1}, false,
-                         &created->current);
     if (result != ANO_RESOURCE_OK) {
-        ano_mutex_destroy(&created->mutex);
-        ano_resource_pack_close(pack);
-        mi_free(created);
+        if (created != nullptr) {
+            ano_resource_revision_release(created->revision);
+            if (mutexReady)
+                ano_mutex_destroy(&created->mutex);
+            mi_free(created);
+        }
         return result;
     }
     *manager = created;
@@ -392,19 +400,19 @@ extern "C" void ano_resource_manager_destroy(AnoResourceManager *manager)
 {
     if (manager == nullptr)
         return;
+    const AnoCookedRevision *revision = nullptr;
     AnoResidencyEpoch *current = nullptr;
-    AnoResourcePack *pack = nullptr;
     if (ano_mutex_lock(&manager->mutex) == 0) {
+        revision = manager->revision;
         current = manager->current;
-        pack = manager->pack;
+        manager->revision = nullptr;
         manager->current = nullptr;
-        manager->pack = nullptr;
         ano_mutex_unlock(&manager->mutex);
     }
     ano_mutex_destroy(&manager->mutex);
     mi_free(manager->goals);
-    ano_resource_pack_close(pack);
     ano_resource_epoch_release(current);
+    ano_resource_revision_release(revision);
     mi_free(manager);
 }
 
@@ -417,54 +425,47 @@ extern "C" AnoResourceError ano_resource_goal_set(
         || goal.importance != goal.importance
         || goal.importance < 0.0f || goal.importance > FLT_MAX)
         return goal.quality.level != ANO_RESOURCE_QUALITY_WHOLE
-            ? ANO_RESOURCE_UNSUPPORTED
-            : ANO_RESOURCE_INVALID_ARGUMENT;
+            ? ANO_RESOURCE_UNSUPPORTED : ANO_RESOURCE_INVALID_ARGUMENT;
     AnoResourceError result = lock_manager(manager);
     if (result != ANO_RESOURCE_OK)
         return result;
-
-    AnoResourceManifestEntry entry = {};
-    result = ano_resource_manifest_find(ano_resource_pack_manifest(manager->pack),
-                                        goal.asset, &entry);
-    if (result == ANO_RESOURCE_OK && entry.type.value != goal.type.value)
+    const AnoResourceRevisionItem *item = nullptr;
+    result = ano_resource_revision_item(manager->revision, goal.asset, &item);
+    if (result == ANO_RESOURCE_OK && item->type.value != goal.type.value)
         result = ANO_RESOURCE_TYPE_MISMATCH;
     if (result == ANO_RESOURCE_OK
-        && entry.commitGroup.value != goal.commitGroup.value)
+        && item->commitGroup.value != goal.commitGroup.value)
         result = ANO_RESOURCE_BAD_MANIFEST;
 
-    uint64_t existing = manager->goalCount;
+    uint64_t index = manager->goalCount;
     for (uint64_t i = 0; i < manager->goalCount; ++i)
         if (manager->goals[i].goal.value == goal.goal.value) {
-            existing = i;
+            index = i;
             break;
         }
-    if (result == ANO_RESOURCE_OK && existing == manager->goalCount) {
+    if (result == ANO_RESOURCE_OK && index == manager->goalCount) {
         if (manager->goalCount == manager->goalCapacity) {
             const uint64_t capacity = manager->goalCapacity == 0
-                ? 4
-                : manager->goalCapacity * 2;
+                ? 4 : manager->goalCapacity * 2;
             size_t bytes = 0;
             if (capacity < manager->goalCapacity
                 || !ano::detail::checked_allocation_size(
                     capacity, sizeof(AnoResourceGoal), &bytes)) {
                 result = ANO_RESOURCE_OVERFLOW;
+            } else if (void *grown = mi_realloc(manager->goals, bytes)) {
+                manager->goals = static_cast<AnoResourceGoal *>(grown);
+                manager->goalCapacity = capacity;
             } else {
-                void *grown = mi_realloc(manager->goals, bytes);
-                if (grown == nullptr)
-                    result = ANO_RESOURCE_OUT_OF_MEMORY;
-                else {
-                    manager->goals = static_cast<AnoResourceGoal *>(grown);
-                    manager->goalCapacity = capacity;
-                }
+                result = ANO_RESOURCE_OUT_OF_MEMORY;
             }
         }
         if (result == ANO_RESOURCE_OK)
             ++manager->goalCount;
     }
-    if (result == ANO_RESOURCE_OK)
-        manager->goals[existing] = goal;
-    if (result == ANO_RESOURCE_OK)
+    if (result == ANO_RESOURCE_OK) {
+        manager->goals[index] = goal;
         ++manager->goalRevision;
+    }
     ano_mutex_unlock(&manager->mutex);
     return result;
 }
@@ -504,61 +505,59 @@ extern "C" AnoResourceError ano_resource_reconcile(
     if (result != ANO_RESOURCE_OK)
         return result;
     AnoResidencyEpoch *candidate = nullptr;
-    result = build_epoch(manager->pack, manager->current, manager->goals,
-                         manager->goalCount, {manager->nextEpoch}, true,
-                         &candidate);
+    result = build_epoch(
+        manager->revision, manager->current, manager->goals,
+        manager->goalCount, {manager->nextEpoch}, true, &candidate);
+    AnoResidencyEpoch *retired = nullptr;
     if (result == ANO_RESOURCE_OK
         && epoch_has_changes(candidate, manager->current)) {
-        AnoResidencyEpoch *retired = manager->current;
+        retired = manager->current;
         manager->current = candidate;
-        ++manager->nextEpoch;
         candidate = nullptr;
-        ano_resource_epoch_release(retired);
+        ++manager->nextEpoch;
     }
-    ano_resource_epoch_release(candidate);
     ano_mutex_unlock(&manager->mutex);
+    ano_resource_epoch_release(retired);
+    ano_resource_epoch_release(candidate);
     return result;
 }
 
 extern "C" AnoResourceError ano_resource_reload_prepare(
-    AnoResourceManager *manager, AnoResourceBytes packBytes,
+    AnoResourceManager *manager, const AnoCookedRevision *revision,
     AnoResourceReload **reload)
 {
-    if (manager == nullptr || reload == nullptr)
+    if (manager == nullptr || revision == nullptr || reload == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *reload = nullptr;
-    AnoResourcePack *candidatePack = nullptr;
-    AnoResourceError result = ano_resource_pack_open(packBytes, &candidatePack);
-    if (result != ANO_RESOURCE_OK)
-        return result;
-    AnoResourceReload *prepared = mi_zalloc_tp(AnoResourceReload);
-    if (prepared == nullptr) {
-        ano_resource_pack_close(candidatePack);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    }
-    result = lock_manager(manager);
+    AnoResourceError result = ano_resource_revision_validate(revision);
+    AnoResourceReload *prepared = result == ANO_RESOURCE_OK
+        ? mi_zalloc_tp(AnoResourceReload) : nullptr;
+    if (result == ANO_RESOURCE_OK && prepared == nullptr)
+        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK)
+        result = lock_manager(manager);
     if (result != ANO_RESOURCE_OK) {
-        ano_resource_pack_close(candidatePack);
         mi_free(prepared);
         return result;
     }
-
-    result = build_epoch(candidatePack, manager->current, manager->goals,
-                         manager->goalCount, {manager->nextEpoch}, true,
-                         &prepared->epoch);
+    result = build_epoch(
+        revision, manager->current, manager->goals, manager->goalCount,
+        {manager->nextEpoch}, true, &prepared->epoch);
+    if (result == ANO_RESOURCE_OK)
+        result = ano_resource_revision_retain(revision);
+    if (result == ANO_RESOURCE_OK)
+        prepared->revision = revision;
     if (result == ANO_RESOURCE_OK && !retain_epoch(manager->current))
         result = ANO_RESOURCE_OVERFLOW;
+    if (result == ANO_RESOURCE_OK)
+        prepared->base = manager->current;
     if (result == ANO_RESOURCE_OK) {
         prepared->manager = manager;
-        prepared->pack = candidatePack;
-        prepared->base = manager->current;
         prepared->goalRevision = manager->goalRevision;
         prepared->hasChanges = epoch_has_changes(
             prepared->epoch, manager->current);
-        candidatePack = nullptr;
     }
     ano_mutex_unlock(&manager->mutex);
-    ano_resource_pack_close(candidatePack);
     if (result != ANO_RESOURCE_OK) {
         destroy_reload(prepared);
         return result;
@@ -590,7 +589,7 @@ extern "C" AnoResourceError ano_resource_reload_commit(
     if (reload == nullptr || reload->manager == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     AnoResourceManager *manager = reload->manager;
-    AnoResourcePack *retiredPack = nullptr;
+    const AnoCookedRevision *retiredRevision = nullptr;
     AnoResidencyEpoch *retiredEpoch = nullptr;
     AnoResourceError result = lock_manager(manager);
     if (result == ANO_RESOURCE_OK) {
@@ -598,9 +597,9 @@ extern "C" AnoResourceError ano_resource_reload_commit(
             || manager->goalRevision != reload->goalRevision) {
             result = ANO_RESOURCE_CANCELLED;
         } else {
-            retiredPack = manager->pack;
-            manager->pack = reload->pack;
-            reload->pack = nullptr;
+            retiredRevision = manager->revision;
+            manager->revision = reload->revision;
+            reload->revision = nullptr;
             if (reload->hasChanges) {
                 retiredEpoch = manager->current;
                 manager->current = reload->epoch;
@@ -610,7 +609,7 @@ extern "C" AnoResourceError ano_resource_reload_commit(
         }
         ano_mutex_unlock(&manager->mutex);
     }
-    ano_resource_pack_close(retiredPack);
+    ano_resource_revision_release(retiredRevision);
     ano_resource_epoch_release(retiredEpoch);
     destroy_reload(reload);
     return result;
@@ -625,23 +624,12 @@ extern "C" AnoResourceError ano_resource_epoch_acquire(
     AnoResourceError result = lock_manager(manager);
     if (result != ANO_RESOURCE_OK)
         return result;
-    if (!retain_epoch(manager->current)) {
+    if (!retain_epoch(manager->current))
         result = ANO_RESOURCE_OVERFLOW;
-    } else {
+    else
         *epoch = manager->current;
-    }
     ano_mutex_unlock(&manager->mutex);
     return result;
-}
-
-extern "C" void ano_resource_epoch_release(const AnoResidencyEpoch *epoch)
-{
-    if (epoch == nullptr)
-        return;
-    AnoResidencyEpoch *mutableEpoch = const_cast<AnoResidencyEpoch *>(epoch);
-    if (atomic_fetch_sub_explicit(&mutableEpoch->references, UINT64_C(1),
-                                  memory_order_acq_rel) == 1)
-        destroy_epoch(mutableEpoch);
 }
 
 extern "C" AnoResourceError ano_resource_epoch_retain(
@@ -651,6 +639,17 @@ extern "C" AnoResourceError ano_resource_epoch_retain(
         return ANO_RESOURCE_INVALID_ARGUMENT;
     return retain_epoch(const_cast<AnoResidencyEpoch *>(epoch))
         ? ANO_RESOURCE_OK : ANO_RESOURCE_OVERFLOW;
+}
+
+extern "C" void ano_resource_epoch_release(
+    const AnoResidencyEpoch *epoch)
+{
+    if (epoch == nullptr)
+        return;
+    AnoResidencyEpoch *mutableEpoch = const_cast<AnoResidencyEpoch *>(epoch);
+    if (atomic_fetch_sub_explicit(
+            &mutableEpoch->references, UINT64_C(1), memory_order_acq_rel) == 1)
+        destroy_epoch(mutableEpoch);
 }
 
 extern "C" AnoResidencyEpochId ano_resource_epoch_id(
@@ -674,7 +673,7 @@ extern "C" AnoResourceError ano_resource_epoch_resolve(
 {
     if (epoch == nullptr || bytes == nullptr || requiredType.value == 0)
         return ANO_RESOURCE_INVALID_ARGUMENT;
-    *bytes = {.data = nullptr, .size = 0};
+    *bytes = {};
     if (asset.value == 0 || asset.value > epoch->bindingCount)
         return ANO_RESOURCE_NOT_FOUND;
     const ResidencyBinding& binding = epoch->bindings[asset.value - 1];
@@ -682,13 +681,36 @@ extern "C" AnoResourceError ano_resource_epoch_resolve(
         return ANO_RESOURCE_TYPE_MISMATCH;
     if (!binding.resident)
         return ANO_RESOURCE_NOT_FOUND;
-    if (!ano::detail::byte_range(epoch->arenaSize, binding.offset,
-                                 binding.size))
-        return ANO_RESOURCE_BAD_PACK;
+    ano::MemoryView view{};
+    if (!ano::memory_volume_view(binding.volume, binding.artifact, view))
+        return ANO_RESOURCE_BAD_MANIFEST;
     *bytes = {
-        .data = epoch->arena + binding.offset,
-        .size = binding.size,
+        .data = static_cast<const uint8_t *>(view.data),
+        .size = view.size,
     };
+    return ANO_RESOURCE_OK;
+}
+
+extern "C" AnoResourceError ano_resource_epoch_dependencies(
+    const AnoResidencyEpoch *epoch, AnoAssetId asset,
+    const AnoResourceDependency **dependencies, uint64_t *count)
+{
+    if (epoch == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    if (dependencies == nullptr || count == nullptr)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    *dependencies = nullptr;
+    *count = 0;
+    if (asset.value == 0 || asset.value > epoch->bindingCount)
+        return ANO_RESOURCE_NOT_FOUND;
+    const ResidencyBinding& binding = epoch->bindings[asset.value - 1];
+    if (binding.dependencyFirst > epoch->dependencyCount
+        || binding.dependencyCount
+            > epoch->dependencyCount - binding.dependencyFirst)
+        return ANO_RESOURCE_BAD_MANIFEST;
+    *dependencies = binding.dependencyCount == 0 ? nullptr
+        : epoch->dependencies + binding.dependencyFirst;
+    *count = binding.dependencyCount;
     return ANO_RESOURCE_OK;
 }
 
