@@ -103,6 +103,23 @@
         "type": "github"
       }
     },
+    "plf_hive-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785493789,
+        "narHash": "sha256-Xtw2AqnbRiNDMTdG7d32uvkvdquLro4qXF3AEbYt/VE=",
+        "owner": "mattreecebentley",
+        "repo": "plf_hive",
+        "rev": "085899f55591e77d49ed168be4594200aa0f0c3a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mattreecebentley",
+        "repo": "plf_hive",
+        "rev": "085899f55591e77d49ed168be4594200aa0f0c3a",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "anoptic-assets": "anoptic-assets",
@@ -110,7 +127,8 @@
         "glfw-src": "glfw-src",
         "mimalloc-src": "mimalloc-src",
         "nix-gl-host": "nix-gl-host",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "plf_hive-src": "plf_hive-src"
       }
     }
   },

@@ -56,6 +56,10 @@
       url = "github:glfw/glfw/7b6aead9fb88b3623e3b3725ebb42670cbe4c579";
       flake = false;
     };
+    plf_hive-src = {
+      url = "github:mattreecebentley/plf_hive/085899f55591e77d49ed168be4594200aa0f0c3a";
+      flake = false;
+    };
     # Public asset pack. Private full pack:
     #   nix build --override-input anoptic-assets git+ssh://git@github.com/Anoptic-Games/assets
     anoptic-assets = {
@@ -77,6 +81,7 @@
       mimalloc-src,
       freetype-src,
       glfw-src,
+      plf_hive-src,
       anoptic-assets,
       nix-gl-host,
     }:
@@ -134,7 +139,7 @@
       '';
 
       # path=rev pairs shared by the shell warning and the nix-run fatal gate.
-      pinList = "external/glfw=${glfw-src.rev} external/mimalloc=${mimalloc-src.rev} external/freetype=${freetype-src.rev}";
+      pinList = "external/glfw=${glfw-src.rev} external/mimalloc=${mimalloc-src.rev} external/freetype=${freetype-src.rev} external/plf_hive=${plf_hive-src.rev}";
 
       # Shell-entry warning when recorded gitlinks disagree with the flake pins.
       submodulePinWarn = ''
@@ -258,6 +263,7 @@
           postUnpack =
             injectSubmodule "mimalloc" mimalloc-src
             + injectSubmodule "freetype" freetype-src
+            + injectSubmodule "plf_hive" plf_hive-src
             + lib.optionalString renderer (injectSubmodule "glfw" glfw-src)
             + lib.optionalString tests ''
               mkdir -p "$sourceRoot/assets"
