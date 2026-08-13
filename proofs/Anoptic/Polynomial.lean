@@ -172,13 +172,13 @@ def unit : API.{u} where
   Query := ULift.{u} Unit
   Response _ := ULift.{u} Empty
 
-def zeroElim {A : Type v} : (zero : API.{u}).Extension A → False
+theorem zeroElim {A : Type v} : (zero : API.{u}).Extension A → False
   | ⟨query, _⟩ => nomatch query.down
 
 def unitValue {A : Type v} : (unit : API.{u}).Extension A :=
   ⟨ULift.up (), fun response => nomatch response.down⟩
 
-@[simp] theorem unit_unique {A : Type v} (value : (unit : API.{u}).Extension A) :
+theorem unit_unique {A : Type v} (value : (unit : API.{u}).Extension A) :
     value = unitValue := by
   rcases value with ⟨query, continueWith⟩
   rcases query with ⟨query⟩

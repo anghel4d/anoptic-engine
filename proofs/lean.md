@@ -1,6 +1,6 @@
 # Lean semantic kernel
 
-The semantic kernel uses Lean 4.30.0 and `Std` only. Its Lake library is `Anoptic`, and every theorem is built by the Nix flake.
+The semantic kernel uses Lean 4.33.0 and `Std` only. Its Lake library is `Anoptic`, and every theorem is built by the Nix flake.
 
 ## Checked foundations
 
@@ -13,6 +13,7 @@ The semantic kernel uses Lean 4.30.0 and `Std` only. Its Lake library is `Anopti
 7. `Relation.compose_mono` establishes that independently proved module refinements compose.
 8. `failure_retains_cache` and `failure_preserves_publication` establish that failed work may advance reusable cooker state without changing the published revision.
 9. `success_retains_cache`, `success_publishes_revision`, and `publication_changes_only_on_success` establish the publication boundary.
+10. `Prooflet` instantiates the dependent API, compositional refinement, and transactional publication foundations as one concrete toolchain smoke proof.
 
 ## Trust boundary
 

@@ -375,6 +375,34 @@
             else
               llvmLatest.stdenv;
 
+          # The proof kernel is pinned independently of Nixpkgs release cadence while
+          # retaining its audited source-build expression and sandbox integration.
+          leanVersion = "4.33.0";
+          leanMimallocSourcePattern = "\${LEAN_BINARY_DIR}/../mimalloc/src/mimalloc";
+          leanToolchain = pkgs.lean4.overrideAttrs (previous: {
+            version = leanVersion;
+            src = pkgs.fetchFromGitHub {
+              owner = "leanprover";
+              repo = "lean4";
+              tag = "v${leanVersion}";
+              hash = "sha256-avTsPLjouuxejTb1kVqbNbhI9CKZuqhGINAy3TaRNcE=";
+            };
+            patches = [ ];
+            postPatch = ''
+              substituteInPlace src/CMakeLists.txt \
+                --replace-fail 'set(GIT_SHA1 "")' 'set(GIT_SHA1 "v${leanVersion}")'
+              rm -rf src/lake/examples/git/
+              for file in stage0/src/CMakeLists.txt stage0/src/runtime/CMakeLists.txt src/CMakeLists.txt src/runtime/CMakeLists.txt; do
+                substituteInPlace "$file" \
+                  --replace-fail '${leanMimallocSourcePattern}' '${previous."mimalloc-src"}'
+              done
+            '';
+            buildInputs = previous.buildInputs ++ [ pkgs.openssl ];
+            cmakeFlags = previous.cmakeFlags ++ [
+              "-DFETCHCONTENT_SOURCE_DIR_MIMALLOC=${previous."mimalloc-src"}"
+            ];
+          });
+
           mkHost =
             args:
             mkEngine (
@@ -509,7 +537,7 @@
               };
             }
           ) // {
-            proofs = pkgs.runCommand "anoptic-proofs" { nativeBuildInputs = [ pkgs.lean4 ]; } ''
+            proofs = pkgs.runCommand "anoptic-proofs" { nativeBuildInputs = [ leanToolchain ]; } ''
               cp -r ${self}/proofs proofs
               chmod -R +w proofs
               cd proofs
@@ -712,7 +740,7 @@
               shaderc
               glslang
               git
-              lean4
+              leanToolchain
             ])
             ++ [
               llvmLatest.llvm

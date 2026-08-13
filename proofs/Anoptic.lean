@@ -8,3 +8,4 @@ Anoptic targets ISO C++26.
 import Anoptic.Polynomial
 import Anoptic.Refinement
 import Anoptic.Transaction
+import Anoptic.Prooflet
