@@ -537,11 +537,22 @@
               };
             }
           ) // {
-            proofs = pkgs.runCommand "anoptic-proofs" { nativeBuildInputs = [ leanToolchain ]; } ''
+            proofs = pkgs.runCommand "anoptic-proofs" {
+              nativeBuildInputs = [ leanToolchain engineStdenv.cc ];
+            } ''
               cp -r ${self}/proofs proofs
               chmod -R +w proofs
               cd proofs
               lake build
+              ${engineStdenv.cc}/bin/g++ \
+                -std=gnu++26 -freflection -fno-exceptions -fno-rtti \
+                -nostdlib++ cpp/cxx26_mapping.cpp -o "$TMPDIR/cxx26-mapping"
+              if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/cxx26-mapping" \
+                  | grep -q 'libstdc++'; then
+                echo "C++26 proof witness linked the forbidden C++ runtime" >&2
+                exit 1
+              fi
+              "$TMPDIR/cxx26-mapping"
               touch $out
             '';
           };

@@ -48,15 +48,34 @@ The semantic kernel uses Lean 4.33.0 and `Std` only. Its Lake library is `Anopti
     connections.
 25. `ArchitectureGraph.Path.run_assoc` proves every regrouping of every
     well-typed declared architecture path has one interpretation.
+26. `Cxx26` separates translation and execution operations by an indexed type,
+    makes template arguments types by construction, proves exact reflection
+    reification/expansion/splicing, `consteval` composition and failure, one
+    stage-coherent `constexpr` meaning, and erasure of translation-only work.
+27. `Cxx26Mapping.everyAlgebraComposes` and
+    `everyAlgebraLoweringPreservesComposition` prove the target and lowering
+    laws for compiler, polynomial, pure, fallible, stateful, transactional,
+    resource-route, and relational interfaces.
+28. `Cxx26Mapping.allInterfacesMapToComposableCxx26` exhaustively proves a
+    successful staged C++26 image for all 24 interfaces;
+    `allArchitectureEdgesMapToComposableCxx26` covers all 31 declared graph
+    edges; `engineFullPathPreserved` covers the composition root.
 
 The complete carrier and theorem table is [interfaces.md](interfaces.md).
 
 ## Trust boundary
 
-Lean checks the abstract laws and implementation-refinement witnesses presented to it. The Lean kernel, the Nix-pinned Lean executable, the C++ compiler, and the reflection-to-witness exporter form the build-time trusted boundary. Operating systems, drivers, devices, and foreign codecs enter only through explicitly typed module-local assumptions. A theorem about an abstract operation becomes an engine guarantee only when the reflected implementation bridge supplies its corresponding witness.
+Lean checks the abstract laws, staged C++26 target, lowering-preservation laws,
+and implementation-refinement witnesses presented to it. The Nix proof target
+also compiles, links with `-nostdlib++`, and executes the C++26 reflection
+witness. The Lean kernel, the Nix-pinned Lean executable, and the C++ compiler
+remain the build-time trusted boundary. Operating systems, drivers, devices,
+and foreign codecs enter only through explicitly typed module-local
+assumptions. A theorem about an abstract operation becomes an engine guarantee
+only when the concrete implementation supplies its corresponding witness.
 
-The kernel proves resource closure, proof-carrying focus navigation, and
-committed-generation consistency in the abstract interface. It does not yet
-prove the C++ reflection exporter, object-code correspondence, foreign codec
-implementations, driver progress, or a concrete platform bridge. The abstract
-theorems are therefore not described as end-to-end implementation correctness.
+The kernel proves resource closure, proof-carrying focus navigation,
+committed-generation consistency, and the semantics-preserving staged C++26
+mapping. It does not prove GCC object-code correspondence, foreign codec
+implementations, driver progress, or a concrete platform bridge. Those claims
+require their own refinement witnesses.

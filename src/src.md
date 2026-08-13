@@ -30,6 +30,12 @@ compatibility uses a refined dependent product. Runtime modules without a
 reflected plan and static modules without a platform interpreter omit those
 facets rather than manufacturing empty machinery.
 
+The staged C++26 interpretation of these boundaries is machine-checked in
+[`PROVEN_ARCHITECTURE.md`](../docs/resourcemanager/PROVEN_ARCHITECTURE.md):
+reflection and `consteval` compile declarations, `constexpr` preserves one pure
+meaning across stages, templates index types only, and executable plans contain
+only direct value operations.
+
 API adaptation, plan compatibility, resource-route composition, owner effects,
 transport composition, and implementation refinement are distinct algebras.
 Finite trace inclusion proves safety. Fairness, eventual retirement, bounded

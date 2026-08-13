@@ -91,6 +91,7 @@
 !/proofs/**/
 !/proofs/**/*.lean
 !/proofs/**/*.md
+!/proofs/**/*.cpp
 !/proofs/lakefile.toml
 !/proofs/lean-toolchain
 !/proofs/lake-manifest.json

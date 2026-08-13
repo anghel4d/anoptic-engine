@@ -120,10 +120,11 @@ The one resource-universe translation unit closes the relevant projection of
 
 ## Factored public surface
 
-The following is the required semantic surface. New target headers are tracked
-in [`docs/resourcemanager/todo.md`](../docs/resourcemanager/todo.md); until the
-refactor lands, the current file named in the disposition column remains the
-compatibility surface.
+The following is the required semantic surface. Its staged C++26 image and
+composition are machine-checked in
+[`PROVEN_ARCHITECTURE.md`](../docs/resourcemanager/PROVEN_ARCHITECTURE.md).
+A compatibility header may currently implement more than one row, but it does
+not merge their semantic ownership or composition laws.
 
 | Algebraic module | Public header boundary | Current disposition |
 |---|---|---|

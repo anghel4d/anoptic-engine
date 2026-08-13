@@ -6,12 +6,13 @@ enumeration is `Anoptic.Coverage.Interface`; `allInterfacesChecked` pattern
 matches every constructor and produces its central law. Adding an interface to
 that enumeration without adding a proof case fails the build.
 
-This is semantic coverage, not a claim that the current C++ implementation
-already refines every ideal interface. Pure reference definitions are proved
-directly. Operations supplied by codecs, devices, operating systems, and C++
-reflection use law-bearing structures: constructing the bridge value requires
-the corresponding proof. There are no Lean axioms, `sorry`, or admitted
-theorems in the kernel.
+This is semantic and language-lowering coverage, not a claim that every current
+C++ implementation already refines every ideal interface. Pure reference
+definitions are proved directly. `Cxx26Mapping` proves a well-staged,
+composable C++26 image for every row, and the GCC witness compiles the target
+subset. Operations supplied by codecs, devices, and operating systems still
+use law-bearing refinement structures. There are no Lean axioms, `sorry`, or
+admitted theorems in the kernel.
 
 | Ideal interface | Lean carrier | Machine-checked laws | Abstract status |
 |---|---|---|---|
@@ -97,9 +98,15 @@ fallible cook/prepare/realize/interpret composition independent of grouping;
 proves cook/pack/open identity; and proves failed composed reloads cannot change
 publication.
 
-The remaining engineering boundary is concrete refinement: the C++26
-reflection exporter and each platform interpreter must construct the
-law-bearing Lean witness corresponding to the code and foreign behavior they
-ship. Lean deliberately does not infer driver fairness, operating-system
-progress, codec correctness, or C++ object-code equivalence from an abstract
-model.
+`Cxx26Mapping.allInterfacesMapToComposableCxx26` proves that all 24 rows have a
+successful staged declaration compilation, no translation-only runtime
+operations, an associative target algebra, and a semantics-preserving
+lowering. `allArchitectureEdgesMapToComposableCxx26` proves the same target
+coverage for all 31 declared dependency edges, while `engineFullPathPreserved`
+identifies the lowered full engine path with its public semantics.
+
+The remaining engineering boundary is concrete refinement: each production
+implementation and platform interpreter must construct the law-bearing witness
+corresponding to the code and foreign behavior it ships. Lean deliberately does
+not infer driver fairness, operating-system progress, codec correctness, or
+C++ object-code equivalence from an abstract model.

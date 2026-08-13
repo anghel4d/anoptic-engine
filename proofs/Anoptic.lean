@@ -38,5 +38,7 @@ import Anoptic.Coverage
 import Anoptic.CompositionCoverage
 import Anoptic.EngineComposition
 import Anoptic.ArchitectureGraph
+import Anoptic.Cxx26
+import Anoptic.Cxx26Mapping
 import Anoptic.Prooflet
 import Anoptic.Integration

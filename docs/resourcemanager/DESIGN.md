@@ -636,9 +636,10 @@ The algebra fixes several boundaries that names and directories alone do not:
 | Text globally loads path-named faces and also exposes pure shaping | Font-source and bake cells belong to the resource graph and text owner; shaping remains a pure `FontBake x Text -> List(Glyph)` morphism |
 | Engine `main()` implements demo world state, importer/reload policy, backend access, and module adapters | The entry point selects interpreters and composes typed world, resource, render, audio, text, UI, input, and time protocols |
 
-The complete module-by-module derivation and migration inventory lives in
-[`todo.md`](todo.md). `include/include.md` and `src/src.md` define the matching
-public and implementation boundaries.
+The machine-checked algebra, staged C++26 mapping, exhaustive interface images,
+and composition results are recorded in
+[`PROVEN_ARCHITECTURE.md`](PROVEN_ARCHITECTURE.md). `include/include.md` and
+`src/src.md` define the matching public and implementation boundaries.
 
 ## Contract
 
