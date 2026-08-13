@@ -1,36 +1,32 @@
 # Proofs
 
-`proofs/` is the machine-checked semantic boundary for Anoptic Engine. Lean declarations state the abstract interfaces and their laws; C++26 reflection supplies normalized structural witnesses for the implementation bridge. The engine links no Lean runtime.
+`proofs/` contains Anoptic's Lean 4 abstract semantic kernel and the mechanically
+connected certificate for the reflected resource universe. The engine links no
+Lean runtime.
 
-- `Polynomial`, `Compiler`, `Refinement`, and `Transaction` define the common
-  API, compilation, verification, and publication algebras.
-- `Outcome` through `Diagnostics` prove the engine foundation interfaces.
-- `Gltf` through `Engine` define and prove every domain interface in the
-  24-row whole-engine factorization.
-- `Coverage.allInterfacesChecked` is the exhaustive theorem tying those 24
-  interface constructors to their central laws.
-- `Composition` proves the distinct pure, fallible, stateful, transactional,
-  product, and coproduct composition algebras.
-- `CompositionCoverage.allCompositionsChecked` proves composition closure for
-  all 24 ideal interfaces.
-- `EngineComposition` proves the complete fallible
-  cook/prepare/realize/interpret dataflow, joins, forks, generation coherence,
-  cook/pack/open identity, and reload publication isolation.
-- `ArchitectureGraph` enumerates every declared cross-module dependency edge
-  and proves interpretation of all well-typed paths is associative.
-- `Cxx26` proves the staged target language: reflection, `consteval`,
-  `constexpr`, type-only templates, expansion, splicing, and runtime erasure.
-- `Cxx26Mapping` proves composable target images and lowering preservation for
-  all eight algebras, all 24 interfaces, all 31 declared architecture edges,
-  and the complete engine composition root.
-- `Integration` composes representative resource, render, world, hot-reload,
-  music, and synth laws across module boundaries.
-- [interfaces.md](interfaces.md) is the exact interface-to-theorem coverage
-  matrix.
-- `Anoptic.lean` imports the complete checked kernel.
+- `Polynomial`, `Compiler`, `Composition`, `Refinement`, and `Transaction`
+  define the reusable abstract algebras.
+- The domain files define selected reference carriers and prove their local
+  laws. They do not by themselves certify corresponding C++ implementations.
+- `Coverage` and `CompositionCoverage` are exhaustive over a handwritten
+  24-constructor abstract factorization only.
+- `ArchitectureGraph` and `EngineComposition` prove typed composition inside
+  their abstract models.
+- `Cxx26` models the staged language of reflection, `consteval`, `constexpr`,
+  type-only templates, expansion, splicing, and direct execution.
+- `Cxx26Mapping` proves candidate images and preservation inside that model; it
+  is not a production-header inventory.
+- `cpp/resource_schema_certificate.cpp` includes the real resource headers,
+  reflects `ano::asset_schema`, and emits
+  `Anoptic/Generated/ResourceSchema.lean`.
+- `ResourceCertificate` proves uniqueness, endpoint closure, and acyclicity over
+  that generated production inventory.
+- [interfaces.md](interfaces.md) is the exact abstract-versus-production matrix.
+- [PROOF_STATUS.md](../docs/resourcemanager/PROOF_STATUS.md) states the trust
+  boundary and remaining obligations.
 
-The interactive environment is the repository dev shell. `cd proofs && lake
-build` checks the kernel there. `nix build .#proofs` checks the kernel, compiles
-the GCC 16 C++26 bridge with reflection and `-nostdlib++`, and executes it in an
-isolated Nix build. `nix flake check` includes the same proof target with the
-engine checks.
+`cd proofs && lake build` checks the Lean sources already present in the working
+tree. `nix build .#proofs` additionally compiles the real-header C++26 generator
+with GCC reflection and `-nostdlib++`, rejects a C++ runtime dependency,
+regenerates the resource certificate, compares it byte-for-byte with the checked
+Lean file, and only then builds the Lean library.

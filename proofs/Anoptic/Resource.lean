@@ -75,22 +75,52 @@ def dirty (current : Action Result) (nextKey : Nat) : Bool :=
     dirty current current.key = false := by
   simp [dirty]
 
-/-- A codec is admitted only with its round-trip law. -/
+/-- A canonical codec is a bijection between values and its accepted byte language. -/
 structure Codec (Value : Type u) (Bytes : Type v) (DecodeError : Type w) where
+  canonical : Bytes → Prop
   encode : Value → Bytes
   decode : Bytes → Outcome.Result Value DecodeError
-  roundTrip : ∀ value, decode (encode value) = .ok value
+  encodeCanonical : ∀ value, canonical (encode value)
+  decodeEncode : ∀ value, decode (encode value) = .ok value
+  encodeDecode : ∀ bytes value, canonical bytes → decode bytes = .ok value →
+    encode value = bytes
+  decodeCanonical : ∀ bytes value, decode bytes = .ok value → canonical bytes
+  canonicalDecodes : ∀ bytes, canonical bytes →
+    ∃ value, decode bytes = .ok value
 
 def Codec.identity (Value : Type u) (DecodeError : Type w) :
     Codec Value Value DecodeError where
+  canonical := fun _ => True
   encode := id
   decode := Except.ok
-  roundTrip := fun _ => rfl
+  encodeCanonical := fun _ => True.intro
+  decodeEncode := fun _ => rfl
+  encodeDecode := by
+    intro bytes value _ decoded
+    exact (Except.ok.inj decoded).symm
+  decodeCanonical := fun _ _ _ => True.intro
+  canonicalDecodes := fun bytes _ => ⟨bytes, rfl⟩
 
-@[simp] theorem Codec.identity_roundTrip (value : Value) :
+@[simp] theorem Codec.identity_decodeEncode (value : Value) :
     (Codec.identity Value DecodeError).decode
         ((Codec.identity Value DecodeError).encode value) = Except.ok value :=
   rfl
+
+theorem Codec.canonical_iff_decodes (codec : Codec Value Bytes DecodeError)
+    (bytes : Bytes) :
+    codec.canonical bytes ↔ ∃ value, codec.decode bytes = .ok value := by
+  constructor
+  · exact codec.canonicalDecodes bytes
+  · rintro ⟨value, decoded⟩
+    exact codec.decodeCanonical bytes value decoded
+
+theorem Codec.rejects_noncanonical (codec : Codec Value Bytes DecodeError)
+    (bytes : Bytes) (noncanonical : ¬codec.canonical bytes) :
+    ∃ error, codec.decode bytes = .error error := by
+  cases decoded : codec.decode bytes with
+  | error error => exact ⟨error, rfl⟩
+  | ok value => exact False.elim (noncanonical
+      (codec.decodeCanonical bytes value decoded))
 
 def openPacked (codec : Codec Value Bytes DecodeError) (value : Value) :
     Outcome.Result Value DecodeError :=
@@ -99,7 +129,7 @@ def openPacked (codec : Codec Value Bytes DecodeError) (value : Value) :
 @[simp] theorem openPacked_roundTrip
     (codec : Codec Value Bytes DecodeError) (value : Value) :
     openPacked codec value = .ok value :=
-  codec.roundTrip value
+  codec.decodeEncode value
 
 structure Revision where
   generation : Nat

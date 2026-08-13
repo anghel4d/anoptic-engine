@@ -45,65 +45,123 @@ def alignUp (offset alignment : Nat) : Nat :=
   if alignment = 0 then offset
   else offset + ((alignment - offset % alignment) % alignment)
 
-def checkedAdd (limit left right : Nat) : Except LayoutError Nat :=
-  if left + right ≤ limit then .ok (left + right) else .error .overflow
+theorem alignUp_not_before (offset alignment : Nat) :
+    offset ≤ alignUp offset alignment := by
+  unfold alignUp
+  split <;> omega
+
+theorem alignUp_aligned (offset alignment : Nat) (positive : 0 < alignment) :
+    alignUp offset alignment % alignment = 0 := by
+  unfold alignUp
+  rw [if_neg (Nat.ne_of_gt positive)]
+  rw [Nat.add_mod]
+  let remainder := offset % alignment
+  have less : remainder < alignment := Nat.mod_lt _ positive
+  by_cases zero : remainder = 0
+  · simp [remainder, zero]
+  · have differenceLess : alignment - remainder < alignment := by omega
+    rw [show offset % alignment = remainder from rfl]
+    have inner : (alignment - remainder) % alignment =
+        alignment - remainder := Nat.mod_eq_of_lt differenceLess
+    have fills : remainder + (alignment - remainder) = alignment := by omega
+    calc
+      (remainder + ((alignment - remainder) % alignment) % alignment) %
+          alignment =
+          (remainder + (alignment - remainder)) % alignment := by
+            simp only [inner]
+      _ = alignment % alignment := by rw [fills]
+      _ = 0 := Nat.mod_self alignment
 
 def reserveChecked (limit : Nat) (cursor : Cursor) (segment : Segment) :
     Except LayoutError (Reservation × Cursor) :=
   if segment.alignment = 0 then .error .zeroAlignment
   else
     let start := alignUp cursor.offset segment.alignment
-    match checkedAdd limit start segment.bytes with
-    | .error error => .error error
-    | .ok next => .ok (⟨start, segment.bytes⟩, ⟨next⟩)
+    if start + segment.bytes ≤ limit then
+      .ok (⟨start, segment.bytes⟩, ⟨start + segment.bytes⟩)
+    else
+      .error .overflow
 
 @[simp] theorem reserveChecked_rejects_zero_alignment
     (limit : Nat) (cursor : Cursor) (bytes : Nat) :
     reserveChecked limit cursor ⟨bytes, 0⟩ = .error .zeroAlignment := by
   simp [reserveChecked]
 
-theorem checkedAdd_accepts (limit left right : Nat)
-    (fits : left + right ≤ limit) :
-    checkedAdd limit left right = .ok (left + right) := by
-  simp [checkedAdd, fits]
+theorem reserveChecked_success
+    (success : reserveChecked limit cursor segment = .ok (reservation, next)) :
+    cursor.offset ≤ reservation.offset ∧
+      reservation.offset % segment.alignment = 0 ∧
+      reservation.size = segment.bytes ∧
+      reservation.offset + reservation.size = next.offset ∧
+      next.offset ≤ limit := by
+  unfold reserveChecked at success
+  split at success
+  · contradiction
+  · next nonzero =>
+      dsimp at success
+      split at success
+      · next fits =>
+          simp only [Except.ok.injEq, Prod.mk.injEq] at success
+          rcases success with ⟨rfl, rfl, rfl⟩
+          refine ⟨alignUp_not_before _ _, ?_, rfl, rfl, fits⟩
+          exact alignUp_aligned _ _ (Nat.pos_of_ne_zero nonzero)
+      · contradiction
 
-theorem checkedAdd_rejects (limit left right : Nat)
-    (overflows : ¬ left + right ≤ limit) :
-    checkedAdd limit left right = .error .overflow := by
-  simp [checkedAdd, overflows]
+/-- Measurement is the checked execution of the same aligned reservation plan. -/
+def measure (limit : Nat) (cursor : Cursor) : Plan → Except LayoutError Cursor
+  | [] => .ok cursor
+  | segment :: rest =>
+      match reserveChecked limit cursor segment with
+      | .error error => .error error
+      | .ok (_, next) => measure limit next rest
 
-def reserve (cursor : Cursor) (bytes : Nat) : Reservation × Cursor :=
-  (⟨cursor.offset, bytes⟩, ⟨cursor.offset + bytes⟩)
-
-@[simp] theorem reserve_starts_at_cursor (cursor : Cursor) (bytes : Nat) :
-    (reserve cursor bytes).1.offset = cursor.offset :=
-  rfl
-
-@[simp] theorem consecutive_reservations_touch (cursor : Cursor)
-    (firstBytes secondBytes : Nat) :
-    let first := (reserve cursor firstBytes).1
-    let next := (reserve cursor firstBytes).2
-    let second := (reserve next secondBytes).1
-    first.offset + first.size = second.offset := by
-  simp [reserve]
-
-def measure (cursor : Cursor) (plan : Plan) : Cursor :=
-  plan.foldl (fun current segment => (reserve current segment.bytes).2) cursor
-
-theorem measure_append (cursor : Cursor) (first second : Plan) :
-    measure cursor (first ++ second) = measure (measure cursor first) second := by
-  simp [measure, List.foldl_append]
+theorem measure_append (limit : Nat) (cursor : Cursor) (first second : Plan) :
+    measure limit cursor (first ++ second) =
+      match measure limit cursor first with
+      | .error error => .error error
+      | .ok next => measure limit next second := by
+  induction first generalizing cursor with
+  | nil => rfl
+  | cons segment rest induction =>
+      simp only [List.cons_append, measure]
+      cases reserved : reserveChecked limit cursor segment with
+      | error error => rfl
+      | ok pair =>
+          cases pair with
+          | mk reservation next =>
+              exact induction next
 
 inductive Phase where
   | building
   | sealed
 
+def LayoutMatches : Plan → List Reservation → Prop
+  | [], [] => True
+  | segment :: plan, reservation :: reservations =>
+      reservation.size = segment.bytes ∧
+        0 < segment.alignment ∧
+        reservation.offset % segment.alignment = 0 ∧
+        LayoutMatches plan reservations
+  | _, _ => False
+
+def OrderedDisjoint : List Reservation → Prop
+  | [] => True
+  | reservation :: rest =>
+      (∀ next ∈ rest,
+        reservation.offset + reservation.size ≤ next.offset) ∧
+      OrderedDisjoint rest
+
 structure Volume (phase : Phase) (plan : Plan) where
   size : Nat
   reservations : List Reservation
+  layout : LayoutMatches plan reservations
+  inBounds : ∀ reservation ∈ reservations,
+    reservation.offset + reservation.size ≤ size
+  disjoint : OrderedDisjoint reservations
 
 def freeze (volume : Volume .building plan) : Volume .sealed plan :=
-  ⟨volume.size, volume.reservations⟩
+  ⟨volume.size, volume.reservations, volume.layout,
+    volume.inBounds, volume.disjoint⟩
 
 @[simp] theorem freeze_preserves_size (volume : Volume .building plan) :
     (freeze volume).size = volume.size :=

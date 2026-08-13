@@ -30,11 +30,12 @@ compatibility uses a refined dependent product. Runtime modules without a
 reflected plan and static modules without a platform interpreter omit those
 facets rather than manufacturing empty machinery.
 
-The staged C++26 interpretation of these boundaries is machine-checked in
-[`PROVEN_ARCHITECTURE.md`](../docs/resourcemanager/PROVEN_ARCHITECTURE.md):
-reflection and `consteval` compile declarations, `constexpr` preserves one pure
-meaning across stages, templates index types only, and executable plans contain
-only direct value operations.
+The staged C++26 language used to describe these boundaries has a machine-checked
+abstract model. It does not prove that every source owner implements that model.
+The reflected resource universe is the current mechanically connected subset:
+the proof gate reflects the real headers and compares their generated Lean
+certificate before checking its laws. Exact status is in
+[`PROOF_STATUS.md`](../docs/resourcemanager/PROOF_STATUS.md).
 
 API adaptation, plan compatibility, resource-route composition, owner effects,
 transport composition, and implementation refinement are distinct algebras.

@@ -21,6 +21,8 @@ import Anoptic.Gltf
 import Anoptic.Mesh
 import Anoptic.ResourceRoute
 import Anoptic.Resource
+import Anoptic.Generated.ResourceSchema
+import Anoptic.ResourceCertificate
 import Anoptic.RenderResources
 import Anoptic.Render
 import Anoptic.Input

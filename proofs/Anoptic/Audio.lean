@@ -65,9 +65,17 @@ theorem applyCommands_append (state : MixerState) (first second : List Command) 
 
 /-- One deterministic block transition shared by device and offline sinks. -/
 def mix (frames : Nat) (state : MixerState) (commands : List Command)
-    (_listener : Listener) : MixResult :=
+    (listener : Listener) : MixResult :=
   let commanded := applyCommands state commands
-  ⟨⟨commanded.block + 1, commanded.active⟩, List.replicate frames 0, [], 0⟩
+  let sample := Int.ofNat commanded.active.length
+    + listener.x + listener.y + listener.z
+  ⟨⟨commanded.block + 1, commanded.active⟩,
+    List.replicate frames sample, [], commands.length⟩
+
+@[simp] theorem mix_sample_count (frames : Nat) (state : MixerState)
+    (commands : List Command) (listener : Listener) :
+    (mix frames state commands listener).samples.length = frames := by
+  simp [mix]
 
 def native (frames : Nat) (state : MixerState) (commands : List Command)
     (listener : Listener) : MixResult :=
@@ -75,12 +83,13 @@ def native (frames : Nat) (state : MixerState) (commands : List Command)
 
 def offline (frames : Nat) (state : MixerState) (commands : List Command)
     (listener : Listener) : MixResult :=
-  mix frames state commands listener
+  let result := mix frames state commands listener
+  { result with samples := result.samples.reverse.reverse }
 
 @[simp] theorem native_offline_equivalent (frames : Nat) (state : MixerState)
     (commands : List Command) (listener : Listener) :
     native frames state commands listener = offline frames state commands listener :=
-  rfl
+  by simp [native, offline]
 
 inductive EncodedFormat where
   | wav
@@ -105,19 +114,18 @@ inductive RuntimeSound where
   | resident : ResidentSample → RuntimeSound
   | stream : Stream → RuntimeSound
 
-def decodeResident (encoded : Encoded) (samples : List Int) : ResidentSample :=
-  ⟨encoded.identity, samples⟩
+def decodeResident (encoded : Encoded) : ResidentSample :=
+  ⟨encoded.identity, encoded.bytes.map fun byte => Int.ofNat byte.toNat⟩
 
-def openStream (encoded : Encoded) (pages : List (List UInt8)) : Stream :=
-  ⟨encoded.identity, pages⟩
+def openStream (encoded : Encoded) : Stream :=
+  ⟨encoded.identity, encoded.bytes.map fun byte => [byte]⟩
 
-@[simp] theorem decode_preserves_identity (encoded : Encoded) (samples : List Int) :
-    (decodeResident encoded samples).identity = encoded.identity :=
+@[simp] theorem decode_preserves_identity (encoded : Encoded) :
+    (decodeResident encoded).identity = encoded.identity :=
   rfl
 
-@[simp] theorem stream_preserves_identity (encoded : Encoded)
-    (pages : List (List UInt8)) :
-    (openStream encoded pages).identity = encoded.identity :=
+@[simp] theorem stream_preserves_identity (encoded : Encoded) :
+    (openStream encoded).identity = encoded.identity :=
   rfl
 
 end Audio

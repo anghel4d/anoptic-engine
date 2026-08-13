@@ -538,21 +538,31 @@
             }
           ) // {
             proofs = pkgs.runCommand "anoptic-proofs" {
-              nativeBuildInputs = [ leanToolchain engineStdenv.cc ];
+              nativeBuildInputs = [ leanToolchain engineStdenv.cc pkgs.diffutils ];
             } ''
               cp -r ${self}/proofs proofs
               chmod -R +w proofs
               cd proofs
-              lake build
               ${engineStdenv.cc}/bin/g++ \
                 -std=gnu++26 -freflection -fno-exceptions -fno-rtti \
-                -nostdlib++ cpp/cxx26_mapping.cpp -o "$TMPDIR/cxx26-mapping"
-              if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/cxx26-mapping" \
+                -nostdlib++ -I${self}/include -I${mimalloc-src}/include \
+                cpp/resource_schema_certificate.cpp \
+                -o "$TMPDIR/resource-schema-certificate"
+              if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/resource-schema-certificate" \
                   | grep -q 'libstdc++'; then
-                echo "C++26 proof witness linked the forbidden C++ runtime" >&2
+                echo "resource-schema certificate linked the forbidden C++ runtime" >&2
                 exit 1
               fi
-              "$TMPDIR/cxx26-mapping"
+              "$TMPDIR/resource-schema-certificate" \
+                > "$TMPDIR/ResourceSchema.lean"
+              if ! cmp -s Anoptic/Generated/ResourceSchema.lean \
+                  "$TMPDIR/ResourceSchema.lean"; then
+                echo "reflected resource schema differs from the checked Lean certificate" >&2
+                diff -u Anoptic/Generated/ResourceSchema.lean \
+                  "$TMPDIR/ResourceSchema.lean" >&2 || true
+                exit 1
+              fi
+              lake build
               touch $out
             '';
           };

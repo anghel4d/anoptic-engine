@@ -13,7 +13,7 @@ universe u v
 
 namespace Time
 
-structure Instant (Clock : Type u) where
+structure Instant (Clock : Type u) (Unit : Type v) where
   ticks : Int
   deriving DecidableEq
 
@@ -21,20 +21,19 @@ structure Duration (Unit : Type v) where
   ticks : Int
   deriving DecidableEq
 
-def advance {DurationUnit : Type v} (instant : Instant Clock)
-    (duration : Duration DurationUnit) : Instant Clock :=
+def advance (instant : Instant Clock Unit)
+    (duration : Duration Unit) : Instant Clock Unit :=
   ⟨instant.ticks + duration.ticks⟩
 
-def elapsed {DurationUnit : Type v} (later earlier : Instant Clock) :
-    Duration DurationUnit :=
+def elapsed (later earlier : Instant Clock Unit) : Duration Unit :=
   ⟨later.ticks - earlier.ticks⟩
 
-@[simp] theorem advance_zero (instant : Instant Clock) :
+@[simp] theorem advance_zero (instant : Instant Clock Unit) :
     advance instant (Duration.mk 0 : Duration Unit) = instant := by
   cases instant
   simp [advance]
 
-theorem advance_add (instant : Instant Clock)
+theorem advance_add (instant : Instant Clock Unit)
     (first second : Duration Unit) :
     advance (advance instant first) second =
       advance instant (⟨first.ticks + second.ticks⟩ : Duration Unit) := by
@@ -43,16 +42,14 @@ theorem advance_add (instant : Instant Clock)
   cases second
   simp [advance, Int.add_assoc]
 
-@[simp] theorem elapsed_self (instant : Instant Clock) :
-    elapsed (DurationUnit := DurationUnit) instant instant =
-      (⟨0⟩ : Duration DurationUnit) := by
+@[simp] theorem elapsed_self (instant : Instant Clock Unit) :
+    elapsed instant instant = (⟨0⟩ : Duration Unit) := by
   cases instant
   simp [elapsed]
 
-@[simp] theorem elapsed_advance (instant : Instant Clock)
-    (duration : Duration DurationUnit) :
-    elapsed (DurationUnit := DurationUnit) (advance instant duration) instant =
-      duration := by
+@[simp] theorem elapsed_advance (instant : Instant Clock Unit)
+    (duration : Duration Unit) :
+    elapsed (advance instant duration) instant = duration := by
   cases instant
   cases duration
   simp [advance, elapsed]

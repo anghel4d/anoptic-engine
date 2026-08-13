@@ -55,9 +55,17 @@ theorem applyDisplayEvents_append (state : DisplayState)
 structure Adapter (Foreign : Type) where
   translate : Foreign → Event
 
-theorem Adapter.deterministic (adapter : Adapter Foreign) (event : Foreign) :
-    adapter.translate event = adapter.translate event :=
-  rfl
+def Adapter.Refines (adapter : Adapter Foreign)
+    (specification : Foreign → Event) : Prop :=
+  ∀ event, adapter.translate event = specification event
+
+theorem Adapter.Refines.compose (adapter : Adapter Foreign)
+    (specification : Foreign → Event)
+    (sound : adapter.Refines specification) (map : Event → Event) :
+    (Adapter.mk (map ∘ adapter.translate)).Refines (map ∘ specification) := by
+  intro event
+  simp only [Function.comp_apply]
+  rw [sound event]
 
 end Input
 end Anoptic

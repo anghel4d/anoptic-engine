@@ -25,11 +25,26 @@ inductive Shape where
   | array : Nat → Shape → Shape
   | pointer : PointerPolicy → Shape
 
-def normalize (shape : Shape) : Shape := shape
+def keepMember : Shape → Bool
+  | .record [] => false
+  | .choice [] => false
+  | _ => true
+
+/-- Canonical records and choices omit structurally empty alternatives. -/
+def normalize : Shape → Shape
+  | .record fields => .record (fields.filter keepMember)
+  | .choice alternatives => .choice (alternatives.filter keepMember)
+  | shape => shape
 
 @[simp] theorem normalize_idempotent (shape : Shape) :
     normalize (normalize shape) = normalize shape :=
-  rfl
+  by
+    cases shape with
+    | record fields => simp [normalize, List.filter_filter]
+    | choice alternatives => simp [normalize, List.filter_filter]
+    | atom => rfl
+    | array => rfl
+    | pointer => rfl
 
 structure Witness where
   declarations : List Shape

@@ -28,11 +28,12 @@ structure Portable (capability : Capability) where
 /-- Device slots retain semantic identity while hiding backend representation. -/
 structure Slot (capability : Capability) where
   identity : Nat
+  payloadIdentity : Nat
   ownerIndex : Nat
   deriving DecidableEq
 
 def realize (ownerIndex : Nat) (portable : Portable capability) : Slot capability :=
-  ⟨portable.identity, ownerIndex⟩
+  ⟨portable.identity, portable.payloadIdentity, ownerIndex⟩
 
 def mapPayload (function : Nat → Nat) (portable : Portable capability) :
     Portable capability :=
@@ -53,6 +54,11 @@ theorem mapPayload_comp (first second : Nat → Nat)
 @[simp] theorem realize_preserves_identity (ownerIndex : Nat)
     (portable : Portable capability) :
     (realize ownerIndex portable).identity = portable.identity :=
+  rfl
+
+@[simp] theorem realize_preserves_payload (ownerIndex : Nat)
+    (portable : Portable capability) :
+    (realize ownerIndex portable).payloadIdentity = portable.payloadIdentity :=
   rfl
 
 def realizeMany (firstOwnerIndex : Nat)

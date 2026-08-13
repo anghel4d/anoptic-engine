@@ -22,14 +22,21 @@ structure Channel (Value : Type u) where
   capacity : Nat
   items : List Value
 
-/-- Endpoints expose only their half of the channel protocol. -/
+/-- Endpoints name one shared channel; neither endpoint contains queue state. -/
 structure Producer (Value : Type u) (capacity : Nat) where
-  channel : Channel Value
-  capacity_matches : channel.capacity = capacity
+  channelIdentity : Nat
 
 structure Consumer (Value : Type u) (capacity : Nat) where
-  channel : Channel Value
-  capacity_matches : channel.capacity = capacity
+  channelIdentity : Nat
+
+structure Endpoints (Value : Type u) (capacity : Nat) where
+  producer : Producer Value capacity
+  consumer : Consumer Value capacity
+  sameChannel : producer.channelIdentity = consumer.channelIdentity
+
+def endpoints (Value : Type u) (capacity identity : Nat) :
+    Endpoints Value capacity :=
+  ⟨⟨identity⟩, ⟨identity⟩, rfl⟩
 
 def empty (Value : Type u) (capacity : Nat) : Channel Value :=
   ⟨capacity, []⟩
@@ -46,24 +53,17 @@ def receive (channel : Channel Value) : Option (Value × Channel Value) :=
   | [] => none
   | head :: tail => some (head, ⟨channel.capacity, tail⟩)
 
-def sendFrom (producer : Producer Value capacity) (value : Value) :
-    Outcome.Result (Producer Value capacity) SendError :=
-  if producer.channel.items.length < producer.channel.capacity then
-    .ok ⟨⟨producer.channel.capacity, producer.channel.items ++ [value]⟩,
-      producer.capacity_matches⟩
-  else
-    .error .full
+def sendFrom (_producer : Producer Value capacity)
+    (state : Channel Value) (capacityMatches : state.capacity = capacity)
+    (value : Value) : Outcome.Result (Channel Value) SendError := by
+  subst capacity
+  exact send state value
 
-def handoff (producer : Producer Value capacity) : Consumer Value capacity :=
-  ⟨producer.channel, producer.capacity_matches⟩
-
-def receiveFrom (consumer : Consumer Value capacity) :
-    Option (Value × Consumer Value capacity) :=
-  match consumer.channel.items with
-  | [] => none
-  | head :: tail =>
-      some (head, ⟨⟨consumer.channel.capacity, tail⟩,
-        consumer.capacity_matches⟩)
+def receiveFrom (_consumer : Consumer Value capacity)
+    (state : Channel Value) (capacityMatches : state.capacity = capacity) :
+    Option (Value × Channel Value) := by
+  subst capacity
+  exact receive state
 
 @[simp] theorem send_empty_succeeds (value : Value) (capacity : Nat)
     (positive : 0 < capacity) :

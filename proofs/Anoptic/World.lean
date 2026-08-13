@@ -104,28 +104,29 @@ structure Persistent where
 
 structure SaveCell where
   persistent : Persistent
+  demand : Demand
   manifestRoot : Nat
-  deriving DecidableEq
 
 inductive SaveError where
   | wrongManifest
   deriving DecidableEq
 
 def save (manifestRoot : Nat) (state : State) : SaveCell :=
-  ⟨⟨state.tick⟩, manifestRoot⟩
+  ⟨⟨state.tick⟩, state.demand, manifestRoot⟩
 
-def load (manifestRoot : Nat) (demand : Demand) (cell : SaveCell) :
+def load (manifestRoot : Nat) (cell : SaveCell) :
     Outcome.Result State SaveError :=
-  if cell.manifestRoot = manifestRoot then .ok ⟨cell.persistent.tick, demand⟩
+  if cell.manifestRoot = manifestRoot then
+    .ok ⟨cell.persistent.tick, cell.demand⟩
   else .error .wrongManifest
 
 theorem load_save_roundTrip (manifestRoot : Nat) (state : State) :
-    load manifestRoot state.demand (save manifestRoot state) =
+    load manifestRoot (save manifestRoot state) =
       .ok ⟨state.tick, state.demand⟩ := by
   simp [load, save]
 
 theorem load_save_is_original (manifestRoot : Nat) (state : State) :
-    load manifestRoot state.demand (save manifestRoot state) = .ok state := by
+    load manifestRoot (save manifestRoot state) = .ok state := by
   cases state
   simp [load, save]
 

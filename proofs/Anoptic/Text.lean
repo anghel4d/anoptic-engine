@@ -54,27 +54,38 @@ theorem open_bake_atlas_composes (source : FontSource) (faceIndex : Nat)
   rfl
 
 structure GlyphInstance where
-  glyph : UInt8
+  glyph : Nat
   advance : Nat
   deriving DecidableEq
 
-def shape (text : Strings.View) : List GlyphInstance :=
-  text.map fun byte => ⟨byte, 1⟩
+def shape (text : Strings.Utf8) : List GlyphInstance :=
+  text.codepoints.map fun codepoint => ⟨codepoint, 1⟩
 
-def measure (text : Strings.View) : Nat :=
-  text.length
+def measure (text : Strings.Utf8) : Nat :=
+  (shape text).foldl (fun width glyph => width + glyph.advance) 0
 
-@[simp] theorem shape_count (text : Strings.View) :
-    (shape text).length = text.length := by
+private theorem fold_glyph_advances (codepoints : List Nat) (start : Nat) :
+    (codepoints.map fun codepoint => GlyphInstance.mk codepoint 1).foldl
+        (fun width glyph => width + glyph.advance) start =
+      start + codepoints.length := by
+  induction codepoints generalizing start with
+  | nil => simp
+  | cons codepoint rest induction =>
+      simp only [List.map_cons, List.foldl_cons, List.length_cons]
+      rw [induction]
+      omega
+
+@[simp] theorem shape_count (text : Strings.Utf8) :
+    (shape text).length = text.codepoints.length := by
   simp [shape]
 
-@[simp] theorem measure_count (text : Strings.View) :
-    measure text = text.length :=
-  rfl
+@[simp] theorem measure_count (text : Strings.Utf8) :
+    measure text = text.codepoints.length := by
+  simpa [measure, shape] using fold_glyph_advances text.codepoints 0
 
-@[simp] theorem measure_matches_shape_count (text : Strings.View) :
+@[simp] theorem measure_matches_shape_count (text : Strings.Utf8) :
     measure text = (shape text).length := by
-  simp [measure]
+  simp
 
 end Text
 end Anoptic

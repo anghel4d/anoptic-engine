@@ -51,16 +51,30 @@ theorem build_succeeds_with_capacity (capacity : Nat) (scene : Scene)
     build capacity scene = .ok ⟨scene⟩ := by
   simp [build, fits]
 
-/-- CPU and GPU are interpretations of one packed-scene specification. -/
-def rasterSpec (scene : PackedScene) : List Nat :=
-  scene.scene.primitives.mapIdx fun index _ => index
+def cpuTraversal : Nat → List Primitive → List Nat
+  | _, [] => []
+  | index, _ :: rest => index :: cpuTraversal (index + 1) rest
 
-def evalCpu (scene : PackedScene) : List Nat := rasterSpec scene
-def evalGpu (scene : PackedScene) : List Nat := rasterSpec scene
+def deviceTraversal : Nat → Nat → List Nat
+  | _, 0 => []
+  | index, count + 1 => index :: deviceTraversal (index + 1) count
+
+def evalCpu (scene : PackedScene) : List Nat :=
+  cpuTraversal 0 scene.scene.primitives
+
+def evalGpu (scene : PackedScene) : List Nat :=
+  deviceTraversal 0 scene.scene.primitives.length
+
+theorem traversals_agree (index : Nat) (primitives : List Primitive) :
+    cpuTraversal index primitives = deviceTraversal index primitives.length := by
+  induction primitives generalizing index with
+  | nil => rfl
+  | cons primitive rest induction =>
+      simp [cpuTraversal, deviceTraversal, induction]
 
 @[simp] theorem cpu_gpu_equivalent (scene : PackedScene) :
     evalCpu scene = evalGpu scene :=
-  rfl
+  traversals_agree 0 scene.scene.primitives
 
 def cpuInterpreter : Composition.Pure PackedScene (List Nat) := ⟨evalCpu⟩
 def gpuInterpreter : Composition.Pure PackedScene (List Nat) := ⟨evalGpu⟩

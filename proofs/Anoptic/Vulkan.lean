@@ -19,6 +19,9 @@ structure SessionState where
 
 structure PresentedFrame where
   number : Nat
+  residentRevision : Nat
+  commandCount : Nat
+  viewRevision : Nat
   deriving DecidableEq
 
 structure Result where
@@ -31,22 +34,29 @@ structure Result where
 structure Interpreter (Resident View : Type) where
   run : SessionState → Resident → List Render.Command → View → Result
 
-def referenceInterpreter (Resident View : Type) : Interpreter Resident View where
-  run := fun state _ _ _ =>
-    ⟨⟨state.submittedFrame + 1⟩, ⟨state.submittedFrame + 1⟩, []⟩
+def referenceInterpreter : Interpreter Nat Nat where
+  run := fun state resident commands view =>
+    ⟨⟨state.submittedFrame + 1⟩,
+      ⟨state.submittedFrame + 1, resident, commands.length, view⟩, []⟩
 
 @[simp] theorem reference_advances_frame (state : SessionState)
-    (resident : Resident) (commands : List Render.Command) (view : View) :
-    ((referenceInterpreter Resident View).run state resident commands view).frame.number =
+    (resident : Nat) (commands : List Render.Command) (view : Nat) :
+    (referenceInterpreter.run state resident commands view).frame.number =
       state.submittedFrame + 1 :=
   rfl
 
-theorem Interpreter.deterministic (interpreter : Interpreter Resident View)
-    (state : SessionState) (resident : Resident)
-    (commands : List Render.Command) (view : View) :
-    interpreter.run state resident commands view =
-      interpreter.run state resident commands view :=
-  rfl
+@[simp] theorem reference_observes_inputs (state : SessionState)
+    (resident : Nat) (commands : List Render.Command) (view : Nat) :
+    let frame := (referenceInterpreter.run state resident commands view).frame
+    frame.residentRevision = resident ∧
+      frame.commandCount = commands.length ∧ frame.viewRevision = view :=
+  ⟨rfl, rfl, rfl⟩
+
+def Interpreter.Refines
+    (implementation specification : Interpreter Resident View) : Prop :=
+  ∀ state resident commands view,
+    implementation.run state resident commands view =
+      specification.run state resident commands view
 
 def Interpreter.stateful (interpreter : Interpreter Resident View) :
     Composition.Stateful SessionState

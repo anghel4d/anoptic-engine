@@ -80,8 +80,8 @@ example (state : Music.State) : Music.restore (Music.snapshot state) = state :=
 example (state : Synth.State) (inputs : List Synth.Input)
     (frames : Synth.FrameRange) :
     Synth.render state (Synth.batchStream inputs) frames =
-      Synth.render state (Synth.liveStream inputs) frames :=
-  Synth.batch_live_equivalent state inputs frames
+      Synth.render state (Synth.liveStream [inputs]) frames :=
+  Synth.batch_live_equivalent state inputs [inputs] frames (by simp)
 
 end Integration
 end Anoptic

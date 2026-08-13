@@ -34,7 +34,7 @@ namespace Anoptic
 
 namespace Coverage
 
-/-- The 24 rows of the whole-engine ideal-interface inventory. -/
+/-- A selected abstract factorization; this is not an inventory of C++ headers. -/
 inductive Interface where
   | structural
   | outcomes
@@ -62,7 +62,7 @@ inductive Interface where
   | engine
   deriving DecidableEq
 
-/-- One central, universally quantified law for every inventoried interface. -/
+/-- One central law for each carrier in the selected abstract factorization. -/
 def Law : Interface → Prop
   | .structural => ∀ shape, Structural.normalize (Structural.normalize shape) =
       Structural.normalize shape
@@ -78,7 +78,14 @@ def Law : Interface → Prop
       (∀ first second third : Memory.Plan,
         (first ++ second) ++ third = first ++ (second ++ third)) ∧
       (∀ limit bytes, Memory.reserveChecked limit ⟨0⟩ ⟨bytes, 0⟩ =
-        .error .zeroAlignment)
+        .error .zeroAlignment) ∧
+      (∀ limit cursor segment reservation next,
+        Memory.reserveChecked limit cursor segment = .ok (reservation, next) →
+          cursor.offset ≤ reservation.offset ∧
+          reservation.offset % segment.alignment = 0 ∧
+          reservation.size = segment.bytes ∧
+          reservation.offset + reservation.size = next.offset ∧
+          next.offset ≤ limit)
   | .concurrency =>
       (∀ channel : Transport.Channel Nat,
         Transport.map Nat.succ (Transport.map Nat.succ channel) =
@@ -86,9 +93,9 @@ def Law : Interface → Prop
       (∀ publication : Transport.Publication Nat Nat,
         (Transport.observeLeft publication).1 =
           (Transport.observeRight publication).1)
-  | .time => ∀ (instant : Time.Instant Unit) (duration : Time.Duration Unit),
-      Time.elapsed (DurationUnit := Unit) (Time.advance instant duration) instant =
-        duration
+  | .time => ∀ (instant : Time.Instant Unit Unit)
+      (duration : Time.Duration Unit),
+      Time.elapsed (Time.advance instant duration) instant = duration
   | .filesystem => ∀ (sink : Filesystem.AppendSink) first second,
       Filesystem.appendBytes (Filesystem.appendBytes sink first) second =
         Filesystem.appendBytes sink (first ++ second)
@@ -102,11 +109,19 @@ def Law : Interface → Prop
       (∃ bytes, raw = .json bytes) ∨ (∃ bytes, raw = .glb bytes)
   | .mesh => ∀ (simplify : Mesh.Budget → Nat → Nat) input budgets,
       (Mesh.lodChain simplify input budgets).length = budgets.length
-  | .resources => ∀ (edge : Resource.Edge Nat) (roots : Resource.NodeSet Nat),
-      Resource.closure edge (Resource.closure edge roots) =
-        Resource.closure edge roots
+  | .resources =>
+      (∀ (edge : Resource.Edge Nat) (roots : Resource.NodeSet Nat),
+        Resource.closure edge (Resource.closure edge roots) =
+          Resource.closure edge roots) ∧
+      (∀ (codec : Resource.Codec Nat (List UInt8) String) value,
+        codec.decode (codec.encode value) = .ok value) ∧
+      (∀ (codec : Resource.Codec Nat (List UInt8) String) bytes value,
+        codec.canonical bytes → codec.decode bytes = .ok value →
+          codec.encode value = bytes)
   | .renderResources => ∀ (portable : RenderResources.Portable .texture) owner,
-      (RenderResources.realize owner portable).identity = portable.identity
+      (RenderResources.realize owner portable).identity = portable.identity ∧
+        (RenderResources.realize owner portable).payloadIdentity =
+          portable.payloadIdentity
   | .renderProtocol => ∀ (state : Render.State) first second,
       Render.applyCommands state (first ++ second) =
         Render.applyCommands (Render.applyCommands state first) second
@@ -115,20 +130,27 @@ def Law : Interface → Prop
         ⟨width, height, state.focused⟩
   | .vulkan => ∀ (state : Vulkan.SessionState) (resident : Nat)
       (commands : List Render.Command) (view : Nat),
-      ((Vulkan.referenceInterpreter Nat Nat).run state resident commands view).frame.number =
-        state.submittedFrame + 1
-  | .text => ∀ value : Strings.View,
+      let result := Vulkan.referenceInterpreter.run state resident commands view
+      result.frame.number = state.submittedFrame + 1 ∧
+        result.frame.residentRevision = resident ∧
+        result.frame.commandCount = commands.length ∧
+        result.frame.viewRevision = view
+  | .text => ∀ value : Strings.Utf8,
       Text.measure value = (Text.shape value).length
   | .ui => ∀ scene : UI.PackedScene,
       UI.evalCpu scene = UI.evalGpu scene
-  | .audio => ∀ frames state commands listener,
-      Audio.native frames state commands listener =
-        Audio.offline frames state commands listener
+  | .audio =>
+      (∀ frames state commands listener,
+        Audio.native frames state commands listener =
+          Audio.offline frames state commands listener) ∧
+      (∀ frames state commands listener,
+        (Audio.mix frames state commands listener).samples.length = frames)
   | .music => ∀ state : Music.State,
       Music.restore (Music.snapshot state) = state
-  | .synth => ∀ state inputs frames,
-      Synth.render state (Synth.batchStream inputs) frames =
-        Synth.render state (Synth.liveStream inputs) frames
+  | .synth => ∀ state inputs chunks frames,
+      chunks.flatten = inputs →
+        Synth.render state (Synth.batchStream inputs) frames =
+          Synth.render state (Synth.liveStream chunks) frames
   | .world => ∀ previous current : World.Demand,
       World.applyDemandDelta previous (World.deriveDemandDelta previous current) =
         current
@@ -136,7 +158,7 @@ def Law : Interface → Prop
       Engine.compose (Engine.compose first second) third =
         Engine.compose first (Engine.compose second third)
 
-/-- Exhaustive pattern matching prevents adding an interface without a proof case. -/
+/-- Exhaustive only over `Interface`; production coverage is certified separately. -/
 theorem allInterfacesChecked : ∀ interface, Law interface := by
   intro interface
   cases interface with
@@ -154,10 +176,10 @@ theorem allInterfacesChecked : ∀ interface, Law interface := by
       exact Linear.compose_assoc
   | memory =>
       simp only [Law]
-      constructor
-      · exact Memory.plan_assoc
-      · intro limit bytes
-        exact Memory.reserveChecked_rejects_zero_alignment limit ⟨0⟩ bytes
+      exact ⟨Memory.plan_assoc,
+        fun limit bytes =>
+          Memory.reserveChecked_rejects_zero_alignment limit ⟨0⟩ bytes,
+        fun _ _ _ _ _ success => Memory.reserveChecked_success success⟩
   | concurrency =>
       simp only [Law]
       exact ⟨Transport.map_comp Nat.succ Nat.succ,
@@ -182,11 +204,15 @@ theorem allInterfacesChecked : ∀ interface, Law interface := by
       exact Mesh.lodChain_length
   | resources =>
       simp only [Law]
-      exact Resource.closure_idempotent
+      exact ⟨Resource.closure_idempotent,
+        fun codec value => codec.decodeEncode value,
+        fun codec bytes value canonical decoded =>
+          codec.encodeDecode bytes value canonical decoded⟩
   | renderResources =>
       simp only [Law]
       intro portable owner
-      exact RenderResources.realize_preserves_identity owner portable
+      exact ⟨RenderResources.realize_preserves_identity owner portable,
+        RenderResources.realize_preserves_payload owner portable⟩
   | renderProtocol =>
       simp only [Law]
       exact Render.applyCommands_append
@@ -195,7 +221,9 @@ theorem allInterfacesChecked : ∀ interface, Law interface := by
       exact Input.resize_sets_extent
   | vulkan =>
       simp only [Law]
-      exact Vulkan.reference_advances_frame
+      intro state resident commands view
+      exact ⟨Vulkan.reference_advances_frame state resident commands view,
+        Vulkan.reference_observes_inputs state resident commands view⟩
   | text =>
       simp only [Law]
       exact Text.measure_matches_shape_count
@@ -204,7 +232,7 @@ theorem allInterfacesChecked : ∀ interface, Law interface := by
       exact UI.cpu_gpu_equivalent
   | audio =>
       simp only [Law]
-      exact Audio.native_offline_equivalent
+      exact ⟨Audio.native_offline_equivalent, Audio.mix_sample_count⟩
   | music =>
       simp only [Law]
       exact Music.restore_snapshot

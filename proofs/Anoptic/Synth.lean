@@ -37,16 +37,18 @@ structure Output where
 
 def render (state : State) (inputs : List Input) (frames : FrameRange) : Output :=
   ⟨⟨state.cursor + frames.count, state.voices + inputs.length⟩,
-    List.replicate frames.count 0, [], []⟩
+    List.replicate frames.count (Int.ofNat (state.voices + inputs.length)),
+    [], []⟩
 
 def batchStream (inputs : List Input) : List Input := inputs
-def liveStream (inputs : List Input) : List Input := inputs
+def liveStream (chunks : List (List Input)) : List Input := chunks.flatten
 
-@[simp] theorem batch_live_equivalent (state : State) (inputs : List Input)
-    (frames : FrameRange) :
+theorem batch_live_equivalent (state : State) (inputs : List Input)
+    (chunks : List (List Input)) (frames : FrameRange)
+    (sameOrder : chunks.flatten = inputs) :
     render state (batchStream inputs) frames =
-      render state (liveStream inputs) frames :=
-  rfl
+      render state (liveStream chunks) frames := by
+  simp [batchStream, liveStream, sameOrder]
 
 theorem render_respects_stream_equality (state : State)
     (left right : List Input) (frames : FrameRange) (same : left = right) :

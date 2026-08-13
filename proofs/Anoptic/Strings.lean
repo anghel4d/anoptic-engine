@@ -37,58 +37,123 @@ theorem concat_assoc (first second third : Owned) :
   cases third
   simp [concat, List.append_assoc]
 
-structure Utf8 (Valid : View → Prop) where
+def continuation (byte : UInt8) : Bool :=
+  0x80 ≤ byte.toNat && byte.toNat ≤ 0xbf
+
+def decodeUtf8 : View → Option (List Nat)
+  | [] => some []
+  | firstByte :: rest =>
+      let first := firstByte.toNat
+      if first < 0x80 then
+        (decodeUtf8 rest).map (first :: ·)
+      else if 0xc2 ≤ first && first ≤ 0xdf then
+        match rest with
+        | secondByte :: tail =>
+            if continuation secondByte then
+              let codepoint :=
+                (first - 0xc0) * 0x40 + (secondByte.toNat - 0x80)
+              (decodeUtf8 tail).map (codepoint :: ·)
+            else none
+        | _ => none
+      else if 0xe0 ≤ first && first ≤ 0xef then
+        match rest with
+        | secondByte :: thirdByte :: tail =>
+            let second := secondByte.toNat
+            let validSecond :=
+              if first = 0xe0 then 0xa0 ≤ second && second ≤ 0xbf
+              else if first = 0xed then 0x80 ≤ second && second ≤ 0x9f
+              else 0xe1 ≤ first && first ≤ 0xef && continuation secondByte
+            if validSecond && continuation thirdByte then
+              let codepoint := (first - 0xe0) * 0x1000
+                + (second - 0x80) * 0x40 + (thirdByte.toNat - 0x80)
+              (decodeUtf8 tail).map (codepoint :: ·)
+            else none
+        | _ => none
+      else if 0xf0 ≤ first && first ≤ 0xf4 then
+        match rest with
+        | secondByte :: thirdByte :: fourthByte :: tail =>
+            let second := secondByte.toNat
+            let validSecond :=
+              if first = 0xf0 then 0x90 ≤ second && second ≤ 0xbf
+              else if first = 0xf4 then 0x80 ≤ second && second ≤ 0x8f
+              else continuation secondByte
+            if validSecond && continuation thirdByte
+                && continuation fourthByte then
+              let codepoint := (first - 0xf0) * 0x40000
+                + (second - 0x80) * 0x1000
+                + (thirdByte.toNat - 0x80) * 0x40
+                + (fourthByte.toNat - 0x80)
+              (decodeUtf8 tail).map (codepoint :: ·)
+            else none
+        | _ => none
+      else none
+termination_by bytes => bytes.length
+decreasing_by all_goals simp_wf <;> omega
+
+structure Utf8 where
   bytes : View
-  valid : Valid bytes
+  codepoints : List Nat
+  decoded : decodeUtf8 bytes = some codepoints
 
-def Utf8.forget (value : Utf8 Valid) : View := value.bytes
+def Utf8.forget (value : Utf8) : View := value.bytes
 
-@[simp] theorem Utf8.forget_mk {Valid : View → Prop}
-    (bytes : View) (valid : Valid bytes) :
-    (Utf8.mk bytes valid).forget = bytes :=
+@[simp] theorem Utf8.forget_mk (bytes : View) (codepoints : List Nat)
+    (decoded : decodeUtf8 bytes = some codepoints) :
+    (Utf8.mk bytes codepoints decoded).forget = bytes :=
   rfl
 
 inductive BuilderPhase where
   | empty
   | building
 
-structure Builder (phase : BuilderPhase) where
-  bytes : List UInt8
+inductive Builder : BuilderPhase → Type where
+  | empty : Builder .empty
+  | building : List UInt8 → Builder .building
 
 def begin : Builder .empty → Builder .building
-  | ⟨bytes⟩ => ⟨bytes⟩
+  | .empty => .building []
+
+def append (builder : Builder .building) (bytes : View) : Builder .building :=
+  match builder with
+  | .building current => .building (current ++ bytes)
 
 def finish : Builder .building → Owned
-  | ⟨bytes⟩ => ⟨bytes⟩
+  | .building bytes => ⟨bytes⟩
 
 @[simp] theorem finish_begin (builder : Builder .empty) :
-    (finish (begin builder)).bytes = builder.bytes := by
+    (finish (begin builder)).bytes = [] := by
   cases builder
   rfl
 
-abbrev Symbol := View
-
-structure InternState where
-  seen : List Symbol
+structure Symbol where
+  value : Nat
   deriving DecidableEq
 
-def intern (state : InternState) (value : View) : Symbol × InternState :=
-  if value ∈ state.seen then
-    (value, state)
-  else
-    (value, ⟨value :: state.seen⟩)
+structure InternState where
+  next : Nat
+  lookup : View → Option Symbol
 
-@[simp] theorem intern_symbol (state : InternState) (value : View) :
-    (intern state value).1 = value := by
-  unfold intern
-  split <;> rfl
+def intern (state : InternState) (value : View) : Symbol × InternState :=
+  match state.lookup value with
+  | some symbol => (symbol, state)
+  | none =>
+      let symbol : Symbol := ⟨state.next⟩
+      (symbol, {
+        next := state.next + 1
+        lookup := fun sought =>
+          if sought = value then some symbol else state.lookup sought })
+
+@[simp] theorem intern_records_symbol (state : InternState) (value : View) :
+    ((intern state value).2.lookup value) = some (intern state value).1 := by
+  simp [intern]
+  split <;> simp_all
 
 theorem intern_idempotent (state : InternState) (value : View) :
     let first := (intern state value).2
     (intern first value).2 = first := by
-  by_cases present : value ∈ state.seen
-  · simp [intern, present]
-  · simp [intern, present]
+  cases found : state.lookup value with
+  | none => simp [intern, found]
+  | some symbol => simp [intern, found]
 
 end Strings
 end Anoptic

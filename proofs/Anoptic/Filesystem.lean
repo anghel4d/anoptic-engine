@@ -13,20 +13,28 @@ universe u v
 
 namespace Filesystem
 
+def ValidSegment (text : String) : Prop :=
+  text ≠ "" ∧ text ≠ "." ∧ text ≠ ".."
+
+structure Segment where
+  text : String
+  valid : ValidSegment text
+  deriving DecidableEq
+
 structure Path (Root : Type u) where
-  segments : List String
+  segments : List Segment
   deriving DecidableEq
 
 def root (Root : Type u) : Path Root := ⟨[]⟩
 
-def append (path : Path Root) (relative : List String) : Path Root :=
+def append (path : Path Root) (relative : List Segment) : Path Root :=
   ⟨path.segments ++ relative⟩
 
 @[simp] theorem append_empty (path : Path Root) : append path [] = path := by
   cases path
   simp [append]
 
-theorem append_assoc (path : Path Root) (first second : List String) :
+theorem append_assoc (path : Path Root) (first second : List Segment) :
     append (append path first) second = append path (first ++ second) := by
   cases path
   simp [append, List.append_assoc]

@@ -330,7 +330,7 @@ theorem cook_pack_open_identity
   | error error => simp [cookPackOpen, cooked]
   | ok revision =>
       simp [cookPackOpen, cooked, Resource.openPacked,
-        modules.revisionCodec.roundTrip]
+        modules.revisionCodec.decodeEncode]
 
 theorem prepare_routes_current_demand
     (modules : Modules Source Error WorldInput Bytes

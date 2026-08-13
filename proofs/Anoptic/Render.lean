@@ -53,16 +53,28 @@ theorem applyCommands_append (state : State) (first second : List Command) :
       applyCommands (applyCommands state first) second := by
   simp [applyCommands, List.foldl_append]
 
-/-- Bulk transport is a lowering of the scalar command semantics. -/
 structure Bulk where
   commands : List Command
 
+def applyBulkCommands : State → List Command → State
+  | state, [] => state
+  | state, command :: rest => applyBulkCommands (applyCommand state command) rest
+
 def applyBulk (state : State) (bulk : Bulk) : State :=
-  applyCommands state bulk.commands
+  applyBulkCommands state bulk.commands
+
+theorem applyBulkCommands_refines_scalar (state : State)
+    (commands : List Command) :
+    applyBulkCommands state commands = applyCommands state commands := by
+  induction commands generalizing state with
+  | nil => rfl
+  | cons command rest induction =>
+      simp only [applyBulkCommands, applyCommands, List.foldl_cons]
+      exact induction (applyCommand state command)
 
 @[simp] theorem bulk_equals_scalar (state : State) (commands : List Command) :
     applyBulk state ⟨commands⟩ = applyCommands state commands :=
-  rfl
+  applyBulkCommands_refines_scalar state commands
 
 structure FrameInput (World View : Type) where
   world : World

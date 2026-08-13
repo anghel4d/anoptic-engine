@@ -120,11 +120,13 @@ The one resource-universe translation unit closes the relevant projection of
 
 ## Factored public surface
 
-The following is the required semantic surface. Its staged C++26 image and
-composition are machine-checked in
-[`PROVEN_ARCHITECTURE.md`](../docs/resourcemanager/PROVEN_ARCHITECTURE.md).
-A compatibility header may currently implement more than one row, but it does
-not merge their semantic ownership or composition laws.
+The following is the required semantic surface. Lean checks the abstract
+algebras used to state it, but this table is not generated from the current
+headers and is not itself an implementation certificate. The reflected
+resource-schema subset has a mechanical C++26-to-Lean bridge; exact status is in
+[`PROOF_STATUS.md`](../docs/resourcemanager/PROOF_STATUS.md). A compatibility
+header may currently implement more than one row, but it does not merge their
+semantic ownership or composition laws.
 
 | Algebraic module | Public header boundary | Current disposition |
 |---|---|---|

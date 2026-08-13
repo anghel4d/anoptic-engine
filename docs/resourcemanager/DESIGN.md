@@ -377,16 +377,14 @@ responses. Fairness, eventual retirement, bounded backpressure, and absence of
 permanent starvation are separate progress properties over infinite behavior.
 Neither class of law is silently inferred from the other.
 
-The abstract carriers and laws in this chapter are machine-checked by the Lean
-kernel under `proofs/`. `Anoptic.Coverage.allInterfacesChecked` exhaustively
-covers the 24 ideal whole-engine interfaces, and
-`Anoptic.CompositionCoverage.allCompositionsChecked` proves the corresponding
-composition law for every interface. `Anoptic.EngineComposition` proves the
-complete fallible cook/prepare/realize/interpret joins and forks, while
-`Anoptic.ArchitectureGraph` enumerates the cross-module dependency edges and
-proves every well-typed path associative. Concrete C++26 and platform
-implementations enter through explicit refinement witnesses; the formal model
-is not runtime machinery.
+The Lean kernel under `proofs/` checks a selected abstract model of these
+carriers and composition laws. That handwritten model is not an exhaustive
+inventory of public headers or production implementations. The resource-schema
+subset is mechanically connected: a C++26 program reflects the real
+`ano::asset_schema` declarations, emits the checked Lean certificate, and the
+Nix proof gate rejects any byte-for-byte mismatch. Other modules remain abstract
+until an equivalent generated certificate and concrete refinement witness exist.
+The formal model is never runtime machinery.
 
 ### Factorization laws
 
@@ -636,10 +634,11 @@ The algebra fixes several boundaries that names and directories alone do not:
 | Text globally loads path-named faces and also exposes pure shaping | Font-source and bake cells belong to the resource graph and text owner; shaping remains a pure `FontBake x Text -> List(Glyph)` morphism |
 | Engine `main()` implements demo world state, importer/reload policy, backend access, and module adapters | The entry point selects interpreters and composes typed world, resource, render, audio, text, UI, input, and time protocols |
 
-The machine-checked algebra, staged C++26 mapping, exhaustive interface images,
-and composition results are recorded in
-[`PROVEN_ARCHITECTURE.md`](PROVEN_ARCHITECTURE.md). `include/include.md` and
-`src/src.md` define the matching public and implementation boundaries.
+The exact boundary between abstract laws, mechanically reflected production
+facts, and unproved implementation obligations is recorded in
+[`PROOF_STATUS.md`](PROOF_STATUS.md). `include/include.md` and `src/src.md`
+define the required public and implementation boundaries; they are design
+authorities, not generated proof inventories.
 
 ## Contract
 

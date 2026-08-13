@@ -219,7 +219,13 @@ theorem everyAlgebraLoweringPreservesComposition :
       intros
       exact True.intro
 
-/-! ## Exhaustive interface images -/
+/-! ## Candidate images of the abstract factorization
+
+These values are witnesses inside the staged target model. They are not derived
+from C++ declarations and therefore make no claim about production coverage.
+The mechanically connected production resource universe is checked separately
+by `Anoptic.ResourceCertificate`.
+-/
 
 structure InterfaceImage where
   name : String
@@ -414,8 +420,8 @@ def MappingCertificate (interface : Coverage.Interface) : Prop :=
   SupportsComposition (interfaceImage interface).algebra ∧
   PreservesLowering (interfaceImage interface).algebra
 
-/-- All 24 ideal interfaces have a checked, composable, staged C++26 image. -/
-theorem allInterfacesMapToComposableCxx26 :
+/-- Every selected abstract interface admits a candidate in the staged model. -/
+theorem allAbstractInterfacesAdmitCandidateImages :
     ∀ interface, MappingCertificate interface := by
   intro interface
   exact ⟨Coverage.allInterfacesChecked interface,
@@ -426,7 +432,7 @@ theorem allInterfacesMapToComposableCxx26 :
     everyAlgebraLoweringPreservesComposition
       (interfaceImage interface).algebra⟩
 
-/-! ## Whole-graph and composition-root preservation -/
+/-! ## Abstract graph and composition-root preservation -/
 
 def cellType : ArchitectureGraph.Cell → TypeExpr
   | .source => named "Source"
@@ -498,8 +504,8 @@ def EdgeCertificate (name : ArchitectureGraph.EdgeName) : Prop :=
   Compiles (edgeImage name) ∧
   SupportsComposition .pure ∧ PreservesLowering .pure
 
-/-- All 31 declared architecture edges have typed, composable C++26 images. -/
-theorem allArchitectureEdgesMapToComposableCxx26 :
+/-- Every edge in the abstract graph admits a candidate in the staged model. -/
+theorem allAbstractEdgesAdmitCandidateImages :
     ∀ name, EdgeCertificate name := by
   intro name
   exact ⟨ArchitectureGraph.every_named_edge_is_typed name,
@@ -535,8 +541,8 @@ theorem loweredPathCompositionAssociates
           (lowerPath interpret third)) :=
   Runtime.Pure.compose_assoc _ _ _
 
-/-- The concrete four-part engine path lowers without changing public meaning. -/
-theorem engineFullPathPreserved
+/-- The abstract four-part engine path lowers without changing its modeled meaning. -/
+theorem abstractEnginePathPreserved
     (modules : EngineComposition.Modules Source Error WorldInput Bytes
       RenderResident AudioResident TextResident
       RenderOwner AudioOwner TextOwner RenderFrame AudioBlock)

@@ -736,8 +736,8 @@ consteval void validate_transform(std::meta::info declaration)
     if (std::meta::return_type_of(declaration) != ^^bool)
         reject("resource transforms return bool", declaration);
     const auto parameters = std::meta::parameters_of(declaration);
-    std::meta::info input{};
-    std::meta::info output{};
+    bool hasInput = false;
+    bool hasOutput = false;
     for (const std::meta::info parameter : parameters) {
         const std::meta::info parameterType = std::meta::type_of(parameter);
         const std::meta::info valueType = std::meta::remove_cvref(parameterType);
@@ -749,19 +749,13 @@ consteval void validate_transform(std::meta::info declaration)
                    parameter);
         const std::meta::info referred = std::meta::remove_reference(parameterType);
         if (std::meta::is_const_type(referred)) {
-            if (input != std::meta::info{})
-                reject("resource transforms require exactly one artifact input",
-                       parameter);
-            input = valueType;
+            hasInput = true;
         } else {
-            if (output != std::meta::info{})
-                reject("resource transforms require exactly one artifact output",
-                       parameter);
-            output = valueType;
+            hasOutput = true;
         }
     }
-    if (input == std::meta::info{} || output == std::meta::info{})
-        reject("resource transforms require one const artifact input and one artifact output",
+    if (!hasInput || !hasOutput)
+        reject("resource transforms require artifact input and output ports",
                declaration);
 }
 

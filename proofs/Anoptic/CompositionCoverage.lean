@@ -18,7 +18,7 @@ def oneBoundary : ResourceRoute.Boundary Unit where
 
 abbrev RouteValue : Unit → Type := fun _ => Nat
 
-/-- The central composition law of each ideal interface. -/
+/-- The central composition law of each selected abstract carrier. -/
 def Law : Coverage.Interface → Prop
   | .structural => ∀ first second witness,
       Structural.project second (Structural.project first witness) =
@@ -33,9 +33,11 @@ def Law : Coverage.Interface → Prop
   | .linear => ∀ first second third : Linear.Map Nat Nat,
       Linear.compose (Linear.compose first second) third =
         Linear.compose first (Linear.compose second third)
-  | .memory => ∀ cursor first second,
-      Memory.measure cursor (first ++ second) =
-        Memory.measure (Memory.measure cursor first) second
+  | .memory => ∀ limit cursor first second,
+      Memory.measure limit cursor (first ++ second) =
+        match Memory.measure limit cursor first with
+        | .error error => .error error
+        | .ok next => Memory.measure limit next second
   | .concurrency =>
       (∀ (channel : Transport.Channel Nat),
         Transport.map Nat.succ (Transport.map Nat.succ channel) =
@@ -43,7 +45,7 @@ def Law : Coverage.Interface → Prop
       (∀ publication : Transport.Publication Nat Nat,
         (publication.bimap Nat.succ Nat.succ).bimap Nat.succ Nat.succ =
           publication.bimap (Nat.succ ∘ Nat.succ) (Nat.succ ∘ Nat.succ))
-  | .time => ∀ (instant : Time.Instant Unit)
+  | .time => ∀ (instant : Time.Instant Unit Unit)
       (first second : Time.Duration Unit),
       Time.advance (Time.advance instant first) second =
         Time.advance instant
@@ -121,7 +123,7 @@ def Law : Coverage.Interface → Prop
       Engine.compose (Engine.compose first second) third =
         Engine.compose first (Engine.compose second third)
 
-/-- Every inventoried interface is closed under its own lawful composition. -/
+/-- Every selected carrier is closed under its modeled composition. -/
 theorem allCompositionsChecked : ∀ interface, Law interface := by
   intro interface
   cases interface with
