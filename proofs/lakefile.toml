@@ -1,0 +1,6 @@
+name = "anoptic-proofs"
+version = "0.1.0"
+defaultTargets = ["Anoptic"]
+
+[[lean_lib]]
+name = "Anoptic"

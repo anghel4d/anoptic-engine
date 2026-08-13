@@ -16,6 +16,7 @@
   #   nix build .#tests-headless           run a CTest suite in the sandbox (fails = red)
   #   nix build .#tests-asan|tests-tsan    sanitized non-GPU suite        (Linux)
   #   nix build .#tests-full               full suite under Xvfb; device tests skip sans capable GPU (Linux)
+  #   nix build .#proofs                   machine-check the Lean semantic kernel
   #   nix flake check --no-build --all-systems   eval-only sweep; plain flake check BUILDS+runs the Linux suites (they are checks outputs)
   #
   # Impure side 〜 your working tree, output in ./build/<label>/ like build.sh:
@@ -28,7 +29,7 @@
   #   nix develop [.#windows]              the same env, you drive
   #
   # git flakes see tracked files only: `git add` new files or nix will not.
-  description = "Anoptic Engine 〜 C23 game engine (Linux, macOS, Windows via MinGW cross)";
+  description = "Anoptic Engine 〜 ISO C++26 game engine with a Lean 4 semantic kernel";
 
   # CI-filled binary cache (.github/workflows/cachix.yml): prebuilt engine closures, so
   # nix run downloads instead of compiling. Untrusted users get a one-time accept prompt;
@@ -507,7 +508,15 @@
                 softwareVulkan = true;
               };
             }
-          );
+          ) // {
+            proofs = pkgs.runCommand "anoptic-proofs" { nativeBuildInputs = [ pkgs.lean4 ]; } ''
+              cp -r ${self}/proofs proofs
+              chmod -R +w proofs
+              cd proofs
+              lake build
+              touch $out
+            '';
+          };
 
           # nixglhost: harvests the host NVIDIA userspace at runtime (non-NixOS).
           nixglhost = if isLinux then nix-gl-host.packages.${system}.default else null;
@@ -703,6 +712,7 @@
               shaderc
               glslang
               git
+              lean4
             ])
             ++ [
               llvmLatest.llvm
@@ -814,7 +824,7 @@
             default = {
               type = "app";
               program = lib.getExe playLauncher;
-              meta.description = "Anoptic Engine 〜 C23 game engine for million-entity simulation";
+              meta.description = "Anoptic Engine 〜 ISO C++26 game engine for million-entity simulation";
             };
             play = {
               type = "app";
