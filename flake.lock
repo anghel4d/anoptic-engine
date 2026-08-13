@@ -53,17 +53,17 @@
     "mimalloc-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1785951679,
-        "narHash": "sha256-vNVZw2YsDkf0GcdFTNb/fXMQLQYvoc8P425LupPShpo=",
+        "lastModified": 1786023604,
+        "narHash": "sha256-mWy8/2W/DdvotmAg7sni9T7sBy+2DHSKa7pSBvOjVos=",
         "owner": "microsoft",
         "repo": "mimalloc",
-        "rev": "acf2fdd329f9dc2a7ffe3f12a133fe7175e39378",
+        "rev": "2c18c9897049bc8fd9a56b7e3964b125207b365f",
         "type": "github"
       },
       "original": {
         "owner": "microsoft",
         "repo": "mimalloc",
-        "rev": "acf2fdd329f9dc2a7ffe3f12a133fe7175e39378",
+        "rev": "2c18c9897049bc8fd9a56b7e3964b125207b365f",
         "type": "github"
       }
     },
@@ -89,17 +89,17 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1782723713,
-        "narHash": "sha256-oPXCU/SSUokcGaJREHibG1CBX3+s/W7orDWQOZDsEeQ=",
+        "lastModified": 1786586005,
+        "narHash": "sha256-ONKnd1TkEaVYAgEqmwJItljm33oGyoY4/BbsFAD3nBE=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b5aa0fbd538984f6e3d201be0005b4463d8b09f8",
+        "rev": "a2442f68c83d284dc103a58595990047ed1fa0cc",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "b5aa0fbd538984f6e3d201be0005b4463d8b09f8",
+        "rev": "a2442f68c83d284dc103a58595990047ed1fa0cc",
         "type": "github"
       }
     },

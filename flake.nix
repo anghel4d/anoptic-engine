@@ -39,12 +39,12 @@
   };
 
   inputs = {
-    # Same rev as the pylon system flake.
-    nixpkgs.url = "github:NixOS/nixpkgs/b5aa0fbd538984f6e3d201be0005b4463d8b09f8";
+    # GCC 16 plus MinGW-w64 14 for the C++26 Windows cross-toolchain.
+    nixpkgs.url = "github:NixOS/nixpkgs/a2442f68c83d284dc103a58595990047ed1fa0cc";
 
     # Pinned submodule sources, revs match .gitmodules.
     mimalloc-src = {
-      url = "github:microsoft/mimalloc/acf2fdd329f9dc2a7ffe3f12a133fe7175e39378";
+      url = "github:microsoft/mimalloc/2c18c9897049bc8fd9a56b7e3964b125207b365f";
       flake = false;
     };
     freetype-src = {
@@ -267,6 +267,9 @@
           cmakeFlags = [
             "-DCMAKE_BUILD_TYPE=${buildType}"
           ]
+          # Nix-cross MinGW/UCRT requires mimalloc's FLS lifecycle; native
+          # MSYS2 UCRT uses the corrected default CRT/TLS lifecycle.
+          ++ lib.optional (host.isWindows && !stdenv.buildPlatform.isWindows) "-DMI_WIN_USE_FLS=ON"
           ++ lib.optional headless "-DANOPTIC_HEADLESS=ON"
           ++ lib.optional tests "-DANOPTIC_TESTS=ON"
           ++ lib.optional (sanitize != "") "-DANOPTIC_SANITIZE=${sanitize}"
