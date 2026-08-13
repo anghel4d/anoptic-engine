@@ -114,6 +114,15 @@ static inline bool ano_resource_type_id_equal(AnoResourceTypeId lhs,
     return lhs.value == rhs.value;
 }
 
+static inline bool ano_resource_content_id_equal(AnoContentId lhs,
+                                                  AnoContentId rhs)
+{
+    for (size_t i = 0; i < sizeof(lhs.bytes); ++i)
+        if (lhs.bytes[i] != rhs.bytes[i])
+            return false;
+    return true;
+}
+
 const char *ano_resource_error_string(AnoResourceError error);
 AnoResourceError ano_resource_content_id(AnoResourceBytes bytes,
                                          AnoContentId *contentId);

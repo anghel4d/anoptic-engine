@@ -65,29 +65,20 @@ struct CookNode final {
     AnoResourceTypeId type;
     uint64_t producer;
     AnoContentId action;
-    AnoContentId result;
     bool present;
-    bool dirty;
 };
 
 struct WorkItem final {
     AnoResourcePackItem source;
-    const AnoResourceRevisionItem *previous;
-    const AnoResourceDependency *dependencies;
-    uint64_t dependencyCount;
-    AnoResourceSchema schema;
-    AnoContentId content;
+    const AnoResourceManifestEntry *previous;
+    const AnoResourceRevisionStorage *previousStorage;
     AnoContentId action;
-    ano::MemoryReservation artifact;
-    ano::MemoryVolume *volume;
-    bool pending;
-    bool changed;
     bool artifactChanged;
-    bool affected;
 };
 
 struct RevisionPlan final {
-    ano::MemorySegment<AnoResourceRevisionItem> items;
+    ano::MemorySegment<AnoResourceManifestEntry> entries;
+    ano::MemorySegment<AnoResourceRevisionStorage> storage;
     ano::MemorySegment<AnoResourceDependency> dependencies;
     ano::MemorySegment<ano::MemoryVolume *> volumes;
 };
@@ -142,11 +133,6 @@ int compare_asset_ids(const void *left, const void *right)
     const auto& lhs = *static_cast<const AnoAssetId *>(left);
     const auto& rhs = *static_cast<const AnoAssetId *>(right);
     return lhs.value < rhs.value ? -1 : lhs.value > rhs.value ? 1 : 0;
-}
-
-bool content_equal(const AnoContentId& lhs, const AnoContentId& rhs)
-{
-    return ano::detail::bytes_equal(lhs.bytes, rhs.bytes, sizeof(lhs.bytes));
 }
 
 char *copy_string(const char *value)
@@ -234,18 +220,19 @@ AnoResourceError extract_dependencies(
 void encode_artifact(void *context, uint64_t index, ano::MemoryRegion *)
 {
     EncodeWork& work = static_cast<EncodeWork *>(context)[index];
-    ano::MemoryMutableView view{};
-    if (!ano::memory_volume_write(work.volume, work.reservation, view)) {
+    const std::span<uint8_t> view = ano::memory_volume_write(
+        work.volume, work.reservation);
+    if (view.size() != work.reservation.size) {
         work.result = ANO_RESOURCE_BAD_MANIFEST;
         return;
     }
     work.bytes = {
-        .data = static_cast<const uint8_t *>(view.data),
-        .size = view.size,
+        .data = view.data(),
+        .size = view.size(),
     };
     work.result = work.artifact->encode(
         work.artifact->context,
-        {.data = static_cast<uint8_t *>(view.data), .size = view.size});
+        {.data = view.data(), .size = view.size()});
     if (work.result == ANO_RESOURCE_OK)
         work.result = ano_resource_validate_artifact(
             work.artifact->type, work.bytes);
@@ -302,8 +289,6 @@ struct AnoResourceCooker {
     CookNode **nodeIndex = nullptr;
     uint64_t nodeIndexCapacity = 0;
     const AnoCookedRevision *current = nullptr;
-    uint64_t executedActions = 0;
-    uint64_t allocatedArtifacts = 0;
     bool rebuildTail = false;
     bool activeRootChanged = false;
     bool activeFullRebuild = false;
@@ -381,36 +366,6 @@ AcquiredFile *find_active_file(AnoResourceCooker& cooker, const char *path)
     return nullptr;
 }
 
-AnoResourceError reserve_active_files(AnoResourceCooker& cooker,
-                                      uint64_t additional)
-{
-    uint64_t required = 0;
-    if (!ano::detail::checked_add(
-            cooker.activeFileCount, additional, &required)
-        || required > SIZE_MAX / sizeof(AcquiredFile))
-        return ANO_RESOURCE_OVERFLOW;
-    if (required <= cooker.activeFileCapacity)
-        return ANO_RESOURCE_OK;
-    uint64_t capacity = cooker.activeFileCapacity == 0
-        ? 8 : cooker.activeFileCapacity;
-    while (capacity < required) {
-        if (capacity > UINT64_MAX / 2)
-            return ANO_RESOURCE_OVERFLOW;
-        capacity *= 2;
-    }
-    AcquiredFile *grown = ano::memory_region_allocate_zero<AcquiredFile>(
-        cooker.activeRegion, static_cast<size_t>(capacity));
-    if (grown == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    if (cooker.activeFileCount != 0)
-        memcpy(grown, cooker.activeFiles,
-               static_cast<size_t>(cooker.activeFileCount)
-                   * sizeof(AcquiredFile));
-    cooker.activeFiles = grown;
-    cooker.activeFileCapacity = capacity;
-    return ANO_RESOURCE_OK;
-}
-
 AnoResourceError read_file(AnoResourceCooker& cooker, AcquiredFile& acquired)
 {
     char *path = acquired.path;
@@ -425,8 +380,9 @@ AnoResourceError read_file(AnoResourceCooker& cooker, AcquiredFile& acquired)
     ano::MemoryVolume *volume = ano::memory_volume_create(layout);
     if (volume == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    ano::MemoryMutableView destination{};
-    if (!ano::memory_volume_write(volume, reservation, destination)) {
+    const std::span<uint8_t> destination = ano::memory_volume_write(
+        volume, reservation);
+    if (destination.size() != reservation.size) {
         ano::memory_volume_release(volume);
         return ANO_RESOURCE_OUT_OF_MEMORY;
     }
@@ -435,7 +391,7 @@ AnoResourceError read_file(AnoResourceCooker& cooker, AcquiredFile& acquired)
         ano::memory_volume_release(volume);
         return ANO_RESOURCE_IO_ERROR;
     }
-    auto *bytes = static_cast<uint8_t *>(destination.data);
+    uint8_t *bytes = destination.data();
     AnoResourceError result = ANO_RESOURCE_OK;
     if (result == ANO_RESOURCE_OK
         && before.size != 0
@@ -454,8 +410,8 @@ AnoResourceError read_file(AnoResourceCooker& cooker, AcquiredFile& acquired)
     if (result == ANO_RESOURCE_OK
         && (!file_stamp(path, &after) || !stamp_equal(before, after)))
         result = ANO_RESOURCE_CANCELLED;
-    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(volume))
-        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK)
+        ano::memory_volume_seal(volume);
     if (result != ANO_RESOURCE_OK) {
         ano::memory_volume_release(volume);
         return result;
@@ -496,7 +452,15 @@ AnoResourceError acquire_file(AnoResourceCooker& cooker, const char *path,
         return ANO_RESOURCE_OK;
     }
     *output = nullptr;
-    AnoResourceError result = reserve_active_files(cooker, 1);
+    uint64_t required = 0;
+    AnoResourceError result = !ano::checked_add(
+            cooker.activeFileCount, UINT64_C(1), &required)
+            || required > SIZE_MAX / sizeof(AcquiredFile)
+        ? ANO_RESOURCE_OVERFLOW
+        : ano::reserve_region_array(
+              cooker.activeRegion, cooker.activeFiles,
+              cooker.activeFileCount, cooker.activeFileCapacity, required)
+            ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
     const size_t pathSize = strlen(path) + 1;
     char *pathCopy = result == ANO_RESOURCE_OK
         ? ano::memory_region_allocate<char>(cooker.activeRegion, pathSize)
@@ -568,82 +532,39 @@ void release_pending(AnoResourceCooker& cooker)
 AnoResourceError reserve_pending_index(AnoResourceCooker& cooker,
                                        AnoAssetId asset)
 {
-    if (asset.value == UINT64_MAX)
+    if (asset.value == UINT64_MAX
+        || asset.value + 1 > SIZE_MAX / sizeof(uint64_t))
         return ANO_RESOURCE_OVERFLOW;
-    const uint64_t required = asset.value + 1;
-    if (required <= cooker.pendingIndexCapacity)
-        return ANO_RESOURCE_OK;
-    uint64_t capacity = cooker.pendingIndexCapacity == 0
-        ? 16 : cooker.pendingIndexCapacity;
-    while (capacity < required) {
-        if (capacity > UINT64_MAX / 2)
-            return ANO_RESOURCE_OVERFLOW;
-        capacity *= 2;
-    }
-    if (capacity > SIZE_MAX / sizeof(uint64_t))
-        return ANO_RESOURCE_OVERFLOW;
-    void *grown = mi_reallocn(
-        cooker.pendingIndex, static_cast<size_t>(capacity),
-        sizeof(uint64_t));
-    if (grown == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    cooker.pendingIndex = static_cast<uint64_t *>(grown);
-    memset(cooker.pendingIndex + cooker.pendingIndexCapacity, 0,
-           static_cast<size_t>(capacity - cooker.pendingIndexCapacity)
-               * sizeof(uint64_t));
-    cooker.pendingIndexCapacity = capacity;
-    return ANO_RESOURCE_OK;
+    return ano::reserve_zeroed_array(
+               cooker.pendingIndex, cooker.pendingIndexCapacity,
+               asset.value + 1, 16)
+        ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
 }
 
 AnoResourceError reserve_pending_items(AnoResourceCooker& cooker,
                                        uint64_t additional)
 {
     uint64_t required = 0;
-    if (!ano::detail::checked_add(cooker.itemCount, additional, &required)
+    if (!ano::checked_add(cooker.itemCount, additional, &required)
         || required > SIZE_MAX / sizeof(AnoResourcePackItem))
         return ANO_RESOURCE_OVERFLOW;
-    if (required <= cooker.itemCapacity)
-        return ANO_RESOURCE_OK;
-    uint64_t capacity = cooker.itemCapacity == 0 ? 16 : cooker.itemCapacity;
-    while (capacity < required) {
-        if (capacity > UINT64_MAX / 2)
-            return ANO_RESOURCE_OVERFLOW;
-        capacity *= 2;
-    }
-    void *grown = mi_reallocn(cooker.items, static_cast<size_t>(capacity),
-                              sizeof(AnoResourcePackItem));
-    if (grown == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    cooker.items = static_cast<AnoResourcePackItem *>(grown);
-    cooker.itemCapacity = capacity;
-    return ANO_RESOURCE_OK;
+    return ano::reserve_array(
+               cooker.items, cooker.itemCapacity, required, 16)
+        ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
 }
 
 AnoResourceError reserve_pending_volumes(AnoResourceCooker& cooker,
                                          uint64_t additional)
 {
     uint64_t required = 0;
-    if (!ano::detail::checked_add(
+    if (!ano::checked_add(
             cooker.pendingVolumeCount, additional, &required)
         || required > SIZE_MAX / sizeof(ano::MemoryVolume *))
         return ANO_RESOURCE_OVERFLOW;
-    if (required <= cooker.pendingVolumeCapacity)
-        return ANO_RESOURCE_OK;
-    uint64_t capacity = cooker.pendingVolumeCapacity == 0
-        ? 8 : cooker.pendingVolumeCapacity;
-    while (capacity < required) {
-        if (capacity > UINT64_MAX / 2)
-            return ANO_RESOURCE_OVERFLOW;
-        capacity *= 2;
-    }
-    void *grown = mi_reallocn(
-        cooker.pendingVolumes, static_cast<size_t>(capacity),
-        sizeof(ano::MemoryVolume *));
-    if (grown == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    cooker.pendingVolumes = static_cast<ano::MemoryVolume **>(grown);
-    cooker.pendingVolumeCapacity = capacity;
-    return ANO_RESOURCE_OK;
+    return ano::reserve_array(
+               cooker.pendingVolumes, cooker.pendingVolumeCapacity,
+               required)
+        ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
 }
 
 CookNode *find_node(AnoResourceCooker& cooker, AnoAssetId asset)
@@ -655,39 +576,19 @@ CookNode *find_node(AnoResourceCooker& cooker, AnoAssetId asset)
 AnoResourceError reserve_node_index(AnoResourceCooker& cooker,
                                     uint64_t assetCount)
 {
-    if (assetCount == UINT64_MAX)
+    if (assetCount == UINT64_MAX
+        || assetCount + 1 > SIZE_MAX / sizeof(CookNode *))
         return ANO_RESOURCE_OVERFLOW;
     const uint64_t required = assetCount + 1;
-    if (required <= cooker.nodeIndexCapacity)
-        return ANO_RESOURCE_OK;
-    uint64_t capacity = cooker.nodeIndexCapacity == 0
-        ? 16 : cooker.nodeIndexCapacity;
-    while (capacity < required) {
-        if (capacity > UINT64_MAX / 2)
-            return ANO_RESOURCE_OVERFLOW;
-        capacity *= 2;
-    }
-    if (capacity > SIZE_MAX / sizeof(CookNode *))
-        return ANO_RESOURCE_OVERFLOW;
-    void *grown = mi_reallocn(
-        cooker.nodeIndex, static_cast<size_t>(capacity), sizeof(CookNode *));
-    if (grown == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
-    cooker.nodeIndex = static_cast<CookNode **>(grown);
-    memset(cooker.nodeIndex + cooker.nodeIndexCapacity, 0,
-           static_cast<size_t>(capacity - cooker.nodeIndexCapacity)
-               * sizeof(CookNode *));
-    cooker.nodeIndexCapacity = capacity;
-    return ANO_RESOURCE_OK;
+    return ano::reserve_zeroed_array(
+               cooker.nodeIndex, cooker.nodeIndexCapacity, required, 16)
+        ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
 }
 
-const AnoResourceRevisionItem *previous_item(
+const AnoResourceManifestEntry *previous_item(
     const AnoCookedRevision *revision, AnoAssetId asset)
 {
-    const AnoResourceRevisionItem *item = nullptr;
-    return ano_resource_revision_item(revision, asset, &item)
-            == ANO_RESOURCE_OK
-        ? item : nullptr;
+    return ano_resource_revision_entry(revision, asset);
 }
 
 bool source_replaced(const AnoResourceCooker& cooker,
@@ -712,18 +613,39 @@ AnoContentId action_key(uint64_t producer, AnoResourceTypeId type,
     return hash.finish();
 }
 
+AnoResourceError requires_action(
+    AnoResourceCooker& cooker, AnoAssetId asset,
+    AnoResourceSourceId source, AnoResourceTypeId type,
+    AnoResourceCommitGroupId commitGroup, uint64_t producer,
+    AnoContentId inputIdentity, bool& required)
+{
+    AnoResourceSchema schema{};
+    const AnoResourceError described = ano_resource_artifact_schema(
+        type, &schema);
+    if (described != ANO_RESOURCE_OK)
+        return described;
+    const AnoContentId expected = action_key(
+        producer, type, commitGroup, schema.fingerprint, inputIdentity);
+    const CookNode *node = find_node(cooker, asset);
+    required = node == nullptr || !node->present
+        || node->source.value != source.value
+        || node->type.value != type.value || node->producer != producer
+        || !ano_resource_content_id_equal(node->action, expected);
+    return ANO_RESOURCE_OK;
+}
+
 bool dependency_arrays_equal(const AnoCookedRevision *base,
                              const WorkItem& work)
 {
     if (work.previous == nullptr
-        || work.previous->dependencyCount != work.dependencyCount)
+        || work.previous->dependencyCount != work.source.dependencyCount)
         return false;
-    if (work.dependencyCount == 0)
+    if (work.source.dependencyCount == 0)
         return true;
     const AnoResourceDependency *old = base->dependencies
         + work.previous->dependencyFirst;
-    return memcmp(old, work.dependencies,
-                  static_cast<size_t>(work.dependencyCount
+    return memcmp(old, work.source.dependencies,
+                  static_cast<size_t>(work.source.dependencyCount
                                       * sizeof(AnoResourceDependency))) == 0;
 }
 
@@ -816,8 +738,6 @@ extern "C" AnoResourceError ano_resource_cooker_begin(
     if (!ano::memory_region_reset(cooker->pendingMetadata))
         return ANO_RESOURCE_OUT_OF_MEMORY;
     cooker->nextDerivedAsset = cooker->firstDerivedAsset;
-    cooker->executedActions = 0;
-    cooker->allocatedArtifacts = 0;
     cooker->rebuildTail = false;
     atomic_store_explicit(&cooker->cancelled, false, memory_order_release);
     return ANO_RESOURCE_OK;
@@ -865,13 +785,15 @@ extern "C" AnoResourceError ano_resource_cook(
         ? 0 : cooker->current->itemCount;
     uint64_t carryCount = 0;
     for (uint64_t i = 0; i < baseCount; ++i) {
-        const AnoResourceRevisionItem& item = cooker->current->items[i];
-        if (!source_replaced(*cooker, item.source)
-            && !pending_asset(*cooker, item.asset))
+        const AnoResourceManifestEntry& entry = cooker->current->entries[i];
+        const AnoResourceRevisionStorage& storage =
+            cooker->current->storage[i];
+        if (!source_replaced(*cooker, storage.source)
+            && !pending_asset(*cooker, entry.asset))
             ++carryCount;
     }
     uint64_t workCount = 0;
-    if (!ano::detail::checked_add(
+    if (!ano::checked_add(
             carryCount, cooker->itemCount, &workCount)
         || workCount > SIZE_MAX / sizeof(WorkItem))
         return ANO_RESOURCE_OVERFLOW;
@@ -888,45 +810,48 @@ extern "C" AnoResourceError ano_resource_cook(
 
     uint64_t cursor = 0;
     for (uint64_t i = 0; i < baseCount; ++i) {
-        const AnoResourceRevisionItem& item = cooker->current->items[i];
-        if (source_replaced(*cooker, item.source)
-            || pending_asset(*cooker, item.asset))
+        const AnoResourceManifestEntry& entry = cooker->current->entries[i];
+        const AnoResourceRevisionStorage& storage =
+            cooker->current->storage[i];
+        if (source_replaced(*cooker, storage.source)
+            || pending_asset(*cooker, entry.asset))
             continue;
         AnoResourceBytes bytes{};
         if (ano_resource_revision_resolve(
-                cooker->current, item.asset, item.type, &bytes)
+                cooker->current, entry.asset, entry.type, &bytes)
             != ANO_RESOURCE_OK) {
             ano::memory_region_destroy(transaction);
             return ANO_RESOURCE_BAD_MANIFEST;
         }
         work[cursor++] = {
             .source = {
-                .asset = item.asset,
-                .source = item.source,
-                .type = item.type,
-                .producer = item.producer,
-                .inputIdentity = item.inputIdentity,
-                .commitGroup = item.commitGroup,
+                .asset = entry.asset,
+                .source = storage.source,
+                .type = entry.type,
+                .producer = entry.producer,
+                .inputIdentity = entry.inputIdentity,
+                .commitGroup = entry.commitGroup,
                 .artifact = bytes,
+                .schema = {.type = entry.type,
+                           .fingerprint = entry.schema},
+                .content = entry.content,
+                .dependencies = entry.dependencyCount == 0 ? nullptr
+                    : cooker->current->dependencies
+                        + entry.dependencyFirst,
+                .dependencyCount = entry.dependencyCount,
+                .volume = storage.volume,
+                .reservation = storage.artifact,
             },
-            .previous = &item,
-            .dependencies = item.dependencyCount == 0 ? nullptr
-                : cooker->current->dependencies + item.dependencyFirst,
-            .dependencyCount = item.dependencyCount,
-            .schema = {.type = item.type, .fingerprint = item.schema},
-            .content = item.content,
-            .volume = item.volume,
+            .previous = &entry,
+            .previousStorage = &storage,
         };
     }
     for (uint64_t i = 0; i < cooker->itemCount; ++i) {
         WorkItem& item = work[cursor++];
         item.source = cooker->items[i];
         item.previous = previous_item(cooker->current, item.source.asset);
-        item.dependencies = item.source.dependencies;
-        item.dependencyCount = item.source.dependencyCount;
-        item.schema = item.source.schema;
-        item.content = item.source.content;
-        item.pending = true;
+        item.previousStorage = item.previous == nullptr ? nullptr
+            : cooker->current->storage + item.source.asset.value - 1;
     }
     if (workCount != 0)
         qsort(work, static_cast<size_t>(workCount), sizeof(*work),
@@ -942,11 +867,11 @@ extern "C" AnoResourceError ano_resource_cook(
         }
 
     AnoResourceError result = reserve_node_index(*cooker, workCount);
-    cooker->executedActions = cooker->itemCount;
     uint64_t dependencyCount = 0;
     for (uint64_t i = 0; i < workCount && result == ANO_RESOURCE_OK; ++i) {
-        if (!ano::detail::checked_add(
-                dependencyCount, work[i].dependencyCount, &dependencyCount))
+        if (!ano::checked_add(
+                dependencyCount, work[i].source.dependencyCount,
+                &dependencyCount))
             result = ANO_RESOURCE_OVERFLOW;
     }
     if (result == ANO_RESOURCE_OK && ano_resource_cooker_cancelled(cooker))
@@ -960,88 +885,26 @@ extern "C" AnoResourceError ano_resource_cook(
     for (uint64_t i = 0; i < workCount; ++i) {
         WorkItem& item = work[i];
         const AnoContentId& input = item.source.source.value == 0
-            ? item.content : item.source.inputIdentity;
+            ? item.source.content : item.source.inputIdentity;
         item.action = action_key(
             item.source.producer, item.source.type, item.source.commitGroup,
-            item.schema.fingerprint, input);
+            item.source.schema.fingerprint, input);
         const bool sameArtifact = item.previous != nullptr
             && item.previous->type.value == item.source.type.value
-            && content_equal(item.previous->content, item.content);
+            && ano_resource_content_id_equal(
+                item.previous->content, item.source.content);
         const bool same = sameArtifact
             && item.previous->producer == item.source.producer
-            && content_equal(item.previous->inputIdentity,
-                             item.source.inputIdentity)
-            && item.previous->source.value == item.source.source.value
+            && ano_resource_content_id_equal(
+                item.previous->inputIdentity, item.source.inputIdentity)
+            && item.previousStorage != nullptr
+            && item.previousStorage->source.value
+                == item.source.source.value
             && item.previous->commitGroup.value
                 == item.source.commitGroup.value
             && dependency_arrays_equal(cooker->current, item);
-        item.changed = !same;
         item.artifactChanged = !sameArtifact;
-        item.affected = item.artifactChanged;
-        anyChanged |= item.changed;
-    }
-    uint64_t *reverseOffsets = ano::memory_region_allocate_zero<uint64_t>(
-        transaction, static_cast<size_t>(workCount + 1));
-    uint64_t *reverseCursors = workCount == 0 ? nullptr
-        : ano::memory_region_allocate_zero<uint64_t>(
-            transaction, static_cast<size_t>(workCount));
-    uint64_t *reverseEdges = dependencyCount == 0 ? nullptr
-        : ano::memory_region_allocate<uint64_t>(
-            transaction, static_cast<size_t>(dependencyCount));
-    uint64_t *queue = workCount == 0 ? nullptr
-        : ano::memory_region_allocate<uint64_t>(
-            transaction, static_cast<size_t>(workCount));
-    if (reverseOffsets == nullptr
-        || (workCount != 0 && (reverseCursors == nullptr || queue == nullptr))
-        || (dependencyCount != 0 && reverseEdges == nullptr))
-        result = ANO_RESOURCE_OUT_OF_MEMORY;
-    for (uint64_t dependent = 0;
-         dependent < workCount && result == ANO_RESOURCE_OK; ++dependent)
-        for (uint64_t d = 0; d < work[dependent].dependencyCount; ++d) {
-            const AnoResourceDependency& dependency =
-                work[dependent].dependencies[d];
-            if (dependency.asset.value == 0
-                || dependency.asset.value > workCount
-                || work[dependency.asset.value - 1].source.type.value
-                    != dependency.type.value
-                || reverseOffsets[dependency.asset.value] == UINT64_MAX) {
-                result = ANO_RESOURCE_BAD_MANIFEST;
-                break;
-            }
-            ++reverseOffsets[dependency.asset.value];
-        }
-    for (uint64_t i = 1; i <= workCount && result == ANO_RESOURCE_OK; ++i)
-        if (!ano::detail::checked_add(
-                reverseOffsets[i - 1], reverseOffsets[i],
-                &reverseOffsets[i]))
-            result = ANO_RESOURCE_OVERFLOW;
-    for (uint64_t dependent = 0;
-         dependent < workCount && result == ANO_RESOURCE_OK; ++dependent)
-        for (uint64_t d = 0; d < work[dependent].dependencyCount; ++d) {
-            const uint64_t target =
-                work[dependent].dependencies[d].asset.value - 1;
-            reverseEdges[reverseOffsets[target] + reverseCursors[target]++] =
-                dependent;
-        }
-    uint64_t queueFirst = 0;
-    uint64_t queueCount = 0;
-    for (uint64_t i = 0; i < workCount; ++i)
-        if (work[i].affected)
-            queue[queueCount++] = i;
-    while (queueFirst < queueCount) {
-        const uint64_t changed = queue[queueFirst++];
-        for (uint64_t edge = reverseOffsets[changed];
-             edge < reverseOffsets[changed + 1]; ++edge) {
-            const uint64_t dependent = reverseEdges[edge];
-            if (!work[dependent].affected) {
-                work[dependent].affected = true;
-                queue[queueCount++] = dependent;
-            }
-        }
-    }
-    if (result != ANO_RESOURCE_OK) {
-        ano::memory_region_destroy(transaction);
-        return result;
+        anyChanged |= !same;
     }
 
     if (!anyChanged && cooker->current != nullptr) {
@@ -1049,7 +912,6 @@ extern "C" AnoResourceError ano_resource_cook(
             CookNode *node = find_node(*cooker, work[i].source.asset);
             if (node != nullptr) {
                 node->action = work[i].action;
-                node->dirty = false;
             }
         }
         result = ano_resource_revision_retain(cooker->current);
@@ -1066,26 +928,22 @@ extern "C" AnoResourceError ano_resource_cook(
     if (workCount != 0 && artifactVolumes == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
     uint64_t artifactVolumeCount = 0;
-    uint64_t changedCount = 0;
     for (uint64_t i = 0; i < workCount && result == ANO_RESOURCE_OK; ++i) {
         WorkItem& item = work[i];
-        if (item.artifactChanged) {
-            item.volume = item.source.volume;
-            item.artifact = item.source.reservation;
-            ++changedCount;
-        } else {
-            item.volume = item.previous->volume;
-            item.artifact = item.previous->artifact;
+        if (!item.artifactChanged) {
+            item.source.volume = item.previousStorage->volume;
+            item.source.reservation = item.previousStorage->artifact;
         }
         bool known = false;
         for (uint64_t v = 0; v < artifactVolumeCount; ++v)
-            known |= artifactVolumes[v] == item.volume;
+            known |= artifactVolumes[v] == item.source.volume;
         if (!known)
-            artifactVolumes[artifactVolumeCount++] = item.volume;
+            artifactVolumes[artifactVolumeCount++] = item.source.volume;
     }
 
     RevisionPlan plan{
-        .items = {.count = static_cast<size_t>(workCount)},
+        .entries = {.count = static_cast<size_t>(workCount)},
+        .storage = {.count = static_cast<size_t>(workCount)},
         .dependencies = {.count = static_cast<size_t>(dependencyCount)},
         .volumes = {.count = static_cast<size_t>(artifactVolumeCount + 1)},
     };
@@ -1094,15 +952,18 @@ extern "C" AnoResourceError ano_resource_cook(
         ? ano::memory_volume_create(layout) : nullptr;
     if (result == ANO_RESOURCE_OK && metadata == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
-    auto items = result == ANO_RESOURCE_OK
-        ? ano::memory_volume_write(metadata, plan.items)
-        : ano::MemorySpan<AnoResourceRevisionItem>{};
+    auto entries = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(metadata, plan.entries)
+        : std::span<AnoResourceManifestEntry>{};
+    auto storage = result == ANO_RESOURCE_OK
+        ? ano::memory_volume_write(metadata, plan.storage)
+        : std::span<AnoResourceRevisionStorage>{};
     auto dependencies = result == ANO_RESOURCE_OK
         ? ano::memory_volume_write(metadata, plan.dependencies)
-        : ano::MemorySpan<AnoResourceDependency>{};
+        : std::span<AnoResourceDependency>{};
     auto volumes = result == ANO_RESOURCE_OK
         ? ano::memory_volume_write(metadata, plan.volumes)
-        : ano::MemorySpan<ano::MemoryVolume *>{};
+        : std::span<ano::MemoryVolume *>{};
     uint64_t retainedVolumeCount = 0;
     if (result == ANO_RESOURCE_OK) {
         volumes[0] = metadata;
@@ -1119,31 +980,34 @@ extern "C" AnoResourceError ano_resource_cook(
     uint64_t dependencyCursor = 0;
     for (uint64_t i = 0; i < workCount && result == ANO_RESOURCE_OK; ++i) {
         WorkItem& source = work[i];
-        items[i] = {
+        entries[i] = {
             .asset = source.source.asset,
-            .source = source.source.source,
             .type = source.source.type,
             .producer = source.source.producer,
             .inputIdentity = source.source.inputIdentity,
+            .schema = source.source.schema.fingerprint,
+            .content = source.source.content,
             .commitGroup = source.source.commitGroup,
-            .schema = source.schema.fingerprint,
-            .content = source.content,
+            .byteSize = source.source.reservation.size,
             .dependencyFirst = dependencyCursor,
-            .dependencyCount = source.dependencyCount,
-            .volume = source.volume,
-            .artifact = source.artifact,
+            .dependencyCount = source.source.dependencyCount,
         };
-        if (source.dependencyCount != 0)
+        storage[i] = {
+            .source = source.source.source,
+            .volume = source.source.volume,
+            .artifact = source.source.reservation,
+        };
+        if (source.source.dependencyCount != 0)
             memcpy(dependencies.data() + dependencyCursor,
-                   source.dependencies,
-                   static_cast<size_t>(source.dependencyCount
+                   source.source.dependencies,
+                   static_cast<size_t>(source.source.dependencyCount
                                        * sizeof(AnoResourceDependency)));
-        dependencyCursor += source.dependencyCount;
+        dependencyCursor += source.source.dependencyCount;
     }
     if (result == ANO_RESOURCE_OK && ano_resource_cooker_cancelled(cooker))
         result = ANO_RESOURCE_CANCELLED;
-    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(metadata))
-        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK)
+        ano::memory_volume_seal(metadata);
 
     AnoCookedRevision *revision = nullptr;
     if (result == ANO_RESOURCE_OK) {
@@ -1153,14 +1017,15 @@ extern "C" AnoResourceError ano_resource_cook(
     }
     if (result == ANO_RESOURCE_OK) {
         __atomic_store_n(&revision->references, size_t{1}, __ATOMIC_RELAXED);
-        revision->items = items.data();
+        revision->entries = entries.data();
+        revision->storage = storage.data();
         revision->itemCount = workCount;
         revision->dependencies = dependencies.data();
         revision->dependencyCount = dependencyCount;
         revision->volumes = volumes.data();
         revision->volumeCount = artifactVolumeCount + 1;
         result = ano::resource_detail::validate_dependency_graph(
-            revision->items, revision->itemCount, revision->dependencies,
+            revision->entries, revision->itemCount, revision->dependencies,
             revision->dependencyCount);
         revision->validated = result == ANO_RESOURCE_OK;
     }
@@ -1187,11 +1052,8 @@ extern "C" AnoResourceError ano_resource_cook(
         node->type = work[i].source.type;
         node->producer = work[i].source.producer;
         node->action = work[i].action;
-        node->result = work[i].content;
         node->present = true;
-        node->dirty = work[i].affected;
     }
-    cooker->allocatedArtifacts = changedCount;
     ano_resource_revision_release(cooker->current);
     cooker->current = revision;
     result = ano_resource_revision_retain(revision);
@@ -1234,26 +1096,15 @@ extern "C" void ano_resource_revision_release(
     mi_free(revision);
 }
 
-extern "C" uint64_t ano_resource_revision_asset_count(
-    const AnoCookedRevision *revision)
+const AnoResourceManifestEntry *ano_resource_revision_entry(
+    const AnoCookedRevision *revision, AnoAssetId asset)
 {
-    return revision == nullptr ? 0 : revision->itemCount;
-}
-
-AnoResourceError ano_resource_revision_item(
-    const AnoCookedRevision *revision, AnoAssetId asset,
-    const AnoResourceRevisionItem **item)
-{
-    if (revision == nullptr || item == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *item = nullptr;
-    if (asset.value == 0 || asset.value > revision->itemCount)
-        return ANO_RESOURCE_NOT_FOUND;
-    const AnoResourceRevisionItem& found = revision->items[asset.value - 1];
-    if (found.asset.value != asset.value)
-        return ANO_RESOURCE_BAD_MANIFEST;
-    *item = &found;
-    return ANO_RESOURCE_OK;
+    if (revision == nullptr || asset.value == 0
+        || asset.value > revision->itemCount)
+        return nullptr;
+    const AnoResourceManifestEntry& found =
+        revision->entries[asset.value - 1];
+    return found.asset.value == asset.value ? &found : nullptr;
 }
 
 AnoResourceError ano_resource_revision_dependencies(
@@ -1264,14 +1115,14 @@ AnoResourceError ano_resource_revision_dependencies(
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *dependencies = nullptr;
     *count = 0;
-    const AnoResourceRevisionItem *item = nullptr;
-    const AnoResourceError found = ano_resource_revision_item(
-        revision, asset, &item);
-    if (found != ANO_RESOURCE_OK)
-        return found;
-    *dependencies = item->dependencyCount == 0 ? nullptr
-        : revision->dependencies + item->dependencyFirst;
-    *count = item->dependencyCount;
+    const AnoResourceManifestEntry *entry = ano_resource_revision_entry(
+        revision, asset);
+    if (entry == nullptr)
+        return revision == nullptr
+            ? ANO_RESOURCE_INVALID_ARGUMENT : ANO_RESOURCE_NOT_FOUND;
+    *dependencies = entry->dependencyCount == 0 ? nullptr
+        : revision->dependencies + entry->dependencyFirst;
+    *count = entry->dependencyCount;
     return ANO_RESOURCE_OK;
 }
 
@@ -1282,19 +1133,22 @@ extern "C" AnoResourceError ano_resource_revision_resolve(
     if (bytes == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *bytes = {};
-    const AnoResourceRevisionItem *item = nullptr;
-    const AnoResourceError found = ano_resource_revision_item(
-        revision, asset, &item);
-    if (found != ANO_RESOURCE_OK)
-        return found;
-    if (item->type.value != requiredType.value)
+    const AnoResourceManifestEntry *entry = ano_resource_revision_entry(
+        revision, asset);
+    if (entry == nullptr)
+        return revision == nullptr
+            ? ANO_RESOURCE_INVALID_ARGUMENT : ANO_RESOURCE_NOT_FOUND;
+    const AnoResourceRevisionStorage& storage =
+        revision->storage[asset.value - 1];
+    if (entry->type.value != requiredType.value)
         return ANO_RESOURCE_TYPE_MISMATCH;
-    ano::MemoryView view{};
-    if (!ano::memory_volume_view(item->volume, item->artifact, view))
+    const std::span<const uint8_t> view = ano::memory_volume_view(
+        storage.volume, storage.artifact);
+    if (view.size() != storage.artifact.size)
         return ANO_RESOURCE_BAD_MANIFEST;
     *bytes = {
-        .data = static_cast<const uint8_t *>(view.data),
-        .size = view.size,
+        .data = view.data(),
+        .size = view.size(),
     };
     return ANO_RESOURCE_OK;
 }
@@ -1316,28 +1170,6 @@ extern "C" void ano_resource_exported_pack_release(
     AnoResourceMutableBytes pack)
 {
     mi_free(pack.data);
-}
-
-extern "C" uint64_t ano_resource_cooker_executed_actions(
-    const AnoResourceCooker *cooker)
-{
-    return cooker == nullptr ? 0 : cooker->executedActions;
-}
-
-extern "C" uint64_t ano_resource_cooker_allocated_artifacts(
-    const AnoResourceCooker *cooker)
-{
-    return cooker == nullptr ? 0 : cooker->allocatedArtifacts;
-}
-
-extern "C" AnoResourceError ano_resource_cooker_current_resolve(
-    const AnoResourceCooker *cooker, AnoAssetId asset,
-    AnoResourceTypeId requiredType, AnoResourceBytes *bytes)
-{
-    if (cooker == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    return ano_resource_revision_resolve(
-        cooker->current, asset, requiredType, bytes);
 }
 
 extern "C" void ano_resource_cooker_cancel(AnoResourceCooker *cooker)
@@ -1405,40 +1237,21 @@ AnoResourceError ano_resource_cooker_action_required(
     for (uint64_t i = 0; i < cooker->activeAssetCount; ++i)
         if (cooker->activeAssets[i].value == asset.value)
             return ANO_RESOURCE_DUPLICATE_ASSET;
-    if (cooker->activeAssetCount == cooker->activeAssetCapacity) {
-        const uint64_t capacity = cooker->activeAssetCapacity == 0
-            ? 16 : cooker->activeAssetCapacity * 2;
-        if (capacity < cooker->activeAssetCapacity
-            || capacity > SIZE_MAX / sizeof(AnoAssetId))
-            return ANO_RESOURCE_OVERFLOW;
-        AnoAssetId *grown = ano::memory_region_allocate<AnoAssetId>(
-            cooker->activeRegion, static_cast<size_t>(capacity));
-        if (grown == nullptr)
-            return ANO_RESOURCE_OUT_OF_MEMORY;
-        if (cooker->activeAssetCount != 0)
-            memcpy(grown, cooker->activeAssets,
-                   static_cast<size_t>(cooker->activeAssetCount)
-                       * sizeof(AnoAssetId));
-        cooker->activeAssets = grown;
-        cooker->activeAssetCapacity = capacity;
-    }
+    if (cooker->activeAssetCount == UINT64_MAX
+        || cooker->activeAssetCount + 1 > SIZE_MAX / sizeof(AnoAssetId))
+        return ANO_RESOURCE_OVERFLOW;
+    if (!ano::reserve_region_array(
+            cooker->activeRegion, cooker->activeAssets,
+            cooker->activeAssetCount, cooker->activeAssetCapacity,
+            cooker->activeAssetCount + 1, 16))
+        return ANO_RESOURCE_OUT_OF_MEMORY;
     cooker->activeAssets[cooker->activeAssetCount++] = asset;
 
-    AnoResourceSchema schema{};
-    const AnoResourceError described = ano_resource_artifact_schema(
-        type, &schema);
-    if (described != ANO_RESOURCE_OK)
-        return described;
     const uint64_t producer = cooker->activeProducer != 0
         ? cooker->activeProducer : type.value;
-    const AnoContentId expected = action_key(
-        producer, type, commitGroup, schema.fingerprint, inputIdentity);
-    const CookNode *node = find_node(*cooker, asset);
-    *required = node == nullptr || !node->present
-        || node->source.value != cooker->activeSource.value
-        || node->type.value != type.value || node->producer != producer
-        || !content_equal(node->action, expected);
-    return ANO_RESOURCE_OK;
+    return requires_action(
+        *cooker, asset, cooker->activeSource, type, commitGroup,
+        producer, inputIdentity, *required);
 }
 
 AnoResourceError ano_resource_cooker_allocate_derived(
@@ -1553,8 +1366,7 @@ AnoResourceError ano_resource_cooker_encode_batch(
     if (result == ANO_RESOURCE_OK && ano_resource_cooker_cancelled(cooker))
         result = ANO_RESOURCE_CANCELLED;
     for (uint64_t i = 0; i < volumeCount && result == ANO_RESOURCE_OK; ++i)
-        if (!ano::memory_volume_seal(volumes[i].volume))
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
+        ano::memory_volume_seal(volumes[i].volume);
     if (result == ANO_RESOURCE_OK) {
         for (uint64_t i = 0; i < volumeCount; ++i) {
             cooker->pendingVolumes[cooker->pendingVolumeCount++] =
@@ -1600,6 +1412,22 @@ extern "C" AnoResourceError ano_resource_cooker_add(
         type, artifact);
     if (canonical != ANO_RESOURCE_OK)
         return ANO_RESOURCE_NON_CANONICAL;
+    if (cooker == nullptr || asset.value == 0 || type.value == 0
+        || commitGroup.value == 0)
+        return ANO_RESOURCE_INVALID_ARGUMENT;
+    if (pending_asset(*cooker, asset))
+        return ANO_RESOURCE_DUPLICATE_ASSET;
+    AnoContentId content{};
+    AnoResourceError result = ano_resource_content_id(artifact, &content);
+    bool required = true;
+    if (result == ANO_RESOURCE_OK)
+        result = requires_action(
+            *cooker, asset, {}, type, commitGroup,
+            cooker->activeProducer != 0
+                ? cooker->activeProducer : type.value,
+            content, required);
+    if (result != ANO_RESOURCE_OK || !required)
+        return result;
     CopyEncodeContext copy{artifact};
     AnoResourceCookArtifact input{
         .asset = asset,
@@ -1609,14 +1437,11 @@ extern "C" AnoResourceError ano_resource_cooker_add(
         .context = &copy,
         .encode = copy_encode,
     };
-    const AnoResourceSourceId active = cooker == nullptr
-        ? AnoResourceSourceId{} : cooker->activeSource;
-    if (cooker != nullptr)
-        cooker->activeSource = {};
-    const AnoResourceError result = ano_resource_cooker_encode_batch(
+    const AnoResourceSourceId active = cooker->activeSource;
+    cooker->activeSource = {};
+    result = ano_resource_cooker_encode_batch(
         cooker, &input, 1);
-    if (cooker != nullptr)
-        cooker->activeSource = active;
+    cooker->activeSource = active;
     return result;
 }
 
@@ -1654,7 +1479,8 @@ AnoResourceError ano_resource_cooker_import_begin(
     AnoResourceError result = acquire_file(*cooker, binding->path, &root);
     cooker->activeRootChanged = result == ANO_RESOURCE_OK
         && (!binding->rootValid
-            || !content_equal(binding->rootId, root->content));
+            || !ano_resource_content_id_equal(
+                binding->rootId, root->content));
     if (result == ANO_RESOURCE_OK && !cooker->activeRootChanged
         && binding->snapshotValid && !binding->pathChanged)
         for (uint64_t i = 1; i < binding->fileCount
@@ -1672,17 +1498,17 @@ AnoResourceError ano_resource_cooker_import_begin(
         cooker->activeFiles, cooker->activeFileCount);
     if (!cooker->rebuildTail && !cooker->activeRootChanged
         && binding->snapshotValid
-        && content_equal(binding->snapshotId, identity)) {
+        && ano_resource_content_id_equal(binding->snapshotId, identity)) {
         clear_active_import(*cooker);
         if (cooker->current != nullptr)
             for (uint64_t i = 0; i < cooker->current->itemCount; ++i)
-                if (cooker->current->items[i].source.value == source.value
-                    && cooker->current->items[i].asset.value
+                if (cooker->current->storage[i].source.value == source.value
+                    && cooker->current->entries[i].asset.value
                         >= cooker->nextDerivedAsset.value) {
-                    if (cooker->current->items[i].asset.value == UINT64_MAX)
+                    if (cooker->current->entries[i].asset.value == UINT64_MAX)
                         return ANO_RESOURCE_OVERFLOW;
                     cooker->nextDerivedAsset.value =
-                        cooker->current->items[i].asset.value + 1;
+                        cooker->current->entries[i].asset.value + 1;
                 }
         return ANO_RESOURCE_OK;
     }
@@ -1797,7 +1623,15 @@ AnoResourceError ano_resource_cooker_source_dependencies(
     }
     if (uniqueCount == 0)
         return ANO_RESOURCE_OK;
-    AnoResourceError result = reserve_active_files(*cooker, uniqueCount);
+    uint64_t required = 0;
+    AnoResourceError result = !ano::checked_add(
+            cooker->activeFileCount, uniqueCount, &required)
+            || required > SIZE_MAX / sizeof(AcquiredFile)
+        ? ANO_RESOURCE_OVERFLOW
+        : ano::reserve_region_array(
+              cooker->activeRegion, cooker->activeFiles,
+              cooker->activeFileCount, cooker->activeFileCapacity, required)
+            ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
     AnoResourceError *results = result == ANO_RESOURCE_OK
         ? ano::memory_region_allocate_zero<AnoResourceError>(
               cooker->activeRegion, static_cast<size_t>(uniqueCount))
@@ -1883,7 +1717,8 @@ bool ano_resource_cooker_source_changed(
         return true;
     for (uint64_t i = 0; i < binding->fileCount; ++i)
         if (strcmp(binding->files[i].path, path) == 0)
-            return !content_equal(binding->files[i].content, active->content);
+            return !ano_resource_content_id_equal(
+                binding->files[i].content, active->content);
     return true;
 }
 

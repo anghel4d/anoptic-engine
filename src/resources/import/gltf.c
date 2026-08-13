@@ -708,7 +708,7 @@ AnoResourceError register_source_files(AnoResourceCooker& cooker,
                                        const AnoGltfData& data)
 {
     uint64_t capacity = 0;
-    if (!ano::detail::checked_add(
+    if (!ano::checked_add(
             data.buffersCount, data.imagesCount, &capacity)
         || capacity > SIZE_MAX / sizeof(char *))
         return ANO_RESOURCE_OVERFLOW;
@@ -870,10 +870,10 @@ AnoResourceError decode_image(AnoResourceCooker& cooker,
         return ANO_RESOURCE_NON_CANONICAL;
     }
     uint64_t pixelCount = 0;
-    if (!ano::detail::checked_multiply(
+    if (!ano::checked_multiply(
             static_cast<uint64_t>(decodedWidth),
             static_cast<uint64_t>(decodedHeight), &pixelCount)
-        || !ano::detail::checked_multiply(pixelCount, 4, byteCount)) {
+        || !ano::checked_multiply(pixelCount, UINT64_C(4), byteCount)) {
         stbi_image_free(*pixels);
         *pixels = nullptr;
         return ANO_RESOURCE_OVERFLOW;
@@ -972,7 +972,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
     const uint64_t vertexBytes = position->count * sizeof(Vertex);
     const uint64_t indexBytes = indicesAccessor->count * sizeof(uint32_t);
     uint64_t extentSize = 0;
-    if (!ano::detail::checked_add(vertexBytes, indexBytes, &extentSize)
+    if (!ano::checked_add(vertexBytes, indexBytes, &extentSize)
         || extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *extent = ano::memory_region_allocate_zero<uint8_t>(
@@ -1224,7 +1224,7 @@ AnoResourceError build_import_artifacts(
             ++jobCount;
     for (uint32_t mesh = 0; mesh < data.meshesCount; ++mesh)
         if (meshesChanged && scratch.usedMeshes[mesh]
-            && !ano::detail::checked_add(
+            && !ano::checked_add(
                 jobCount, data.meshes[mesh].primitives.count, &jobCount))
             return ANO_RESOURCE_OVERFLOW;
     uint64_t parallelCount = jobCount;
@@ -1232,15 +1232,15 @@ AnoResourceError build_import_artifacts(
         for (uint32_t material = 0; material < data.materialsCount;
              ++material)
             if (scratch.usedMaterials[material]
-                && !ano::detail::checked_add(jobCount, 1, &jobCount))
+                && !ano::checked_add(jobCount, UINT64_C(1), &jobCount))
                 return ANO_RESOURCE_OVERFLOW;
         const uint64_t tail = (scratch.needsDefaultMaterial ? 1u : 0u) + 1u;
-        if (!ano::detail::checked_add(jobCount, tail, &jobCount))
+        if (!ano::checked_add(jobCount, tail, &jobCount))
             return ANO_RESOURCE_OVERFLOW;
     }
 
     size_t jobBytes = 0;
-    if (!ano::detail::checked_allocation_size(
+    if (!ano::checked_allocation_size(
             jobCount, sizeof(ImportJob), &jobBytes))
         return ANO_RESOURCE_OVERFLOW;
     ImportJob *jobs = jobBytes == 0 ? nullptr
@@ -1409,24 +1409,24 @@ AnoResourceError prepare_scene_root(
             continue;
         const AnoGltfNode& source = data.nodes[node];
         if (ano_gltf_has_index(source.mesh)) {
-            if (!ano::detail::checked_add(
+            if (!ano::checked_add(
                     renderableCount,
                     data.meshes[source.mesh.value].primitives.count,
                     &renderableCount))
                 return ANO_RESOURCE_OVERFLOW;
         }
         if (source.extensions.known.KHR_lights_punctual.present
-            && !ano::detail::checked_add(lightCount, 1, &lightCount))
+            && !ano::checked_add(lightCount, UINT64_C(1), &lightCount))
             return ANO_RESOURCE_OVERFLOW;
     }
     uint64_t renderableBytes = 0;
     uint64_t lightBytes = 0;
     uint64_t extentSize = 0;
-    if (!ano::detail::checked_multiply(
+    if (!ano::checked_multiply(
             renderableCount, sizeof(SceneRenderable), &renderableBytes)
-        || !ano::detail::checked_multiply(
+        || !ano::checked_multiply(
             lightCount, sizeof(SceneLight), &lightBytes)
-        || !ano::detail::checked_add(renderableBytes, lightBytes,
+        || !ano::checked_add(renderableBytes, lightBytes,
                                      &extentSize)
         || extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
@@ -1522,7 +1522,7 @@ AnoResourceError initialize_scratch(ano::MemoryRegion *region,
         return ANO_RESOURCE_OUT_OF_MEMORY;
     for (uint32_t mesh = 0; mesh < data.meshesCount; ++mesh) {
         scratch.meshFirstPrimitive[mesh] = scratch.primitiveCount;
-        if (!ano::detail::checked_add(
+        if (!ano::checked_add(
                 scratch.primitiveCount,
                 data.meshes[mesh].primitives.count,
                 &scratch.primitiveCount))

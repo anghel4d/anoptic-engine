@@ -17,6 +17,44 @@
 
 namespace ano {
 
+template<class Left, class Right, class Result>
+    requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>
+              && std::is_unsigned_v<Result>)
+[[nodiscard]] constexpr bool checked_add(
+    Left lhs, Right rhs, Result *result) noexcept
+{
+    if (result == nullptr)
+        return false;
+    Result value{};
+    if (__builtin_add_overflow(lhs, rhs, &value))
+        return false;
+    *result = value;
+    return true;
+}
+
+template<class Left, class Right, class Result>
+    requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>
+              && std::is_unsigned_v<Result>)
+[[nodiscard]] constexpr bool checked_multiply(
+    Left lhs, Right rhs, Result *result) noexcept
+{
+    if (result == nullptr)
+        return false;
+    Result value{};
+    if (__builtin_mul_overflow(lhs, rhs, &value))
+        return false;
+    *result = value;
+    return true;
+}
+
+template<class Count, class Width>
+    requires (std::is_unsigned_v<Count> && std::is_unsigned_v<Width>)
+[[nodiscard]] constexpr bool checked_allocation_size(
+    Count count, Width width, size_t *bytes) noexcept
+{
+    return checked_multiply(count, width, bytes);
+}
+
 constexpr bool enum_identifier_ends_with(std::string_view identifier,
                                          std::string_view suffix)
 {

@@ -141,6 +141,44 @@ void test_layout_failure()
           "a reflected element-size overflow poisons the complete layout");
 }
 
+void test_typed_array_reservation()
+{
+    uint32_t *values = nullptr;
+    uint64_t capacity = 0;
+    CHECK(ano::reserve_zeroed_array(values, capacity, UINT64_C(3), 0)
+              && capacity >= 3 && values[0] == 0 && values[2] == 0,
+          "typed arrays accept a zero growth hint and initialize new storage");
+    if (values != nullptr) {
+        values[0] = 17;
+        const uint64_t required = capacity + 1;
+        CHECK(ano::reserve_zeroed_array(values, capacity, required)
+                  && capacity >= required && values[0] == 17
+                  && values[required - 1] == 0,
+              "typed array growth preserves values and zeroes its new tail");
+    }
+    mi_free(values);
+
+    ano::MemoryRegion *region = ano::memory_region_create();
+    uint64_t *regional = nullptr;
+    uint64_t regionalCapacity = 0;
+    CHECK(region != nullptr
+              && ano::reserve_region_array(
+                  region, regional, UINT64_C(0), regionalCapacity,
+                  UINT64_C(2), 0),
+          "region-backed typed arrays reserve through the same API");
+    if (regional != nullptr) {
+        regional[0] = UINT64_C(0x1776);
+        regional[1] = UINT64_C(0x2323);
+        CHECK(ano::reserve_region_array(
+                  region, regional, UINT64_C(2), regionalCapacity,
+                  regionalCapacity + 1)
+                  && regional[0] == UINT64_C(0x1776)
+                  && regional[1] == UINT64_C(0x2323),
+              "region-backed growth preserves its live prefix");
+    }
+    ano::memory_region_destroy(region);
+}
+
 void test_volume_publication()
 {
     TestVolumePlan plan{
@@ -153,10 +191,6 @@ void test_volume_publication()
     CHECK(volume != nullptr, "measured volume allocation succeeds");
     if (volume == nullptr)
         return;
-    CHECK(ano::memory_volume_size(volume) == 96
-              && ano::memory_volume_alignment(volume) == 32,
-          "volume preserves its reflected layout");
-
     const auto unavailable = ano::memory_volume_view(volume, plan.words);
     CHECK(unavailable.empty(),
           "immutable spans are unavailable during construction");
@@ -174,9 +208,7 @@ void test_volume_publication()
     words[1] = UINT64_C(0x2323);
     wide[1].words[3] = UINT64_C(0x7123);
 
-    CHECK(ano::memory_volume_seal(volume)
-              && ano::memory_volume_is_sealed(volume),
-          "sealing publishes all completed writes");
+    ano::memory_volume_seal(volume);
     CHECK(ano::memory_volume_write(volume, plan.bytes).empty(),
           "sealed volumes reject mutable spans");
     const auto published = ano::memory_volume_view(volume, plan.wide);
@@ -212,6 +244,7 @@ int main()
 {
     test_scratch_region();
     test_layout_failure();
+    test_typed_array_reservation();
     test_volume_publication();
     if (failures != 0)
         printf("%d memory substrate checks failed\n", failures);

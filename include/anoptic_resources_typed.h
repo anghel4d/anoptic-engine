@@ -814,33 +814,6 @@ consteval void validate_importer(std::meta::info declaration)
     }
 }
 
-constexpr bool checked_add(uint64_t lhs, uint64_t rhs, uint64_t *result)
-{
-    if (result == nullptr || rhs > UINT64_MAX - lhs)
-        return false;
-    *result = lhs + rhs;
-    return true;
-}
-
-constexpr bool checked_multiply(uint64_t lhs, uint64_t rhs, uint64_t *result)
-{
-    if (result == nullptr || (lhs != 0 && rhs > UINT64_MAX / lhs))
-        return false;
-    *result = lhs * rhs;
-    return true;
-}
-
-constexpr bool checked_allocation_size(uint64_t count, uint64_t width,
-                                       size_t *bytes)
-{
-    uint64_t total = 0;
-    if (bytes == nullptr || !checked_multiply(count, width, &total)
-        || total > SIZE_MAX)
-        return false;
-    *bytes = static_cast<size_t>(total);
-    return true;
-}
-
 constexpr bool semantic_name_equal(std::string_view lhs,
                                    std::string_view rhs)
 {
@@ -1404,7 +1377,7 @@ constexpr EncodeResult encoded_size(ArtifactSource<Type> source)
         || (source.extent.data == nullptr && source.extent.size != 0))
         return {ANO_RESOURCE_INVALID_ARGUMENT, 0};
     uint64_t initial = 0;
-    if (!detail::checked_add(detail::canonicalHeaderSize,
+    if (!checked_add(detail::canonicalHeaderSize,
                              detail::compiledWireSize<Type>, &initial))
         return {ANO_RESOURCE_OVERFLOW, 0};
     detail::PlanContext context = {
@@ -1437,7 +1410,7 @@ constexpr EncodeResult encode(ArtifactSource<Type> source,
     detail::write_unsigned(output.data + 56, measured.size, 8);
 
     uint64_t payloadStart = 0;
-    (void)detail::checked_add(detail::canonicalHeaderSize,
+    (void)checked_add(detail::canonicalHeaderSize,
                               detail::compiledWireSize<Type>, &payloadStart);
     detail::EncodeContext context = {
         .source = source.extent,
@@ -1504,7 +1477,7 @@ constexpr AnoResourceError resolve_span(const ArtifactView<Root>& view,
     if (output == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     uint64_t byteCount = 0;
-    if (!detail::checked_multiply(span.count,
+    if (!checked_multiply(span.count,
                                   detail::wire_size(^^Element), &byteCount)
         || !detail::byte_range(view.bytes.size, span.offset, byteCount))
         return ANO_RESOURCE_OUT_OF_BOUNDS;
@@ -1570,8 +1543,8 @@ constexpr AnoResourceError resolve(const ArtifactView<Root>& view,
         return ANO_RESOURCE_OUT_OF_BOUNDS;
     uint64_t relative = 0;
     uint64_t offset = 0;
-    if (!detail::checked_multiply(index, detail::wire_size(^^Element), &relative)
-        || !detail::checked_add(span.offset, relative, &offset)
+    if (!checked_multiply(index, detail::wire_size(^^Element), &relative)
+        || !checked_add(span.offset, relative, &offset)
         || !detail::byte_range(view.bytes.size, offset,
                                detail::wire_size(^^Element)))
         return ANO_RESOURCE_OUT_OF_BOUNDS;
@@ -1600,7 +1573,7 @@ constexpr AnoResourceError visit_span(
     uint64_t bytes = 0;
     if (valid != ANO_RESOURCE_OK)
         return valid;
-    if (!detail::checked_multiply(
+    if (!checked_multiply(
             span.count, detail::wire_size(^^Element), &bytes)
         || !detail::byte_range(view.bytes.size, span.offset, bytes))
         return ANO_RESOURCE_OUT_OF_BOUNDS;
@@ -1629,13 +1602,14 @@ constexpr AnoResourceError visit_span(
 
 static_assert([] {
     uint64_t value = 0;
-    return detail::checked_add(4, 5, &value) && value == 9
-        && !detail::checked_add(UINT64_MAX, 1, &value);
+    return checked_add(UINT64_C(4), UINT64_C(5), &value) && value == 9
+        && !checked_add(UINT64_MAX, UINT64_C(1), &value);
 }());
 static_assert([] {
     uint64_t value = 0;
-    return detail::checked_multiply(7, 9, &value) && value == 63
-        && !detail::checked_multiply(UINT64_MAX, 2, &value);
+    return checked_multiply(UINT64_C(7), UINT64_C(9), &value)
+        && value == 63
+        && !checked_multiply(UINT64_MAX, UINT64_C(2), &value);
 }());
 
 } // namespace ano

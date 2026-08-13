@@ -73,28 +73,22 @@ struct AnoResourceReload {
 
 namespace {
 
-bool content_equal(const AnoContentId& left, const AnoContentId& right)
-{
-    return ano::detail::bytes_equal(
-        left.bytes, right.bytes, sizeof(left.bytes));
-}
-
 AnoManifestId revision_manifest_id(const AnoCookedRevision *revision)
 {
     ano::detail::Sha256 hash;
     ano::detail::hash_u64(hash, revision->itemCount);
     ano::detail::hash_u64(hash, revision->dependencyCount);
     for (uint64_t i = 0; i < revision->itemCount; ++i) {
-        const AnoResourceRevisionItem& item = revision->items[i];
-        ano::detail::hash_u64(hash, item.asset.value);
-        ano::detail::hash_u64(hash, item.type.value);
-        ano::detail::hash_u64(hash, item.producer);
-        hash.append(item.inputIdentity.bytes,
-                    sizeof(item.inputIdentity.bytes));
-        ano::detail::hash_u64(hash, item.commitGroup.value);
-        hash.append(item.schema.bytes, sizeof(item.schema.bytes));
-        hash.append(item.content.bytes, sizeof(item.content.bytes));
-        ano::detail::hash_u64(hash, item.dependencyCount);
+        const AnoResourceManifestEntry& entry = revision->entries[i];
+        ano::detail::hash_u64(hash, entry.asset.value);
+        ano::detail::hash_u64(hash, entry.type.value);
+        ano::detail::hash_u64(hash, entry.producer);
+        hash.append(entry.inputIdentity.bytes,
+                    sizeof(entry.inputIdentity.bytes));
+        ano::detail::hash_u64(hash, entry.commitGroup.value);
+        hash.append(entry.schema.bytes, sizeof(entry.schema.bytes));
+        hash.append(entry.content.bytes, sizeof(entry.content.bytes));
+        ano::detail::hash_u64(hash, entry.dependencyCount);
     }
     for (uint64_t i = 0; i < revision->dependencyCount; ++i) {
         ano::detail::hash_u64(hash, revision->dependencies[i].asset.value);
@@ -149,17 +143,16 @@ AnoResourceError build_demand(
     uint64_t stackCount = 0;
     for (uint64_t i = 0; i < goalCount; ++i) {
         const AnoResourceGoal& goal = goals[i];
-        const AnoResourceRevisionItem *root = nullptr;
-        AnoResourceError result = ano_resource_revision_item(
-            revision, goal.asset, &root);
-        if (result != ANO_RESOURCE_OK)
-            return result;
+        const AnoResourceManifestEntry *root = ano_resource_revision_entry(
+            revision, goal.asset);
+        if (root == nullptr)
+            return ANO_RESOURCE_NOT_FOUND;
         if (root->type.value != goal.type.value)
             return ANO_RESOURCE_TYPE_MISMATCH;
         if (root->commitGroup.value != goal.commitGroup.value)
             return ANO_RESOURCE_BAD_MANIFEST;
         for (uint64_t j = 0; j < assetCount; ++j)
-            if (revision->items[j].commitGroup.value
+            if (revision->entries[j].commitGroup.value
                     == goal.commitGroup.value
                 && demanded[j] == 0) {
                 demanded[j] = 1;
@@ -167,11 +160,11 @@ AnoResourceError build_demand(
             }
     }
     while (stackCount != 0) {
-        const AnoResourceRevisionItem& item =
-            revision->items[stack[--stackCount]];
-        for (uint64_t i = 0; i < item.dependencyCount; ++i) {
+        const AnoResourceManifestEntry& entry =
+            revision->entries[stack[--stackCount]];
+        for (uint64_t i = 0; i < entry.dependencyCount; ++i) {
             const AnoResourceDependency& dependency =
-                revision->dependencies[item.dependencyFirst + i];
+                revision->dependencies[entry.dependencyFirst + i];
             const uint64_t target = dependency.asset.value - 1;
             if (target >= assetCount)
                 return ANO_RESOURCE_BAD_MANIFEST;
@@ -229,7 +222,7 @@ AnoResourceError build_epoch(
     for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i) {
         if (demanded[i] == 0)
             continue;
-        ano::MemoryVolume *owner = revision->items[i].volume;
+        ano::MemoryVolume *owner = revision->storage[i].volume;
         bool known = false;
         for (uint64_t j = 0; j < ownerCount; ++j)
             known |= ownerCandidates[j] == owner;
@@ -259,26 +252,26 @@ AnoResourceError build_epoch(
 
     auto bindings = result == ANO_RESOURCE_OK
         ? ano::memory_volume_write(volume, plan.bindings)
-        : ano::MemorySpan<ResidencyBinding>{};
+        : std::span<ResidencyBinding>{};
     auto changed = result == ANO_RESOURCE_OK
         ? ano::memory_volume_write(volume, plan.changed)
-        : ano::MemorySpan<AnoAssetId>{};
+        : std::span<AnoAssetId>{};
     auto retainedVolumes = result == ANO_RESOURCE_OK
         ? ano::memory_volume_write(volume, plan.retainedVolumes)
-        : ano::MemorySpan<ano::MemoryVolume *>{};
+        : std::span<ano::MemoryVolume *>{};
     if (result == ANO_RESOURCE_OK && assetCount != 0
         && bindings.data() == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
 
     for (uint64_t i = 0; i < assetCount && result == ANO_RESOURCE_OK; ++i) {
         bindings[i] = {
-            .type = revision->items[i].type,
-            .content = revision->items[i].content,
-            .dependencyFirst = revision->items[i].dependencyFirst,
-            .dependencyCount = revision->items[i].dependencyCount,
-            .volume = demanded[i] != 0 ? revision->items[i].volume : nullptr,
+            .type = revision->entries[i].type,
+            .content = revision->entries[i].content,
+            .dependencyFirst = revision->entries[i].dependencyFirst,
+            .dependencyCount = revision->entries[i].dependencyCount,
+            .volume = demanded[i] != 0 ? revision->storage[i].volume : nullptr,
             .artifact = demanded[i] != 0
-                ? revision->items[i].artifact : ano::MemoryReservation{},
+                ? revision->storage[i].artifact : ano::MemoryReservation{},
             .resident = demanded[i] != 0,
         };
     }
@@ -295,7 +288,7 @@ AnoResourceError build_epoch(
             break;
         }
         if (hasOld != hasNew
-            || (hasOld && (!content_equal(
+            || (hasOld && (!ano_resource_content_id_equal(
                     previous->bindings[i].content, bindings[i].content)
                 || previous->bindings[i].resident
                     != bindings[i].resident)))
@@ -311,8 +304,8 @@ AnoResourceError build_epoch(
         }
         retainedVolumes[retainedCount] = ownerCandidates[retainedCount];
     }
-    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(volume))
-        result = ANO_RESOURCE_OUT_OF_MEMORY;
+    if (result == ANO_RESOURCE_OK)
+        ano::memory_volume_seal(volume);
     if (result == ANO_RESOURCE_OK) {
         atomic_init(&candidate->references, UINT64_C(1));
         candidate->id = id;
@@ -429,8 +422,10 @@ extern "C" AnoResourceError ano_resource_goal_set(
     AnoResourceError result = lock_manager(manager);
     if (result != ANO_RESOURCE_OK)
         return result;
-    const AnoResourceRevisionItem *item = nullptr;
-    result = ano_resource_revision_item(manager->revision, goal.asset, &item);
+    const AnoResourceManifestEntry *item = ano_resource_revision_entry(
+        manager->revision, goal.asset);
+    if (item == nullptr)
+        result = ANO_RESOURCE_NOT_FOUND;
     if (result == ANO_RESOURCE_OK && item->type.value != goal.type.value)
         result = ANO_RESOURCE_TYPE_MISMATCH;
     if (result == ANO_RESOURCE_OK
@@ -445,17 +440,14 @@ extern "C" AnoResourceError ano_resource_goal_set(
         }
     if (result == ANO_RESOURCE_OK && index == manager->goalCount) {
         if (manager->goalCount == manager->goalCapacity) {
-            const uint64_t capacity = manager->goalCapacity == 0
-                ? 4 : manager->goalCapacity * 2;
-            size_t bytes = 0;
-            if (capacity < manager->goalCapacity
-                || !ano::detail::checked_allocation_size(
-                    capacity, sizeof(AnoResourceGoal), &bytes)) {
+            uint64_t required = 0;
+            if (!ano::checked_add(
+                    manager->goalCount, UINT64_C(1), &required)
+                || required > SIZE_MAX / sizeof(AnoResourceGoal)) {
                 result = ANO_RESOURCE_OVERFLOW;
-            } else if (void *grown = mi_realloc(manager->goals, bytes)) {
-                manager->goals = static_cast<AnoResourceGoal *>(grown);
-                manager->goalCapacity = capacity;
-            } else {
+            } else if (!ano::reserve_array(
+                           manager->goals, manager->goalCapacity,
+                           required, 4)) {
                 result = ANO_RESOURCE_OUT_OF_MEMORY;
             }
         }
@@ -681,12 +673,13 @@ extern "C" AnoResourceError ano_resource_epoch_resolve(
         return ANO_RESOURCE_TYPE_MISMATCH;
     if (!binding.resident)
         return ANO_RESOURCE_NOT_FOUND;
-    ano::MemoryView view{};
-    if (!ano::memory_volume_view(binding.volume, binding.artifact, view))
+    const std::span<const uint8_t> view = ano::memory_volume_view(
+        binding.volume, binding.artifact);
+    if (view.size() != binding.artifact.size)
         return ANO_RESOURCE_BAD_MANIFEST;
     *bytes = {
-        .data = static_cast<const uint8_t *>(view.data),
-        .size = view.size,
+        .data = view.data(),
+        .size = view.size(),
     };
     return ANO_RESOURCE_OK;
 }

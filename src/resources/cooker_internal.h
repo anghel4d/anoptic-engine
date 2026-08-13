@@ -29,24 +29,16 @@ struct AnoResourcePackItem final {
     ano::MemoryReservation reservation;
 };
 
-struct AnoResourceRevisionItem final {
-    AnoAssetId asset;
+struct AnoResourceRevisionStorage final {
     AnoResourceSourceId source;
-    AnoResourceTypeId type;
-    uint64_t producer;
-    AnoContentId inputIdentity;
-    AnoResourceCommitGroupId commitGroup;
-    AnoSchemaFingerprint schema;
-    AnoContentId content;
-    uint64_t dependencyFirst;
-    uint64_t dependencyCount;
     ano::MemoryVolume *volume;
     ano::MemoryReservation artifact;
 };
 
 struct AnoCookedRevision final {
     size_t references;
-    AnoResourceRevisionItem *items;
+    AnoResourceManifestEntry *entries;
+    AnoResourceRevisionStorage *storage;
     uint64_t itemCount;
     AnoResourceDependency *dependencies;
     uint64_t dependencyCount;
@@ -98,7 +90,7 @@ AnoResourceError validate_dependency_graph(
                         &dependency) >= 0))
                 return ANO_RESOURCE_BAD_MANIFEST;
         }
-        if (!ano::detail::checked_add(
+        if (!ano::checked_add(
                 dependencyCursor, item.dependencyCount, &dependencyCursor))
             return ANO_RESOURCE_BAD_MANIFEST;
     }
@@ -106,7 +98,7 @@ AnoResourceError validate_dependency_graph(
         return ANO_RESOURCE_BAD_MANIFEST;
 
     uint64_t stackCount = 0;
-    if (!ano::detail::checked_multiply(itemCount, UINT64_C(2), &stackCount)
+    if (!ano::checked_multiply(itemCount, UINT64_C(2), &stackCount)
         || stackCount > SIZE_MAX / sizeof(uint64_t))
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *state = itemCount == 0 ? nullptr
@@ -188,9 +180,8 @@ AnoResourceError ano_resource_cooker_action_required(
     AnoResourceCommitGroupId commitGroup, AnoContentId inputIdentity,
     bool *required);
 AnoResourceError ano_resource_revision_validate(const AnoCookedRevision *revision);
-AnoResourceError ano_resource_revision_item(
-    const AnoCookedRevision *revision, AnoAssetId asset,
-    const AnoResourceRevisionItem **item);
+const AnoResourceManifestEntry *ano_resource_revision_entry(
+    const AnoCookedRevision *revision, AnoAssetId asset);
 AnoResourceError ano_resource_revision_dependencies(
     const AnoCookedRevision *revision, AnoAssetId asset,
     const AnoResourceDependency **dependencies, uint64_t *count);

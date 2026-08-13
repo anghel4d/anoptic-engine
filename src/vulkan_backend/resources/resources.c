@@ -528,8 +528,8 @@ AnoResourceError prepare_decoded(
     uint64_t bytes = 0;
     if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0
-        || !ano::detail::checked_multiply(texture.width, texture.height, &pixels)
-        || !ano::detail::checked_multiply(pixels, 4, &bytes)
+        || !ano::checked_multiply(texture.width, texture.height, &pixels)
+        || !ano::checked_multiply(pixels, UINT64_C(4), &bytes)
         || bytes != texture.bytes.count || bytes > SIZE_MAX)
         return ANO_RESOURCE_NON_CANONICAL;
     const ano::ArtifactView<schema::Texture> view = {
@@ -868,9 +868,9 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
         return false;
     uint64_t pixelCount = 0;
     uint64_t requiredBytes = 0;
-    if (!ano::detail::checked_multiply(texture.width, texture.height,
+    if (!ano::checked_multiply(texture.width, texture.height,
                                        &pixelCount)
-        || !ano::detail::checked_multiply(pixelCount, 4, &requiredBytes)
+        || !ano::checked_multiply(pixelCount, UINT64_C(4), &requiredBytes)
         || requiredBytes != texture.bytes.count || requiredBytes > SIZE_MAX)
         return false;
     RenderBinding* target = binding(

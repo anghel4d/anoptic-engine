@@ -16,7 +16,6 @@ struct MemoryVolume final {
     MemoryRegion region;
     unsigned char *data;
     size_t size;
-    size_t alignment;
     size_t references;
     unsigned sealed;
 };
@@ -109,7 +108,6 @@ MemoryVolume *memory_volume_create(MemoryLayoutCursor layout) noexcept
         }
     }
     volume->size = layout.size;
-    volume->alignment = layout.alignment;
     __atomic_store_n(&volume->references, size_t{1}, __ATOMIC_RELAXED);
     __atomic_store_n(&volume->sealed, 0u, __ATOMIC_RELAXED);
     return volume;
@@ -140,58 +138,34 @@ void memory_volume_release(MemoryVolume *volume) noexcept
     mi_free(volume);
 }
 
-size_t memory_volume_size(const MemoryVolume *volume) noexcept
+std::span<uint8_t> memory_volume_write(
+    MemoryVolume *volume, MemoryReservation reservation) noexcept
 {
-    return volume == nullptr ? 0 : volume->size;
-}
-
-size_t memory_volume_alignment(const MemoryVolume *volume) noexcept
-{
-    return volume == nullptr ? 0 : volume->alignment;
-}
-
-bool memory_volume_write(MemoryVolume *volume,
-                         MemoryReservation reservation,
-                         MemoryMutableView& view) noexcept
-{
-    view = {};
     if (volume == nullptr
         || __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) != 0
         || !reservation_fits(volume, reservation))
-        return false;
-    view.data = reservation.size == 0
-        ? nullptr : volume->data + reservation.offset;
-    view.size = reservation.size;
-    return true;
+        return {};
+    return {reservation.size == 0
+                ? nullptr : volume->data + reservation.offset,
+            reservation.size};
 }
 
-bool memory_volume_seal(MemoryVolume *volume) noexcept
+void memory_volume_seal(MemoryVolume *volume) noexcept
 {
-    if (volume == nullptr)
-        return false;
-    __atomic_store_n(&volume->sealed, 1u, __ATOMIC_RELEASE);
-    return true;
+    if (volume != nullptr)
+        __atomic_store_n(&volume->sealed, 1u, __ATOMIC_RELEASE);
 }
 
-bool memory_volume_is_sealed(const MemoryVolume *volume) noexcept
+std::span<const uint8_t> memory_volume_view(
+    const MemoryVolume *volume, MemoryReservation reservation) noexcept
 {
-    return volume != nullptr
-        && __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) != 0;
-}
-
-bool memory_volume_view(const MemoryVolume *volume,
-                        MemoryReservation reservation,
-                        MemoryView& view) noexcept
-{
-    view = {};
     if (volume == nullptr
         || __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) == 0
         || !reservation_fits(volume, reservation))
-        return false;
-    view.data = reservation.size == 0
-        ? nullptr : volume->data + reservation.offset;
-    view.size = reservation.size;
-    return true;
+        return {};
+    return {reservation.size == 0
+                ? nullptr : volume->data + reservation.offset,
+            reservation.size};
 }
 
 } // namespace ano

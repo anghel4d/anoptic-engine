@@ -14,9 +14,93 @@
 
 #include <cstddef>
 #include <meta>
+#include <span>
 #include <type_traits>
 
 namespace ano {
+
+namespace detail {
+
+template<Data T>
+[[nodiscard]] bool array_growth(
+    uint64_t capacity, uint64_t required, uint64_t initialCapacity,
+    uint64_t& grown, size_t& bytes) noexcept
+{
+    if (required > SIZE_MAX / sizeof(T))
+        return false;
+    grown = capacity == 0
+        ? (initialCapacity == 0 ? 1 : initialCapacity) : capacity;
+    while (grown < required) {
+        if (grown > (SIZE_MAX / sizeof(T)) / 2) {
+            grown = required;
+            break;
+        }
+        grown *= UINT64_C(2);
+    }
+    return checked_allocation_size(grown, uint64_t{sizeof(T)}, &bytes);
+}
+
+} // namespace detail
+
+template<Data T>
+[[nodiscard]] bool reserve_array(
+    T *&values, uint64_t& capacity, uint64_t required,
+    uint64_t initialCapacity = 8) noexcept
+{
+    if (required <= capacity)
+        return values != nullptr || capacity == 0;
+    uint64_t grown = 0;
+    size_t bytes = 0;
+    if ((capacity != 0 && values == nullptr)
+        || !detail::array_growth<T>(
+            capacity, required, initialCapacity, grown, bytes))
+        return false;
+    void *allocation = mi_realloc(values, bytes);
+    if (allocation == nullptr)
+        return false;
+    values = static_cast<T *>(allocation);
+    capacity = grown;
+    return true;
+}
+
+template<Data T>
+[[nodiscard]] bool reserve_zeroed_array(
+    T *&values, uint64_t& capacity, uint64_t required,
+    uint64_t initialCapacity = 8) noexcept
+{
+    const uint64_t previous = capacity;
+    if (!reserve_array(values, capacity, required, initialCapacity))
+        return false;
+    if (capacity != previous)
+        memset(values + previous, 0,
+               static_cast<size_t>(capacity - previous) * sizeof(T));
+    return true;
+}
+
+template<Data T>
+[[nodiscard]] bool reserve_region_array(
+    MemoryRegion *region, T *&values, uint64_t count,
+    uint64_t& capacity, uint64_t required,
+    uint64_t initialCapacity = 8) noexcept
+{
+    if (required <= capacity)
+        return count <= capacity && (values != nullptr || capacity == 0);
+    uint64_t grown = 0;
+    size_t bytes = 0;
+    if (count > capacity || (capacity != 0 && values == nullptr)
+        || !detail::array_growth<T>(
+            capacity, required, initialCapacity, grown, bytes))
+        return false;
+    T *replacement = static_cast<T *>(
+        memory_region_allocate_zero(region, bytes, alignof(T)));
+    if (replacement == nullptr)
+        return false;
+    if (count != 0)
+        memcpy(replacement, values, static_cast<size_t>(count) * sizeof(T));
+    values = replacement;
+    capacity = grown;
+    return true;
+}
 
 // Standard allocator surface backed directly by mimalloc. Containers using
 // it remain independent of the C++ runtime; allocation failure is terminal in
@@ -122,47 +206,34 @@ template<class Plan>
     return cursor;
 }
 
-template<class T>
-struct MemorySpan final {
-    T *values = nullptr;
-    size_t count = 0;
-
-    [[nodiscard]] constexpr T *data() const noexcept { return values; }
-    [[nodiscard]] constexpr size_t size() const noexcept { return count; }
-    [[nodiscard]] constexpr bool empty() const noexcept { return count == 0; }
-    [[nodiscard]] constexpr T& operator[](size_t index) const noexcept
-    {
-        assume(index < count);
-        return values[index];
-    }
-};
-
 template<Data T, size_t Alignment>
-[[nodiscard]] MemorySpan<T> memory_volume_write(
+[[nodiscard]] std::span<T> memory_volume_write(
     MemoryVolume *volume, MemorySegment<T, Alignment> segment) noexcept
 {
     if ((segment.reservation.offset & (alignof(T) - 1)) != 0
         || segment.reservation.size % sizeof(T) != 0
         || segment.reservation.size / sizeof(T) != segment.count)
         return {};
-    MemoryMutableView view{};
-    if (!memory_volume_write(volume, segment.reservation, view))
+    const std::span<uint8_t> view = memory_volume_write(
+        volume, segment.reservation);
+    if (view.size() != segment.reservation.size)
         return {};
-    return {static_cast<T *>(view.data), segment.count};
+    return {reinterpret_cast<T *>(view.data()), segment.count};
 }
 
 template<Data T, size_t Alignment>
-[[nodiscard]] MemorySpan<const T> memory_volume_view(
+[[nodiscard]] std::span<const T> memory_volume_view(
     const MemoryVolume *volume, MemorySegment<T, Alignment> segment) noexcept
 {
     if ((segment.reservation.offset & (alignof(T) - 1)) != 0
         || segment.reservation.size % sizeof(T) != 0
         || segment.reservation.size / sizeof(T) != segment.count)
         return {};
-    MemoryView view{};
-    if (!memory_volume_view(volume, segment.reservation, view))
+    const std::span<const uint8_t> view = memory_volume_view(
+        volume, segment.reservation);
+    if (view.size() != segment.reservation.size)
         return {};
-    return {static_cast<const T *>(view.data), segment.count};
+    return {reinterpret_cast<const T *>(view.data()), segment.count};
 }
 
 template<Data T>

@@ -490,9 +490,9 @@ RCRG uses the engine-wide memory substrate rather than defining an asset
 allocator hierarchy. `ano::MemoryRegion` is a mimalloc lifetime domain whose
 reset or destruction winks out all subordinate allocations after quiescence.
 `ano::MemoryVolume` owns one aligned contiguous allocation inside an exclusive
-region, accepts bounded reservation writes during construction, seals once, and
-thereafter exposes only immutable bounded views. A volume has one owner-level
-reference count; its internal spans have none.
+region, accepts bounded reservation writes as `std::span` during construction,
+seals once, and thereafter exposes only immutable bounded spans. A volume has
+one owner-level reference count; its internal spans have none.
 
 Layout declarations are ordinary records of `MemorySegment<T, Alignment>`.
 C++26 reflection verifies every member and derives segment type and alignment;
@@ -506,9 +506,11 @@ volumes a new revision retains, when a volume seals, and when the last epoch or
 revision releases it. Published spans are never rewritten. Changed artifacts
 are measured into bounded volumes grouped by reflected type and commit group;
 an artifact larger than the target volume size occupies its own volume. A
-successor revision owns one dense metadata volume, retains each distinct
-unchanged or changed artifact volume once, and refers to artifacts by
-`{owner, offset, size}`. The final owner reference winks out a retired volume.
+successor revision owns one dense metadata volume. Its semantic columns are the
+manifest entries themselves; a parallel private row contains only source
+identity and `{owner, offset, size}`. It retains each distinct unchanged or
+changed artifact volume once. The final owner reference winks out a retired
+volume.
 
 A residency epoch owns only its dense binding and changed-ID columns. It retains
 the revision metadata volume needed by its dependency rows plus the distinct
@@ -516,7 +518,8 @@ artifact volumes in its demanded closure. It does not retain the complete
 revision and does not copy artifact payloads into an epoch arena.
 
 The cooker is long-lived. Stable-address source and artifact instance records,
-their current action/result pair, and one worker group survive transactions.
+their current action keys, the immutable revision results, and one worker group
+survive transactions.
 Each source file is opened once per acquisition, read into one exact immutable
 snapshot, hashed from those bytes, and rejected if its metadata changes during
 the read. External source files are read and hashed by the persistent executor.
@@ -526,9 +529,10 @@ encode directly into disjoint final reservations;
 validation, schema lookup, content hashing, and reflected dependency extraction
 finish while those bytes are cache-hot. The resulting opaque revision carries
 that validation fact, so trusted runtime consumers do not rescan or rehash its
-artifacts. A dense selected-producer adjacency
-representation computes only the dirty consequence cone. Equal action keys
-reuse their current span, and equal output content stops upward invalidation.
+artifacts. Instance edges are materialized only for dependency, navigation, or
+fan-out work that consumes them; no duplicate reverse graph is built solely to
+record an unread dirty state. Equal action keys reuse their current span, and
+equal output content stops upward invalidation.
 
 Runtime SHA-256 uses SHA-NI where the CPU provides it and the scalar standard
 algorithm otherwise. Bulk byte movement remains tuned `memcpy`; image decoding

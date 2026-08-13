@@ -67,6 +67,8 @@ static inline ANO_MEMORY_CONSTEXPR bool ano_size_align(
 #undef ANO_MEMORY_CONSTEXPR
 
 #ifdef __cplusplus
+#include <span>
+
 extern "C" {
 #endif
 
@@ -149,16 +151,6 @@ struct MemoryLayoutCursor final {
     }
 };
 
-struct MemoryMutableView final {
-    void *data = nullptr;
-    size_t size = 0;
-};
-
-struct MemoryView final {
-    const void *data = nullptr;
-    size_t size = 0;
-};
-
 struct MemoryRegion;
 struct MemoryVolume;
 
@@ -179,18 +171,11 @@ void memory_region_destroy(MemoryRegion *region) noexcept;
     MemoryLayoutCursor layout) noexcept;
 [[nodiscard]] bool memory_volume_retain(MemoryVolume *volume) noexcept;
 void memory_volume_release(MemoryVolume *volume) noexcept;
-[[nodiscard]] size_t memory_volume_size(const MemoryVolume *volume) noexcept;
-[[nodiscard]] size_t memory_volume_alignment(
-    const MemoryVolume *volume) noexcept;
-[[nodiscard]] bool memory_volume_write(
-    MemoryVolume *volume, MemoryReservation reservation,
-    MemoryMutableView& view) noexcept;
-[[nodiscard]] bool memory_volume_seal(MemoryVolume *volume) noexcept;
-[[nodiscard]] bool memory_volume_is_sealed(
-    const MemoryVolume *volume) noexcept;
-[[nodiscard]] bool memory_volume_view(
-    const MemoryVolume *volume, MemoryReservation reservation,
-    MemoryView& view) noexcept;
+[[nodiscard]] std::span<uint8_t> memory_volume_write(
+    MemoryVolume *volume, MemoryReservation reservation) noexcept;
+void memory_volume_seal(MemoryVolume *volume) noexcept;
+[[nodiscard]] std::span<const uint8_t> memory_volume_view(
+    const MemoryVolume *volume, MemoryReservation reservation) noexcept;
 
 } // namespace ano
 #endif

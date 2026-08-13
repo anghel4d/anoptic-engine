@@ -76,17 +76,8 @@ AnoResourceError ano_resource_cook(AnoResourceCooker *cooker,
 AnoResourceError ano_resource_revision_retain(
     const AnoCookedRevision *revision);
 void ano_resource_revision_release(const AnoCookedRevision *revision);
-uint64_t ano_resource_revision_asset_count(const AnoCookedRevision *revision);
 AnoResourceError ano_resource_revision_resolve(
     const AnoCookedRevision *revision, AnoAssetId asset,
-    AnoResourceTypeId requiredType, AnoResourceBytes *bytes);
-uint64_t ano_resource_cooker_executed_actions(
-    const AnoResourceCooker *cooker);
-uint64_t ano_resource_cooker_allocated_artifacts(
-    const AnoResourceCooker *cooker);
-// Borrows an artifact from the cooker's currently published revision.
-AnoResourceError ano_resource_cooker_current_resolve(
-    const AnoResourceCooker *cooker, AnoAssetId asset,
     AnoResourceTypeId requiredType, AnoResourceBytes *bytes);
 void ano_resource_cooker_cancel(AnoResourceCooker *cooker);
 

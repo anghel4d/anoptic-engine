@@ -178,9 +178,12 @@ static void test_pack_round_trip(void)
     CHECK(ano_resource_pack_view(opened, {1}, &firstView) == ANO_RESOURCE_OK
           && ano_resource_pack_view(opened, {2}, &secondView)
               == ANO_RESOURCE_OK
-          && firstView.data == secondView.data
           && firstView.size == secondView.size,
-          "identical content occupies one physical pack extent");
+          "identical artifacts expose equal public ranges");
+    CHECK(firstView.size == texture.size
+          && memcmp(firstView.data, secondView.data,
+                    static_cast<size_t>(firstView.size)) == 0,
+          "equal public ranges retain identical canonical bytes");
     CHECK(materialEntry.type.value == materialType.value
           && materialEntry.dependencyCount == 1,
           "material manifest entry retains its reflected type and dependency");

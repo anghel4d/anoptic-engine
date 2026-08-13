@@ -148,11 +148,6 @@ AnoResourceError add_lighting(
     AnoResourceCooker *cooker, ano::AssetRef<Scene> asset,
     const SceneLight (&lights)[Count])
 {
-    AnoResourceBytes current{};
-    if (ano_resource_cooker_current_resolve(
-            cooker, asset.id, ano::resource_type_id<Scene>(), &current)
-        == ANO_RESOURCE_OK)
-        return ANO_RESOURCE_OK;
     const Scene scene = {
         .renderables = {0, 0},
         .lights = {0, Count},

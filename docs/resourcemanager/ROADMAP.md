@@ -439,10 +439,10 @@ not individual object ownership.
 
 A `MemoryVolume` owns an exclusive region and one explicitly contiguous,
 aligned payload. Construction receives a checked `MemoryLayoutCursor`, permits
-bounded writes through trivial `{offset, size}` reservations, seals once, and
-then exposes only bounded immutable views. One owner-level reference count
-retains the complete volume. No payload allocation carries its own reference
-count, free-list entry, or teardown callback.
+bounded `std::span` writes through trivial `{offset, size}` reservations, seals
+once, and then exposes only bounded immutable spans. One owner-level reference
+count retains the complete volume. No payload allocation carries its own
+reference count, free-list entry, or teardown callback.
 
 The C++26 extension declares layouts as ordinary records of
 `MemorySegment<T, Alignment>` fields. `reflect_memory_plan` inspects the actual
@@ -451,7 +451,8 @@ performs the checked aligned prefix sum with runtime element counts:
 
 ```cpp
 struct RevisionPlan final {
-    MemorySegment<RevisionItem> items;
+    MemorySegment<AnoResourceManifestEntry> entries;
+    MemorySegment<RevisionStorage> storage;
     MemorySegment<Dependency> dependencies;
     MemorySegment<MemoryVolume *> retainedVolumes;
 };
@@ -464,8 +465,9 @@ The resource policy applies this mechanism as follows:
    bounded volumes, isolates oversized artifacts, assigns aligned reservations
    once, fills disjoint ranges in parallel, and seals each volume.
 3. Unchanged revision items retain prior volumes once per distinct volume.
-4. Opened shipping packs keep copied bytes, decoded manifest columns, and
-   physical placements in one sealed volume.
+4. Opened shipping packs keep copied bytes, decoded manifest columns, and the
+   minimal revision storage row in one sealed volume. Physical placements are
+   authenticated during opening and then discarded.
 5. Residency epochs keep only dense bindings, changed IDs, and retained-owner
    rows in a sealed volume. They retain revision metadata plus the artifact
    volumes in the demanded closure, not the complete cooked revision.
@@ -583,8 +585,9 @@ The cooker evaluates asset instances. It does not rebuild the C++ type graph and
 does not require engine recompilation when an asset is added.
 
 `AnoResourceCooker` is a long-lived evaluator. Stable-address source and
-artifact-instance records live in `ano::hive`; each artifact node retains only
-its current successful action/result pair. One persistent executor belongs to
+artifact-instance records live in `ano::hive`; each artifact node retains its
+current successful action key while the immutable revision owns its result.
+One persistent executor belongs to
 the cooker, its caller participates in every batch, and background workers reset
 private scratch regions between batches. No cook or reload creates another
 worker group.
@@ -610,9 +613,12 @@ candidate change; it never substitutes for content identity. Candidate source
 snapshots and topology inventories publish transactionally with their cooked
 revision, so a failed cook preserves the complete prior source/result pair.
 
-Candidate revisions compile the persistent graph into dense nodes plus forward
-and reverse adjacency. Dirty propagation traverses only selected-producer reverse
-edges. Changed artifacts encode directly into disjoint final reservations.
+Candidate revisions compile semantic metadata directly into manifest entries
+plus minimal `{source, volume, reservation}` storage rows. Runtime instance
+edges are materialized only when a dependency, navigation, or fan-out query
+consumes them; the cooker does not construct a second reverse graph merely for
+bookkeeping. Selected producers compare current action keys before execution.
+Changed artifacts encode directly into disjoint final reservations.
 Validation, schema lookup, SHA-256, and reflected dependency extraction complete
 in the encoding worker phase. The opaque revision records successful validation,
 so manager construction and explicit pack export do not repeat those scans. An
