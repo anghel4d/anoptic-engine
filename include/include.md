@@ -22,6 +22,8 @@ Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
 namespace `ano`. Reflected resource-cell declarations live in
 `ano::asset_schema`. Platform types, foreign-library types, private allocation
 policy, and backend objects do not cross this directory.
+Portability is a property of each module's interpretation, not a module of its
+own.
 
 ## Public type laws
 

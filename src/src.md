@@ -24,6 +24,8 @@ private state.
    accidental shared service locator.
 3. Platform files are alternate natural transformations from one public
    protocol into OS effects. Platform choice does not alter the protocol.
+   Portability is a property of each module's interpretation, not a module of
+   its own.
 4. Reflection compiles a declared sum, product, schema, transform family, or
    ABI into direct code. Private code does not re-declare the same inventory as
    a switch table, callback registry, or parallel descriptor graph.
