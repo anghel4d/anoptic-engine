@@ -53,5 +53,21 @@ theorem render_respects_stream_equality (state : State)
     render state left frames = render state right frames :=
   same ▸ rfl
 
+@[simp] theorem replicate_append (first second : Nat) (value : Int) :
+    List.replicate first value ++ List.replicate second value =
+      List.replicate (first + second) value := by
+  induction first with
+  | zero => simp
+  | succ first induction => simp [List.replicate_succ, induction, Nat.succ_add]
+
+theorem render_chunks_compose (state : State) (inputs : List Input)
+    (firstCount secondCount : Nat) :
+    let first := render state inputs ⟨0, firstCount⟩
+    let second := render first.state [] ⟨firstCount, secondCount⟩
+    second.state = (render state inputs ⟨0, firstCount + secondCount⟩).state ∧
+      first.busSamples ++ second.busSamples =
+        (render state inputs ⟨0, firstCount + secondCount⟩).busSamples := by
+  simp [render, Nat.add_assoc]
+
 end Synth
 end Anoptic

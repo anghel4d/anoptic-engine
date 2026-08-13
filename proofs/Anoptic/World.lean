@@ -37,6 +37,13 @@ theorem deriveDemandDelta_applies (previous current : Demand) :
   simp [applyDemandDelta, deriveDemandDelta]
   cases previous asset <;> cases current asset <;> rfl
 
+theorem demand_deltas_compose (first middle last : Demand) :
+    applyDemandDelta
+        (applyDemandDelta first (deriveDemandDelta first middle))
+        (deriveDemandDelta middle last) = last := by
+  rw [deriveDemandDelta_applies]
+  exact deriveDemandDelta_applies middle last
+
 theorem removal_retracts (previous current : Demand) (asset : Nat)
     (wasPresent : previous asset = true) (isAbsent : current asset = false) :
     (deriveDemandDelta previous current).removed asset = true := by

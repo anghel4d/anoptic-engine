@@ -7,6 +7,7 @@ Anoptic targets ISO C++26.
 
 import Anoptic.Render
 import Anoptic.Resource
+import Anoptic.Composition
 
 namespace Anoptic
 
@@ -46,6 +47,24 @@ theorem Interpreter.deterministic (interpreter : Interpreter Resident View)
     interpreter.run state resident commands view =
       interpreter.run state resident commands view :=
   rfl
+
+def Interpreter.stateful (interpreter : Interpreter Resident View) :
+    Composition.Stateful SessionState
+      (Resident × List Render.Command × View)
+      (PresentedFrame × List Render.Event) where
+  run := fun input state =>
+    let result := interpreter.run state input.1 input.2.1 input.2.2
+    ((result.frame, result.events), result.state)
+
+theorem stateful_composition_assoc
+    (first : Composition.Stateful SessionState A B)
+    (second : Composition.Stateful SessionState B C)
+    (third : Composition.Stateful SessionState C D) :
+    Composition.Stateful.compose
+        (Composition.Stateful.compose first second) third =
+      Composition.Stateful.compose first
+        (Composition.Stateful.compose second third) :=
+  Composition.Stateful.compose_assoc first second third
 
 end Vulkan
 end Anoptic

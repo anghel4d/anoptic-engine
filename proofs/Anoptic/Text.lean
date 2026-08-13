@@ -37,6 +37,16 @@ def bakeFace (face : Face) (glyphs : List Nat) : Bake :=
 def makeAtlas (bake : Bake) (textureIdentity : Nat) : Atlas :=
   ⟨bake, textureIdentity⟩
 
+def openBakeAtlas (source : FontSource) (faceIndex : Nat)
+    (glyphs : List Nat) (textureIdentity : Nat) : Atlas :=
+  makeAtlas (bakeFace (openFace source faceIndex) glyphs) textureIdentity
+
+theorem open_bake_atlas_composes (source : FontSource) (faceIndex : Nat)
+    (glyphs : List Nat) (textureIdentity : Nat) :
+    openBakeAtlas source faceIndex glyphs textureIdentity =
+      (makeAtlas (bakeFace (openFace source faceIndex) glyphs) textureIdentity) :=
+  rfl
+
 @[simp] theorem atlas_retains_source (source : FontSource) (faceIndex : Nat)
     (glyphs : List Nat) (textureIdentity : Nat) :
     (makeAtlas (bakeFace (openFace source faceIndex) glyphs)

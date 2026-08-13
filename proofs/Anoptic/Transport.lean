@@ -118,6 +118,31 @@ structure Publication (Left : Type u) (Right : Type v) where
   left : Left
   right : Right
 
+def Publication.bimap (leftMap : LeftA → LeftB) (rightMap : RightA → RightB)
+    (publication : Publication LeftA RightA) : Publication LeftB RightB :=
+  ⟨publication.generation, leftMap publication.left, rightMap publication.right⟩
+
+@[simp] theorem Publication.bimap_id
+    (publication : Publication Left Right) :
+    publication.bimap id id = publication := by
+  cases publication
+  rfl
+
+theorem Publication.bimap_comp
+    (firstLeft : LeftA → LeftB) (secondLeft : LeftB → LeftC)
+    (firstRight : RightA → RightB) (secondRight : RightB → RightC)
+    (publication : Publication LeftA RightA) :
+    (publication.bimap firstLeft firstRight).bimap secondLeft secondRight =
+      publication.bimap (secondLeft ∘ firstLeft) (secondRight ∘ firstRight) := by
+  cases publication
+  rfl
+
+@[simp] theorem Publication.bimap_preserves_generation
+    (leftMap : LeftA → LeftB) (rightMap : RightA → RightB)
+    (publication : Publication LeftA RightA) :
+    (publication.bimap leftMap rightMap).generation = publication.generation :=
+  rfl
+
 def observeLeft (publication : Publication Left Right) : Nat × Left :=
   (publication.generation, publication.left)
 

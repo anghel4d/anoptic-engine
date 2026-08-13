@@ -47,6 +47,12 @@ theorem project_idempotent (select : Shape → Bool) (witness : Witness) :
   cases witness
   simp [project, List.filter_filter]
 
+theorem project_compose (first second : Shape → Bool) (witness : Witness) :
+    project second (project first witness) =
+      project (fun shape => second shape && first shape) witness := by
+  cases witness
+  simp [project, List.filter_filter]
+
 abbrev RecordPlan := List Shape
 
 @[simp] theorem recordPlan_left_identity (plan : RecordPlan) :

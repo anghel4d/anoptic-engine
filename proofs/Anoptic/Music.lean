@@ -38,8 +38,16 @@ def applyControl (state : State) : Control → State
       ⟨state.seed + parameter + value.natAbs, state.bar, state.affect⟩
   | .clearOverride parameter => ⟨state.seed + parameter, state.bar, state.affect⟩
 
+def applyControls (state : State) (controls : List Control) : State :=
+  controls.foldl applyControl state
+
+theorem applyControls_append (state : State) (first second : List Control) :
+    applyControls state (first ++ second) =
+      applyControls (applyControls state first) second := by
+  simp [applyControls, List.foldl_append]
+
 def step (state : State) (controls : List Control) : State × Bar :=
-  let controlled := controls.foldl applyControl state
+  let controlled := applyControls state controls
   let next := ⟨controlled.seed, controlled.bar + 1, controlled.affect⟩
   (next, ⟨controlled.bar, controlled.seed⟩)
 

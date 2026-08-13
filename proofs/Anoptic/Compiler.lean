@@ -25,6 +25,12 @@ def projected (projection : Shared → Local)
     projected projection compile witness = compile (projection witness) :=
   rfl
 
+theorem projected_compose (first : Shared → Middle)
+    (second : Middle → Local) (compile : Partial Local Error Plan) :
+    projected (second ∘ first) compile =
+      projected first (projected second compile) :=
+  rfl
+
 /-- Independent compilers pair their successful plans and retain either local error. -/
 def pair (left : Partial Witness LeftError LeftPlan)
     (right : Partial Witness RightError RightPlan) :

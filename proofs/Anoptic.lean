@@ -7,6 +7,7 @@ Anoptic targets ISO C++26.
 
 import Anoptic.Polynomial
 import Anoptic.Compiler
+import Anoptic.Composition
 import Anoptic.Outcome
 import Anoptic.Structural
 import Anoptic.Linear
@@ -34,5 +35,8 @@ import Anoptic.Refinement
 import Anoptic.Transaction
 import Anoptic.Engine
 import Anoptic.Coverage
+import Anoptic.CompositionCoverage
+import Anoptic.EngineComposition
+import Anoptic.ArchitectureGraph
 import Anoptic.Prooflet
 import Anoptic.Integration

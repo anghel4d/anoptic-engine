@@ -45,6 +45,58 @@ a bifurcating editor-to-source route, revision-indexed residency, render-slot
 realization, coordinated world/resource publication, failed hot-reload
 publication isolation, music snapshotting, and batch/live synthesis.
 
+## Composition closure
+
+`Anoptic.CompositionCoverage.allCompositionsChecked` exhaustively matches the
+same 24-interface enumeration and proves the central composition law for every
+case. The common operators remain separate because they have different
+semantics: pure composition, product/coproduct interchange, fallible Kleisli
+composition, owner-state threading, failure-retaining transactional
+composition, relational composition, and many-port resource-route composition.
+
+| Ideal interface | Composition | Checked result |
+|---|---|---|
+| Structural compiler | Witness projections and partial compiler projections | Projection composition and compiler factorization agree |
+| Outcomes | `Result` bind | Left/right identity and associativity; failure short-circuits |
+| Collections | Polynomial extension `map` | Identity and function composition |
+| Linear algebra | Space-indexed maps | Category identity and associativity |
+| Memory | Ordered plan concatenation and cursor fold | Plan associativity and `measure(P ++ Q) = measure(P); measure(Q)` |
+| Concurrency | Channel `map`, publication `bimap`, independent lane tensor | Functor composition, generation preservation, and componentwise composition |
+| Time | Duration advance and unit conversion | Sequential advance and conversion composition |
+| Filesystem | Path and sink append | Ordered append identity and associativity |
+| Strings | Immutable concatenation | Monoid identity and associativity |
+| Diagnostics | Log concatenation followed by drain | Drain is a monoid homomorphism |
+| glTF/GLB | Parse, bind indexed buffers, project | Both groupings of the fallible pipeline are equal |
+| Mesh | Pure conditioning transforms | Identity and associative pipeline composition |
+| Resource manager | Many-port morphisms, tensor, dependency closure, transaction | Route category laws, tensor interchange, closure idempotence, and failure isolation |
+| Render resources | Portable-payload transforms followed by realization | Transform composition preserves semantic identity |
+| Render protocol | Ordered command batches | Concatenated and sequential command folds agree |
+| Input/display | Ordered event batches | Concatenated and sequential display folds agree |
+| Vulkan | Session-state arrows | State threading is associative and retains order |
+| Text | Source, face, bake, atlas | The composed path retains the original font source |
+| UI | Scene packing and CPU/GPU interpreters | Regrouping is associative and both interpreters share one observation |
+| Audio | Ordered commands, mixer core, native/offline sinks | Command folds compose and sink interpretations agree |
+| Music | Ordered controls and snapshot isomorphism | Control folds compose; snapshot/restore are inverse |
+| Synth | Ordered inputs and adjacent frame ranges | Chunked rendering composes to one range; batch/live paths agree |
+| World/ECS/save | Demand deltas, coordinated epochs, save/load | Sequential deltas reconstruct the final demand; generations and save round trips agree |
+| Engine root | Cook, prepare, realize, interpret, startup/teardown | Fallible whole-path regrouping is equal and lifecycle order is preserved |
+
+`Anoptic.ArchitectureGraph` separately enumerates every declared cross-module
+dependency edge as an indexed `Step`. Its `Path` type permits composition only
+when the intermediate semantic cell matches. `Path.run_assoc` proves that every
+regrouping of every well-typed architecture path has the same interpretation.
+Concrete checked paths include source-to-frame, opened-pack-to-frame,
+input-to-frame, world/music-to-audio, and world/save round trip.
+
+`Anoptic.EngineComposition` proves the joins and forks that unary paths cannot
+express alone. It routes current world demand into residency; shares one
+revision-indexed epoch across render, audio, and text owners; sends world render
+commands and UI to rendering; sends world audio commands plus music/synth output
+to audio; pairs ECS and residency at one generation; proves the complete
+fallible cook/prepare/realize/interpret composition independent of grouping;
+proves cook/pack/open identity; and proves failed composed reloads cannot change
+publication.
+
 The remaining engineering boundary is concrete refinement: the C++26
 reflection exporter and each platform interpreter must construct the
 law-bearing Lean witness corresponding to the code and foreign behavior they

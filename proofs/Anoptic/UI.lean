@@ -7,6 +7,7 @@ Anoptic targets ISO C++26.
 
 import Std
 import Anoptic.Outcome
+import Anoptic.Composition
 
 namespace Anoptic
 
@@ -60,6 +61,23 @@ def evalGpu (scene : PackedScene) : List Nat := rasterSpec scene
 @[simp] theorem cpu_gpu_equivalent (scene : PackedScene) :
     evalCpu scene = evalGpu scene :=
   rfl
+
+def cpuInterpreter : Composition.Pure PackedScene (List Nat) := ⟨evalCpu⟩
+def gpuInterpreter : Composition.Pure PackedScene (List Nat) := ⟨evalGpu⟩
+
+theorem interpreter_composition_assoc
+    (first : Composition.Pure A PackedScene)
+    (last : Composition.Pure (List Nat) B) :
+    Composition.Pure.compose
+        (Composition.Pure.compose first cpuInterpreter) last =
+      Composition.Pure.compose first
+        (Composition.Pure.compose gpuInterpreter last) := by
+  rw [Composition.Pure.compose_assoc]
+  have same : cpuInterpreter = gpuInterpreter := by
+    apply congrArg Composition.Pure.mk
+    funext scene
+    exact cpu_gpu_equivalent scene
+  rw [same]
 
 end UI
 end Anoptic

@@ -33,6 +33,15 @@ def applyDisplayEvent (state : DisplayState) : Event → DisplayState
   | .focus focused => ⟨state.width, state.height, focused⟩
   | _ => state
 
+def applyDisplayEvents (state : DisplayState) (events : List Event) : DisplayState :=
+  events.foldl applyDisplayEvent state
+
+theorem applyDisplayEvents_append (state : DisplayState)
+    (first second : List Event) :
+    applyDisplayEvents state (first ++ second) =
+      applyDisplayEvents (applyDisplayEvents state first) second := by
+  simp [applyDisplayEvents, List.foldl_append]
+
 @[simp] theorem resize_sets_extent (state : DisplayState) (width height : Nat) :
     applyDisplayEvent state (.resize width height) =
       ⟨width, height, state.focused⟩ :=

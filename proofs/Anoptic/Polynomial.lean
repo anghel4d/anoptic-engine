@@ -48,6 +48,18 @@ structure Hom (source target : API.{u}) where
 
 namespace Hom
 
+theorem ext {source target : API.{u}} {left right : Hom source target}
+    (queries : left.onQuery = right.onQuery)
+    (responses : HEq left.onResponse right.onResponse) :
+    left = right := by
+  cases left with
+  | mk leftQuery leftResponse =>
+      cases right with
+      | mk rightQuery rightResponse =>
+          cases queries
+          cases responses
+          rfl
+
 def refl (api : API.{u}) : Hom api api where
   onQuery := id
   onResponse := fun _ response => response
@@ -161,6 +173,106 @@ def tensorUnpack {left right : API.{u}} {A : Type v} :
   · apply heq_of_eq
     funext response
     cases response <;> rfl
+
+namespace Hom
+
+/-- API choice maps independent adaptors through the coproduct interface. -/
+def choiceMap {A B C D : API.{u}} (left : Hom A B) (right : Hom C D) :
+    Hom (choice A C) (choice B D) where
+  onQuery
+    | .inl query => .inl (left.onQuery query)
+    | .inr query => .inr (right.onQuery query)
+  onResponse
+    | .inl query, response => left.onResponse query response
+    | .inr query, response => right.onResponse query response
+
+/-- API tensor maps independent adaptors through the product interface. -/
+def tensorMap {A B C D : API.{u}} (left : Hom A B) (right : Hom C D) :
+    Hom (tensor A C) (tensor B D) where
+  onQuery query := (left.onQuery query.1, right.onQuery query.2)
+  onResponse query
+    | .inl response => .inl (left.onResponse query.1 response)
+    | .inr response => .inr (right.onResponse query.2 response)
+
+@[simp] theorem choiceMap_identity_query {A B : API.{u}}
+    (query : (choice A B).Query) :
+    (choiceMap (refl A) (refl B)).onQuery query = query := by
+  cases query <;> rfl
+
+@[simp] theorem tensorMap_identity_query {A B : API.{u}}
+    (query : (tensor A B).Query) :
+    (tensorMap (refl A) (refl B)).onQuery query = query :=
+  rfl
+
+theorem choiceMap_interchange_query {A B C D E F : API.{u}}
+    (firstLeft : Hom A B) (secondLeft : Hom B C)
+    (firstRight : Hom D E) (secondRight : Hom E F)
+    (query : (choice A D).Query) :
+    (choiceMap (trans firstLeft secondLeft)
+      (trans firstRight secondRight)).onQuery query =
+      (trans (choiceMap firstLeft firstRight)
+        (choiceMap secondLeft secondRight)).onQuery query := by
+  cases query <;> rfl
+
+theorem choiceMap_interchange_response_left {A B C D E F : API.{u}}
+    (firstLeft : Hom A B) (secondLeft : Hom B C)
+    (firstRight : Hom D E) (secondRight : Hom E F)
+    (query : A.Query)
+    (response : C.Response (secondLeft.onQuery (firstLeft.onQuery query))) :
+    (choiceMap (trans firstLeft secondLeft)
+      (trans firstRight secondRight)).onResponse (.inl query) response =
+      (trans (choiceMap firstLeft firstRight)
+        (choiceMap secondLeft secondRight)).onResponse (.inl query) response :=
+  rfl
+
+theorem choiceMap_interchange_response_right {A B C D E F : API.{u}}
+    (firstLeft : Hom A B) (secondLeft : Hom B C)
+    (firstRight : Hom D E) (secondRight : Hom E F)
+    (query : D.Query)
+    (response : F.Response (secondRight.onQuery (firstRight.onQuery query))) :
+    (choiceMap (trans firstLeft secondLeft)
+      (trans firstRight secondRight)).onResponse (.inr query) response =
+      (trans (choiceMap firstLeft firstRight)
+        (choiceMap secondLeft secondRight)).onResponse (.inr query) response :=
+  rfl
+
+theorem tensorMap_interchange_query {A B C D E F : API.{u}}
+    (firstLeft : Hom A B) (secondLeft : Hom B C)
+    (firstRight : Hom D E) (secondRight : Hom E F)
+    (query : (tensor A D).Query) :
+    (tensorMap (trans firstLeft secondLeft)
+      (trans firstRight secondRight)).onQuery query =
+      (trans (tensorMap firstLeft firstRight)
+        (tensorMap secondLeft secondRight)).onQuery query :=
+  rfl
+
+theorem tensorMap_interchange_response_left {A B C D E F : API.{u}}
+    (firstLeft : Hom A B) (secondLeft : Hom B C)
+    (firstRight : Hom D E) (secondRight : Hom E F)
+    (leftQuery : A.Query) (rightQuery : D.Query)
+    (response : C.Response (secondLeft.onQuery (firstLeft.onQuery leftQuery))) :
+    (tensorMap (trans firstLeft secondLeft)
+      (trans firstRight secondRight)).onResponse
+        (leftQuery, rightQuery) (.inl response) =
+      (trans (tensorMap firstLeft firstRight)
+        (tensorMap secondLeft secondRight)).onResponse
+          (leftQuery, rightQuery) (.inl response) :=
+  rfl
+
+theorem tensorMap_interchange_response_right {A B C D E F : API.{u}}
+    (firstLeft : Hom A B) (secondLeft : Hom B C)
+    (firstRight : Hom D E) (secondRight : Hom E F)
+    (leftQuery : A.Query) (rightQuery : D.Query)
+    (response : F.Response (secondRight.onQuery (firstRight.onQuery rightQuery))) :
+    (tensorMap (trans firstLeft secondLeft)
+      (trans firstRight secondRight)).onResponse
+        (leftQuery, rightQuery) (.inr response) =
+      (trans (tensorMap firstLeft firstRight)
+        (tensorMap secondLeft secondRight)).onResponse
+          (leftQuery, rightQuery) (.inr response) :=
+  rfl
+
+end Hom
 
 /-- The zero polynomial has no possible query. -/
 def zero : API.{u} where

@@ -6,6 +6,7 @@ Anoptic targets ISO C++26.
 -/
 
 import Std
+import Anoptic.Outcome
 
 namespace Anoptic
 
@@ -72,6 +73,35 @@ def bind (parsed : Parsed) (buffers : Fin parsed.bufferCount → Bytes) : Bound 
 /-- A projection is pure; parsing and source acquisition remain owner effects. -/
 structure Projection (Output : Type) where
   run : Bound → Output
+
+def bindInputs (inputs : (parsed : Parsed) → Fin parsed.bufferCount → Bytes)
+    (parsed : Parsed) : Bound :=
+  bind parsed (inputs parsed)
+
+def parseBind (parse : Raw → Outcome.Result Parsed Error)
+    (inputs : (parsed : Parsed) → Fin parsed.bufferCount → Bytes)
+    (raw : Raw) : Outcome.Result Bound Error :=
+  Outcome.bind (parse raw) (fun parsed => .ok (bindInputs inputs parsed))
+
+def bindProject (inputs : (parsed : Parsed) → Fin parsed.bufferCount → Bytes)
+    (projection : Projection Output) (parsed : Parsed) :
+    Outcome.Result Output Error :=
+  .ok (projection.run (bindInputs inputs parsed))
+
+def parseBindProject (parse : Raw → Outcome.Result Parsed Error)
+    (inputs : (parsed : Parsed) → Fin parsed.bufferCount → Bytes)
+    (projection : Projection Output) (raw : Raw) :
+    Outcome.Result Output Error :=
+  Outcome.bind (parseBind parse inputs raw) (fun bound => .ok (projection.run bound))
+
+theorem parse_bind_project_assoc
+    (parse : Raw → Outcome.Result Parsed Error)
+    (inputs : (parsed : Parsed) → Fin parsed.bufferCount → Bytes)
+    (projection : Projection Output) (raw : Raw) :
+    parseBindProject parse inputs projection raw =
+      Outcome.bind (parse raw) (bindProject inputs projection) := by
+  cases parsed : parse raw <;>
+    simp [parseBindProject, parseBind, bindProject, parsed]
 
 end Gltf
 end Anoptic

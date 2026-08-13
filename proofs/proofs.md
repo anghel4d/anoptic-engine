@@ -9,6 +9,15 @@
   24-row whole-engine factorization.
 - `Coverage.allInterfacesChecked` is the exhaustive theorem tying those 24
   interface constructors to their central laws.
+- `Composition` proves the distinct pure, fallible, stateful, transactional,
+  product, and coproduct composition algebras.
+- `CompositionCoverage.allCompositionsChecked` proves composition closure for
+  all 24 ideal interfaces.
+- `EngineComposition` proves the complete fallible
+  cook/prepare/realize/interpret dataflow, joins, forks, generation coherence,
+  cook/pack/open identity, and reload publication isolation.
+- `ArchitectureGraph` enumerates every declared cross-module dependency edge
+  and proves interpretation of all well-typed paths is associative.
 - `Integration` composes representative resource, render, world, hot-reload,
   music, and synth laws across module boundaries.
 - [interfaces.md](interfaces.md) is the exact interface-to-theorem coverage

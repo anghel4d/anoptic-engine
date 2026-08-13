@@ -34,6 +34,22 @@ structure Slot (capability : Capability) where
 def realize (ownerIndex : Nat) (portable : Portable capability) : Slot capability :=
   ⟨portable.identity, ownerIndex⟩
 
+def mapPayload (function : Nat → Nat) (portable : Portable capability) :
+    Portable capability :=
+  ⟨portable.identity, function portable.payloadIdentity⟩
+
+@[simp] theorem mapPayload_id (portable : Portable capability) :
+    mapPayload id portable = portable := by
+  cases portable
+  rfl
+
+theorem mapPayload_comp (first second : Nat → Nat)
+    (portable : Portable capability) :
+    mapPayload second (mapPayload first portable) =
+      mapPayload (second ∘ first) portable := by
+  cases portable
+  rfl
+
 @[simp] theorem realize_preserves_identity (ownerIndex : Nat)
     (portable : Portable capability) :
     (realize ownerIndex portable).identity = portable.identity :=

@@ -379,11 +379,14 @@ Neither class of law is silently inferred from the other.
 
 The abstract carriers and laws in this chapter are machine-checked by the Lean
 kernel under `proofs/`. `Anoptic.Coverage.allInterfacesChecked` exhaustively
-covers the 24 ideal whole-engine interfaces, while `Anoptic.Integration`
-checks representative composition across resource, render, world, reload,
-music, and synth boundaries. Concrete C++26 and platform implementations enter
-through explicit refinement witnesses; the formal model is not runtime
-machinery.
+covers the 24 ideal whole-engine interfaces, and
+`Anoptic.CompositionCoverage.allCompositionsChecked` proves the corresponding
+composition law for every interface. `Anoptic.EngineComposition` proves the
+complete fallible cook/prepare/realize/interpret joins and forks, while
+`Anoptic.ArchitectureGraph` enumerates the cross-module dependency edges and
+proves every well-typed path associative. Concrete C++26 and platform
+implementations enter through explicit refinement witnesses; the formal model
+is not runtime machinery.
 
 ### Factorization laws
 
