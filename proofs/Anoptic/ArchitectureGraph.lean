@@ -6,6 +6,7 @@ Anoptic targets ISO C++26.
 -/
 
 import Anoptic.Composition
+import Anoptic.Polynomial
 
 namespace Anoptic
 
@@ -155,43 +156,62 @@ inductive Path : Cell → Cell → Type where
   | single (step : Step source target) : Path source target
   | compose : Path source middle → Path middle target → Path source target
 
+def CellAPI (Value : Cell → Type) (cell : Cell) : API where
+  Query := Value cell
+  Response _ := Unit
+
 def Interpretation (Value : Cell → Type) :=
   {fromCell toCell : Cell} → Step fromCell toCell →
-    Composition.Pure (Value fromCell) (Value toCell)
+    API.Hom (CellAPI Value fromCell) (CellAPI Value toCell)
 
-def Path.run (interpret : Interpretation Value) :
-    Path source target → Composition.Pure (Value source) (Value target)
-  | .identity cell => Composition.Pure.identity (Value cell)
-  | .single step => interpret step
+def Step.morphism (interpret : Interpretation Value)
+    (step : Step source target) :
+    API.Hom (CellAPI Value source) (CellAPI Value target) :=
+  interpret step
+
+/-- Query execution forgets only the response translation of an API morphism. -/
+def API.Hom.toPure {source target : API} (hom : API.Hom source target) :
+    Composition.Pure source.Query target.Query :=
+  ⟨hom.onQuery⟩
+
+instance {Value : Cell → Type} {fromCell toCell : Cell} :
+    Coe (API.Hom (CellAPI Value fromCell) (CellAPI Value toCell))
+      (Composition.Pure (Value fromCell) (Value toCell)) :=
+  ⟨API.Hom.toPure⟩
+
+def Path.run (interpret : Interpretation Value) : Path source target →
+    API.Hom (CellAPI Value source) (CellAPI Value target)
+  | .identity cell => API.Hom.refl (CellAPI Value cell)
+  | .single step => step.morphism interpret
   | .compose first second =>
-      Composition.Pure.compose (first.run interpret) (second.run interpret)
+      API.Hom.trans (first.run interpret) (second.run interpret)
 
 @[simp] theorem Path.run_identity (interpret : Interpretation Value) :
-    (Path.identity cell).run interpret = Composition.Pure.identity (Value cell) :=
+    (Path.identity cell).run interpret = API.Hom.refl (CellAPI Value cell) :=
   rfl
 
 theorem Path.run_compose (interpret : Interpretation Value)
     (first : Path source middle) (second : Path middle target) :
     (Path.compose first second).run interpret =
-      Composition.Pure.compose (first.run interpret) (second.run interpret) :=
+      API.Hom.trans (first.run interpret) (second.run interpret) :=
   rfl
 
 @[simp] theorem Path.run_identity_left (interpret : Interpretation Value)
     (path : Path source target) :
     (Path.compose (.identity source) path).run interpret = path.run interpret :=
-  Composition.Pure.identity_compose _
+  API.Hom.refl_trans _
 
 @[simp] theorem Path.run_identity_right (interpret : Interpretation Value)
     (path : Path source target) :
     (Path.compose path (.identity target)).run interpret = path.run interpret :=
-  Composition.Pure.compose_identity _
+  API.Hom.trans_refl _
 
 /-- Every regrouping of every well-typed architecture path has one meaning. -/
 theorem Path.run_assoc (interpret : Interpretation Value)
     (first : Path A B) (second : Path B C) (third : Path C D) :
     (Path.compose (Path.compose first second) third).run interpret =
       (Path.compose first (Path.compose second third)).run interpret :=
-  Composition.Pure.compose_assoc _ _ _
+  API.Hom.trans_assoc _ _ _
 
 def sourceToFrame : Path .source .frame :=
   .compose (.single .acquireGltf)

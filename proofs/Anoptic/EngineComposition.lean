@@ -6,6 +6,7 @@ Anoptic targets ISO C++26.
 -/
 
 import Anoptic.Composition
+import Anoptic.Polynomial
 import Anoptic.Resource
 import Anoptic.World
 import Anoptic.Render
@@ -111,6 +112,18 @@ structure ResultAt (RenderFrame AudioBlock : Type)
 
 abbrev Result (RenderFrame AudioBlock : Type) :=
   Sigma fun revision : Resource.Revision => ResultAt RenderFrame AudioBlock revision
+
+/-- A public stage exposes requests as queries and acknowledges every response. -/
+def StageAPI (Value : Type) : API where
+  Query := Value
+  Response _ := Unit
+
+/-- A fallible module boundary induces a morphism between public stage APIs. -/
+def stageHom (arrow : Composition.Fallible Error Input Output) :
+    API.Hom (StageAPI (Outcome.Result Input Error))
+      (StageAPI (Outcome.Result Output Error)) where
+  onQuery := fun input => Outcome.bind input arrow.run
+  onResponse := fun _ _ => ()
 
 def prepare
     (modules : Modules Source Error WorldInput Bytes
@@ -230,6 +243,73 @@ def interpretFallible
       (Result RenderFrame AudioBlock) :=
   Composition.Fallible.lift (interpretArrow modules)
 
+def cookHom
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  stageHom (cookArrow modules)
+
+def prepareHom
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  stageHom (prepareFallible modules)
+
+def realizeHom
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  stageHom (realizeFallible modules)
+
+def interpretHom
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  stageHom (interpretFallible modules)
+
+def falliblePath
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  Composition.Fallible.compose (cookArrow modules)
+    (Composition.Fallible.compose (prepareFallible modules)
+      (Composition.Fallible.compose (realizeFallible modules)
+        (interpretFallible modules)))
+
+def leftFalliblePath
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  Composition.Fallible.compose
+    (Composition.Fallible.compose
+      (Composition.Fallible.compose (cookArrow modules)
+        (prepareFallible modules))
+      (realizeFallible modules))
+    (interpretFallible modules)
+
+/-- The public engine run is the composite of its module API morphisms. -/
+def publicPath
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :=
+  API.Hom.trans (cookHom modules)
+    (API.Hom.trans (prepareHom modules)
+      (API.Hom.trans (realizeHom modules) (interpretHom modules)))
+
+@[simp] theorem publicPath_on_ok
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock)
+    (request : Request Source WorldInput) :
+    (publicPath modules).onQuery (.ok request) =
+      (falliblePath modules).run request := by
+  change (leftFalliblePath modules).run request =
+    (falliblePath modules).run request
+  congr 1
+  unfold leftFalliblePath falliblePath
+  rw [Composition.Fallible.compose_assoc]
+  rw [Composition.Fallible.compose_assoc]
+
 /-- Regrouping the complete prepare/realize/interpret path changes nothing. -/
 theorem whole_path_assoc
     (modules : Modules Source Error WorldInput Bytes
@@ -242,23 +322,21 @@ theorem whole_path_assoc
         (Composition.Pure.compose (realizeArrow modules) (interpretArrow modules)) :=
   Composition.Pure.compose_assoc _ _ _
 
-/-- Cook, prepare, realize, and interpret have one meaning under all regrouping. -/
+/-- The public module morphisms have one meaning under all regrouping. -/
 theorem full_path_assoc
     (modules : Modules Source Error WorldInput Bytes
       RenderResident AudioResident TextResident
       RenderOwner AudioOwner TextOwner RenderFrame AudioBlock) :
-    Composition.Fallible.compose
-        (Composition.Fallible.compose
-          (Composition.Fallible.compose (cookArrow modules)
-            (prepareFallible modules))
-          (realizeFallible modules))
-        (interpretFallible modules) =
-      Composition.Fallible.compose (cookArrow modules)
-        (Composition.Fallible.compose (prepareFallible modules)
-          (Composition.Fallible.compose (realizeFallible modules)
-            (interpretFallible modules))) := by
-  rw [Composition.Fallible.compose_assoc]
-  rw [Composition.Fallible.compose_assoc]
+    API.Hom.trans
+        (API.Hom.trans
+          (API.Hom.trans (cookHom modules) (prepareHom modules))
+          (realizeHom modules))
+        (interpretHom modules) =
+      API.Hom.trans (cookHom modules)
+        (API.Hom.trans (prepareHom modules)
+          (API.Hom.trans (realizeHom modules) (interpretHom modules))) := by
+  rw [API.Hom.trans_assoc]
+  rw [API.Hom.trans_assoc]
 
 def runAfterRevision
     (modules : Modules Source Error WorldInput Bytes
@@ -274,8 +352,7 @@ def run
       RenderOwner AudioOwner TextOwner RenderFrame AudioBlock)
     (request : Request Source WorldInput) :
     Outcome.Result (Result RenderFrame AudioBlock) Error :=
-  Outcome.bind (modules.cook request.source)
-    (fun revision => .ok (runAfterRevision modules revision request))
+  (publicPath modules).onQuery (.ok request)
 
 theorem run_is_composed_path
     (modules : Modules Source Error WorldInput Bytes
@@ -283,15 +360,20 @@ theorem run_is_composed_path
       RenderOwner AudioOwner TextOwner RenderFrame AudioBlock)
     (request : Request Source WorldInput) :
     run modules request =
-      (Composition.Fallible.compose (cookArrow modules)
-        (Composition.Fallible.compose (prepareFallible modules)
-          (Composition.Fallible.compose (realizeFallible modules)
-            (interpretFallible modules)))).run request := by
-  cases cooked : modules.cook request.source <;>
-    simp [run, runAfterRevision, Composition.Fallible.compose,
-      Composition.Fallible.lift, cookArrow, prepareFallible, realizeFallible,
-      interpretFallible, prepareArrow, realizeArrow, interpretArrow,
-      Outcome.map, Outcome.bind, Outcome.pure, cooked]
+      (falliblePath modules).run request :=
+  publicPath_on_ok modules request
+
+theorem run_is_public_path
+    (modules : Modules Source Error WorldInput Bytes
+      RenderResident AudioResident TextResident
+      RenderOwner AudioOwner TextOwner RenderFrame AudioBlock)
+    (request : Request Source WorldInput) :
+    run modules request =
+      (API.Hom.trans (cookHom modules)
+        (API.Hom.trans (prepareHom modules)
+          (API.Hom.trans (realizeHom modules)
+            (interpretHom modules)))).onQuery (.ok request) :=
+  rfl
 
 @[simp] theorem cook_failure_stops_graph
     (modules : Modules Source Error WorldInput Bytes
@@ -300,7 +382,8 @@ theorem run_is_composed_path
     (request : Request Source WorldInput) (error : Error)
     (failed : modules.cook request.source = .error error) :
     run modules request = .error error := by
-  simp [run, failed]
+  simp [run, falliblePath, Composition.Fallible.compose, cookArrow,
+    Outcome.map, Outcome.bind, failed]
 
 @[simp] theorem cook_success_runs_graph
     (modules : Modules Source Error WorldInput Bytes
@@ -309,7 +392,10 @@ theorem run_is_composed_path
     (request : Request Source WorldInput) (revision : Resource.Revision)
     (succeeded : modules.cook request.source = .ok revision) :
     run modules request = .ok (runAfterRevision modules revision request) := by
-  simp [run, succeeded]
+  simp [run, runAfterRevision, falliblePath, Composition.Fallible.compose,
+    cookArrow, prepareFallible, realizeFallible, interpretFallible,
+    prepareArrow, realizeArrow, interpretArrow, Composition.Fallible.lift,
+    Outcome.map, Outcome.bind, Outcome.pure, succeeded]
 
 def cookPackOpen
     (modules : Modules Source Error WorldInput Bytes

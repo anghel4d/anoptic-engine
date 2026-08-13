@@ -6,11 +6,163 @@ Anoptic targets ISO C++26.
 -/
 
 import Anoptic.Coverage
+import Anoptic.Compiler
 import Anoptic.Composition
 
 namespace Anoptic
 
 namespace CompositionCoverage
+
+/-! ## Public-algebra composition witness -/
+
+/-- One normalized declaration witness supplies every public-module compiler. -/
+structure Witness where
+  demandCapacity : Nat
+  residencyCapacity : Nat
+  deriving DecidableEq
+
+/-- A public algebra binds one request/response family to its witness projection. -/
+structure PublicAlgebra (Shared : Type) where
+  api : API
+  Local : Type
+  Error : Type
+  Plan : Type
+  projection : Shared → Local
+  localCompiler : Compiler.Partial Local Error Plan
+
+def PublicAlgebra.compiler (algebra : PublicAlgebra Shared) :
+    Compiler.Partial Shared algebra.Error algebra.Plan :=
+  Compiler.projected algebra.projection algebra.localCompiler
+
+structure AssetRequest where
+  identity : Nat
+  deriving DecidableEq
+
+namespace DemandAlgebra
+
+def publicAPI : API where
+  Query := AssetRequest
+  Response _ := Bool
+
+structure LocalWitness where
+  capacity : Nat
+  deriving DecidableEq
+
+inductive CompileError where
+  | emptyCapacity
+  deriving DecidableEq
+
+structure Plan where
+  capacity : Nat
+  deriving DecidableEq
+
+def localCompiler : Compiler.Partial LocalWitness CompileError Plan
+  | ⟨0⟩ => .error .emptyCapacity
+  | ⟨capacity + 1⟩ => .ok ⟨capacity + 1⟩
+
+def algebra : PublicAlgebra Witness where
+  api := publicAPI
+  Local := LocalWitness
+  Error := CompileError
+  Plan := Plan
+  projection := fun witness => ⟨witness.demandCapacity⟩
+  localCompiler := localCompiler
+
+end DemandAlgebra
+
+namespace ResidencyAlgebra
+
+def publicAPI : API where
+  Query := AssetRequest
+  Response _ := Nat
+
+structure LocalWitness where
+  capacity : Nat
+  deriving DecidableEq
+
+inductive CompileError where
+  | emptyCapacity
+  deriving DecidableEq
+
+structure Plan where
+  capacity : Nat
+  deriving DecidableEq
+
+def localCompiler : Compiler.Partial LocalWitness CompileError Plan
+  | ⟨0⟩ => .error .emptyCapacity
+  | ⟨capacity + 1⟩ => .ok ⟨capacity + 1⟩
+
+def algebra : PublicAlgebra Witness where
+  api := publicAPI
+  Local := LocalWitness
+  Error := CompileError
+  Plan := Plan
+  projection := fun witness => ⟨witness.residencyCapacity⟩
+  localCompiler := localCompiler
+
+end ResidencyAlgebra
+
+/-- The tensor compiler is exactly the pair of two projections from one witness. -/
+def pairedCompiler :=
+  Compiler.pair DemandAlgebra.algebra.compiler
+    ResidencyAlgebra.algebra.compiler
+
+theorem pairedCompiler_succeeds_iff
+    (witness : Witness) (demandPlan : DemandAlgebra.Plan)
+    (residencyPlan : ResidencyAlgebra.Plan) :
+    pairedCompiler witness = .ok (demandPlan, residencyPlan) ↔
+      DemandAlgebra.algebra.compiler witness = .ok demandPlan ∧
+      ResidencyAlgebra.algebra.compiler witness = .ok residencyPlan :=
+  Compiler.pair_succeeds_iff
+    DemandAlgebra.algebra.compiler ResidencyAlgebra.algebra.compiler
+    witness demandPlan residencyPlan
+
+/-- Demand queries lower to residency queries; a generation answers demand. -/
+def demandToResidency :
+    API.Hom DemandAlgebra.algebra.api ResidencyAlgebra.algebra.api where
+  onQuery := fun request => request
+  onResponse := fun (_ : AssetRequest) (generation : Nat) => generation != 0
+
+/-- Residency may in turn query demand and turn presence into a generation token. -/
+def residencyToDemand :
+    API.Hom ResidencyAlgebra.algebra.api DemandAlgebra.algebra.api where
+  onQuery := fun request => request
+  onResponse := fun (_ : AssetRequest) (demanded : Bool) =>
+    (if demanded = true then 1 else 0 : Nat)
+
+def serialMorphism :
+    API.Hom DemandAlgebra.algebra.api DemandAlgebra.algebra.api :=
+  API.Hom.trans demandToResidency residencyToDemand
+
+def tensorMorphism :
+    API.Hom (API.tensor DemandAlgebra.algebra.api ResidencyAlgebra.algebra.api)
+      (API.tensor ResidencyAlgebra.algebra.api DemandAlgebra.algebra.api) :=
+  API.Hom.tensorMap demandToResidency residencyToDemand
+
+def choiceMorphism :
+    API.Hom (API.choice DemandAlgebra.algebra.api ResidencyAlgebra.algebra.api)
+      (API.choice ResidencyAlgebra.algebra.api DemandAlgebra.algebra.api) :=
+  API.Hom.choiceMap demandToResidency residencyToDemand
+
+theorem public_serial_path_associates :
+    API.Hom.trans
+        (API.Hom.trans demandToResidency residencyToDemand)
+        demandToResidency =
+      API.Hom.trans demandToResidency
+        (API.Hom.trans residencyToDemand demandToResidency) :=
+  API.Hom.trans_assoc _ _ _
+
+@[simp] theorem tensorMorphism_query (demand residency : AssetRequest) :
+    tensorMorphism.onQuery (demand, residency) = (demand, residency) :=
+  rfl
+
+@[simp] theorem choiceMorphism_demand_query (request : AssetRequest) :
+    choiceMorphism.onQuery (.inl request) = .inl request :=
+  rfl
+
+@[simp] theorem choiceMorphism_residency_query (request : AssetRequest) :
+    choiceMorphism.onQuery (.inr request) = .inr request :=
+  rfl
 
 def oneBoundary : ResourceRoute.Boundary Unit where
   Port := Unit
