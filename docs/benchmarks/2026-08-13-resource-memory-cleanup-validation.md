@@ -30,6 +30,8 @@
 - Harness: `tools/perf/bench_fps_win64.py`, default display-derived sweep,
   30 seconds per point, warmup dropped, per-point medians,
   foreground-verified.
+- Display state: monitor awake for the complete sweep; an earlier monitor-off
+  run was discarded.
 - Window manager: Desktop Window Manager; borderless composited `WS_POPUP`
   windows sized to the requested physical framebuffer extent.
 
@@ -39,16 +41,18 @@
 
 | res | swap MiB | wall fps | p50 | 1% low | 0.1% low | max ms | GPU ms | GPU cap | wall/cap | frusta | bound |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 640×360 | 41.4 | 1197.7 | 1197.8 | 617.7 | 604.6 | 2.523 | 0.465 | 2151 | 0.56 | 2.0 | CPU/present |
-| 960×540 | 97.6 | 1081.4 | 1080.7 | 586.2 | 572.1 | 2.471 | 0.549 | 1821 | 0.59 | 2.0 | CPU/present |
-| 1280×720 | 164.7 | 979.0 | 976.6 | 545.9 | 536.2 | 2.502 | 0.632 | 1582 | 0.62 | 2.0 | CPU/present |
-| 1920×1080 | 360.1 | 816.9 | 821.8 | 514.7 | 493.8 | 3.262 | 0.789 | 1267 | 0.65 | 2.0 | CPU/present |
-| 2560×1440 | 642.3 | 649.4 | 655.9 | 432.2 | 425.0 | 3.432 | 1.064 | 940 | 0.70 | 2.0 | CPU/present |
-| 3840×2160 | 1406.3 | 518.7 | 520.4 | 490.0 | 478.7 | 2.868 | 1.905 | 525 | 0.99 | 2.0 | GPU |
+| 640×360 | 41.4 | 1196.8 | 1197.4 | 614.6 | 602.6 | 2.713 | 0.464 | 2155 | 0.56 | 2.0 | CPU/present |
+| 960×540 | 97.6 | 1084.0 | 1081.3 | 584.5 | 570.1 | 9.249 | 0.547 | 1828 | 0.59 | 2.0 | CPU/present |
+| 1280×720 | 164.7 | 979.1 | 978.6 | 546.0 | 537.1 | 2.150 | 0.629 | 1590 | 0.62 | 2.0 | CPU/present |
+| 1920×1080 | 360.1 | 817.9 | 825.6 | 516.5 | 487.1 | 2.827 | 0.786 | 1271 | 0.65 | 2.0 | CPU/present |
+| 2560×1440 | 642.3 | 649.0 | 654.7 | 432.3 | 425.2 | 3.136 | 1.066 | 939 | 0.70 | 2.0 | CPU/present |
+| 3840×2160 | 1406.3 | 520.8 | 521.8 | 490.9 | 484.0 | 2.796 | 1.900 | 526 | 0.99 | 2.0 | GPU |
 
 Every row was `FRONT`; requested and realized render extents matched. Swap
 storage ranges from 169.5 to 188.3 MiB per megapixel. The 4K/1080p swap ratio
-is 3.905 versus a 4.000 pixel ratio, so render and swap accounting agree.
+is 3.905 versus a 4.000 pixel ratio, so render and swap accounting agree. The
+benchmark session logs contain no error, fatal, validation-failure, or rejected
+reload entries.
 
 ## Baking and hot-reload proof
 
