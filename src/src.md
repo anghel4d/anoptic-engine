@@ -17,20 +17,42 @@ code may choose any cache-optimal representation observationally equivalent to
 the public algebra, but it may not enlarge the set of legal requests or expose
 private state.
 
+Reflected implementations consume the module's projection of the one normalized
+declaration witness:
+
+```text
+D --reify--> S --rho_M--> S_M --compile_M--> Error_M + Plan_M
+Plan_M --interpret_(M,p)--> implementation traces
+```
+
+Independent plans pair. Equality over a shared boundary uses a pullback; general
+compatibility uses a refined dependent product. Runtime modules without a
+reflected plan and static modules without a platform interpreter omit those
+facets rather than manufacturing empty machinery.
+
+API adaptation, plan compatibility, resource-route composition, owner effects,
+transport composition, and implementation refinement are distinct algebras.
+Finite trace inclusion proves safety. Fairness, eventual retirement, bounded
+backpressure, and starvation freedom require separate progress laws.
+
 ## Implementation laws
 
 1. One module owns each mutable state machine and each foreign object family.
 2. Cross-module calls use public types. A private header never becomes an
    accidental shared service locator.
-3. Platform files are alternate natural transformations from one public
-   protocol into OS effects. Platform choice does not alter the protocol.
+3. Platform files are module-local interpretations of one public protocol into
+   OS effects. Platform choice does not alter the protocol, and each
+   implementation supplies the required observational refinement. Naturality
+   or monoidal strength is claimed only where its diagrams are proved.
    Portability is a property of each module's interpretation, not a module of
    its own.
 4. Reflection compiles a declared sum, product, schema, transform family, or
    ABI into direct code. Private code does not re-declare the same inventory as
    a switch table, callback registry, or parallel descriptor graph.
-5. A tagged ABI record is validated/generated from its semantic sum. Internal
-   code does not treat invalid tag/field combinations as ordinary states.
+5. A tagged ABI record is validated/generated from its semantic sum. A status
+   plus caller storage is also a valid lowering when inactive storage is
+   unobservable. Internal code does not treat invalid combinations as ordinary
+   states.
 6. Temporal protocols use private or public typestate boundaries. Comments are
    not the sole enforcement of build/seal/publish/retire ordering.
 7. Bulk execution is derived from scalar semantics unless atomicity, ownership,
@@ -42,6 +64,12 @@ private state.
 10. A source directory is not itself justification for an API. A semantic
     module exists only for a distinct algebra, state owner, effect owner, or
     reusable interpreter.
+11. Alternatives within one ordered transport lane are a sum; independently
+    ordered lanes are a product. Every multi-lane publication prevents mixed
+    committed generations without prescribing one physical stamp format.
+12. Failed cooker work may advance reusable private cache state but cannot
+    change the published revision. Publication atomicity does not imply
+    wholesale state rollback.
 
 ## Current implementation roots
 
@@ -80,7 +108,7 @@ The required final ownership is:
 
 | Semantic owner | Current source | Factored algebra and boundary |
 |---|---|---|
-| Structural compiler | `meta/` plus header-only definitions | One generic interpretation of reflected records, sums, enums, functions, and annotations; domain policy stays in its domain |
+| Structural compiler | `meta/` plus header-only definitions | One normalization of reflected records, sums, enums, functions, and annotations into `S`, followed by typed module projections; domain policy stays in its domain |
 | Memory | `memory/` | Ordered layout monoid, unique construction state, immutable retained volume state, and scratch-region lifetime |
 | Concurrency | `threads/` plus `anoptic_atomic.h` and typed headers | Platform-neutral threads internally; typed dual channel endpoints, latest-value publication, and bounded worker execution publicly |
 | Time | `time/` | Typed clocks, instants, durations, conversion, and scheduler waits |
@@ -89,12 +117,12 @@ The required final ownership is:
 | Diagnostics | `log/` | A monoid homomorphism from record sequences to sinks; crash blackbox remains a separate restricted interpreter |
 | Foreign glTF schema | `resources/import/anogltf.c`, `include/anogltf.h` | Reflection-derived parse/validate/projection over explicit JSON/GLB source values; I/O and allocation are supplied by resource owners |
 | Mesh transforms | `mesh/` | Pure canonical-mesh morphisms declared as resource transforms; numerical kernels remain private |
-| Resource language | `resources/resource_universe.c` and typed header | One `consteval` closure of the reflected cell/transform category and direct operations |
+| Resource language | `resources/resource_universe.c` and typed header | One `consteval` closure of the reflected many-input/many-output route language, output-port provenance, and direct operations |
 | Cooker | `resources/cooker.c`, `executor.c`, import sources | Stateful incremental interpretation from source-instance graph to immutable revision |
 | Revision | currently split across `cooker_internal.h`, cook, and pack | Shared immutable value implemented independently of which producer created it |
 | Pack | `resources/pack.c` | Deterministic serialize/open interpretation around revision; not the owner of revision semantics |
 | Residency | `resources/runtime.c` | Demand/edit transition system producing immutable epochs and changed-ID values |
-| Render resource owner | resource declarations plus `vulkan_backend/resources/` | Natural interpretation from portable render cells to opaque fence-retired GPU slots |
+| Render resource owner | resource declarations plus `vulkan_backend/resources/` | Effectful capability-indexed interpretation from portable render cells to opaque fence-retired GPU slots, proved by observational refinement |
 | Render protocol owner | `render_bridge/` plus platform-neutral parts of `vulkan_backend/` | Closed render-command/event sums and frame publication; transport remains private |
 | Input | GLFW callbacks and input records currently inside render | Independent closed input-event sum; the GLFW adapter may remain physically beside the window owner |
 | Vulkan interpreter | `vulkan_backend/` | Private effectful interpretation of render frames, resource jobs, and reflected pass/ABI schemas |
@@ -157,10 +185,19 @@ source providers -------> cooker --------> Revision
 `resource_universe.c` is the sole translation unit that closes the reflected
 language visible to one executable or tool. Import files declare/implement
 ordinary transforms and source effects; they do not mutate a second type graph.
+One transform invocation may publish several addressable output cells; revision
+provenance identifies each by `(transform, output-port)` while sharing the same
+typed input handles. Several instance edges may name one immutable handle
+without copying the artifact value.
 `cooker.c` may retain a persistent instance DAG and worker group, but its public
 codomain is `Revision`. `pack.c` authenticates and constructs the same revision
 abstraction. `runtime.c` consumes revisions and publishes epochs. Owner modules
 alone realize and retire device values.
+
+If a cook fails, verified hashes, parsing results, discovered dependencies, and
+other reusable private cache state may remain in the long-lived cooker. The
+previous revision remains published. A successful attempt alone changes the
+published revision.
 
 ## Composition root
 

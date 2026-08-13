@@ -38,10 +38,18 @@ structure Observation (api : API.{u}) where
 
 abbrev Trace (api : API.{u}) := List (Observation api)
 
+/-- Finite observations state safety properties. -/
+abbrev Safety (api : API.{u}) := TraceSet (Trace api)
+
+/-- Infinite observations state progress, fairness, and liveness properties separately. -/
+abbrev InfiniteTrace (api : API.{u}) := Nat → Observation api
+
+abbrev Progress (api : API.{u}) := TraceSet (InfiniteTrace api)
+
 /-- A module-local platform interpretation and its shared semantic trace boundary. -/
 structure Interpretation (api : API.{u}) (Platform : Type v) where
   implementation : Platform → TraceSet (Trace api)
-  specification : TraceSet (Trace api)
+  specification : Safety api
   sound : ∀ platform, Refines (implementation platform) specification
 
 /-- Relational composition represents sequential module composition. -/

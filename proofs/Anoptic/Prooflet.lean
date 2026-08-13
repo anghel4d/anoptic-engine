@@ -6,6 +6,8 @@ Anoptic targets ISO C++26.
 -/
 
 import Anoptic.Polynomial
+import Anoptic.Compiler
+import Anoptic.ResourceRoute
 import Anoptic.Refinement
 import Anoptic.Transaction
 
@@ -32,6 +34,51 @@ example :
     match API.Hom.induced (API.Hom.refl api) revisionRequest with
     | ⟨.revision, continueWith⟩ => continueWith (41 : Nat) = 42
     | ⟨.ready, _⟩ => False := by
+  rfl
+
+inductive Cell where
+  | source
+  | mesh
+  | material
+
+inductive ParseOutput where
+  | mesh
+  | material
+
+def parseScene : ResourceRoute.Signature Cell where
+  InputPort := Unit
+  OutputPort := ParseOutput
+  inputType _ := .source
+  outputType
+    | .mesh => .mesh
+    | .material => .material
+
+inductive Transform where
+  | parse
+
+def routeSignature : Transform → ResourceRoute.Signature Cell
+  | .parse => parseScene
+
+def meshProducer : ResourceRoute.Producer Transform routeSignature .mesh where
+  transform := .parse
+  outputPort := .mesh
+  produces := rfl
+
+/-- One transform exposes distinct, addressable products through output ports. -/
+example :
+    (routeSignature meshProducer.transform).outputType meshProducer.outputPort =
+      .mesh :=
+  meshProducer.produces
+
+def leftCompiler : Compiler.Partial Nat String Nat :=
+  fun witness => .ok witness
+
+def rightCompiler : Compiler.Partial Nat String Bool :=
+  fun witness => .ok (witness != 0)
+
+/-- Independent compilers pair after consuming the same normalized witness. -/
+example :
+    Compiler.pair leftCompiler rightCompiler 4 = .ok (4, true) :=
   rfl
 
 /-- The concrete dependent interface obeys adapter composition. -/

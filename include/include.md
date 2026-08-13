@@ -18,6 +18,23 @@ P_A(X) = sum(q : Q_A) X ^ R_A(q)
 The source in `src/` is an interpreter of that type. C ABI records and functions
 are a lowering of the same algebra, not a second semantic description.
 
+The public surface does not pretend that every boundary belongs to one global
+category. API adaptors, reflected plan compilers, resource routes, owner state
+machines, transports, and implementation refinements retain their own
+composition laws. Their common compile-time structural authority factors as:
+
+```text
+D --reify--> S --rho_M--> S_M --C_M--> CompileError_M + Plan_M
+```
+
+`S` is one normalized witness for the closed declaration universe. Each public
+module compiler consumes only its projection `S_M`; no runtime registry retains
+`S`. Independent plans pair. Plans that must agree on a shared projection use a
+pullback, and arbitrary compatibility uses a proof-carrying refined product.
+
+For API adaptors, the unique terminal map is `A -> 1`, not `1 -> A`. Polynomial
+zero has no request; polynomial unit has one request with no response positions.
+
 Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
 namespace `ano`. Reflected resource-cell declarations live in
 `ano::asset_schema`. Platform types, foreign-library types, private allocation
@@ -30,17 +47,20 @@ own.
 Every public header obeys the following rules:
 
 1. A product contains only values that exist together.
-2. Alternatives use one closed sum; a tag plus every alternative's fields is
-   only an ABI encoding generated at a boundary.
-3. A fallible response is one domain-local outcome. Boolean status, nullable
-   output, and partial initialization do not jointly encode failure.
+2. Alternatives use one closed sum; a tag plus alternative storage is an ABI
+   encoding generated at a boundary. Alternative payloads within one ordered
+   lane are sums; independently ordered lanes are products.
+3. A fallible response is one domain-local outcome. A C status plus caller
+   storage may lower that outcome only when the generated contract makes the
+   payload observable solely on success.
 4. Distinct protocol states use distinct capabilities when sequencing affects
    legality. Building, sealed, published, and retired values are not one
    universally mutable handle.
 5. Ownership is visible in the type: value, immutable borrow with lifetime
    owner, unique builder, stable identity, or opaque owner-issued slot.
-6. A bulk interface is the sequence lifting of its scalar interface unless it
-   has distinct layout or atomic-publication semantics.
+6. A bulk interface derives from its scalar semantics unless it has distinct
+   layout or atomic-publication semantics; an optimized lowering proves the
+   same observations rather than merely reusing an implementation.
 7. Public dependencies follow signature types only. A producer and consumer of
    an intermediate value both depend on that value's header; neither depends on
    the other's operational API.
@@ -50,6 +70,13 @@ Every public header obeys the following rules:
 9. Header-only `constexpr`, `consteval`, expansion, and splicing definitions are
    implementation only when they are required to compile the public type. All
    other implementation lives in `src/<owner>/`.
+10. A reflected transform exposes typed input and output port products. Producer
+    identity is `(transform, output-port)`, so one invocation may produce
+    several independently addressable cells.
+11. A public multi-lane protocol states one committed-generation law but does
+    not require every physical message to repeat a transaction identifier.
+12. An absent module is omitted. An empty header alone establishes neither the
+    zero polynomial nor the tensor unit.
 
 ## Required dependency shape
 
@@ -88,6 +115,8 @@ anoptic_resources_typed.h
 Cook, runtime, renderer publication, mixer publication, and text-owner
 publication consume the compiled products through their own headers. An owner
 extension does not include cooker/runtime headers simply to declare a transform.
+The one resource-universe translation unit closes the relevant projection of
+`S`; each transform contributes all reflected input and output ports.
 
 ## Factored public surface
 
@@ -98,7 +127,7 @@ compatibility surface.
 
 | Algebraic module | Public header boundary | Current disposition |
 |---|---|---|
-| Structural reflection and compile-time values | `anoptic_meta.h` | Fold `anoptic_meta_types.h` into this authority; domain command policy leaves meta |
+| Structural reflection and compile-time values | `anoptic_meta.h` | Normalize one shared witness and expose typed module projections; fold `anoptic_meta_types.h` into this authority; domain command policy leaves meta |
 | Domain outcomes | `anoptic_results.h` | Retain as the C-compatible lowering of typed `T + E` outcomes |
 | Atomic values | `anoptic_atomic.h` | Retain as the no-runtime compiler-builtin boundary |
 | Linear algebra and ABI values | `anoptic_math.h` | Retain; layout and coordinate semantics become reflected type facts |
@@ -114,15 +143,15 @@ compatibility surface.
 | Crash blackbox | `anoptic_log_crash.h` | Retain as a distinct async-signal-safe interpreter |
 | Reflected glTF/GLB schema | `anogltf.h` | Retain the schema and required compile-time derivation; filesystem/allocation callbacks leave the semantic parse type |
 | Resource identities | `anoptic_resources.h` | Retain stable IDs, content IDs, byte views, errors, and common values |
-| Resource language | `anoptic_resources_typed.h` | Retain cells, transforms, `AssetRef<T>`, navigation, and generated direct operations |
+| Resource language | `anoptic_resources_typed.h` | Retain cells, many-input/many-output transforms, output-port provenance, `AssetRef<T>`, navigation, and generated direct operations |
 | Immutable cooked revision | `anoptic_resources_revision.h` | New shared boundary extracted from `anoptic_resources_pack.h` and `anoptic_resources_cook.h` |
 | Source import and cooking | `anoptic_resources_cook.h` | Retain as a producer of revisions; remove callback-shaped artifact semantics |
 | Manifest and pack interpretation | `anoptic_resources_pack.h` | Retain as serialization/opening around revisions |
 | Demand, edit, and residency | `anoptic_resources_runtime.h` | Retain as the epoch and transaction owner; depend on revision, not pack |
 | ECS/world resource integration | `anoptic_resources_ecs.h` | New reflected demand, world-cell, and coordinated-publication extension |
-| Render resource category | `anoptic_render_resources.h` | Retain portable/render-resident cells and transforms only; move reload orchestration to its owner boundary |
-| Audio resource category | `anoptic_audio_resources.h` | New source, decoded, streaming, and mixer-resident cell extension |
-| Text resource category | `anoptic_text_resources.h` | New font-source, face/bake, atlas, and text-owner cell extension |
+| Render resource routes | `anoptic_render_resources.h` | Retain portable/render-resident cells and transforms only; move reload orchestration to its owner boundary |
+| Audio resource routes | `anoptic_audio_resources.h` | New source, decoded, streaming, and mixer-resident cell extension |
+| Text resource routes | `anoptic_text_resources.h` | New font-source, face/bake, atlas, and text-owner cell extension |
 | Render protocol | `anoptic_render.h` | Retain frame/world protocol; remove backend names, input, font/resource lookup, capture file I/O, and optional UI/text protocol fields |
 | Input protocol | `anoptic_input.h` | New closed input-event sum extracted from `anoptic_render.h` |
 | Rendered text extension | `anoptic_render_text.h` | New text submission protocol depending on `anoptic_text.h` |
@@ -137,6 +166,8 @@ compatibility surface.
 `anoptic_collections.h` has no semantic API and is deleted. `anoptic_hive.h` is
 an implementation-selection alias and is deleted when the selected C++26
 standard library provides `std::hive`; modules use the standard type directly.
+Neither header contributes a zero or unit API merely by being empty or
+identity-shaped; the final factorization contains no collections module.
 
 ## Header composition
 

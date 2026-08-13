@@ -133,6 +133,22 @@ typed definition of every resource, whose hot paths contain no reflection
 interpreter, and whose unsupported structural combinations cannot enter a
 successful build.
 
+The closed declaration universe is normalized once. Each module consumes only
+the projection relevant to its own compiler:
+
+```text
+D --reify--> S
+S --rho_M--> S_M --C_M--> CompileError_M + Plan_M
+```
+
+`S` is a compile-time structural witness, not a runtime schema registry.
+`rho_M` prevents a module compiler from inspecting unrelated declarations.
+`C_M` is partial because malformed or incomplete declarations are rejected by
+the `consteval` boundary. The resource universe is one projection of this
+engine-wide witness; memory layouts, command protocols, foreign schemas, and
+other reflected domains consume their own projections without becoming
+resource cells.
+
 ### Addressable cells and composed routes
 
 RCRG has no single semantic layer. Each layer has the semantics appropriate to
@@ -195,10 +211,11 @@ data HProvenance
 ```
 
 then the generated provenance for `H` is that closed sum of products. Producer
-alternatives form the sum. One producer's required inputs form the product.
+alternatives form the sum. One producer's required inputs form the product, and
+one invocation's addressable results form its output-port product.
 Optional and repeated inputs retain their optional and collection cardinality.
-The cooker stores the selected constructor as a compact transform ordinal plus
-its input cell identities; no runtime type erasure is introduced.
+The cooker stores the selected constructor as a compact transform/output-port
+ordinal plus its input cell identities; no runtime type erasure is introduced.
 
 Every handle returned by `down()` retains a compact route witness back to the
 specific result that produced it, like a typed zipper context. Its ordinary
@@ -207,11 +224,12 @@ cell is a separate reverse-dependency query and may return several handles.
 Likewise, a standalone lower-level handle with no selected top-level context
 chooses an upward route explicitly when more than one route is legal.
 
-The reflected declarations generate a typed category: cell types are objects,
-transform functions are primitive morphisms, and legal routes are their
-composition. Products express jointly required inputs, sums express alternative
-producers, and collections express repeated cells. The compile-time program
-interprets that category as packed runtime data:
+The reflected declarations generate a typed many-to-many route language: cell
+types are objects, transform functions are primitive routes, and legal routes
+compose. Products express jointly required inputs and jointly produced outputs,
+sums express alternative producer/output ports, and collections express
+repeated cells. The compile-time program interprets that language as packed
+runtime data:
 
 | Reflected program | Packed runtime image |
 |---|---|
@@ -219,7 +237,7 @@ interprets that category as packed runtime data:
 | Cell instance | Compact stable identity and column index |
 | Transform | Direct generated call |
 | Composed route | Compiled materialization plan |
-| Producer alternatives | Small generated tag |
+| Producer alternatives | Small generated transform/output-port tag |
 | Required or repeated inputs | Packed tuple or span of typed identities |
 | `up()` context | Compact route witness |
 | Forward consequences | Compile-time reachability mask plus packed instance edges |
@@ -275,6 +293,11 @@ implementation of `B`. These adaptors compose. Interface sums express a choice
 of protocol, interface products express independently available protocols, and
 composition expresses one module interpreting another module's values.
 
+The unit polynomial is terminal for these adaptors: `Hom(A, 1)` is unique.
+`Hom(1, A)` instead selects a global operation with no response positions and
+is neither generally inhabited nor unique. The zero polynomial has no possible
+request. Empty source files and absent modules do not establish either object.
+
 State and effects are kept outside the polynomial shape. A stateful owner `M`
 implements its interface with an interpreter of the form
 
@@ -296,6 +319,64 @@ and calls. The mathematical representation and the packed runtime
 representation are therefore homomorphic without retaining the mathematics as
 runtime machinery.
 
+### Governing composition model
+
+Anoptic does not have one grand category in which every kind of composition is
+the same operation. Its modules participate in several structures joined by
+typed maps and refinement witnesses:
+
+| Structure | Objects and maps | Composition used |
+|---|---|---|
+| API containers | Request families, response families, and adaptors | Forward request maps and backward response maps |
+| Structural compilation | Reflected witness projections and partial plan compilers | Function composition, independent products, pullbacks, and refined dependent products |
+| Resource routes | Typed cells and many-input, many-output transforms | Sequential route composition and typed input/output products |
+| Owner execution | Cooker, renderer, audio, text, and platform state transitions | Effectful or graded sequential composition |
+| Transport | Ordered event lanes and latest-value publications | Coproducts within one lane; products of independent lanes |
+| Verification | Implementation and specification observations | Trace inclusion, relational refinement, and proof composition |
+
+For genuinely independent module plans, compilation pairs results:
+
+```text
+C_(M x N) = <C_M, C_N>
+```
+
+When both plans must agree on a shared boundary `K`, compatible pairs inhabit
+the pullback:
+
+```text
+Plan_M x_K Plan_N
+  = { (m, n) | kappa_M(m) = kappa_N(n) }
+```
+
+An arbitrary compatibility predicate instead gives the refined dependent
+product:
+
+```text
+sum(m : Plan_M) sum(n : Plan_N) Compatible(m, n)
+```
+
+Direct compilers over the original declarations would still admit an ordinary
+pairing, but they would duplicate reflection, normalization, diagnostics, and
+authority. The required factorization through `S` exists to make those facts
+singular and coherent, not because product pairing is otherwise impossible.
+
+A reflected module with runtime effects may be described by its API polynomial,
+projected compiler, platform interpretations, specification, and soundness
+witness. This is a useful schema rather than a universal requirement: a static
+value module may have no platform interpreter, and an ordinary runtime protocol
+may have no reflected plan compiler.
+
+For a compiled plan and platform `p`, soundness is observational refinement:
+
+```text
+Tr_(M,p)(plan) subset-of Spec_M
+```
+
+Finite traces state safety properties such as publication atomicity and legal
+responses. Fairness, eventual retirement, bounded backpressure, and absence of
+permanent starvation are separate progress properties over infinite behavior.
+Neither class of law is silently inferred from the other.
+
 ### Factorization laws
 
 Every Anoptic module, including the resource manager, obeys these laws:
@@ -305,14 +386,18 @@ Every Anoptic module, including the resource manager, obeys these laws:
    boundary, not the semantic API.
 2. Joint requirements are products. Fields that are meaningful only for some
    operation belong to that operation's product, not to a universal fat record.
-3. Failure is a sum. A boolean, integer status, nullable output, and partially
-   initialized record do not jointly stand in for one typed outcome.
+   Compatible plans use a pullback or refined product rather than an unchecked
+   pair.
+3. Failure is semantically a sum. A C ABI may lower it to a status and caller
+   storage only when the generated contract makes the payload observable solely
+   on success; the public C++ type does not expose contradictory states.
 4. Temporal legality is indexed by state. Build, seal, publish, retire, and
    reset transitions use distinct capabilities or typestates whenever a caller
    could otherwise express an illegal sequence.
-5. Bulk operations are functorial liftings of scalar operations. A separate
-   bulk protocol exists only where layout or atomicity gives it distinct
-   semantics.
+5. Bulk operations derive from scalar semantics. A separate bulk protocol exists
+   only where layout or atomicity gives it distinct semantics, and its optimized
+   implementation must refine the same public result rather than share source
+   code accidentally.
 6. Pure morphisms are separated from effects. Parsing, shaping, graph closure,
    layout, hashing, and validation remain reusable values and functions; I/O,
    allocation, device calls, and publication stay at explicit owner boundaries.
@@ -322,40 +407,61 @@ Every Anoptic module, including the resource manager, obeys these laws:
 8. Ownership is singular. A module owns its mutable state and foreign objects;
    other modules receive immutable values, stable identities, borrowed views
    with explicit epochs, or opaque owner-issued slots.
-9. Observationally equal interpreters are interchangeable. Native and offline
-   audio, live and packed revisions, and platform backends preserve the same
-   public laws even when their effects differ.
+9. Observationally equivalent interpreters are interchangeable. Native and
+   offline audio, live and packed revisions, and platform backends preserve the
+   same public laws even when their effects differ; no strong monoidal law is
+   assumed without proof.
 10. No abstraction exists solely to mirror a directory. A module boundary is
     justified by a distinct algebra, state owner, effect owner, or reusable
     interpreter.
+11. Alternatives within one ordering and backpressure domain form a coproduct.
+    Independently ordered lanes form a product and share committed generations
+    through an explicit publication law.
+12. An absent concern is not inferred to be polynomial zero or the tensor unit
+    from an empty header. It is omitted from the factorization unless its API
+    semantics require one of those objects explicitly.
 
-### The reflected resource category
+### The reflected resource-route language
 
-Let `C_R` be the free typed category generated by the reflected resource
-language:
+Let `L_R` be the graded many-input, many-output language generated by the
+reflected resource declarations:
 
 - Objects are resource-cell types.
 - Primitive morphisms are reflected transform functions.
 - Identity is retaining the same typed cell.
 - Composition is a legal transform route.
-- The monoidal product `A (x) B` is a transform's jointly required input
-  product.
+- Input and output products describe the ports jointly consumed and produced by
+  one invocation.
 - `1 + A` and `List(A)` preserve optional and repeated input cardinality.
-- Alternative producers of one output form a coproduct in provenance.
+- Alternative `(transform, output-port)` producers of one cell form a coproduct
+  in provenance.
+
+A primitive transform has the signature
+
+```text
+g : product(i : I_g) A_i -> product(j : J_g) B_j
+```
+
+One invocation may therefore expose several independently addressable products.
+For output cell type `Y`, a producer is selected by both transform identity and
+output port:
 
 For a cell `Y`, its generated selected-provenance type is
 
 ```text
 Provenance(Y)
-  = sum(f : Producer(Y))
-      product(i : Inputs(f)) Ref(InputType(f, i))
+  = sum((g, j) : ProducerPort(Y))
+      product(i : I_g) Ref(A_i)
+
+ProducerPort(Y)
+  = { (g, j) | j : J_g and B_j = Y }
 ```
 
 This equation is the exact type of `down()` in a fixed epoch. The cooker stores
-one constructor of this sum and the identities in its product. A focus reached
-through one product position additionally carries the derivative, or one-hole
-context, of that selected provenance. That compact context is the exact data
-needed by `up()`:
+one constructor of this sum, its output port, and the identities in its input
+product. A focus reached through one input position additionally carries the
+derivative, or one-hole context, of that selected provenance. That compact
+context is the exact data needed by `up()`:
 
 ```text
 down_E : Focus_E(Y) -> Provenance_E(Y)
@@ -368,7 +474,13 @@ The equality is a navigation law, not an assertion that the transform has an
 inverse. A standalone `Ref(X)` has no chosen context; asking for all consumers
 is the separate reverse-dependency relation.
 
-The category has several compile-time and runtime interpretations:
+Runtime resource instances and provenance form a typed hypergraph. Several
+edges may name the same immutable `Ref(A)` without duplicating the value `A`.
+When sharing is written algebraically, references receive the chosen operation
+`Ref(A) -> Ref(A) x Ref(A)`; the artifact value itself is not implicitly given a
+diagonal or copied.
+
+The route language has several compile-time and runtime interpretations:
 
 | Interpretation | Mapping |
 |---|---|
@@ -378,16 +490,36 @@ The category has several compile-time and runtime interpretations:
 | Pack `P` | A revision to authenticated vendor-neutral bytes |
 | Open `O` | Valid pack bytes to the same immutable revision abstraction |
 | Residency `R_d` | A revision plus demand `d` to an immutable residency epoch |
-| Owner realization `G_o` | Portable cells in owner subcategory `o` to opaque resident slots |
+| Owner realization `G_o` | Portable cells in owner route fragment `o` to opaque resident slots |
 
 `P` and `O` meet at the revision boundary: a live cook and an opened pack are
 two producers of the same abstract immutable value. Cook, pack, and runtime are
 therefore siblings around `Revision`, not a dependency chain in which cooking
 or residency depends on the pack API.
 
-Where two interpretations cover the same transform subcategory, their adaptor
-is natural: interpreting before or after a legal structural composition yields
-the same observable resource value.
+Each interpretation declares the preservation law it actually satisfies.
+Structural schema and canonical wire operations can be pure. Cooking,
+residency, and owner realization are effectful, stateful, capability-indexed,
+and partial. Their tensor comparison may be strict, strong, lax, or partial;
+no isomorphism is assumed merely because the source language has a product.
+An optimized combined implementation is valid when it refines the same
+observable semantics as the canonical composition.
+
+Canonical wire is a partial isomorphism over valid typed values and the
+canonical byte language:
+
+```text
+decode_T(encode_T(t)) = t                 for valid t
+encode_T(decode_T(b)) = b                 for canonical b
+```
+
+Malformed, noncanonical, out-of-bounds, and schema-incompatible byte strings
+are outside that isomorphism and produce typed errors. No claim equates a cell
+type with all byte strings.
+
+Where two interpretations cover the same pure route fragment, a proved natural
+adaptor states that interpreting before or after legal structural composition
+yields the same observable resource value.
 
 ```text
       F(A) -------- F(f) --------> F(B)
@@ -398,10 +530,10 @@ the same observable resource value.
       G(A) -------- G(f) --------> G(B)
 ```
 
-For example, a renderer realization adaptor maps portable render cells to
-opaque GPU slots while preserving resource identity and dependency
-composition. It is partial outside the renderer-owned subcategory and cannot
-be called from an I/O worker.
+For example, renderer realization is an effectful interpretation from portable
+render cells to opaque GPU slots. It preserves resource identity and the
+declared dependency behavior, is partial outside the renderer-owned fragment,
+and cannot be called from an I/O worker.
 
 ### Whole-engine composition
 
@@ -446,6 +578,40 @@ registry through the renderer, or tunnel music control through an audio command
 record. Each such shortcut composes effects by shared implementation state
 instead of composing APIs by their types.
 
+World extraction distinguishes snapshots from changes. Structural demand for a
+complete snapshot may be folded directly:
+
+```text
+extractDemand : World -> Demand
+```
+
+An incremental render, audio, UI, or demand delta requires history:
+
+```text
+extractDelta : ExtractorState x World
+            -> ExtractorState x Delta
+```
+
+or equivalently a pair of old and new worlds. Demand is a finite join of the
+current snapshot's consumers. It is not globally monotone across world systems;
+entity or component removal lawfully removes demand. A monotonicity law may be
+declared only for a specifically additive transition phase.
+
+Transport preserves the distinction between alternatives and independent
+lanes:
+
+```text
+one ordered lane:       FIFO_N(A + B)
+independent lanes:      FIFO_N(A) x FIFO_M(B)
+snapshot publication:  Latest(S)
+```
+
+All lanes participating in one publication obey a common transaction boundary:
+no consumer combines observations from different committed transactions. The
+physical representation may use per-message stamps, a lane epoch, begin/commit
+markers, or one atomic publication object; a transaction field in every queue
+element is not required.
+
 ### Consequences for public boundaries
 
 The algebra fixes several boundaries that names and directories alone do not:
@@ -473,7 +639,7 @@ consumes immutable bindings.
 
 | Stage | Input | Output |
 |---|---|---|
-| C++ compilation | Cell types, fields, transform functions, annotations | Schemas, validators, producer sums, input products, direct operations, navigation, legal routes, invalidation masks |
+| C++ compilation | Cell types, fields, transform functions, annotations | Normalized witness projections, schemas, validators, producer/output-port sums, input and output products, direct operations, navigation, legal routes, invalidation masks |
 | Asset cooking | Source assets, build settings, platform profiles | Content-addressed cell DAG, selected provenance, and an immutable cooked revision; shipping packs are an explicit serialization product |
 | Runtime | Typed cell demand and edits, hardware capabilities, current residency | I/O and transform schedule, copy-on-write candidate, immutable residency epochs |
 
@@ -535,25 +701,33 @@ exact member types define its identity and schema at that layer. Source-format,
 canonical, runtime-loadable, and owner-resident cells use the same mechanism.
 Transform annotations carry only irreducible execution semantics such as
 executor, determinism, streaming granularity, and capabilities. Their input
-product and output type come from the reflected function signature.
+and output products come from the reflected function signature. A transform
+may expose several outputs; each output port identifies an independently
+addressable produced cell from the same invocation.
 
-One mandatory `consteval` operation scans and closes the supplied resource
-namespace:
+One mandatory `consteval` engine boundary normalizes the visible declaration
+universe once, then supplies the resource projection to its partial compiler:
 
 ```cpp
-consteval bool compile_resource_language(std::meta::info schema_namespace);
+consteval EngineWitness reify_engine_language(std::meta::info schema_namespace);
+consteval bool compile_resource_language(ResourceWitness witness,
+                                         BuildProfile profile);
 
-static_assert(compile_resource_language(^^ano::asset_schema));
+constexpr EngineWitness declarations =
+    reify_engine_language(^^ano::asset_schema);
+static_assert(compile_resource_language(
+    project_resources(declarations), selected_profile));
 ```
 
-`compile_resource_language` is the mandatory translation-phase boundary, not a
-separate algorithm language. It inspects artifact types, fields, transform
-functions, annotations, parameters, and return types, then invokes ordinary
-`constexpr` functions using normal loops, local values, containers, ranges, and
-graph algorithms. Those functions compute schemas, mappings, validation,
-dependency closure, producer sums, navigation shapes, route selection,
-capability matrices, invalidation closure, and retained products. The actual
-cell and transform declarations are the sole source of structural truth.
+`reify_engine_language` is the single reflection-facing normalization boundary;
+`compile_resource_language` is the resource-domain translation-phase boundary,
+not a separate algorithm language. It consumes only artifact types, fields,
+transform functions, annotations, parameters, and return types present in its
+projection, then invokes ordinary `constexpr` functions using normal loops,
+local values, containers, ranges, and graph algorithms. Those functions compute
+schemas, mappings, validation, dependency closure, producer sums, navigation
+shapes, route selection, capability matrices, invalidation closure, and retained
+products. The actual declarations remain the sole source of structural truth.
 
 The resource compiler is one ordinary C++ constant-evaluation program.
 Templates parameterize a type or value only where an interface requires it;
@@ -596,7 +770,7 @@ does not interpret a reflection database or iterate a generic field registry.
 For every transform function, reflection, ordinary `constexpr` algorithms, and
 expansion produce:
 
-- Input and output representations.
+- Input and output products with stable output-port identities.
 - Executor domain.
 - Invocation-signature validation.
 - `noexcept` validation.
@@ -604,7 +778,8 @@ expansion produce:
 - Capability requirements.
 - Offline and runtime legality.
 - Determinism and cacheability.
-- The producer constructor and reflected input-product shape.
+- One producer constructor per addressable output port and the reflected
+  input-product shape shared by that invocation.
 - Direct `up()` and algebraic `down()` handle navigation.
 - Forward invalidation closure for copy-on-write publication.
 - Direct specialized dispatch.
@@ -643,7 +818,7 @@ architecture depends on C++26 reflection for all of the following at once:
   those declarations into the closed representation graph without a manual
   registry.
 - Ordinary `constexpr` graph algorithms compute fingerprints, migrations,
-  dependency closure, producer sums, input products, legal routes,
+  dependency closure, producer/output-port sums, input and output products, legal routes,
   capabilities, invalidation cones, and retained paths over that reflected
   structure.
 - The `consteval` boundary rejects duplicate identities, malformed schemas,
@@ -661,10 +836,11 @@ retain a general reflection interpreter or reconstruct the type graph.
 ### Compile-time and instance graphs
 
 The type graph is closed and small enough for constant evaluation. It contains
-cell types, transform functions, producer alternatives, input cardinalities,
-and legal compositions. The asset-instance graph contains project content and
-belongs to the cooker and manifest. Each produced cell records the selected
-producer constructor and the identities of that producer's actual inputs.
+cell types, transform functions, producer alternatives, input/output
+cardinalities, output ports, and legal compositions. The asset-instance graph
+contains project content and belongs to the cooker and manifest. Each produced
+cell records the selected transform, output port, and identities of that
+invocation's actual inputs.
 
 The type graph determines the shape of navigation and direct execution. The
 instance graph supplies compact indices, selected alternatives, collection
@@ -710,12 +886,13 @@ The owning module implements device or library effects behind that public
 interface and issues opaque resident slots. The resource runtime schedules those
 operations but never owns Vulkan, audio, or font-library objects.
 
-One resource-universe translation unit includes every public resource extension
-before invoking `compile_resource_language(^^ano::asset_schema, profile)`. It is
-the only place that closes the type graph. Public headers and that translation
-unit never include another module's private `src/` headers. Private
-implementations consume compiler-produced schemas and operations; they do not
-redeclare artifact inventories, transform routes, or owner maps.
+One engine/resource-universe translation unit includes every public reflected
+extension, normalizes `S` once, and passes `S_R` to
+`compile_resource_language`. It is the only place that closes the resource-route
+projection. Public headers and that translation unit never include another
+module's private `src/` headers. Private implementations consume
+compiler-produced schemas and operations; they do not redeclare artifact
+inventories, transform routes, or owner maps.
 
 ## Allocation and immutable storage boundary
 
@@ -766,6 +943,12 @@ artifacts. Instance edges are materialized only for dependency, navigation, or
 fan-out work that consumes them; no duplicate reverse graph is built solely to
 record an unread dirty state. Equal action keys reuse their current span, and
 equal output content stops upward invalidation.
+
+A failed cook may retain reusable private work such as verified source hashes,
+parsed structure, dependency discovery, or cache entries. It must preserve the
+published revision and every source/result observation reachable through that
+revision. Publication rollback is required; wholesale rollback of private
+cooker state is not.
 
 Runtime SHA-256 uses SHA-NI where the CPU provides it and the scalar standard
 algorithm otherwise. Bulk byte movement remains tuned `memcpy`; image decoding
@@ -841,6 +1024,11 @@ supplies atlas and font demand.
 Reflection discovers structural references. Explicit systems calculate
 behavioral demand.
 
+Insertion, removal, and field-change handlers carry the prior extractor state
+needed to emit deltas. A complete world snapshot may be folded directly into a
+demand set; an incremental delta is never modeled as a function of the current
+world alone. Demand may decrease when entities or components disappear.
+
 ## Residency epochs
 
 The runtime product is a structurally shared residency epoch containing
@@ -849,7 +1037,7 @@ immutable typed cell tables and bindings:
 ```text
 Residency epoch
 |- packed typed cell columns
-|- selected producer tags and input spans
+|- selected transform/output-port tags and input spans
 |- CPU and owner-resident slots
 |- forward and focused-up navigation indices
 `- manifest root
@@ -954,6 +1142,12 @@ The logic/render bridge publishes this pair at a synchronization point. Commands
 that refer to resources carry stable asset IDs or resident slots tagged with the
 residency epoch that produced them.
 
+Render, audio, text, and ECS transports may use separate ordered lanes and
+latest-value publications. Their representations share a transaction boundary:
+no owner may assemble a frame, audio block, or world observation from different
+committed ECS/resource generations. The boundary may be represented by the
+published epoch object rather than repeated in every message.
+
 Transform declarations assign execution ownership:
 
 ```text
@@ -1009,11 +1203,13 @@ manifest root so stable asset IDs resolve to the same content versions.
 
 ```text
 C++26 compile-time layer
+|- one normalized declaration witness with module projections
 |- reflected cell schemas
 |- reflected transform functions
 |- reflected AssetRef fields
-|- consteval category, route, and cardinality compilation
-|- generated sums of input products and focused navigation
+|- consteval route, compatibility, and cardinality compilation
+|- generated sums of producer/output ports and input products
+|- generated focused navigation
 |- generated validators, invalidation, and dependency extractors
 `- generated direct typed operations and calls
 
@@ -1021,7 +1217,7 @@ Offline content layer
 |- source assets
 |- cooker
 |- addressable cell-instance DAG
-|- selected producer constructors and input identities
+|- selected producer/output ports and input identities
 |- CAS
 |- manifest
 `- physical packs

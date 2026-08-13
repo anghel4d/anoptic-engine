@@ -19,6 +19,20 @@ The module has one structural authority: public reflected declarations and typed
 annotations. It has no parallel typelist, traits registry, X-macro inventory,
 artifact-kind switch forest, schema mirror, or external source generator.
 
+The closed declaration universe is normalized once as compile-time witness `S`.
+Each module compiler consumes a projection `S_M` and may reject it at the
+`consteval` boundary:
+
+```text
+D --reify--> S --rho_M--> S_M --C_M--> CompileError_M + Plan_M
+```
+
+Independent plans pair; plans sharing an equality boundary use a pullback; an
+arbitrary compatibility predicate uses a refined dependent product. API
+adaptors, resource routes, owner effects, transport products, and refinement
+proofs keep their distinct composition laws rather than being described as one
+global category.
+
 This roadmap is organized by feature. Every feature describes its public header,
 compile-time product, ordinary implementation, and observable behavior.
 
@@ -31,6 +45,7 @@ The resource API follows the existing base-plus-extension pattern used by
 include/
 |- anoptic_resources.h
 |- anoptic_resources_typed.h
+|- anoptic_resources_revision.h
 |- anoptic_resources_cook.h
 |- anoptic_resources_pack.h
 |- anoptic_resources_runtime.h
@@ -50,6 +65,7 @@ resource-specific arena API.
 |---|---|
 | `anoptic_resources.h` | C-compatible stable IDs, content IDs, schema fingerprints, byte/range values, quality values, errors, and the compiled-language view |
 | `anoptic_resources_typed.h` | C++26 cell and transform annotations, `AssetRef<T>`, reflected `up()`/`down()` navigation, relative wire types, reflection compiler, and typed generated operations |
+| `anoptic_resources_revision.h` | Immutable revision ownership, identity, typed lookup, selected `(transform, output-port)` provenance, dependencies, and navigation views shared by live cooking and opened packs |
 | `anoptic_resources_cook.h` | Source roots, import requests, build profiles, cooker configuration, diagnostics, incremental cook results, and CAS control |
 | `anoptic_resources_pack.h` | Vendor-neutral manifest and pack construction, cell provenance, packed navigation, opening, querying, range reads, and root identity |
 | `anoptic_resources_runtime.h` | Cell goals, commit groups, manager lifetime, copy-on-write transactions, epoch acquisition, changed IDs, typed navigation, and resolution |
@@ -100,6 +116,7 @@ one all-purpose manager interface:
 | Header | Required public entry points |
 |---|---|
 | `anoptic_resources.h` | `ano_resource_error_string`, content identity, ID comparison and formatting |
+| `anoptic_resources_revision.h` | Revision retain/release, identity, typed cell resolution, dependencies, selected provenance, and navigation views |
 | `anoptic_resources_cook.h` | `ano_resource_cooker_create`, `ano_resource_cooker_destroy`, `ano_resource_import`, `ano_resource_cook`, `ano_resource_cooker_cancel` |
 | `anoptic_resources_pack.h` | `ano_resource_manifest_open`, `ano_resource_manifest_close`, `ano_resource_manifest_find`, `ano_resource_pack_open`, `ano_resource_pack_read`, `ano_resource_pack_close` |
 | `anoptic_resources_runtime.h` | `ano_resource_manager_create`, `ano_resource_manager_destroy`, `ano_resource_goal_set`, `ano_resource_goal_remove`, `ano_resource_reconcile`, transactional typed-cell edit and reload prepare/commit/abort, `ano_resource_epoch_acquire`, `ano_resource_epoch_resolve`, `ano_resource_epoch_release` |
@@ -134,7 +151,8 @@ struct Transform final {
     bool deterministic;
 };
 
-consteval bool compile_resource_language(std::meta::info schemaNamespace);
+consteval bool compile_resource_language(ResourceWitness witness,
+                                         BuildProfile profile);
 
 } // namespace ano
 ```
@@ -145,6 +163,18 @@ identifiers, exact types, and declaration order supply the canonical schema.
 Renaming or reordering a declaration changes its identity or fingerprint and
 requires a recook. Explicit aliases and migrations are introduced only when a
 shipped artifact format actually needs them.
+
+A transform signature contributes a typed family of input ports and a typed
+family of output ports:
+
+```text
+g : product(i : I_g) A_i -> product(j : J_g) B_j
+```
+
+The one-output case is the degenerate product with one output port. A transform
+that parses one source into a scene, meshes, materials, textures, animations,
+and lights executes once; each produced cell remains independently addressable
+by its `(transform, output-port)` identity.
 
 Every annotated cell is independently addressable through `AssetRef<T>`. A
 top-level editor/game type is a conventional entry point rather than the only
@@ -168,10 +198,10 @@ that focus without resolving the value:
 - `up()` returns toward the particular result retained by the focused route.
 - Resolution or editing is explicit and separate from navigation.
 
-The result type of `down()` is compiled from all functions capable of producing
-the selected cell. Alternative functions form a closed sum; the parameters of
-one function form a product. Optional and repeated parameters preserve their
-cardinality. Conceptually:
+The result type of `down()` is compiled from every `(function, output-port)`
+capable of producing the selected cell. Alternatives form a closed sum; the
+input ports of one function form a product. Optional and repeated inputs
+preserve their cardinality. Conceptually:
 
 ```haskell
 f :: A -> H
@@ -184,6 +214,11 @@ data HProvenance
   | ViaK (Ref A) (Ref B)
 ```
 
+If `k` also produces `J`, `H` and `J` record distinct output ports of the same
+invocation and share its input-handle product. Several instance edges may name
+the same immutable handle; no diagonal or copy operation is inferred for the
+artifact value itself.
+
 The cooker records one selected constructor and its input identities for each
 produced `H`. Generated `down()` switches over that compact closed tag and
 returns typed handles, not values. Each returned focused handle retains compact
@@ -194,7 +229,8 @@ cell; it is not the meaning of focused `up()`.
 Reflection and ordinary `constexpr` graph algorithms generate:
 
 - The closed producer sum for every cell type.
-- The exact input product for every transform.
+- The exact input and output products for every transform.
+- One stable producer identity for each `(transform, output-port)` pair.
 - Direct typed construction and visitation of those alternatives.
 - Packed forward, downward-provenance, and focused-up indices.
 - Compile-time route composition and ambiguity diagnostics.
@@ -203,7 +239,7 @@ Reflection and ordinary `constexpr` graph algorithms generate:
 The public handle and generated navigation products contain no resource pointer,
 virtual interface, RTTI value, callable closure, or runtime reflection object.
 The runtime representation is compact identity, type-selected dense columns,
-small producer tags, packed spans, and direct generated calls.
+small transform/output-port tags, packed spans, and direct generated calls.
 
 ### Owner extensions
 
@@ -223,22 +259,29 @@ struct [[=Artifact{}]] GpuMesh final {
     AnoGpuMeshSlot slot;
 };
 
+struct UploadMeshOutputs final {
+    GpuMesh mesh;
+};
+
 [[=Transform{Executor::render_master, Streaming::whole, true}]]
-bool upload_mesh(const Mesh&, RenderResourceContext&, GpuMesh&) noexcept;
+ano::Result<UploadMeshOutputs, RenderResourceError>
+upload_mesh(const Mesh&, RenderResourceContext&) noexcept;
 
 } // namespace ano::asset_schema
 ```
 
-The same pattern describes import functions, migrations, texture mip transforms,
-font bakes, audio adoption, and world-cell materialization. The reflected
-function declaration is the dispatch declaration. There is no second route
-registration call.
+The reflected output record defines the output-port product. The same pattern
+describes import functions, migrations, texture mip transforms, font bakes,
+audio adoption, and world-cell materialization. The reflected function
+declaration is the dispatch declaration. There is no second route registration
+call.
 
 ### Resource-universe translation unit
 
 Reflection can inspect only declarations visible at its point of use. Every
-executable or tool therefore has one resource-universe translation unit which
-includes all public resource extensions before compilation:
+executable or tool therefore has one engine/resource-universe translation unit
+which includes all public reflected extensions, normalizes the shared witness
+once, and supplies its resource projection:
 
 ```cpp
 #include <anoptic_resources_typed.h>
@@ -247,12 +290,16 @@ includes all public resource extensions before compilation:
 #include <anoptic_text_resources.h>
 #include <anoptic_resources_ecs.h>
 
-static_assert(ano::compile_resource_language(^^ano::asset_schema));
+constexpr auto declarations =
+    ano::reify_engine_language(^^ano::asset_schema);
+static_assert(ano::compile_resource_language(
+    ano::project_resources(declarations), selected_profile));
 ```
 
 The compiler validates every visible artifact and transform without retaining a
 runtime type graph. A headless tool can inspect a render transform declaration
-without retaining a call to its unavailable implementation.
+without retaining a call to its unavailable implementation. Other module
+compilers consume their own projections of the same `declarations` witness.
 
 ## Compile-time execution model
 
@@ -262,6 +309,13 @@ The reflection compiler uses the complete implemented C++26 facility:
 GCC 16.1+
 -std=gnu++26 -freflection -fno-exceptions -fno-rtti -nostdlib++
 ```
+
+Reflection first normalizes the visible declaration universe into `S`.
+Domain compilers receive projected witnesses rather than independently walking
+the declarations. A compiler is partial—`S_M -> CompileError_M + Plan_M`—with
+the error branch reported as a translation-time diagnostic. Product pairing is
+used only for independent plans; shared constraints compile as pullbacks or
+proof-carrying compatibility products.
 
 | Facility | Use in the resource module |
 |---|---|
@@ -336,9 +390,9 @@ handwritten registry.
 | Closed-world discovery from independently owned modules | The resource-universe translation unit discovers every annotated render, audio, text and ECS artifact and transform | Central registration file, linker tricks, typelist or plugin registry |
 | One structural authority | A field declaration simultaneously governs wire encoding, validation, hashing, dependencies, migration and diagnostics | Separate structs, serializer schemas, validators and field tables |
 | Typed semantic metadata | Executor, streaming policy, foreign names and backend codes remain typed values attached only where structure cannot express them | String attributes, side tables, magic enums or external schema files |
-| Functions become graph edges | Parameters and return types define representations; annotations define execution and capability policy | Callback registration, type-erased nodes and duplicated route declarations |
+| Functions become graph edges | Input and output port products define representations; annotations define execution and capability policy | Callback registration, type-erased nodes and duplicated route declarations |
 | Function composition becomes addressable | Every intermediate result is a typed focus; reflected paths compile into `AssetRef<T>` navigation without storing closures | Runtime object nodes, hand-authored handle adapters, or an external route generator |
-| Producer choice becomes an algebraic type | Alternative producing functions form a generated sum and each function's parameters form its input product | Untyped dependency bags, kind switches, or lossy “previous node” links |
+| Producer choice becomes an algebraic type | Alternative `(function, output-port)` pairs form a generated sum and each function's inputs form its required product | Untyped dependency bags, kind switches, or lossy “previous node” links |
 | Focused return is statically known | A downward handle retains a compact route witness, making ordinary `up()` singular while shared-consumer enumeration remains explicit | Parent pointers, virtual navigation, or ambiguous global reverse lookup |
 | Whole-language graph compilation | `constexpr` graph algorithms compute reachability, dependency closure, cycles, legal stages, capabilities and Pareto-optimal routes | Runtime graph search or a separate build-time generator |
 | Compile-time exhaustiveness | Missing routes, migrations, mappings, executor bridges or backend annotations fail the build | Runtime “unsupported type” paths and incomplete switch defaults |
@@ -496,7 +550,8 @@ own stable asset IDs. Reflection compiles:
 - Schema fingerprints from canonical semantic tokens.
 - Direct typed encode, decode, endian, validate, and dependency operations.
 - Dense column identity and pointer-free handle lookup for every cell type.
-- Closed producer alternatives and exact transform-input products.
+- Closed `(transform, output-port)` producer alternatives and exact transform
+  input/output products.
 - Direct focused `up()` and algebraic `down()` navigation.
 - Pointer-free and load-in-place classification.
 - Relative-span and relative-reference bounds checks.
@@ -515,6 +570,11 @@ compile-time boundary tests and runtime known-answer tests. Content hashing uses
 a standard algorithm with published test vectors; no private checksum becomes a
 shipping identity primitive.
 
+For valid typed values and canonical byte strings, `decode(encode(t)) = t` and
+`encode(decode(b)) = b`. Malformed, noncanonical, out-of-bounds, and
+schema-incompatible byte strings produce typed errors; the codec is not an
+isomorphism between an artifact type and all possible bytes.
+
 Portable artifacts contain no process pointers, allocator state, Vulkan
 handles, audio backend handles, or compiler-dependent type spellings. A raw
 file cell may retain a normalized source identity and bytes because that is its
@@ -527,12 +587,12 @@ declared semantics; higher cells never acquire paths accidentally.
 extensions.
 
 Importer functions carry typed annotations describing source signatures,
-extensions, dependency policy, output artifact, determinism, and limits. The
+extensions, dependency policy, output-port products, determinism, and limits. The
 resource compiler reflects those functions and produces:
 
 - A collision-checked signature and extension classifier.
 - Direct importer dispatch.
-- Typed output and dependency adaptation.
+- Typed output-port and dependency adaptation.
 - Source-format diagnostics.
 - Compile-time rejection of duplicate or ambiguous import claims.
 
@@ -597,8 +657,8 @@ For each source asset the cooker:
 - Imports source bytes through the compiled importer table.
 - Builds the instance dependency DAG.
 - Selects a legal compiled transform route for the build profile.
-- Records the selected producer constructor and typed input identities for
-  every output cell.
+- Records the selected producer constructor, output port, and typed input
+  identities for every output cell.
 - Computes an action key from transform identity, exact inputs, settings,
   capabilities, and schema fingerprints.
 - Reuses a verified CAS result or executes the direct typed transform.
@@ -611,7 +671,10 @@ and after acquisition. External glTF buffers and images are explicit selected
 inputs read and hashed by the persistent executor. Metadata only identifies a
 candidate change; it never substitutes for content identity. Candidate source
 snapshots and topology inventories publish transactionally with their cooked
-revision, so a failed cook preserves the complete prior source/result pair.
+revision. A failed cook preserves the previously published source/result pair,
+but verified hashes, parsed structure, dependency discovery, and other reusable
+private cache state may advance. Publication rollback is required; wholesale
+cooker-state rollback is not.
 
 Candidate revisions compile semantic metadata directly into manifest entries
 plus minimal `{source, volume, reservation}` storage rows. Runtime instance
@@ -654,11 +717,11 @@ module does not invent legacy schemas for unshipped data.
 
 **Public surface:** `anoptic_resources_pack.h`.
 
-The manifest maps typed cell addresses to content, selected producer
-constructors, typed input identities, focused-up context, dependency edges,
-commit groups, streaming atoms, schemas, and pack extents. Top-level asset IDs
-remain entry points into this packed cell graph. The manifest contains no vendor
-device object and no process-local address.
+The manifest maps typed cell addresses to content, selected transform/output
+ports, typed input identities, focused-up context, dependency edges, commit
+groups, streaming atoms, schemas, and pack extents. Top-level asset IDs remain
+entry points into this packed cell graph. The manifest contains no vendor device
+object and no process-local address.
 
 Reflection compiles the manifest record encoders and validators from their
 declared wire types. Expansion emits direct field operations. `constexpr`
@@ -674,7 +737,7 @@ Pack construction:
 
 - Orders equivalent inputs deterministically.
 - Deduplicates identical content.
-- Packs producer tags, input tuples/spans, and navigation indices
+- Packs transform/output-port tags, input tuples/spans, and navigation indices
   deterministically.
 - Preserves atom boundaries required for range reads.
 - Applies declared portable compression without changing artifact identity.
@@ -725,7 +788,7 @@ The runtime product is an immutable, structurally shared residency epoch:
 ResidencyEpoch
 |- manifest root
 |- packed typed cell columns
-|- selected producer tags and input spans
+|- selected transform/output-port tags and input spans
 |- focused-up and forward-dependency indices
 |- CPU and owner-resident slots
 `- changed asset IDs
@@ -746,10 +809,10 @@ last complete floor published.
 `anoptic_audio_resources.h`, and `anoptic_text_resources.h`.
 
 Transform annotations assign each effect to a concrete executor. The reflection
-compiler validates the exact context parameter, artifact parameters, result,
-`noexcept` contract, and module ownership. It groups transforms by executor and
-generates the compact job description and direct dispatch required by that
-module. There is no handwritten artifact-kind switch.
+compiler validates the exact context parameter, typed input and output products,
+result sum, `noexcept` contract, and module ownership. It groups transforms by
+executor and generates the compact job description and direct dispatch required
+by that module. There is no handwritten artifact-kind switch.
 
 ### Renderer ownership
 
@@ -831,6 +894,12 @@ Generated structural extraction runs when a component is inserted, removed, or
 changed; when a prefab expands; and when a world cell instantiates. It does not
 scan every entity every frame.
 
+A full snapshot folds directly to current demand. Incremental demand, render,
+audio, or UI deltas also consume the prior snapshot or explicit extractor state;
+they are not functions of the current world alone. Demand is a finite join of
+current consumers and may decrease when an entity or component is removed.
+Only a specifically declared additive phase may assume monotonic increase.
+
 Explicit systems supply behavioral refinements because they own the relevant
 information:
 
@@ -896,6 +965,13 @@ Renderer, audio, and text realizations are prepared privately by their owning
 modules. The complete candidate publishes atomically after its hard floors and
 owner safe points succeed. Unchanged provenance, sibling branches, columns, and
 pages remain structurally shared.
+
+Ordered render, audio, text, and ECS lanes participating in that publication
+share one committed-generation law: no consumer combines observations from
+different committed transactions. An implementation may carry per-message
+stamps, publish a lane epoch, use begin/commit markers, or reference one atomic
+publication object. The law does not force the identifier into every queue
+element.
 
 Editing a middle cell does not imply a reverse transform. Replacing decoded PCM
 rebuilds its declared upward consumers but does not synthesize new WAV bytes.
@@ -1027,10 +1103,12 @@ feature frontier is the current-engine asset vertical, native spatial ECS world
 data, Ogg Opus streaming, and KTX2/Basis textures. Formats without an actual
 consumer do not expand the language.
 
-The resulting module remains one reflection-compiled category of cell types and
-functions, one packed runtime cell-instance graph, and small concrete
+The resulting module remains one reflection-compiled many-input/many-output
+route language of cell types and functions, one packed runtime cell-instance
+hypergraph, and small concrete
 implementations for I/O, allocation, codecs, and owner effects. Every cell is a
-typed addressable focus; selected provenance is a generated sum of input
-products; copy-on-write republishes only the affected upward cone. Reflection
+typed addressable focus; selected provenance is a generated sum of
+transform/output ports and input products; copy-on-write republishes only the
+affected upward cone. Reflection
 supplies structure; `consteval` compiles and rejects; `constexpr` performs the
 reusable work; generated direct C++ is what runs.

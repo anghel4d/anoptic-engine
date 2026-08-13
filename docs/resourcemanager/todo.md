@@ -37,6 +37,10 @@ observational boundary for any later code pass.
 | `F ⊗ G` | Independently available interfaces or jointly interpreted values |
 | `Σ` | Dependent sum: a tag paired with the payload belonging to that tag |
 | `Π` | Dependent product: all required fields, with field-dependent types |
+| `S` | One normalized compile-time witness for the closed reflected declaration universe |
+| `S_M` | The projection of `S` consumed by module `M` |
+| `A ×_K B` | Pullback of plans that agree after projection to shared boundary `K` |
+| `Σ(a:A) Σ(b:B) Compat(a,b)` | Refined product for an arbitrary compatibility relation |
 
 For an API `A`, fully valued requests form `Q_A` and the response to request `q`
 has type `R_A(q)`. The interface is the container or polynomial
@@ -51,6 +55,10 @@ An adaptor `A -> B` maps requests forward and responses backward:
 request : Q_A -> Q_B
 response_q : R_B(request(q)) -> R_A(q)
 ```
+
+The adaptor category has a unique `A -> 1`; it does not generally have a unique
+`1 -> A`. Polynomial zero has no request, while polynomial unit has one request
+and no response positions. Neither is inferred from an empty header.
 
 The source module is an interpreter
 
@@ -82,6 +90,59 @@ sums.
   epochs, and owner slots.
 - Make the engine entry point a composition root, not a privileged caller of
   private backend state.
+
+## Governing algebras and refinement
+
+There is no single global category whose one composition operator explains the
+entire engine. The factorization uses distinct structures:
+
+| Structure | Composition |
+|---|---|
+| API containers | Request-forward and response-backward adaptors |
+| Reflection/compiler algebra | Projection, partial compilation, products, pullbacks, and refined dependent products |
+| Resource-route language | Many-input, many-output transform composition with explicit ports |
+| Owner state machines | Effectful or graded sequential transitions |
+| Transport protocols | Coproducts of alternatives within a lane; products of independent lanes |
+| Verification | Finite-trace safety refinement, relational composition, and separate progress laws |
+
+The declaration universe is normalized once:
+
+```text
+D --reify--> S
+S --rho_M--> S_M
+C_M : S_M -> CompileError_M + Plan_M
+```
+
+`S` is a compile-time witness and does not survive as a runtime registry.
+Module compilers inspect only their projection `S_M`. In C++, the error branch
+is normally a `consteval` rejection at the responsible declaration.
+
+Independent plans pair:
+
+```text
+C_(M × N) = <C_M, C_N>
+```
+
+Plans required to agree over a shared boundary `K` inhabit `Plan_M ×_K Plan_N`.
+General compatibility uses a proof-carrying refined product instead. Direct
+walkers over `D` would remain mathematically pairable, but they are removed
+because they duplicate normalization and structural authority.
+
+A reflected effectful module may have the schema
+
+```text
+(P_M, C_M, {J_(M,p)}, Spec_M, sound_(M,p))
+```
+
+where `P_M` is the API polynomial, `C_M` compiles a plan, each `J_(M,p)` is a
+platform interpretation, and `sound` proves its observations refine `Spec_M`.
+This is not a universal tuple: a static value module may omit the platform
+facet, and a non-reflected runtime protocol may omit the compiler facet.
+
+Finite trace inclusion states safety. Real-time fairness, eventual retirement,
+bounded backpressure, and absence of permanent starvation require progress
+properties over infinite behavior or an explicit progress relation. The Lean
+kernel keeps those classes distinct.
 
 ## Whole-engine composition target
 
@@ -156,6 +217,11 @@ The ideal meta module exposes reflection stabilization, checked arithmetic,
 structural concepts, enum proofs, and generic folds over `Shape(T)`. Audio,
 render, resource, and GPU policy annotations remain in those modules.
 
+It normalizes the closed declarations once as `S` and exposes typed projections
+`rho_M : S -> S_M`. Domain compilers consume those projections and return either
+a plan or a compile-time diagnostic; they do not walk the original declaration
+universe independently.
+
 TODO:
 
 - [ ] Fold `anoptic_meta_types.h` into `anoptic_meta.h` or make it a genuinely
@@ -166,6 +232,8 @@ TODO:
   UI, and pack parsing.
 - [ ] Require stabilized reflection ranges before expansion and retain only
   final generated products.
+- [ ] Define the normalized witness and module projection interface, then remove
+  independent declaration walkers after their generated outputs agree.
 
 ### 2. Domain outcomes
 
@@ -180,9 +248,13 @@ A -> Nullable(B)
 ANO_RESULT_TYPE(D) ~= record { code : E_D }
 ```
 
-These permit response states that the semantics do not: failure with a live
-output, success with a null required output, or an empty value that might mean
-allocation failure.
+Taken as unconstrained products, these representations admit states that the
+semantics do not: failure with an observable output, success with a null
+required output, or an empty value that might mean allocation failure. A C ABI
+status plus caller storage can still refine a sum when its generated contract
+makes the payload observable only on success. The refactor makes that invariant
+type-enforced on the C++ surface and explicit at the C boundary; it does not
+claim that every existing out-parameter implementation lacks bind semantics.
 
 The factorization is
 
@@ -211,12 +283,13 @@ TODO:
 Current algebra:
 
 ```text
-anoptic_collections = 0
+anoptic_collections = empty declaration surface
 anoptic_hive        = identity alias(std::hive or plf::hive)
 ```
 
 An empty header and an implementation-selection alias do not define engine
-semantics. The ideal form is no module. Modules use the whitelisted C++26
+semantics: the empty header proves neither polynomial zero nor the tensor unit.
+The ideal form is no module. Modules use the whitelisted C++26
 standard container directly. A custom container is introduced only when a
 measured ownership/layout law differs from the standard type.
 
@@ -349,12 +422,22 @@ recv : Consumer -> Empty + (T × Consumer)
 Latest(T) = Publisher(T) × Observer(T)
 publish : Publisher × T -> Publisher
 acquire : Observer -> Empty + (T × Observer)
+
+one ordering domain = Channel_N(A + B)
+independent lanes   = Channel_N(A) × Channel_M(B)
 ```
 
 The endpoints are dual capabilities and preserve order. `map(f)` over a channel
 is valid for pure representation-preserving `f`; it does not add another worker
 or callback layer. A resource worker group remains private until a second owner
 demonstrates the same scheduling algebra.
+
+Every product of lanes that contributes to one visible frame, audio block, or
+resource/world publication obeys one transaction law: a consumer never combines
+observations from different committed generations. Per-message stamps, lane
+epochs, begin/commit markers, and a shared atomic publication object are
+permitted representations of that law; no particular representation is
+required globally.
 
 TODO:
 
@@ -364,6 +447,8 @@ TODO:
 - [ ] Keep typed fixed-stride transport generic; move `ByteSpscRing` to the
   owner that actually needs runtime stride unless a second use proves it common.
 - [ ] Derive command transport storage from semantic command sums.
+- [ ] State and test the common committed-generation law for every multi-lane
+  owner bridge without forcing a transaction field into every message.
 - [ ] Do not introduce futures, general work stealing, or a universal executor
   absent a demonstrated protocol.
 
@@ -548,7 +633,7 @@ TODO:
 - [ ] Preserve and extend the existing reflection-derived schema compiler.
 - [ ] Separate parsed and fully bound typestates.
 - [ ] Represent `.gltf` and `.glb` source cells explicitly in the resource
-  category.
+  route language.
 - [ ] Replace importer-side hand projection that duplicates reflected field
   relationships with generated structural projection.
 - [ ] Keep numerical accessor conversion as ordinary `constexpr` or runtime
@@ -606,20 +691,28 @@ closure, immutable epochs, generation coalescing, and owner-safe render
 publication. The factorization removes the descriptions and paths that remain
 parallel to those facts.
 
-Let `C_R` be the free category generated by reflected cell types and transform
-functions. A transform with inputs `X_1 ... X_n` and output `Y` is the primitive
-morphism
+Let `L_R` be the graded many-input, many-output language generated by reflected
+cell types and transform functions. A transform has explicit input and output
+port families:
 
 ```text
-f : X_1 × ... × X_n -> Y
+g : Π(i : I_g) A_i -> Π(j : J_g) B_j
 ```
 
-For each output type:
+For each output type, producer identity includes the selected output port:
 
 ```text
 Provenance(Y)
-  = Σ(f : Producer(Y)) Π(i : Inputs(f)) Ref(InputType(f,i))
+  = Σ((g,j) : ProducerPort(Y)) Π(i : I_g) Ref(A_i)
+
+ProducerPort(Y)
+  = { (g,j) | j : J_g and B_j = Y }
 ```
+
+One transform invocation may therefore publish several independently
+addressable cells without rerunning the transform. The runtime instance graph
+is a typed hypergraph. Several edges may share one immutable `Ref(A)`; sharing
+is an operation on references, not an implicit diagonal on artifact values.
 
 The generated focus operations in epoch `E` are
 
@@ -630,8 +723,8 @@ resolve_E : Ref(T) -> Missing + View_E(T)
 ```
 
 `ContextToY` is the derivative, or one-hole context, of the selected producer
-product. It makes focused `up()` singular without a parent pointer or reverse
-transform. Global consumers remain a separate relation.
+port and input product. It makes focused `up()` singular without a parent
+pointer or reverse transform. Global consumers remain a separate relation.
 
 The central runtime object factor is
 
@@ -650,25 +743,41 @@ interpreters and do not include each other merely to name it.
 The ideal resource compile-time interpretations are:
 
 ```text
-Schema : C_R -> StructuralSchemas
-Wire   : C_R -> CanonicalBytes
-Route  : C_R -> DirectMaterializationPlans
+Schema : L_R -> StructuralSchemas
+Wire   : L_R -> CanonicalBytes
+Route  : L_R -> DirectMaterializationPlans
 Demand : ReflectedComponents -> ResidencyGoals
 ```
 
-The runtime interpretations are dense packed images of those products. No
-generic reflection graph, `void *` transform node, or virtual asset object
-survives.
+Each interpretation declares the preservation strength it actually proves.
+Wire and structural compilation may be pure. Cooking, residency, and owner
+realization are effectful, stateful, capability-indexed, and generally lax or
+partial rather than automatically strong monoidal. A specialized combined path
+is valid when it refines the same observable result. The runtime
+interpretations are dense packed images of the compiled products. No generic
+reflection graph, `void *` transform node, or virtual asset object survives.
+
+Canonical encoding is the partial isomorphism
+
+```text
+Valid(T) <-> CanonicalBytes(T)
+decode(encode(t)) = t
+encode(decode(b)) = b  when b is canonical
+```
+
+Malformed, noncanonical, out-of-bounds, and schema-incompatible bytes return a
+typed error and do not inhabit the isomorphism.
 
 TODO — compile-time language:
 
 - [ ] Extend `compile_resource_language` from local declaration validation to
   complete artifact/transform/importer closure.
-- [ ] Discover the universe once from visible reflected declarations; remove
-  parallel artifact, importer, owner, and route inventories.
-- [ ] Generate producer sums, input products, focused derivatives, direct
-  `up()`/`down()`, reachability, invalidation masks, capability frontiers, and
-  executor bridge requirements.
+- [ ] Normalize the visible engine declaration universe once, pass only its
+  resource projection to `compile_resource_language`, and remove parallel
+  artifact, importer, owner, and route inventories.
+- [ ] Generate producer/output-port sums, input and output products, focused
+  derivatives, direct `up()`/`down()`, reachability, invalidation masks,
+  capability frontiers, and executor bridge requirements.
 - [ ] Reject cycles, duplicate identities, illegal owner edges, unsupported
   wire shapes, ambiguous required routes, and incomplete retained profiles at
   the responsible declaration.
@@ -683,8 +792,8 @@ TODO — public factorization:
   `anoptic_resources_runtime.h` depend on revision rather than on one another.
 - [ ] Remove `AnoResourceEncodeFunction` and `void *context` as semantic cook
   declarations; generate direct encoding jobs from reflected artifact types.
-- [ ] Replace manifest `uint64_t producer` with the generated closed provenance
-  tag and typed input product encoding.
+- [ ] Replace manifest `uint64_t producer` with the generated closed
+  `(transform, output-port)` provenance tag and typed input-product encoding.
 - [ ] Make source, parsed, canonical, runtime-loadable, and owner-resident cells
   uniformly addressable by `AssetRef<T>`.
 
@@ -693,6 +802,9 @@ TODO — cooker and pack:
 - [ ] Preserve the long-lived instance DAG, current action keys, dirty
   consequence closure, persistent executor, cancellation, and content-equality
   cutoffs.
+- [ ] Permit failed work to retain verified hashes, parsed structure,
+  dependency discovery, and other reusable cache state while proving that it
+  cannot change the published revision.
 - [ ] Make reflected transform edges, not importer-specific bookkeeping, the
   source of dependency and invalidation structure.
 - [ ] Keep changed artifacts in disjoint final volume reservations and retain
@@ -714,14 +826,14 @@ TODO — residency and editing:
 - [ ] Retain only revision metadata and distinct artifact volumes reachable from
   demand, plus owner slots awaiting safe retirement.
 
-### 14. Render resource category and realization
+### 14. Render resource routes and realization
 
 Current `anoptic_render_resources.h` contains an excellent reflected artifact
 nucleus for texture, material, mesh, scene, and opaque GPU cells. It also
 includes cooker, runtime, and memory headers; declares a glTF importer that
 mutates a cooker; and exposes a renderer-specific reload publication protocol.
 
-The cell subcategory is
+The render-owned route fragment is
 
 ```text
 RawImage + Ktx2 + ... -> PixelImage -> Texture -> GpuTexture
@@ -732,7 +844,8 @@ Material × List(TextureRef) -> GpuMaterial
 Scene × resident products -> GpuScene
 ```
 
-The ideal owner interpretation is a partial functor over render-owned cells:
+The ideal owner boundary is an effectful, capability-indexed interpretation of
+render-owned cells:
 
 ```text
 Realize_render : PortableRenderCell -> GPU(OpaqueSlot)
@@ -741,7 +854,8 @@ Retire_render  : OpaqueSlot × FenceSerial -> GPU(1)
 
 It preserves stable resource identity while changing representation. Vulkan
 objects and allocation policy are not resource cells exposed outside the
-renderer; opaque slots are.
+renderer; opaque slots are. Composition and retirement laws are proved through
+observable refinement. Strong monoidality is not assumed.
 
 TODO:
 
@@ -1122,8 +1236,9 @@ TODO:
 There is no current ECS module. Mutable demo-world state, resource requests,
 camera/input handling, renderable spawning, lights, UI, and music control live
 procedurally in `engine/main.c`. Resource design already requires native world
-cells and coherent ECS/resource publication, so absence is a zero interface,
-not evidence that the concern belongs in main.
+cells and coherent ECS/resource publication. The missing module is simply absent
+from the current factorization; that absence proves neither a zero interface nor
+that the concern belongs in main.
 
 The ideal world coalgebra is
 
@@ -1137,6 +1252,14 @@ step_world : WorldState × List(WorldInput)
            × AudioControl
            × UiScene
 ```
+
+`Demand(WorldState)` is a snapshot fold over the current consumers. Each
+incremental `DemandDelta`, `RenderDelta`, `AudioDelta`, or UI delta is instead
+derived from `(previous, current)` or from extractor state carried across the
+step. Identical current worlds can require different deltas after different
+predecessors. No global law requires demand to increase across systems; removal
+must be able to release it. An additive phase may declare and prove a local
+monotonicity law.
 
 Persistent components form reflected column products. A world cell is an
 immutable resource value:
@@ -1174,6 +1297,8 @@ TODO:
 - [ ] Move demo world, camera, spawn, light, UI, and music state out of main.
 - [ ] Generate demand deltas from reflected `AssetRef<T>` fields on component
   insertion/removal/change rather than scanning every frame.
+- [ ] Separate snapshot demand folds from stateful delta extractors and prove
+  removal retracts the corresponding demand contribution.
 - [ ] Implement coordinated `FrameWorld` publication.
 - [ ] Define reflected persistent-field policy and canonical save cells.
 
@@ -1368,11 +1493,11 @@ factored representation.
 | Module name (abstract, ideal platonic interface) | Current `.h` files | Algebra |
 |---|---|---|
 | Structural compiler — current helper product | `include/anoptic_meta.h`; `include/anoptic_meta_types.h`; domain contract helpers in `src/render_bridge/render_command_contract.h` and `src/audio/audio_command_contract.h` | `Checked × Enum × FieldMask × PointerPolicy × TaggedUnionProof × ValueWrappers` |
-| **Structural compiler — final reflected shape interpreter** | **Current files above; target one `include/anoptic_meta.h`, with domain policy returned to owners** | **`Shape(record)=Π fields`; `Shape(enum)=Σ cases`; generic compile-time folds derive direct code** |
+| **Structural compiler — final reflected witness compiler** | **Current files above; target one `include/anoptic_meta.h`, with domain policy returned to owners** | **`D -> S`; typed projections `S -> S_M`; `Shape(record)=Π fields`; `Shape(enum)=Σ cases`; partial domain compilers derive direct code** |
 | Outcomes — current status conventions | `include/anoptic_results.h`; scalar status conventions across every public header | `bool + int + Nullable(T) + (E × OutPtr(T))` as unrelated encodings |
 | **Outcomes — final domain result family** | **Current `include/anoptic_results.h`; target reflected C-compatible result lowering** | **`Result(T,E_D)=T+E_D`; one response type per fallible request** |
-| Collections — current empty/alias layer | `include/anoptic_collections.h`; `include/anoptic_hive.h` | `0 × Identity(std::hive)` |
-| **Collections — final no engine module** | **Delete both current headers after the pinned C++26 library supplies `std::hive`** | **`0`; use standard containers directly unless a new measured law exists** |
+| Collections — current empty/alias layer | `include/anoptic_collections.h`; `include/anoptic_hive.h` | Empty declaration surface plus `Identity(std::hive)`; emptiness alone proves neither polynomial `0` nor tensor unit `1` |
+| **Collections — final no engine module** | **Delete both current headers after the pinned C++26 library supplies `std::hive`** | **No factor; use standard containers directly unless a new measured law exists** |
 | Linear algebra — current layout records | `include/anoptic_math.h`; mirrored private GPU schema headers | `R² × Packed(R³) × Std430(R⁴) × ColumnMajor(R⁴ˣ⁴)` |
 | **Linear algebra — final indexed value family** | **Current `include/anoptic_math.h`; GPU mirrors become reflected products** | **`Vec(Scalar,N,Space,Layout)` and `Mat(From,To,Layout)` with typed composition** |
 | Memory — current callable state product | `include/anoptic_memory.h`; `include/anoptic_memory_typed.h` | `Region × LayoutCursor × MutableVolume × SealedFlag × RefCount × ArrayGrowth` |
@@ -1392,9 +1517,9 @@ factored representation.
 | Mesh — current private numerical library | `src/mesh/ano_meshoptimizer.h` | Independent procedures over caller-shaped arrays |
 | **Mesh — final private pure transform family** | **Keep current header private; public morphisms declared in `anoptic_render_resources.h`** | **`Mesh -> OptimizedMesh -> Meshlets/LOD`; reflection derives structure, ordinary code computes** |
 | Resource manager — current layered subsystem | `include/anoptic_resources.h`; `anoptic_resources_typed.h`; `anoptic_resources_cook.h`; `anoptic_resources_pack.h`; `anoptic_resources_runtime.h`; `src/resources/cooker_internal.h`; `parallel.h` | `Registry × Codec × CallbackImporter × Cooker × PackOwnedRevision × Residency × RenderReload` |
-| **Resource manager — final reflected residency category** | **Current family plus new `anoptic_resources_revision.h` and `anoptic_resources_ecs.h`; sibling cook/pack/runtime dependencies** | **Free typed category `C_R`; generated provenance sums/products; `Cook/Open -> Revision`; `Pack(Revision)`; `Residency(Revision,Demand)->Epoch`; COW publication** |
+| **Resource manager — final reflected route and residency algebra** | **Current family plus new `anoptic_resources_revision.h` and `anoptic_resources_ecs.h`; sibling cook/pack/runtime dependencies** | **Many-to-many `L_R`; `(transform,output-port)` provenance; shared-reference instance hypergraph; `Cook/Open -> Revision`; `Pack(Revision)`; `Residency(Revision,Demand)->Epoch`; COW publication** |
 | Render resources — current reflected nucleus plus orchestration | `include/anoptic_render_resources.h`; `src/vulkan_backend/resources/resources.h` | `Texture+Material+Mesh+Scene+Gpu*` cells combined with cooker importer and render-only reload object |
-| **Render resources — final owner subcategory** | **Retain current public name for declarations only; runtime publication composes elsewhere** | **Portable render cell category interpreted by `Realize_render` into opaque fence-retired slots** |
+| **Render resources — final owner route fragment** | **Retain current public name for declarations only; runtime publication composes elsewhere** | **Effectful capability-indexed interpretation of portable render cells into opaque fence-retired slots, justified by refinement rather than assumed strong monoidality** |
 | Render protocol — current super-interface | `include/anoptic_render.h`; `src/render_bridge/render_bridge.h`; `render_command_contract.h`; `bulk_update_plan.h` | `Lifecycle × ResourceLookup × FatCommand × Text × UI × Input × CaptureIO × View × Globals` |
 | **Render protocol — final command/event algebra** | **Retain `anoptic_render.h`; add `anoptic_render_text.h` and `anoptic_render_ui.h`; input leaves** | **Actual command/event sums; frame/world/view tensor; reflected fixed-ring and SoA bulk lowerings** |
 | Input/display — current render-owned event family | Input/event declarations in `include/anoptic_render.h`; window state in private Vulkan headers | `RenderDependency × TagUnion(Input) × WindowGlobals` |
@@ -1411,7 +1536,7 @@ factored representation.
 | **Music — final typed Mealy machine** | **Retain `anoptic_music.h`; private vocabulary remains owned by music** | **`step : State × List(MusicControl) -> State × MusicBar`; canonical reflected snapshot isomorphism** |
 | Synth — current transducer plus neighbor ownership | `include/anoptic_synth.h`; `src/synth/synth_internal.h` | `ScoreScheduler × Voices × AudioCallbacks × MusicPointer × BatchAPI × LiveAPI` |
 | **Synth — final score/bar-to-samples transducer** | **Retain `anoptic_synth.h`; audio/music adapters move to engine composition** | **`State × Inputs × FrameRange -> State × BusSamples × Automation × Events`** |
-| World/ECS/persistence — current absent module | No public header; state and behavior in `src/engine/main.c`; resource types partly in render headers | `0` as module, with ad hoc mutable products in main |
+| World/ECS/persistence — current absent module | No public header; state and behavior in `src/engine/main.c`; resource types partly in render headers | No module factor, with ad hoc mutable products in main; absence is not a proof of polynomial zero |
 | **World/ECS/persistence — final state and resource algebra** | **Add `anoptic_ecs.h` and `anoptic_resources_ecs.h`** | **World coalgebra; reflected archetype columns; `FrameWorld=EcsEpoch×ResidencyEpoch`; canonical save projection** |
 | Engine root — current super-module | No public header; `main.c` includes public headers plus private `vulkan_backend/render_api.h`, Vulkan, and GLFW | Central product of module internals, demo behavior, cooker/reload worker, and backend calls |
 | **Engine root — final composition only** | **No public header required; main includes only public protocol headers** | **Associative composition of selected interpreters; owns sessions and ordering, no domain behavior** |
@@ -1423,14 +1548,19 @@ edge may be implemented in the same pass when its prerequisite laws and
 black-box behavior remain demonstrable.
 
 ```text
-semantic sums/results/typestates
-          |
-          +--> reflected structural derivation
-          |          |
-          |          +--> render/audio transport lowering
-          |          +--> resource provenance/navigation
-          |          `--> ECS demand/save projection
-          |
+normalized witness S           semantic sums/results/typestates
+and module projections                     |
+          |                                 |
+          v                                 v
+products / pullbacks / refined compatibility
+                         |
+                         v
+             reflected structural derivation
+                         |
+                         +--> render/audio transport lowering
+                         +--> resource provenance/navigation
+                         `--> ECS demand/save projection
+
 shared Revision boundary
           |
           +--> cook/open equivalence
@@ -1456,13 +1586,13 @@ once.
 
 | Boundary changed | Required evidence |
 |---|---|
-| Reflected structural compiler | Compile-time rejection fixtures plus direct generated operation tests |
+| Reflected structural compiler | Compile-time rejection fixtures, projection/pairing/compatibility proofs, plus direct generated operation tests |
 | Memory typestate/layout | Existing memory surface tests, overflow fuzzing, resource bake benchmarks, no extra artifact allocations |
 | Resource revision factor | Live-cook/opened-pack query equivalence, pack authentication fuzzing, identical visible scene |
-| Resource navigation | Typed raw/parsed/canonical/runtime/owner focus tests and focused `up(down(x)) = x` laws |
+| Resource navigation | Typed raw/parsed/canonical/runtime/owner focus tests, multi-output producer-port identity, shared-reference provenance, and focused `up(down(x)) = x` laws |
 | Cooker/import projection | Sponza, Viking Room, candles, lights, materials, font and shader semantic counts/content |
-| Residency/edit publication | Repeated material/model/font swaps, previous epoch readability, no mixed generation, supersession stress |
-| Render command sum | Command/event fuzzing, bulk/scalar semantic equivalence, rendered goldens and full FPS sweep |
+| Residency/edit publication | Repeated material/model/font swaps, previous epoch readability, failed-work cache retention without publication, no mixed generation, supersession stress |
+| Render command sum | Command/event fuzzing, bulk/scalar semantic equivalence, multi-lane committed-generation consistency, rendered goldens and full FPS sweep |
 | Input extraction | Identical ordered input stream and latest display state under the GLFW adapter |
 | Text factor | In-world font golden, shaping/measurement API tests, borrowed font-byte lifetime stress |
 | UI factor | CPU reference/golden and GPU output equivalence, capacity/fuzz boundaries |

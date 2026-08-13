@@ -172,6 +172,31 @@ def unit : API.{u} where
   Query := ULift.{u} Unit
   Response _ := ULift.{u} Empty
 
+namespace Hom
+
+/-- The unit polynomial is terminal: every API has exactly one adaptor to it. -/
+def toUnit (api : API.{u}) : Hom api unit where
+  onQuery := fun _ => ULift.up ()
+  onResponse := fun _ response => nomatch response.down
+
+theorem toUnit_unique (api : API.{u}) (hom : Hom api unit) :
+    hom = toUnit api := by
+  rcases hom with ⟨onQuery, onResponse⟩
+  have queryUnique : onQuery = fun _ => ULift.up () := by
+    funext query
+    rcases onQuery query with ⟨value⟩
+    cases value
+    rfl
+  subst onQuery
+  have responseUnique : onResponse =
+      fun _ response => nomatch response.down := by
+    funext query response
+    exact nomatch response.down
+  subst onResponse
+  rfl
+
+end Hom
+
 theorem zeroElim {A : Type v} : (zero : API.{u}).Extension A → False
   | ⟨query, _⟩ => nomatch query.down
 
