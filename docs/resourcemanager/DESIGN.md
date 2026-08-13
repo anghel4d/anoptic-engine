@@ -231,6 +231,238 @@ reflection metadata. Addressability does not require permanent materialization:
 a cell may be absent until demanded, provided the active build profile retains
 the cell or a legal route capable of materializing it.
 
+## API algebra and whole-engine composition
+
+RCRG treats an API as a type, not as a bag of functions. This is a design
+method and a compile-time construction technique; it does not introduce a
+runtime category framework, monad library, object hierarchy, or type-erased
+dispatcher.
+
+### Interfaces as polynomial types
+
+For an interface `A`, let `Q_A` be its set of fully valued requests and let
+`R_A(q)` be the response type belonging to request `q`. Its interaction shape
+is the dependent polynomial
+
+```text
+P_A(X) = sum(q : Q_A) X ^ R_A(q)
+```
+
+An operation name and its arguments together form one `q`; the response family
+may therefore depend on the selected operation and its values. In C++ terms:
+
+| Algebra | C++26 declaration |
+|---|---|
+| `1` | Unit or a successful operation with no payload |
+| `0` | An uninhabited or compile-rejected case |
+| `A x B` | A record whose values are jointly required |
+| `A + B` | A tagged alternative in which exactly one value exists |
+| `1 + A` | An optional value |
+| `A + E` | A successful value or a domain error |
+| `List(A)` | A bounded span or owned finite sequence |
+| `Ref(T)` | A stable identity indexed by the cell type `T` |
+
+An adaptor from interface `A` to interface `B` consists of a forward request
+map and a backward response map:
+
+```text
+request : Q_A -> Q_B
+response_q : R_B(request(q)) -> R_A(q)
+```
+
+The opposite response direction is what lets a caller of `A` use an
+implementation of `B`. These adaptors compose. Interface sums express a choice
+of protocol, interface products express independently available protocols, and
+composition expresses one module interpreting another module's values.
+
+State and effects are kept outside the polynomial shape. A stateful owner `M`
+implements its interface with an interpreter of the form
+
+```text
+handle_M : S_M x Q_M -> Effect_M(sum(r : R_M(q)) S_M)
+```
+
+where `Effect_M` is the concrete domain in which the owner is allowed to act:
+filesystem I/O, worker execution, render-master device work, audio-block work,
+or another explicit effect. Pure functions use the identity effect. Platform
+backends are alternate interpreters of the same request and response families,
+not alternate public APIs.
+
+C++26 reflection reads records, enumerators, functions, parameters, return
+types, and typed annotations as compile-time values. Ordinary `constexpr`
+functions perform the algebra, a `consteval` boundary requires closure, and
+expansion plus splicing emits the direct tagged sums, products, field accesses,
+and calls. The mathematical representation and the packed runtime
+representation are therefore homomorphic without retaining the mathematics as
+runtime machinery.
+
+### Factorization laws
+
+Every Anoptic module, including the resource manager, obeys these laws:
+
+1. Alternatives are sums. A tag accompanied by storage for every alternative
+   is an implementation encoding to be generated at a foreign or transport
+   boundary, not the semantic API.
+2. Joint requirements are products. Fields that are meaningful only for some
+   operation belong to that operation's product, not to a universal fat record.
+3. Failure is a sum. A boolean, integer status, nullable output, and partially
+   initialized record do not jointly stand in for one typed outcome.
+4. Temporal legality is indexed by state. Build, seal, publish, retire, and
+   reset transitions use distinct capabilities or typestates whenever a caller
+   could otherwise express an illegal sequence.
+5. Bulk operations are functorial liftings of scalar operations. A separate
+   bulk protocol exists only where layout or atomicity gives it distinct
+   semantics.
+6. Pure morphisms are separated from effects. Parsing, shaping, graph closure,
+   layout, hashing, and validation remain reusable values and functions; I/O,
+   allocation, device calls, and publication stay at explicit owner boundaries.
+7. Cross-module composition uses typed values. Paths, foreign handles,
+   callbacks with `void *`, and generic registries do not substitute for an
+   already known product, sum, or function signature.
+8. Ownership is singular. A module owns its mutable state and foreign objects;
+   other modules receive immutable values, stable identities, borrowed views
+   with explicit epochs, or opaque owner-issued slots.
+9. Observationally equal interpreters are interchangeable. Native and offline
+   audio, live and packed revisions, and platform backends preserve the same
+   public laws even when their effects differ.
+10. No abstraction exists solely to mirror a directory. A module boundary is
+    justified by a distinct algebra, state owner, effect owner, or reusable
+    interpreter.
+
+### The reflected resource category
+
+Let `C_R` be the free typed category generated by the reflected resource
+language:
+
+- Objects are resource-cell types.
+- Primitive morphisms are reflected transform functions.
+- Identity is retaining the same typed cell.
+- Composition is a legal transform route.
+- The monoidal product `A (x) B` is a transform's jointly required input
+  product.
+- `1 + A` and `List(A)` preserve optional and repeated input cardinality.
+- Alternative producers of one output form a coproduct in provenance.
+
+For a cell `Y`, its generated selected-provenance type is
+
+```text
+Provenance(Y)
+  = sum(f : Producer(Y))
+      product(i : Inputs(f)) Ref(InputType(f, i))
+```
+
+This equation is the exact type of `down()` in a fixed epoch. The cooker stores
+one constructor of this sum and the identities in its product. A focus reached
+through one product position additionally carries the derivative, or one-hole
+context, of that selected provenance. That compact context is the exact data
+needed by `up()`:
+
+```text
+down_E : Focus_E(Y) -> Provenance_E(Y)
+up_E   : Focus_E(X; context-to-Y) -> Focus_E(Y)
+
+up_E(down_E(y)[i]) = y
+```
+
+The equality is a navigation law, not an assertion that the transform has an
+inverse. A standalone `Ref(X)` has no chosen context; asking for all consumers
+is the separate reverse-dependency relation.
+
+The category has several compile-time and runtime interpretations:
+
+| Interpretation | Mapping |
+|---|---|
+| Structural schema `S` | Cell types to fingerprints/layouts; transforms to checked signatures |
+| Canonical wire `W` | Cell products and sums to deterministic bytes and direct validators |
+| Cook `K_p` | A source-instance graph under profile `p` to an immutable revision |
+| Pack `P` | A revision to authenticated vendor-neutral bytes |
+| Open `O` | Valid pack bytes to the same immutable revision abstraction |
+| Residency `R_d` | A revision plus demand `d` to an immutable residency epoch |
+| Owner realization `G_o` | Portable cells in owner subcategory `o` to opaque resident slots |
+
+`P` and `O` meet at the revision boundary: a live cook and an opened pack are
+two producers of the same abstract immutable value. Cook, pack, and runtime are
+therefore siblings around `Revision`, not a dependency chain in which cooking
+or residency depends on the pack API.
+
+Where two interpretations cover the same transform subcategory, their adaptor
+is natural: interpreting before or after a legal structural composition yields
+the same observable resource value.
+
+```text
+      F(A) -------- F(f) --------> F(B)
+       |                            |
+     eta_A                        eta_B
+       |                            |
+       v                            v
+      G(A) -------- G(f) --------> G(B)
+```
+
+For example, a renderer realization adaptor maps portable render cells to
+opaque GPU slots while preserving resource identity and dependency
+composition. It is partial outside the renderer-owned subcategory and cannot
+be called from an I/O worker.
+
+### Whole-engine composition
+
+The resource manager composes with the engine as one typed protocol among
+other typed protocols:
+
+```mermaid
+flowchart TD
+    Decl["Reflected cell and transform declarations"] --> Compiler["consteval resource-language compiler"]
+    Compiler --> Direct["Direct schemas, routes, operations and diagnostics"]
+
+    Source["Filesystem / memory / pack source values"] --> Cook["Cook interpreter"]
+    Direct --> Cook
+    Cook --> Revision["Immutable Revision"]
+    Revision --> Pack["Pack interpreter"]
+    Pack --> Revision
+
+    Input["Typed input events"] --> World["World / ECS transition"]
+    Clock["Typed time"] --> World
+    World --> Demand["Residency goals: products of AssetRef<T>"]
+    Revision --> Residency["Residency interpreter"]
+    Demand --> Residency
+    Residency --> Epoch["Immutable ResidencyEpoch"]
+
+    Epoch --> RenderOwner["Render realization interpreter"]
+    Epoch --> AudioOwner["Audio realization interpreter"]
+    Epoch --> TextOwner["Text realization interpreter"]
+    World --> RenderProtocol["Render command sum"]
+    World --> AudioProtocol["Audio command sum"]
+    World --> Ui["UI scene value"]
+    RenderProtocol --> RenderOwner
+    AudioProtocol --> AudioOwner
+    Ui --> RenderOwner
+
+    RenderOwner --> Frame["Presented frame + typed events"]
+    AudioOwner --> Samples["Presented audio block + typed events"]
+```
+
+The engine entry point is the composition root for these interpreters. It does
+not reach into private Vulkan headers, perform resource import, expose a font
+registry through the renderer, or tunnel music control through an audio command
+record. Each such shortcut composes effects by shared implementation state
+instead of composing APIs by their types.
+
+### Consequences for public boundaries
+
+The algebra fixes several boundaries that names and directories alone do not:
+
+| Entangled boundary | Factored boundary |
+|---|---|
+| Cooker includes pack merely to name `AnoCookedRevision` | `anoptic_resources_revision.h` owns the common immutable revision type and queries; cook produces it, pack serializes/opens it, runtime consumes it |
+| Render resource declarations include cooker, runtime, reload, and memory policy | `anoptic_render_resources.h` declares cells and typed transforms; resource orchestration and renderer publication stay in their owning runtime interfaces |
+| Renderer API also owns input, font lookup, resource scene projection, UI/text extensions, capture file I/O, and backend-named lifecycle | The render protocol, input protocol, resource extension, and optional UI/text protocol sums are independently composable; the concrete Vulkan interpreter remains private |
+| Audio commands contain a kind plus fields for every command and tunnel music control | Audio commands are a reflected sum of command products; music control is a music value composed with synth at the engine root |
+| Text globally loads path-named faces and also exposes pure shaping | Font-source and bake cells belong to the resource graph and text owner; shaping remains a pure `FontBake x Text -> List(Glyph)` morphism |
+| Engine `main()` implements demo world state, importer/reload policy, backend access, and module adapters | The entry point selects interpreters and composes typed world, resource, render, audio, text, UI, input, and time protocols |
+
+The complete module-by-module derivation and migration inventory lives in
+[`todo.md`](todo.md). `include/include.md` and `src/src.md` define the matching
+public and implementation boundaries.
+
 ## Contract
 
 **Types and laws are compile-time. Asset instances and schedules are runtime.**
@@ -459,8 +691,9 @@ compile-time interfaces.
 |---|---|
 | `anoptic_resources.h` | Stable IDs, content IDs, schema fingerprints, byte/range values, errors, and opaque runtime views |
 | `anoptic_resources_typed.h` | Resource annotations, `AssetRef<T>`, reflected `up()`/`down()` navigation, relative wire types, the reflection compiler, and direct typed operations |
-| `anoptic_resources_cook.h` | Import and cook requests, build profiles, diagnostics, incremental results, and CAS control |
-| `anoptic_resources_pack.h` | Vendor-neutral manifests, cell provenance, packed navigation, packs, queries, and range reads |
+| `anoptic_resources_revision.h` | Immutable cooked revision ownership, typed cell lookup, selected provenance, dependency/navigation views, and revision identity shared by live cooks and opened packs |
+| `anoptic_resources_cook.h` | Import and cook requests, build profiles, diagnostics, incremental production of revisions, and CAS control |
+| `anoptic_resources_pack.h` | Vendor-neutral manifest and pack serialization/opening around the shared revision boundary, queries, and range reads |
 | `anoptic_resources_runtime.h` | Cell goals, focused navigation, copy-on-write transactions, commit groups, epoch acquisition, resolution, and retirement |
 | `anoptic_resources_ecs.h` | Reflected component demand, native prefab/world-cell schemas, bulk instantiation, and coordinated publication |
 | `anoptic_render_resources.h` | Render artifacts and transforms, opaque GPU slots, and the renderer-owned realization bridge |
@@ -854,6 +1087,10 @@ not substitute specifications for Anoptic's public API.
 | [FlatBuffers internals](https://flatbuffers.dev/internals/) and [schema evolution](https://flatbuffers.dev/evolution/) | Relative offsets, direct in-buffer access, explicit field identity, and constrained schema evolution | Reflected C++ declarations are the schema and generate the operations directly; there is no parallel IDL or external source-generation step. |
 | [Linux RCU](https://www.kernel.org/doc/html/latest/RCU/whatisRCU.html) | Readers consume an immutable publication while replaced state waits for safe reclamation | Residency epochs coordinate typed CPU, GPU, audio, text, manifest, and ECS bindings as commit groups. |
 | Haskell [`Control.Category`](https://hackage.haskell.org/package/base/docs/Control-Category.html) and [`Control.Arrow`](https://hackage.haskell.org/package/base/docs/Control-Arrow.html) | Typed computations compose; products, alternatives, and fan-out preserve dataflow shape | Reflection closes and compiles the category into direct C++ calls, generated algebraic provenance, and packed indices rather than retaining runtime function values. |
+| Abbott, Altenkirch, and Ghani, [*Containers: Constructing Strictly Positive Types*](https://people.cs.nott.ac.uk/psztxa/publ/cont-tcs.pdf), and Gambino and Kock, [*Polynomial functors and polynomial monads*](https://arxiv.org/abs/0906.4931) | An interface is represented by request shapes and a response family; sums, products, composition, and natural transformations provide a calculus for API factorization | Public protocols are declared as C++ product and sum types, then reflection lowers them to direct ABI records, packed transports, and owner interpreters. No polynomial object survives at runtime. |
+| Atkey, [*Parameterised Notions of Computation*](https://bentnib.org/param-notions.pdf) | Pre- and post-state indices describe computations whose legal result changes with protocol state | Construction, sealing, publication, and retirement use typed state transitions instead of comments over one universally callable handle. |
+| Rutten, [*Universal coalgebra: a theory of systems*](https://ir.cwi.nl/pub/48/) | Stateful and reactive systems are coalgebras with compositional homomorphisms and observable laws | Audio, music, render, world, and residency owners are modeled as explicit state interpreters while their request/response types remain pure values. |
+| McBride, [*The Derivative of a Regular Type is its Type of One-Hole Contexts*](https://citeseerx.ist.psu.edu/document?doi=7de4f6fddb11254d1fd5f8adfd67b6e0c9439eaa&repid=rep1&type=pdf) | The derivative of a polynomial data type gives the type of a focus's one-hole context | Generated focused handles retain exactly the compact route witness required for singular `up()` navigation. |
 | Huet's [functional zipper](https://doi.org/10.1017/S0956796897002864) | A location plus context gives a composable focus that can return to its enclosing value | An RCRG focus is a pointer-free typed cell identity plus compact baked route context in an immutable DAG; it is not a heap cursor or an assertion that transforms are reversible. |
 | [Bevy assets and handles](https://docs.rs/bevy/latest/bevy/asset/) | Typed handles separate entity/component references from asset storage | `AssetRef<T>` is a stable manifest identity; liveness and replacement belong to demand reconciliation and immutable epochs rather than handle reference counts. |
 
