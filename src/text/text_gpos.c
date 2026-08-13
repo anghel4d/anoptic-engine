@@ -270,14 +270,13 @@ int ano_gpos_extract_kerns(const uint8_t *gpos, uint32_t len, const uint32_t *sl
     uint32_t lookupListCount = g16(&g, llOff, &ok);
     if (!ok)
         return EIO;
-    mi_heap_t *scratch LOCALHEAPATTR = mi_heap_new();
+    mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
     if (scratch == NULL)
         return ENOMEM;
 
     // LangSys feature indices -> 'kern' lookups, deduped, sorted ascending.
     uint32_t *kernLookups = lookupListCount
-        ? static_cast<uint32_t *>(
-            mi_heap_malloc(scratch, (size_t)lookupListCount * sizeof *kernLookups))
+        ? mi_heap_mallocn_tp(uint32_t, scratch, (size_t)lookupListCount)
         : NULL;
     if (lookupListCount && kernLookups == NULL)
         return ENOMEM;
@@ -331,8 +330,8 @@ int ano_gpos_extract_kerns(const uint8_t *gpos, uint32_t len, const uint32_t *sl
             continue; // not PairPos
         if (subCount > subCap)
         {
-            uint32_t *grown = static_cast<uint32_t *>(
-                mi_heap_realloc(scratch, subs, (size_t)subCount * sizeof *subs));
+            uint32_t *grown = mi_heap_reallocn_tp(
+                uint32_t, scratch, subs, (size_t)subCount);
             if (grown == NULL)
                 return ENOMEM;
             subs = grown;

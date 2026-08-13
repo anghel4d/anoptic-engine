@@ -920,8 +920,8 @@ int main(void)
     AnoFontId runic = ano_text_font_load_lit(RUNE_FONT_PATH);
     CHECK(runic != 0, "Noto Sans Runic loads");
 
-    mi_heap_t *heapA LOCALHEAPATTR = mi_heap_new();
-    mi_heap_t *heapB LOCALHEAPATTR = mi_heap_new();
+    mi_heap_t *heapA ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t *heapB ANO_SCOPED_HEAP = ano_heap_create();
     CHECK(heapA != NULL && heapB != NULL, "bake heaps");
 
     AnoFontBake bake = { 0 };

@@ -153,7 +153,7 @@ static void expand(const AnoMusicConfig *c, AnoEngineConfig *e)
 // One allocation; engine stays pointer-free (snapshot = bytes).
 AnoMusicEngine *ano_music_create(const AnoMusicConfig *cfg, uint64_t seed)
 {
-    AnoMusicEngine *e = static_cast<AnoMusicEngine *>(mi_malloc(sizeof *e));
+    AnoMusicEngine *e = mi_malloc_tp(AnoMusicEngine);
     if (!e)
         return NULL;
     AnoMusicConfig def;

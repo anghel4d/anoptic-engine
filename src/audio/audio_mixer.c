@@ -37,7 +37,7 @@ bool ano_audio_graph_init(AnoAudioMixer *mx, const AnoAudioBusDesc *layout)
                 gain = layout[b].gain;
         }
         bus->parent = b == 0u ? 0u : parent;
-        bus->mix = static_cast<float *>(mi_heap_calloc(mx->heap, samples, sizeof(float)));
+        bus->mix = mi_heap_calloc_tp(float, mx->heap, samples);
         if (!bus->mix)
             return false;
         ano_audio_smooth_snap(&bus->gain, gain);
@@ -596,14 +596,13 @@ bool ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint6
     if (buses > ANO_AUDIO_MAX_BUSES)
         return false;
 
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
     if (!heap)
         return false;
     AnoAudioMixer *mx = static_cast<AnoAudioMixer *>(
-        mi_heap_malloc_aligned(heap, sizeof *mx, alignof(AnoAudioMixer)));
+        mi_heap_zalloc_aligned(heap, sizeof *mx, alignof(AnoAudioMixer)));
     if (!mx)
         return false;
-    memset(mx, 0, sizeof *mx);
     mx->heap            = heap;
     mx->sampleRate      = rate;
     mx->blockFrames     = bf;
@@ -617,8 +616,8 @@ bool ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint6
     mx->generatorCommands = d.generatorCommands;
     if (!ano_audio_graph_init(mx, d.busLayout))
         return false;
-    float *scratch = static_cast<float *>(
-        mi_heap_calloc(heap, (size_t)bf * ANO_AUDIO_CHANNELS, sizeof(float)));
+    float *scratch = mi_heap_calloc_tp(
+        float, heap, (size_t)bf * ANO_AUDIO_CHANNELS);
     if (!scratch)
         return false;
 

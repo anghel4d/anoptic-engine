@@ -162,8 +162,8 @@ static float peak_of(const float *buf, uint64_t samples)
 
 static void test_offline_determinism(uint32_t soak)
 {
-    float *golden = static_cast<float *>(mi_malloc(SAMPLES * sizeof(float)));
-    float *again = static_cast<float *>(mi_malloc(SAMPLES * sizeof(float)));
+    float *golden = mi_mallocn_tp(float, SAMPLES);
+    float *again = mi_mallocn_tp(float, SAMPLES);
     if (!golden || !again) {
         CHECK(false, "test buffers failed to allocate");
         return;
@@ -199,7 +199,7 @@ static void test_offline_determinism(uint32_t soak)
 
 static void test_wav(void)
 {
-    float *buf = static_cast<float *>(mi_malloc(SAMPLES * sizeof(float)));
+    float *buf = mi_mallocn_tp(float, SAMPLES);
     if (!buf) {
         CHECK(false, "wav buffer failed to allocate");
         return;

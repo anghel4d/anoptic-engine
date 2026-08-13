@@ -469,8 +469,8 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 int main(int argc, char **argv)
 {
     // One scratch heap for the whole run.
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("FAIL: mi_heap_new\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
 
     test_encode_decode_roundtrip_exhaustive();
     test_malformed_decode();

@@ -53,7 +53,7 @@ static void test_primitives(void)
 {
     // Sliding-window max == naive max.
     {
-        mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
+        mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
         enum { N = 5000, WIN = 64 };
         AnoDspWinMax wm;
         CHECK(ano_dsp_winmax_init(&wm, heap, WIN), "winmax init");
@@ -195,8 +195,8 @@ static bool render_case(const AnoAudioBusDesc *layout, uint32_t busCount,
 static void test_effects(void)
 {
     enum { F = 48000 }; // one second
-    float *out = static_cast<float *>(mi_malloc((size_t)F * 2u * sizeof(float)));
-    float *alt = static_cast<float *>(mi_malloc((size_t)F * 2u * sizeof(float)));
+    float *out = mi_mallocn_tp(float, (size_t)F * 2u);
+    float *alt = mi_mallocn_tp(float, (size_t)F * 2u);
     if (!out || !alt) {
         CHECK(false, "case buffers failed to allocate");
         return;
@@ -417,8 +417,8 @@ static bool render_console(float *out, uint64_t frames)
 static void test_console_golden(uint32_t soak)
 {
     enum { F = 48000 };
-    float *golden = static_cast<float *>(mi_malloc((size_t)F * 2u * sizeof(float)));
-    float *again = static_cast<float *>(mi_malloc((size_t)F * 2u * sizeof(float)));
+    float *golden = mi_mallocn_tp(float, (size_t)F * 2u);
+    float *again = mi_mallocn_tp(float, (size_t)F * 2u);
     if (!golden || !again) {
         CHECK(false, "console buffers failed to allocate");
         return;

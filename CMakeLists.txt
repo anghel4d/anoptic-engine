@@ -156,6 +156,12 @@ set(MI_BUILD_STATIC ON)
 set(MI_OVERRIDE OFF)
 set(MI_BUILD_TESTS OFF)
 set(MI_TRACK_ASAN OFF)
+if(WIN32 AND MINGW)
+    # mimalloc v3's default CRT/TLS lifecycle stalls before main completes in
+    # this static MinGW-w64/UCRT build. FLS keeps automatic process/thread
+    # lifecycle while avoiding application-owned mi_process_init calls.
+    set(MI_WIN_USE_FLS ON CACHE BOOL "" FORCE)
+endif()
 if(ANOPTIC_SANITIZE STREQUAL "asan")
     set(MI_TRACK_ASAN ON)
 endif()

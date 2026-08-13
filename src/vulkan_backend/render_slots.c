@@ -23,7 +23,7 @@ static bool ensure_cap(mi_heap_t *heap, void **arr, uint32_t *cap, uint32_t need
         if (newcap > UINT32_MAX / 2u) { newcap = need; break; }   // last doubling would wrap
         newcap *= 2u;
     }
-    void *p = mi_heap_realloc(heap, *arr, (size_t)newcap * elem);
+    void *p = mi_heap_reallocn(heap, *arr, (size_t)newcap, elem);
     if (!p) return false;
     *arr = p;
     *cap = newcap;
@@ -55,7 +55,8 @@ bool render_slots_init(RenderSlotTable *table, mi_heap_t *heap, uint32_t maxSlot
     table->framesInFlight = framesInFlight;
 
     // Reverse map sized to the physical slot ceiling, all slots free initially.
-    table->slotToLogical = static_cast<uint32_t*>(mi_heap_malloc(heap, (size_t)maxSlots * sizeof(uint32_t)));
+    table->slotToLogical = mi_heap_mallocn_tp(
+        uint32_t, heap, (size_t)maxSlots);
     if (!table->slotToLogical) return false;
     for (uint32_t i = 0; i < maxSlots; i++) table->slotToLogical[i] = ANO_RENDER_SLOT_UNMAPPED;
     return true;
@@ -134,7 +135,8 @@ void render_slots_set_capacity(RenderSlotTable *t, uint32_t newCapacity)
 {
     if (newCapacity <= t->slotCapacity) return;
     // Grow the reverse map alongside the slot ceiling. On OOM keep the old ceiling.
-    uint32_t *p = static_cast<uint32_t*>(mi_heap_realloc(t->heap, t->slotToLogical, (size_t)newCapacity * sizeof(uint32_t)));
+    uint32_t *p = mi_heap_reallocn_tp(
+        uint32_t, t->heap, t->slotToLogical, (size_t)newCapacity);
     if (!p) return;
     for (uint32_t i = t->slotCapacity; i < newCapacity; i++) p[i] = ANO_RENDER_SLOT_UNMAPPED;
     t->slotToLogical = p;

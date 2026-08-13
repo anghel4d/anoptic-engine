@@ -49,7 +49,7 @@ static double run_series(const char *label, size_t bytesPerOp, op_fn_t op, const
     bench_lat_init(&lat, ticks, (size_t)g_reps);
     size_t sink = 0;
     for (int r = 0; r < g_reps; r++) {
-        mi_heap_t *scratch LOCALHEAPATTR = mi_heap_new();   // outputs die per rep
+        mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();   // outputs die per rep
         uint64_t t0 = bench_begin();
         sink += op(scratch, ctx);
         bench_lat_add(&lat, bench_end(t0));
@@ -194,10 +194,9 @@ int main(int argc, char **argv)
         if (v > 0) g_reps = v;
     }
 
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("FAIL: mi_heap_new\n"); return 1; }
-    uint64_t *ticks = static_cast<uint64_t *>(
-        mi_heap_malloc(heap, (size_t)g_reps * sizeof *ticks));
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
+    uint64_t *ticks = mi_heap_mallocn_tp(uint64_t, heap, (size_t)g_reps);
     if (ticks == NULL) { printf("FAIL: tick buffer\n"); return 1; }
 
     test_rng rng = rng_make(0x0B5E55EDu);

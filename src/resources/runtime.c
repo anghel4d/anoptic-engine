@@ -165,7 +165,7 @@ AnoResourceError build_epoch(
     AnoResourceManifestEntry *entries = entryBytes == 0 ? nullptr
         : static_cast<AnoResourceManifestEntry *>(mi_malloc(entryBytes));
     uint8_t *demanded = demandBytes == 0 ? nullptr
-        : static_cast<uint8_t *>(mi_calloc(1, demandBytes));
+        : static_cast<uint8_t *>(mi_zalloc(demandBytes));
     uint64_t *stack = stackBytes == 0 ? nullptr
         : static_cast<uint64_t *>(mi_malloc(stackBytes));
     if ((entryBytes != 0 && entries == nullptr)
@@ -223,14 +223,13 @@ AnoResourceError build_epoch(
 
     AnoResidencyEpoch *candidate = nullptr;
     if (result == ANO_RESOURCE_OK) {
-        candidate = static_cast<AnoResidencyEpoch *>(
-            mi_calloc(1, sizeof(AnoResidencyEpoch)));
+        candidate = mi_zalloc_tp(AnoResidencyEpoch);
         if (candidate == nullptr)
             result = ANO_RESOURCE_OUT_OF_MEMORY;
     }
     if (result == ANO_RESOURCE_OK && bindingBytes != 0) {
         candidate->bindings = static_cast<ResidencyBinding *>(
-            mi_calloc(1, bindingBytes));
+            mi_zalloc(bindingBytes));
         if (candidate->bindings == nullptr)
             result = ANO_RESOURCE_OUT_OF_MEMORY;
     }
@@ -364,8 +363,7 @@ extern "C" AnoResourceError ano_resource_manager_create(
     if (result != ANO_RESOURCE_OK)
         return result;
 
-    AnoResourceManager *created = static_cast<AnoResourceManager *>(
-        mi_calloc(1, sizeof(AnoResourceManager)));
+    AnoResourceManager *created = mi_zalloc_tp(AnoResourceManager);
     if (created == nullptr) {
         ano_resource_pack_close(pack);
         return ANO_RESOURCE_OUT_OF_MEMORY;
@@ -533,8 +531,7 @@ extern "C" AnoResourceError ano_resource_reload_prepare(
     AnoResourceError result = ano_resource_pack_open(packBytes, &candidatePack);
     if (result != ANO_RESOURCE_OK)
         return result;
-    AnoResourceReload *prepared = static_cast<AnoResourceReload *>(
-        mi_calloc(1, sizeof(AnoResourceReload)));
+    AnoResourceReload *prepared = mi_zalloc_tp(AnoResourceReload);
     if (prepared == nullptr) {
         ano_resource_pack_close(candidatePack);
         return ANO_RESOURCE_OUT_OF_MEMORY;

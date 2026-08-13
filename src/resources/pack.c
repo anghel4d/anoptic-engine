@@ -249,7 +249,7 @@ AnoResourceError validate_dependency_graph(
         || !ano::detail::checked_allocation_size(
             entryCount, sizeof(GraphFrame), &stackBytes))
         return ANO_RESOURCE_OVERFLOW;
-    uint8_t *colors = static_cast<uint8_t *>(mi_calloc(1, colorBytes));
+    uint8_t *colors = static_cast<uint8_t *>(mi_zalloc(colorBytes));
     GraphFrame *stack = static_cast<GraphFrame *>(mi_malloc(stackBytes));
     if (colors == nullptr || stack == nullptr) {
         mi_free(colors);
@@ -516,8 +516,7 @@ extern "C" AnoResourceError ano_resource_manifest_open(
         || bytes.size > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
 
-    AnoResourceManifest *opened = static_cast<AnoResourceManifest *>(
-        mi_calloc(1, sizeof(AnoResourceManifest)));
+    AnoResourceManifest *opened = mi_zalloc_tp(AnoResourceManifest);
     if (opened == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     opened->bytes = static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(bytes.size)));
@@ -637,7 +636,7 @@ AnoResourceError ano_resource_pack_build(
             itemCount, sizeof(WorkItem), &workBytes))
         return ANO_RESOURCE_OVERFLOW;
     WorkItem *work = workBytes == 0 ? nullptr
-        : static_cast<WorkItem *>(mi_calloc(1, workBytes));
+        : static_cast<WorkItem *>(mi_zalloc(workBytes));
     if (workBytes != 0 && work == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     for (uint64_t i = 0; i < itemCount; ++i)
@@ -880,8 +879,7 @@ extern "C" AnoResourceError ano_resource_pack_open(
         return result;
     }
 
-    AnoResourcePack *opened =
-        static_cast<AnoResourcePack *>(mi_calloc(1, sizeof(AnoResourcePack)));
+    AnoResourcePack *opened = mi_zalloc_tp(AnoResourcePack);
     uint8_t *copy = bytes.size > SIZE_MAX ? nullptr
         : static_cast<uint8_t *>(mi_malloc(static_cast<size_t>(bytes.size)));
     if (opened == nullptr || copy == nullptr) {

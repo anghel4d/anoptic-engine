@@ -92,7 +92,7 @@ static uint64_t wav_resample(const float *src, uint64_t srcFrames, uint32_t chan
     if (dstFrames == 0u)
         dstFrames = 1u;
     float *dst = static_cast<float *>(
-        mi_malloc((size_t)dstFrames * channels * sizeof(float)));
+        mi_mallocn((size_t)dstFrames, (size_t)channels * sizeof(float)));
     if (!dst)
         return 0u;
     const double step = (double)srcRate / (double)dstRate;
@@ -175,7 +175,8 @@ float *ano_audio_wav_load(const char *path, uint32_t targetRate,
     const uint32_t frameBytes = channels * bits / 8u;
     uint64_t frames = dataBytes / frameBytes;
     if (frames == 0u) { mi_free(raw); return NULL; }
-    float *pcm = static_cast<float *>(mi_malloc((size_t)frames * channels * sizeof(float)));
+    float *pcm = static_cast<float *>(
+        mi_mallocn((size_t)frames, (size_t)channels * sizeof(float)));
     if (!pcm) { mi_free(raw); return NULL; }
     const uint64_t samples = frames * channels;
     if (tag == 3u) {

@@ -803,7 +803,7 @@ Source census began with 70 verified findings and 41 lead records; four leads du
 - odd-sibling-out
 - fix (2026-07-27): reject only failed/truncated GetModuleFileNameA; trim; then validate directory against MAXPATH.
 
-[X] Fixed: memory.c:9: ano_heap_release forwarded NULL heap to mi_heap_destroy; mimalloc debug asserts. test: pending / cleanup-attr paths
+[X] Fixed: memory.c:9: ano_heap_cleanup forwarded NULL heap to mi_heap_destroy; mimalloc debug asserts. test: pending / cleanup-attr paths
 - unguarded-delegation
 - seam-validation
 - fix (2026-07-27): destroy only non-NULL heap.

@@ -44,7 +44,7 @@
 
     # Pinned submodule sources, revs match .gitmodules.
     mimalloc-src = {
-      url = "github:microsoft/mimalloc/02a2f5df9d7d46d30263b83832eebeeab62dc5fe";
+      url = "github:microsoft/mimalloc/acf2fdd329f9dc2a7ffe3f12a133fe7175e39378";
       flake = false;
     };
     freetype-src = {

@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include <anoptic_log.h>
+#include <anoptic_memory.h>
 
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
@@ -124,7 +125,7 @@ static void mover_set(RendererState* st, uint32_t slot, const AnoMotionDescripto
         if (st->sweptPoisoned) return;
         if (st->moverCount == st->moverCap) {
             uint32_t nc = st->moverCap ? st->moverCap * 2u : 64u;
-            MoverBound* nm = (MoverBound*)realloc(st->movers, (size_t)nc * sizeof(MoverBound));
+            MoverBound* nm = mi_reallocn_tp(MoverBound, st->movers, nc);
             if (!nm) {
                 ano_log(ANO_ERROR, "Shadow cache: mover array growth failed; swept exposure disabled.");
                 st->sweptPoisoned = true;
@@ -243,4 +244,3 @@ void shadow_track_motion(RendererState* st, uint32_t slot, const AnoMotionDescri
     if (on) mover_set(st, slot, m);
     else    mover_remove(st, slot);
 }
-

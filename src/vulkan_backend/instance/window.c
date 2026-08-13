@@ -36,7 +36,7 @@ void enumerateMonitors(Monitors* monitors) // Instance creation helper
 		return; // headless host, or every display lost
 	}
 
-	MonitorInfo* infos = static_cast<MonitorInfo*>(mi_malloc((size_t)count * sizeof(MonitorInfo)));
+	MonitorInfo* infos = mi_mallocn_tp(MonitorInfo, (size_t)count);
 	if (infos == NULL)
 	{
 		ano_log(ANO_ERROR, "Failed to allocate monitor info for %d monitors!", count);

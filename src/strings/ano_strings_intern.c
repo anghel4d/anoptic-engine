@@ -18,11 +18,10 @@ anostr_intern_t *anostr_intern_make(mi_heap_t *heap)
 {
     if (heap == NULL)
         return NULL;
-    anostr_intern_t *t = static_cast<anostr_intern_t *>(mi_heap_zalloc(heap, sizeof *t));
+    anostr_intern_t *t = mi_heap_zalloc_tp(anostr_intern_t, heap);
     if (t == NULL)
         return NULL;
-    t->slots = static_cast<uint32_t *>(
-        mi_heap_zalloc(heap, INTERN_INITIAL_SLOTS * sizeof *t->slots));
+    t->slots = mi_heap_calloc_tp(uint32_t, heap, INTERN_INITIAL_SLOTS);
     if (t->slots == NULL) {
         mi_free(t);
         return NULL;
@@ -59,8 +58,7 @@ static int grow_slots(anostr_intern_t *t)
     uint64_t newCap = ((uint64_t)t->slotMask + 1) * 2;
     if (newCap > UINT32_MAX)
         return -1;
-    uint32_t *fresh = static_cast<uint32_t *>(
-        mi_heap_zalloc(t->heap, (size_t)newCap * sizeof *fresh));
+    uint32_t *fresh = mi_heap_calloc_tp(uint32_t, t->heap, (size_t)newCap);
     if (fresh == NULL)
         return -1;
     uint32_t newMask = (uint32_t)newCap - 1;
@@ -77,13 +75,13 @@ static int grow_arrays(anostr_intern_t *t)
     uint64_t newCap = t->arrCap ? (uint64_t)t->arrCap * 2 : 32;
     if (newCap > UINT32_MAX)
         return -1;
-    uint64_t *hashes = static_cast<uint64_t *>(
-        mi_heap_realloc(t->heap, t->hashes, (size_t)newCap * sizeof *hashes));
+    uint64_t *hashes = mi_heap_reallocn_tp(
+        uint64_t, t->heap, t->hashes, (size_t)newCap);
     if (hashes == NULL)
         return -1;
     t->hashes = hashes;    // committed independently
-    anostr_t *strs = static_cast<anostr_t *>(
-        mi_heap_realloc(t->heap, t->strs, (size_t)newCap * sizeof *strs));
+    anostr_t *strs = mi_heap_reallocn_tp(
+        anostr_t, t->heap, t->strs, (size_t)newCap);
     if (strs == NULL)
         return -1;         // arrCap unchanged; larger hashes block is slack
     t->strs = strs;

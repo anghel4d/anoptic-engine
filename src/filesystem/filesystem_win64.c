@@ -109,7 +109,7 @@ ano_file *ano_fs_open_append(const char *path)
     if (handle == INVALID_HANDLE_VALUE)
         return NULL;
 
-    ano_file *file = static_cast<ano_file *>(mi_malloc(sizeof *file));
+    ano_file *file = mi_malloc_tp(ano_file);
     if (file == NULL) {
         CloseHandle(handle);
         return NULL;

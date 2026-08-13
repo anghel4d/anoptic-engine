@@ -56,7 +56,7 @@ int ano_text_init(void)
     if (g_ftLibrary != NULL)
         return 0;
 
-    g_textHeap = mi_heap_new();
+    g_textHeap = ano_heap_create();
     if (g_textHeap == NULL)
         return ENOMEM;
 
@@ -71,7 +71,7 @@ int ano_text_init(void)
         const char *msg = FT_Error_String(err);
         ano_log(ANO_ERROR, "text: FT_New_Library failed: %d (%s)", (int)err, msg ? msg : "?");
         g_ftLibrary = NULL;
-        mi_heap_destroy(g_textHeap);
+        ano_heap_destroy(g_textHeap);
         g_textHeap = NULL;
         return EIO;
     }
@@ -102,7 +102,7 @@ void ano_text_shutdown(void)
     }
     if (g_textHeap != NULL)
     {
-        mi_heap_destroy(g_textHeap);
+        ano_heap_destroy(g_textHeap);
         g_textHeap = NULL;
     }
 }

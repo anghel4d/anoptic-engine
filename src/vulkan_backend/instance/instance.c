@@ -185,7 +185,7 @@ const char** getRequiredExtensions(uint32_t* extensionsCount) // Returns extensi
 	totalExtensionCount += 1;
 	#endif
 
-	const char** extensions = static_cast<const char**>(calloc(totalExtensionCount, sizeof(char*)));
+	const char** extensions = mi_calloc_tp(const char*, totalExtensionCount);
 
 	uint32_t idx = 0;
 	for (uint32_t i = 0; i < glfwExtensionCount; i++)

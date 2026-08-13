@@ -371,30 +371,27 @@ bool geometry_prepare_chain(
         || meshletCapacity > SIZE_MAX / sizeof(ano_meshlet_bounds_gpu_t))
         return false;
     const GeometryScratch scratch = {
-        .meshlets = static_cast<ano_meshlet_t*>(mi_heap_malloc(
-            heap, meshletCapacity * sizeof(ano_meshlet_t))),
-        .meshletVertices = static_cast<uint32_t*>(mi_heap_malloc(
-            heap, meshletCapacity * 64u * sizeof(uint32_t))),
-        .triangles = static_cast<uint8_t*>(mi_heap_malloc(
-            heap, meshletCapacity * 126u * 3u)),
-        .bounds = static_cast<ano_meshlet_bounds_gpu_t*>(mi_heap_malloc(
-            heap, meshletCapacity * sizeof(ano_meshlet_bounds_gpu_t))),
+        .meshlets = mi_heap_mallocn_tp(
+            ano_meshlet_t, heap, meshletCapacity),
+        .meshletVertices = static_cast<uint32_t*>(mi_heap_mallocn(
+            heap, meshletCapacity, 64u * sizeof(uint32_t))),
+        .triangles = static_cast<uint8_t*>(mi_heap_mallocn(
+            heap, meshletCapacity, 126u * 3u)),
+        .bounds = mi_heap_mallocn_tp(
+            ano_meshlet_bounds_gpu_t, heap, meshletCapacity),
     };
     if (!scratch.meshlets || !scratch.meshletVertices
         || !scratch.triangles || !scratch.bounds)
         return false;
 
     uint32_t* simplified = want > 1u
-        ? static_cast<uint32_t*>(mi_heap_malloc(
-            heap, (size_t)indexCount * sizeof(uint32_t)))
+        ? mi_heap_mallocn_tp(uint32_t, heap, (size_t)indexCount)
         : NULL;
     Vertex* compacted = want > 1u
-        ? static_cast<Vertex*>(mi_heap_malloc(
-            heap, (size_t)vertexCount * sizeof(Vertex)))
+        ? mi_heap_mallocn_tp(Vertex, heap, (size_t)vertexCount)
         : NULL;
     uint32_t* remap = want > 1u
-        ? static_cast<uint32_t*>(mi_heap_malloc(
-            heap, (size_t)vertexCount * sizeof(uint32_t)))
+        ? mi_heap_mallocn_tp(uint32_t, heap, (size_t)vertexCount)
         : NULL;
     if (want > 1u && (!simplified || !compacted || !remap)) want = 1u;
 

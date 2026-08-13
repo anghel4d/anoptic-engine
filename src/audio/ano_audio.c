@@ -125,16 +125,15 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
     AnoAudioBackend want;
     const AnoAudioFormat mixFormat = ano_audio_mix_format(rate);
 
-    mi_heap_t *heap = mi_heap_new();
+    mi_heap_t *heap = ano_heap_create();
     if (!heap)
         return false;
 
     // ring cursors carry alignas(ANO_THREAD_LINE); heap owner must request it
     mx = static_cast<AnoAudioMixer *>(
-        mi_heap_malloc_aligned(heap, sizeof *mx, alignof(AnoAudioMixer)));
+        mi_heap_zalloc_aligned(heap, sizeof *mx, alignof(AnoAudioMixer)));
     if (!mx)
         goto fail_heap;
-    memset(mx, 0, sizeof *mx);
     mx->heap            = heap;
     mx->sampleRate      = rate;
     mx->blockFrames     = bf;
@@ -152,10 +151,9 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
     atomic_init(&mx->deviceRun, false);
 
     bridge = static_cast<AnoAudioBridge *>(
-        mi_heap_malloc_aligned(heap, sizeof *bridge, alignof(AnoAudioBridge)));
+        mi_heap_zalloc_aligned(heap, sizeof *bridge, alignof(AnoAudioBridge)));
     if (!bridge)
         goto fail_heap;
-    memset(bridge, 0, sizeof *bridge);
     if (!ano_audio_bridge_init(bridge, heap, cmdCap, evtCap))
         goto fail_heap;
     mx->bridge = bridge;
@@ -166,10 +164,10 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
                 return mi_heap_calloc(heap, count, width);
             }))
         goto fail_heap;
-    mx->blockScratch = static_cast<float *>(
-        mi_heap_calloc(heap, (size_t)bf * ANO_AUDIO_CHANNELS, sizeof(float)));
-    mx->deviceScratch = static_cast<float *>(
-        mi_heap_calloc(heap, (size_t)bf * ANO_AUDIO_CHANNELS, sizeof(float)));
+    mx->blockScratch = mi_heap_calloc_tp(
+        float, heap, (size_t)bf * ANO_AUDIO_CHANNELS);
+    mx->deviceScratch = mi_heap_calloc_tp(
+        float, heap, (size_t)bf * ANO_AUDIO_CHANNELS);
     if (!mx->blockScratch || !mx->deviceScratch)
         goto fail_heap;
     if (!ano_audio_graph_init(mx, c.busLayout)) {
@@ -229,7 +227,7 @@ bool ano_audio_init(const AnoAudioConfig *cfg)
     return true;
 
 fail_heap:
-    mi_heap_destroy(heap);
+    ano_heap_destroy(heap);
     return false;
 }
 
@@ -280,7 +278,7 @@ void ano_audio_shutdown(void)
     ano_audio_bridge_destroy(mx->bridge);
     mx->blockRing.destroy([](void* memory) { mi_free(memory); });
     g_mixer = NULL;
-    mi_heap_destroy(g_heap);
+    ano_heap_destroy(g_heap);
     g_heap = NULL;
     ano_log(ANO_INFO, "audio: down.");
 }

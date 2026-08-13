@@ -148,10 +148,9 @@ static int oracle_cmp(const void *a, const void *b)
 
 static bool check_against_oracle(const anostr_t *items, size_t n, const char *what, mi_heap_t *heap)
 {
-    anostr_t *mine = static_cast<anostr_t *>(mi_heap_malloc(heap, n * sizeof *mine));
-    anostr_t *ref = static_cast<anostr_t *>(mi_heap_malloc(heap, n * sizeof *ref));
-    uint32_t *order = static_cast<uint32_t *>(
-        mi_heap_malloc(heap, n * sizeof *order));
+    anostr_t *mine = mi_heap_mallocn_tp(anostr_t, heap, n);
+    anostr_t *ref = mi_heap_mallocn_tp(anostr_t, heap, n);
+    uint32_t *order = mi_heap_mallocn_tp(uint32_t, heap, n);
     if (mine == NULL || ref == NULL || order == NULL) {
         printf("FAIL: %s: oracle scratch alloc\n", what); failures++; return false;
     }
@@ -611,7 +610,7 @@ static void test_edges(mi_heap_t *h)
 
 static void test_keep_lifetime(mi_heap_t *h)
 {
-    mi_heap_t *tmp = mi_heap_new();
+    mi_heap_t *tmp = ano_heap_create();
     CHECK(tmp != NULL, "temp heap");
     if (tmp == NULL) return;
     const char *text = "a borrowed long string that outlives its source";
@@ -619,7 +618,7 @@ static void test_keep_lifetime(mi_heap_t *h)
     memcpy(buf, text, strlen(text));
     anostr_t kept = anostr_keep(h, anostr_view(buf, strlen(text)));   // copied into h
     CHECK(!anostr_is_inline(kept), "kept long value");
-    mi_heap_destroy(tmp);                                             // source gone
+    ano_heap_destroy(tmp);                                            // source gone
     CHECK(anostr_len(kept) == strlen(text) && memcmp(anostr_bytes(&kept), text, strlen(text)) == 0,
           "kept value survives source teardown");
 }
@@ -770,7 +769,7 @@ static void fuzz(uint32_t iterations)
 {
     test_rng rng = rng_make(0xF0FBEEF5u);
     for (uint32_t it = 0; it < iterations; it++) {
-        mi_heap_t *scratch LOCALHEAPATTR = mi_heap_new();
+        mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
         if (scratch == NULL) { printf("FAIL: fuzz scratch heap\n"); failures++; return; }
         anostr_intern_t *tab = anostr_intern_make(scratch);
         if (tab == NULL) { printf("FAIL: fuzz intern table\n"); failures++; return; }
@@ -903,8 +902,8 @@ static void fuzz(uint32_t iterations)
 
 int main(int argc, char **argv)
 {
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("FAIL: mi_heap_new\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
 
     smoketest(heap);
     test_collation_cases(heap);

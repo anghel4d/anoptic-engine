@@ -195,8 +195,7 @@ AnoResourceError ano_render_resources_prepare_reload(
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *publication = nullptr;
     AnoRenderResourcePublication *prepared =
-        static_cast<AnoRenderResourcePublication *>(
-            mi_calloc(1, sizeof(AnoRenderResourcePublication)));
+        mi_zalloc_tp(AnoRenderResourcePublication);
     if (prepared == nullptr) {
         ano_resource_reload_abort(reload);
         return ANO_RESOURCE_OUT_OF_MEMORY;

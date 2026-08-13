@@ -95,15 +95,15 @@ int main(int argc, char **argv)
     uint32_t pairs = PAIRS_DEFAULT;
     if (argc > 1) pairs = (uint32_t)strtoul(argv[1], NULL, 10);
 
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("mi_heap_new failed\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("ano_heap_create failed\n"); return 1; }
 
     test_rng rng = rng_make(0xBE5C0123u);
-    pair_t *inl = static_cast<pair_t *>(mi_heap_malloc(heap, pairs * sizeof(pair_t)));
-    pair_t *lng = static_cast<pair_t *>(mi_heap_malloc(heap, pairs * sizeof(pair_t)));
-    pair_t *shared = static_cast<pair_t *>(mi_heap_malloc(heap, pairs * sizeof(pair_t)));
-    uint64_t *buf = static_cast<uint64_t *>(
-        mi_heap_malloc(heap, (pairs / BATCH + 1) * sizeof(uint64_t)));
+    pair_t *inl = mi_heap_mallocn_tp(pair_t, heap, pairs);
+    pair_t *lng = mi_heap_mallocn_tp(pair_t, heap, pairs);
+    pair_t *shared = mi_heap_mallocn_tp(pair_t, heap, pairs);
+    uint64_t *buf = mi_heap_mallocn_tp(
+        uint64_t, heap, pairs / BATCH + 1);
     if (!inl || !lng || !shared || !buf) { printf("alloc failed\n"); return 1; }
 
     for (uint32_t i = 0; i < pairs; i++) {

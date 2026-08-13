@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <anoptic_memory.h>
 
 #include "vulkan_backend/structs.h"
 #include "vulkan_backend/light_registry.h"
@@ -30,11 +31,11 @@ static bool lr_reserve_rows(LightRegistry* r, uint32_t need) {
     if (need <= r->rowsCapacity) return true;
     uint32_t nc = r->rowsCapacity ? r->rowsCapacity : 16u;
     while (nc < need) nc *= 2u;
-    uint8_t*  s  = static_cast<uint8_t*>(realloc(r->rowState, nc));
-    uint32_t* pp = static_cast<uint32_t*>(realloc(r->rowParent, (size_t)nc * sizeof(uint32_t)));
-    uint32_t* li = static_cast<uint32_t*>(realloc(r->rowLightId, (size_t)nc * sizeof(uint32_t)));
-    LightData* mi = static_cast<LightData*>(realloc(r->rowMirror, (size_t)nc * sizeof(LightData)));
-    uint32_t* sb = static_cast<uint32_t*>(realloc(r->rowShadowBase, (size_t)nc * sizeof(uint32_t)));
+    uint8_t* s = mi_reallocn_tp(uint8_t, r->rowState, nc);
+    uint32_t* pp = mi_reallocn_tp(uint32_t, r->rowParent, nc);
+    uint32_t* li = mi_reallocn_tp(uint32_t, r->rowLightId, nc);
+    LightData* mi = mi_reallocn_tp(LightData, r->rowMirror, nc);
+    uint32_t* sb = mi_reallocn_tp(uint32_t, r->rowShadowBase, nc);
     if (s)  r->rowState   = s;
     if (pp) r->rowParent  = pp;
     if (li) r->rowLightId = li;
@@ -56,7 +57,7 @@ static bool lr_reserve_ids(LightRegistry* r, uint32_t need) {
         if (nc > (0xFFFFFFFFu / 2u)) { nc = need; break; } // doubling cap
         nc *= 2u;
     }
-    uint32_t* p = static_cast<uint32_t*>(realloc(r->idToRow, (size_t)nc * sizeof(uint32_t)));
+    uint32_t* p = mi_reallocn_tp(uint32_t, r->idToRow, nc);
     if (!p) return false;
     for (uint32_t i = r->idCapacity; i < nc; i++) p[i] = ANO_RENDER_SLOT_UNMAPPED;
     r->idToRow = p; r->idCapacity = nc;
@@ -66,7 +67,7 @@ static bool lr_reserve_ids(LightRegistry* r, uint32_t need) {
 static void lr_push_free(LightRegistry* r, uint32_t row) {
     if (r->freeCount >= r->freeCapacity) {
         uint32_t nc = r->freeCapacity ? r->freeCapacity * 2u : 16u;
-        uint32_t* p = static_cast<uint32_t*>(realloc(r->freeRows, (size_t)nc * sizeof(uint32_t)));
+        uint32_t* p = mi_reallocn_tp(uint32_t, r->freeRows, nc);
         if (!p) return; // OOM, row leaks
         r->freeRows = p; r->freeCapacity = nc;
     }
@@ -76,7 +77,8 @@ static void lr_push_free(LightRegistry* r, uint32_t row) {
 static void lr_push_quarantine(LightRegistry* r, uint32_t row, uint64_t safeFrame) {
     if (r->quarantineCount >= r->quarantineCapacity) {
         uint32_t nc = r->quarantineCapacity ? r->quarantineCapacity * 2u : 16u;
-        LightRowQuarantine* p = static_cast<LightRowQuarantine*>(realloc(r->quarantine, (size_t)nc * sizeof(LightRowQuarantine)));
+        LightRowQuarantine* p = mi_reallocn_tp(
+            LightRowQuarantine, r->quarantine, nc);
         if (!p) return; // OOM, row stays quarantined
         r->quarantine = p; r->quarantineCapacity = nc;
     }

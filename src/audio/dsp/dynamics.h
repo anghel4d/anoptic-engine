@@ -53,8 +53,8 @@ static inline bool ano_dsp_winmax_init(AnoDspWinMax *w, mi_heap_t *heap, uint32_
     uint32_t cap = 2u;
     while (cap < window + 1u)
         cap <<= 1;
-    w->val   = (float *)mi_heap_calloc(heap, cap, sizeof(float));
-    w->stamp = (uint64_t *)mi_heap_calloc(heap, cap, sizeof(uint64_t));
+    w->val   = mi_heap_calloc_tp(float, heap, cap);
+    w->stamp = mi_heap_calloc_tp(uint64_t, heap, cap);
     if (!w->val || !w->stamp)
         return false;
     w->mask = cap - 1u;

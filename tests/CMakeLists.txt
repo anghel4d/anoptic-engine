@@ -190,6 +190,12 @@ target_link_libraries(anotest_memory PRIVATE anoptic_core)
 add_test(NAME anoptic_memory COMMAND anotest_memory)
 set_tests_properties(anoptic_memory PROPERTIES TIMEOUT 30 LABELS "unit;mem")
 
+add_executable(anotest_memory_region anotest_memory_region.c)
+target_link_libraries(anotest_memory_region PRIVATE anoptic_core)
+add_test(NAME anoptic_memory_region COMMAND anotest_memory_region)
+set_tests_properties(anoptic_memory_region PROPERTIES
+        TIMEOUT 30 LABELS "unit;mem;concurrency")
+
 # Easter egg: the original allocator experiment, preserved verbatim (see the file banner). 
 # Built so it cannot rot, but DISABLED in ctest
 # -- run ./anotest_chariots by hand. -w

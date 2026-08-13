@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 /* Coverage for anoptic_memory.h / mimalloc wiring.
- *   - ano_salloc and __cleanup__ (LOCALHEAPATTR);
+ *   - ano_salloc and __cleanup__ (ANO_SCOPED_HEAP);
  *   - scoped heaps with aligned/zeroed alloc and 128-bit union;
  *   - mi_malloc round-trips;
  *   - best-effort huge-page probe.
@@ -24,7 +24,7 @@ static int failures = 0;
     if (!(cond)) { printf("FAIL: %s (%s:%d)\n", (msg), __FILE__, __LINE__); failures++; } \
 } while (0)
 
-// __cleanup__ observed via side effect; LOCALHEAPATTR uses this.
+// __cleanup__ observed via side effect; ANO_SCOPED_HEAP uses this.
 static int g_cleanup_fired = 0;
 static void mark_cleanup(const int *in) { (void)in; g_cleanup_fired = 1; }
 
@@ -59,15 +59,15 @@ static void test_salloc_and_scope_cleanup(void)
 
 static void test_scoped_heap_aligned(void)
 {
-    // LOCALHEAPATTR: ano_heap_release on scope exit frees all below.
-    mi_heap_t *memHeap LOCALHEAPATTR = mi_heap_new();
-    CHECK(memHeap != NULL, "mi_heap_new returned a heap");
+    // ANO_SCOPED_HEAP: ano_heap_cleanup on scope exit frees all below.
+    mi_heap_t *memHeap ANO_SCOPED_HEAP = ano_heap_create();
+    CHECK(memHeap != NULL, "first-class heap creation succeeds");
     if (!memHeap) return;
 
     const uint32_t count = 4096;
     mem_chariot_t *chariots = static_cast<mem_chariot_t *>(
-        mi_heap_zalloc_aligned(memHeap, (size_t)count * sizeof(mem_chariot_t),
-                              alignof(mem_chariot_t)));
+        mi_heap_calloc_aligned(memHeap, count, sizeof(mem_chariot_t),
+                               alignof(mem_chariot_t)));
     CHECK(chariots != NULL, "aligned zalloc returned non-NULL");
     if (!chariots) return;
 
@@ -92,13 +92,13 @@ static void test_scoped_heap_aligned(void)
         chariots[i].wheels = (uint8_t)(rand() % 16);
     }
     CHECK(chariots[count - 1].wheels < 16, "tail element intact after fill");
-} // ano_heap_release(&memHeap) runs here
+} // ano_heap_cleanup(&memHeap) runs here
 
 static void test_basic_malloc(void)
 {
     const int n = 128;
-    int *nums = static_cast<int *>(mi_malloc((size_t)n * sizeof(int)));
-    CHECK(nums != NULL, "mi_malloc returned non-NULL");
+    int *nums = mi_mallocn_tp(int, (size_t)n);
+    CHECK(nums != NULL, "typed count allocation returned non-NULL");
     if (!nums) return;
 
     for (int i = 0; i < n; i++) nums[i] = i + 1;

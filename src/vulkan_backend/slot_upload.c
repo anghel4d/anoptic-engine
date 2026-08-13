@@ -114,7 +114,7 @@ bool slot_upload_create(SlotUpload* b, uint32_t capacity, uint32_t stride, uint3
         if (b->stagingAllocs[i].memory == VK_NULL_HANDLE) return false;
         if (vkBindBufferMemory(ctx.device, b->staging[i], b->stagingAllocs[i].memory, b->stagingAllocs[i].offset) != VK_SUCCESS) return false;
         b->stagingMapped[i] = b->stagingAllocs[i].mapped;
-        b->regions[i] = (VkBufferCopy*)malloc((size_t)b->stagingCap * sizeof(VkBufferCopy));
+        b->regions[i] = mi_mallocn_tp(VkBufferCopy, b->stagingCap);
         if (!b->regions[i]) return false;
         b->staged[i] = 0;
     }
@@ -149,7 +149,8 @@ static bool slot_upload_grow_staging(SlotUpload* b, uint32_t need)
         b->staging[i]       = nb;
         b->stagingAllocs[i] = na;
         b->stagingMapped[i] = na.mapped;
-        VkBufferCopy* nr = (VkBufferCopy*)realloc(b->regions[i], (size_t)newCap * sizeof(VkBufferCopy));
+        VkBufferCopy* nr = mi_reallocn_tp(
+            VkBufferCopy, b->regions[i], newCap);
         if (!nr) return false;
         b->regions[i] = nr;
     }
@@ -272,13 +273,16 @@ bool ensureEntityCapacity(RendererState* state, uint32_t required, uint32_t fram
     // Mover bookkeeping tracks every slot: grow in lockstep or fail the create.
     if (ok) {
         uint32_t oldMc = state->slotMotionCap;
-        uint8_t*  nm = (uint8_t*)realloc(state->slotMotion, newCap);
-        mat4*     np = (mat4*)realloc(state->slotBasePose, (size_t)newCap * sizeof(mat4));
-        uint32_t* nx = (uint32_t*)realloc(state->slotMeshIdx, (size_t)newCap * sizeof(uint32_t));
-        AnoAssetId* na = (AnoAssetId*)realloc(state->slotResourceAsset, (size_t)newCap * sizeof(AnoAssetId));
-        uint32_t* nr = (uint32_t*)realloc(state->slotResourcePrimitive, (size_t)newCap * sizeof(uint32_t));
-        mat4* nt = (mat4*)realloc(state->slotResourceRoot, (size_t)newCap * sizeof(mat4));
-        uint32_t* nv = (uint32_t*)realloc(state->slotMoverIdx, (size_t)newCap * sizeof(uint32_t));
+        uint8_t* nm = mi_reallocn_tp(uint8_t, state->slotMotion, newCap);
+        mat4* np = mi_reallocn_tp(mat4, state->slotBasePose, newCap);
+        uint32_t* nx = mi_reallocn_tp(uint32_t, state->slotMeshIdx, newCap);
+        AnoAssetId* na = mi_reallocn_tp(
+            AnoAssetId, state->slotResourceAsset, newCap);
+        uint32_t* nr = mi_reallocn_tp(
+            uint32_t, state->slotResourcePrimitive, newCap);
+        mat4* nt = mi_reallocn_tp(mat4, state->slotResourceRoot, newCap);
+        uint32_t* nv = mi_reallocn_tp(
+            uint32_t, state->slotMoverIdx, newCap);
         if (nm) state->slotMotion = nm;
         if (np) state->slotBasePose = np;
         if (nx) state->slotMeshIdx = nx;

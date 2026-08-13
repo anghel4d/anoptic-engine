@@ -166,7 +166,8 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device) { // Rework extensions
 	uint32_t extensionCount;
 	vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, NULL);
 
-	VkExtensionProperties* availableExtensions = (VkExtensionProperties*) calloc(1, extensionCount * sizeof(VkExtensionProperties));
+	VkExtensionProperties* availableExtensions = mi_calloc_tp(
+		VkExtensionProperties, extensionCount);
 	vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, availableExtensions);
 
 	for (size_t i = 0; i < requiredExtensionsCount; ++i) 
@@ -364,9 +365,10 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 	}
 
 	// Device names. Zeroed so free() on empty slots is a no-op.
-	ctx->availableDevices = (char**)mi_calloc(ctx->deviceCount, sizeof(char*));
+	ctx->availableDevices = mi_calloc_tp(char*, ctx->deviceCount);
 
-	VkPhysicalDevice* devices = (VkPhysicalDevice*)calloc(1, sizeof(VkPhysicalDevice) * ctx->deviceCount);
+	VkPhysicalDevice* devices = mi_calloc_tp(
+		VkPhysicalDevice, ctx->deviceCount);
 
 	vkEnumeratePhysicalDevices(ctx->instance, &ctx->deviceCount, devices);
 	
@@ -442,8 +444,7 @@ bool pickPhysicalDevice(VulkanContext* ctx, DeviceCapabilities* capabilities, st
 				bestFallbackMesh = currentMesh;
 				maxFallbackMemory = currentMemorySize;
 			}
-			(ctx->availableDevices)[i] = (char*)mi_malloc(strlen(deviceProperties.deviceName) +1);
-			strcpy((ctx->availableDevices)[i], deviceProperties.deviceName);
+			(ctx->availableDevices)[i] = mi_strdup(deviceProperties.deviceName);
 			ano_debug_log(ANO_INFO, "Device %u is suitable: %s", i, ctx->availableDevices[i]);
 		}
 	}

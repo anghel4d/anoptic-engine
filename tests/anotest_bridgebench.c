@@ -198,7 +198,7 @@ int main(int argc, char **argv)
     CHECK(blk.n > 0, "mixer blocks observed");
 
     /* Part 2: the render bridge twin under a synthetic render master. */
-    mi_heap_t *rbHeap = mi_heap_new();
+    mi_heap_t *rbHeap = ano_heap_create();
     CHECK(rbHeap && ano_render_bridge_init(&g_rb, rbHeap, 16, 16), "render bridge init");
     if (failures)
         return 1;
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
     bench_lat_row("rb publish_view", bench_lat_stats(&rpub));
 
     ano_render_bridge_destroy(&g_rb);
-    mi_heap_destroy(rbHeap);
+    ano_heap_destroy(rbHeap);
     free(racqBuf); free(rpubBuf);
     free(acqBuf); free(pubBuf); free(blkBuf);
     ano_music_destroy(music);

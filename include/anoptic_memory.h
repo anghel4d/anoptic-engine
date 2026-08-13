@@ -7,9 +7,15 @@
 #ifndef ANOPTICENGINE_ANOPTIC_MEMORY_H
 #define ANOPTICENGINE_ANOPTIC_MEMORY_H
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h> // before mimalloc-override.h (MinGW _msize/_aligned_msize)
+#include <string.h> // before mimalloc-override.h (MinGW strdup)
 #include <mimalloc.h>
+#if MI_MALLOC_VERSION < 30405 || MI_MALLOC_VERSION >= 40000
+#error "Anoptic requires mimalloc 3.4.5 or newer from the v3 API series"
+#endif
 #if defined(__APPLE__)
 #include <unistd.h> // before mimalloc-override.h (Darwin valloc)
 #else
@@ -19,6 +25,46 @@
 #if defined(__linux__) || defined(__APPLE__)
 #include <alloca.h>
 #endif
+
+#ifdef __cplusplus
+#define ANO_MEMORY_CONSTEXPR constexpr
+#else
+#define ANO_MEMORY_CONSTEXPR
+#endif
+
+// Checked size arithmetic. Failure leaves *result untouched.
+static inline ANO_MEMORY_CONSTEXPR bool ano_size_add(
+    size_t lhs, size_t rhs, size_t *result)
+{
+    if (result == NULL || rhs > SIZE_MAX - lhs)
+        return false;
+    *result = lhs + rhs;
+    return true;
+}
+
+static inline ANO_MEMORY_CONSTEXPR bool ano_size_multiply(
+    size_t lhs, size_t rhs, size_t *result)
+{
+    if (result == NULL || (lhs != 0 && rhs > SIZE_MAX / lhs))
+        return false;
+    *result = lhs * rhs;
+    return true;
+}
+
+static inline ANO_MEMORY_CONSTEXPR bool ano_size_align(
+    size_t value, size_t alignment, size_t *result)
+{
+    if (result == NULL || alignment == 0
+        || (alignment & (alignment - 1)) != 0)
+        return false;
+    const size_t mask = alignment - 1;
+    if (value > SIZE_MAX - mask)
+        return false;
+    *result = (value + mask) & ~mask;
+    return true;
+}
+
+#undef ANO_MEMORY_CONSTEXPR
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,11 +86,14 @@ extern "C" {
 #define ANO_THREAD_LINE 128
 #endif
 
-// Destroys a mimalloc local heap. Fired at end of scope for LOCALHEAPATTR vars.
-void ano_heap_release(mi_heap_t **in);
+// First-class lifetime heaps accept allocations from every thread. Destroying
+// one winks out all of its live allocations after its users have stopped.
+mi_heap_t *ano_heap_create(void);
+void ano_heap_destroy(mi_heap_t *heap);
+void ano_heap_cleanup(mi_heap_t **heap);
 
-// Scoped heap: mi_heap_t *h LOCALHEAPATTR = mi_heap_new();
-#define LOCALHEAPATTR  __attribute__((__cleanup__(ano_heap_release)))
+// Scoped lifetime heap: mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+#define ANO_SCOPED_HEAP __attribute__((__cleanup__(ano_heap_cleanup)))
 
 // Stack alloc. Overflow risk.
 #define ano_salloc(bytes) alloca((size_t)bytes)

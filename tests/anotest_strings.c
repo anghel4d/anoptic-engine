@@ -141,7 +141,7 @@ static void test_keep(mi_heap_t *persistent)
     anostr_t survivor;
     const char *msg = "outlives-the-scratch-heap-it-was-born-in";
     {
-        mi_heap_t *scratch LOCALHEAPATTR = mi_heap_new();
+        mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
         CHECK(scratch != NULL, "scratch heap created");
         anostr_t born = anostr_from(scratch, msg, strlen(msg));
         survivor = anostr_keep(persistent, born);
@@ -487,8 +487,8 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 int main(int argc, char **argv)
 {
     // One scratch heap for the whole run.
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("FAIL: mi_heap_new\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
 
     test_construction_roundtrip(heap);
     test_padding_makes_equals_bitwise(heap);

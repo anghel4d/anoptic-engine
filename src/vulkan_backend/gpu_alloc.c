@@ -1,5 +1,5 @@
 #include "gpu_alloc.h"
-#include <anoptic_memory.h>   // puts this TU's malloc/free in the engine allocator (MI_OVERRIDE is OFF)
+#include <anoptic_memory.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <anoptic_log.h>
@@ -11,9 +11,10 @@ static bool reserve_free_spans(GpuBlock* block, uint32_t required)
     if (required <= block->freeCapacity) return true;
     uint32_t capacity = block->freeCapacity == 0 ? 8u : block->freeCapacity * 2u;
     while (capacity < required) capacity *= 2u;
-    void* grown = realloc(block->freeSpans, (size_t)capacity * sizeof(GpuFreeSpan));
+    GpuFreeSpan* grown = mi_reallocn_tp(
+        GpuFreeSpan, block->freeSpans, capacity);
     if (!grown) return false;
-    block->freeSpans = static_cast<GpuFreeSpan*>(grown);
+    block->freeSpans = grown;
     block->freeCapacity = capacity;
     return true;
 }
@@ -103,12 +104,13 @@ GpuAllocation gpu_alloc(GpuAllocator* alloc, VkMemoryRequirements reqs, VkMemory
     VkDeviceSize blockSize = reqs.size > DEFAULT_BLOCK_SIZE ? reqs.size : DEFAULT_BLOCK_SIZE;
     
     // Expand blocks array
-    void* temp = realloc(alloc->blocks, (alloc->blockCount + 1) * sizeof(GpuBlock));
+    GpuBlock* temp = mi_reallocn_tp(
+        GpuBlock, alloc->blocks, alloc->blockCount + 1u);
     if (!temp) {
         ano_log(ANO_ERROR, "Host OOM: Failed to allocate memory for GPU block tracking array!");
         return (GpuAllocation){0};
     }
-    alloc->blocks = static_cast<GpuBlock*>(temp);
+    alloc->blocks = temp;
     GpuBlock* newBlock = &alloc->blocks[alloc->blockCount];
     alloc->blockCount++;
 

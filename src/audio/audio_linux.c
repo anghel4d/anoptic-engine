@@ -82,8 +82,7 @@ static void *alsa_main(void *arg)
 
 static bool alsa_start(AnoAudioMixer *mx)
 {
-    AnoAlsaState *st = static_cast<AnoAlsaState *>(
-        mi_heap_calloc(mx->heap, 1, sizeof *st));
+    AnoAlsaState *st = mi_heap_zalloc_tp(AnoAlsaState, mx->heap);
     if (!st)
         return false;
     st->lib = dlopen("libasound.so.2", RTLD_NOW | RTLD_LOCAL);
@@ -129,16 +128,16 @@ static bool alsa_start(AnoAudioMixer *mx)
             ano_log(ANO_WARN, "audio/alsa: set_params failed: %s", st->strerr(err));
             goto fail_pcm;
         }
-        st->sbuf = static_cast<int16_t *>(
-            mi_heap_calloc(mx->heap, (size_t)mx->blockFrames * ANO_AUDIO_CHANNELS,
-                           sizeof(int16_t)));
+        st->sbuf = mi_heap_calloc_tp(
+            int16_t, mx->heap,
+            (size_t)mx->blockFrames * ANO_AUDIO_CHANNELS);
         if (!st->sbuf)
             goto fail_pcm;
         ano_dsp_rng_seed(&st->dither, 0xD17E4u);
     }
-    st->fbuf = static_cast<float *>(
-        mi_heap_calloc(mx->heap, (size_t)mx->blockFrames * ANO_AUDIO_CHANNELS,
-                       sizeof(float)));
+    st->fbuf = mi_heap_calloc_tp(
+        float, mx->heap,
+        (size_t)mx->blockFrames * ANO_AUDIO_CHANNELS);
     if (!st->fbuf)
         goto fail_pcm;
 
@@ -376,8 +375,7 @@ static const AnoPwStreamEvents g_pwEvents = {
 
 static bool pw_start(AnoAudioMixer *mx)
 {
-    AnoPipewireState *st = static_cast<AnoPipewireState *>(
-        mi_heap_calloc(mx->heap, 1, sizeof *st));
+    AnoPipewireState *st = mi_heap_zalloc_tp(AnoPipewireState, mx->heap);
     if (!st)
         return false;
     st->mx = mx;

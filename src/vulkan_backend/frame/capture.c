@@ -138,7 +138,7 @@ static bool write_capture(const RendererState *state)
     const uint32_t height = state->imageExtent.height;
     const size_t pixels = static_cast<size_t>(width) * height;
     uint8_t *rgb = pixels > SIZE_MAX / 3u ? nullptr
-        : static_cast<uint8_t *>(mi_malloc(pixels * 3u));
+        : static_cast<uint8_t *>(mi_mallocn(pixels, 3u));
     const bool bgra = state->imageFormat == VK_FORMAT_B8G8R8A8_UNORM
         || state->imageFormat == VK_FORMAT_B8G8R8A8_SRGB;
     const uint8_t *mapped = static_cast<const uint8_t *>(

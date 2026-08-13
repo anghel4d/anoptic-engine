@@ -342,7 +342,7 @@ anostr_t anostr_rune_sort(mi_heap_t *heap, anostr_t s)
     }
 
     // At most len runes. Malformed -> U+FFFD.
-    anorune_t *runes = static_cast<anorune_t *>(mi_malloc((size_t)s.len * sizeof *runes));
+    anorune_t *runes = mi_mallocn_tp(anorune_t, (size_t)s.len);
     if (runes == NULL)
         return anostr_empty();
     size_t n = 0;
@@ -408,8 +408,8 @@ char16_t *anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
     if (heap == NULL)
         return NULL;
     // Worst case one unit per byte, plus NUL.
-    char16_t *out = static_cast<char16_t *>(
-        mi_heap_malloc(heap, ((size_t)s.len + 1) * sizeof(char16_t)));
+    char16_t *out = mi_heap_mallocn_tp(
+        char16_t, heap, (size_t)s.len + 1);
     if (out == NULL)
         return NULL;
     size_t n = 0;
@@ -427,8 +427,7 @@ char16_t *anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
     if (count != NULL)
         *count = n;
     // Failed shrink keeps the original block.
-    char16_t *exact = static_cast<char16_t *>(
-        mi_heap_realloc(heap, out, (n + 1) * sizeof(char16_t)));
+    char16_t *exact = mi_heap_reallocn_tp(char16_t, heap, out, n + 1);
     return exact != NULL ? exact : out;
 }
 
@@ -454,8 +453,8 @@ anorune_t *anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count)
     if (heap == NULL)
         return NULL;
     // Worst case one rune per byte, plus NUL.
-    anorune_t *out = static_cast<anorune_t *>(
-        mi_heap_malloc(heap, ((size_t)s.len + 1) * sizeof(anorune_t)));
+    anorune_t *out = mi_heap_mallocn_tp(
+        anorune_t, heap, (size_t)s.len + 1);
     if (out == NULL)
         return NULL;
     size_t n = 0;
@@ -464,7 +463,6 @@ anorune_t *anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count)
     out[n] = 0;
     if (count != NULL)
         *count = n;
-    anorune_t *exact = static_cast<anorune_t *>(
-        mi_heap_realloc(heap, out, (n + 1) * sizeof(anorune_t)));
+    anorune_t *exact = mi_heap_reallocn_tp(anorune_t, heap, out, n + 1);
     return exact != NULL ? exact : out;
 }

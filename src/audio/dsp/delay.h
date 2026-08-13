@@ -40,7 +40,7 @@ static inline uint32_t ano_dsp_delay_pow2_(uint32_t v)
 static inline bool ano_dsp_delay_init(AnoDspDelay *d, mi_heap_t *heap, uint32_t maxDelay)
 {
     uint32_t cap = ano_dsp_delay_pow2_(maxDelay + 1u);
-    d->buf = (float *)mi_heap_calloc(heap, cap, sizeof(float));
+    d->buf = mi_heap_calloc_tp(float, heap, cap);
     if (!d->buf)
         return false;
     d->mask = cap - 1u;

@@ -161,7 +161,8 @@ uint32_t anostr_hash32(anostr_t s);
 // Sub-string [start, end). Clamped, total, allocation-free. <= 12: fresh inline; longer borrows s's backing (same lifetime as s).
 anostr_t anostr_slice(anostr_t s, size_t start, size_t end);
 
-// Promote s to live as long as heap. Inline: identity. Long: copy into heap. heap is calling-thread owned (mimalloc single-writer). Empty on alloc fail.
+// Promote s to live as long as heap. Inline: identity. Long: copy into the
+// first-class lifetime heap, which may be shared by threads. Empty on alloc fail.
 anostr_t anostr_keep(mi_heap_t *heap, anostr_t s);
 
 // NUL-terminated copy from heap (len + 0x00). NULL on alloc fail. Embedded 0x00 truncates the C view.

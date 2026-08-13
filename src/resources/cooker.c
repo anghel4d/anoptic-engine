@@ -48,8 +48,7 @@ extern "C" AnoResourceError ano_resource_cooker_create(
     if (cooker == nullptr || config.firstDerivedAsset.value < 2)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *cooker = nullptr;
-    AnoResourceCooker *created = static_cast<AnoResourceCooker *>(
-        mi_calloc(1, sizeof(AnoResourceCooker)));
+    AnoResourceCooker *created = mi_zalloc_tp(AnoResourceCooker);
     if (created == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     created->firstDerivedAsset = config.firstDerivedAsset;

@@ -4,7 +4,7 @@
 
 > **Thesis.** Systems programming gets told it must pick one safety regime: a tracing GC (safe, ergonomic, non-deterministic) or a borrow checker (safe, deterministic, hostile to mutable aliasing). Anoptic rejects the dichotomy. A million-entity simulation needs *unrestricted* mutation of shared state at speed. It can have that, with correctness, by deriving safety from **architectural geometry**. Three axes: memory bound to scope, concurrency bound to hardware, structure bound to types. This document maps the research behind each onto the engine as it exists today.
 
-This is the manifesto: *all allocations through arenas or thread-local heaps; no mutexes outside the Vulkan backend; C23, no heavyweight deps.* Decades of theory; C23 makes it ergonomic.
+This is the manifesto: *allocations belong to explicit lifetimes; synchronization belongs to explicit ownership boundaries; C++26, no heavyweight runtime.*
 
 ---
 
@@ -24,14 +24,14 @@ Two branches:
 The engine implements the Tofte-Talpin *frame region* directly. From `include/anoptic_memory.h`:
 
 ```c
-#define LOCALHEAPATTR  __attribute__((__cleanup__(ano_heap_release)))
+#define ANO_SCOPED_HEAP  __attribute__((__cleanup__(ano_heap_cleanup)))
 // usage:
-mi_heap_t *frameHeap LOCALHEAPATTR = mi_heap_new();
+mi_heap_t *frameHeap ANO_SCOPED_HEAP = ano_heap_create();
 ```
 
-When `frameHeap` leaves scope the compiler emits an inline call to `ano_heap_release()`, destroying every allocation against that heap in one O(1) reclamation. That *is* `letregion` in C. mimalloc per-heap arenas: contiguous backing. `cleanup` attribute: lexical boundary. Effect masking: by convention and review, not formally. Operational shape identical.
+When `frameHeap` leaves scope the compiler calls `ano_heap_cleanup()`, destroying every allocation against that heap as one lifetime operation without walking objects or invoking destructors. That is the operational shape of `letregion`. A mimalloc v3 heap owns pages and accepts allocation from every thread; `AnoMemoryRegion` supplies explicitly contiguous storage when layout requires it. Effect masking remains an API invariant rather than a formal type-system proof.
 
-**A precision note worth keeping:** `__attribute__((cleanup))` is a GCC/Clang extension. C23 standardizes the `[[...]]` attribute syntax and `typeof`, but `cleanup` remains a (universally supported) GNU extension. We depend on it deliberately and should say so plainly.
+`__attribute__((cleanup))` is a GNU-family compiler extension used deliberately for lexical lifetime heaps.
 
 ### The arena hierarchy
 

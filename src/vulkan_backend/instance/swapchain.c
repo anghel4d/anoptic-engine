@@ -200,7 +200,7 @@ bool initSwapChain(VulkanContext* ctx, GLFWwindow* window, VkPresentModeKHR pref
 
     // Swap chain images
     vkGetSwapchainImagesKHR(ctx->device, swapChain, &imageCount, NULL);
-    VkImage* swapChainImages = (VkImage*)malloc(imageCount * sizeof(VkImage));
+    VkImage* swapChainImages = mi_mallocn_tp(VkImage, imageCount);
     vkGetSwapchainImagesKHR(ctx->device, swapChain, &imageCount, swapChainImages);
 
     state->swapChain = swapChain;
@@ -505,7 +505,7 @@ bool createImageViews(VulkanContext* ctx, RendererState* state)
     state->views = NULL;
     state->viewCount = 0;
 
-    VkImageView* views = (VkImageView*)malloc(state->imageCount * sizeof(VkImageView));
+    VkImageView* views = mi_mallocn_tp(VkImageView, state->imageCount);
     if (views == NULL)
     {
         ano_log(ANO_ERROR, "Failed to allocate %u swapchain image views!", state->imageCount);

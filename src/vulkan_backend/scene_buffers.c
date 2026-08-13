@@ -56,10 +56,8 @@ bool createMaterialBuffer(VulkanContext* ctx, RendererState* state, uint32_t max
     state->materialBuffer.capacity = maxEntities;
     state->materialBuffer.count = 0;
     state->materialBuffer.freeCount = 0;
-    state->materialBuffer.references = static_cast<uint32_t*>(
-        calloc(maxEntities, sizeof(uint32_t)));
-    state->materialBuffer.freeSlots = static_cast<uint32_t*>(
-        malloc(static_cast<size_t>(maxEntities) * sizeof(uint32_t)));
+    state->materialBuffer.references = mi_calloc_tp(uint32_t, maxEntities);
+    state->materialBuffer.freeSlots = mi_mallocn_tp(uint32_t, maxEntities);
     if (!state->materialBuffer.references || !state->materialBuffer.freeSlots) {
         free(state->materialBuffer.references);
         free(state->materialBuffer.freeSlots);
@@ -98,13 +96,13 @@ bool createLightBuffer(VulkanContext* ctx, RendererState* state, uint32_t maxLig
 bool createMotionBuffer(VulkanContext* ctx, RendererState* state, uint32_t maxEntities) {
     (void)ctx;
     // Mover bookkeeping for the shadow cache: per-slot motion flags + swept-exposure mirrors.
-    state->slotMotion   = (uint8_t*)calloc(maxEntities, 1u);
-    state->slotBasePose = (mat4*)calloc(maxEntities, sizeof(mat4));
-    state->slotMeshIdx  = (uint32_t*)malloc((size_t)maxEntities * sizeof(uint32_t));
-    state->slotResourceAsset = (AnoAssetId*)calloc(maxEntities, sizeof(AnoAssetId));
-    state->slotResourcePrimitive = (uint32_t*)calloc(maxEntities, sizeof(uint32_t));
-    state->slotResourceRoot = (mat4*)calloc(maxEntities, sizeof(mat4));
-    state->slotMoverIdx = (uint32_t*)malloc((size_t)maxEntities * sizeof(uint32_t));
+    state->slotMotion = mi_calloc_tp(uint8_t, maxEntities);
+    state->slotBasePose = mi_calloc_tp(mat4, maxEntities);
+    state->slotMeshIdx = mi_mallocn_tp(uint32_t, maxEntities);
+    state->slotResourceAsset = mi_calloc_tp(AnoAssetId, maxEntities);
+    state->slotResourcePrimitive = mi_calloc_tp(uint32_t, maxEntities);
+    state->slotResourceRoot = mi_calloc_tp(mat4, maxEntities);
+    state->slotMoverIdx = mi_mallocn_tp(uint32_t, maxEntities);
     if (!state->slotMotion || !state->slotBasePose || !state->slotMeshIdx
         || !state->slotResourceAsset || !state->slotResourcePrimitive
         || !state->slotResourceRoot || !state->slotMoverIdx)
@@ -439,7 +437,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
         4, 1, 5, 1, 4, 0  // bottom
     };
 
-    mi_heap_t* fallbackHeap = mi_heap_new();
+    mi_heap_t* fallbackHeap = ano_heap_create();
     AnoPreparedGeometry fallbackGeometry = {};
     const bool fallbackPrepared = fallbackHeap
         && geometry_prepare_chain(
@@ -470,7 +468,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
             ctx->device, state->commandPool, 1, &fallbackUpload);
     vkDestroyBuffer(ctx->device, fallbackStaging, nullptr);
     gpu_free(&stagingAllocator, fallbackStagingAlloc);
-    if (fallbackHeap) mi_heap_destroy(fallbackHeap);
+    ano_heap_destroy(fallbackHeap);
     if (!fallbackUploaded) fallbackMeshIdx = ANO_MESH_NONE;
 
     // Fallback must land at FALLBACK_MESH_INDEX; else unwind.

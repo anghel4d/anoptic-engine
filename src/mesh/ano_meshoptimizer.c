@@ -120,7 +120,7 @@ void ano_optimize_vertex_cache(uint32_t* destination, const uint32_t* indices, s
     if (index_count == 0 || vertex_count == 0) return;
 
     // Both acquisitions below are pass-local; the scoped heap is the only discharge.
-    mi_heap_t* pass LOCALHEAPATTR = mi_heap_new();
+    mi_heap_t* pass ANO_SCOPED_HEAP = ano_heap_create();
     if (!pass) return;
 
     const uint32_t* src_indices = indices;
@@ -128,7 +128,7 @@ void ano_optimize_vertex_cache(uint32_t* destination, const uint32_t* indices, s
 
     // Support in-place optimization
     if (destination == indices) {
-        indices_copy = (uint32_t*)mi_heap_malloc(pass, index_count * sizeof(uint32_t));
+        indices_copy = mi_heap_mallocn_tp(uint32_t, pass, index_count);
         if (!indices_copy) return;
         memcpy(indices_copy, indices, index_count * sizeof(uint32_t));
         src_indices = indices_copy;
@@ -693,7 +693,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     size_t weldCap = ano_ceil_pow2(vertex_count * 2 + 16);
     size_t ecap    = ano_ceil_pow2(tri0 * 4 + 16);
 
-    mi_heap_t* pass LOCALHEAPATTR = mi_heap_new();
+    mi_heap_t* pass ANO_SCOPED_HEAP = ano_heap_create();
     if (!pass) {
         if (destination != indices) memcpy(destination, indices, ic * sizeof(uint32_t));
         return ic;
@@ -732,7 +732,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     char* ib = (char*)mi_heap_malloc(pass, iBytes);
     char* eb = (char*)mi_heap_malloc(pass, eBytes);
     // Separate: the weld table is dead once the weld pass ends, and is released there.
-    int32_t* weld = (int32_t*)mi_heap_malloc(pass, weldCap * sizeof(int32_t));
+    int32_t* weld = mi_heap_mallocn_tp(int32_t, pass, weldCap);
     // Separate: per-triangle drift reference, guarded path only.
     char* tb = guarded ? (char*)mi_heap_malloc(pass, align_up(tri0 * 3 * sizeof(float), 16) * 2) : NULL;
 

@@ -45,10 +45,8 @@ uint32_t ano_vk_register_texture(RenderPrimitives* primitives, TextureData data)
     }
     if (primitives->textureCount >= primitives->textureCapacity) {
         uint32_t newCapacity = primitives->textureCapacity == 0 ? 8 : primitives->textureCapacity * 2;
-        TextureData* temp = static_cast<TextureData*>(
-            calloc(newCapacity, sizeof(TextureData)));
-        uint32_t* freeSlots = static_cast<uint32_t*>(
-            malloc(sizeof(uint32_t) * newCapacity));
+        TextureData* temp = mi_calloc_tp(TextureData, newCapacity);
+        uint32_t* freeSlots = mi_mallocn_tp(uint32_t, newCapacity);
         if (!temp || !freeSlots) {
             ano_log(ANO_ERROR, "Error: Failed to reallocate memory for textures!");
             free(freeSlots);

@@ -100,10 +100,9 @@ static int oracle_cmp(const void *a, const void *b)
 static bool check_against_oracle(const anostr_t *items, size_t n, const char *what,
                                  mi_heap_t *heap)
 {
-    anostr_t *mine = static_cast<anostr_t *>(mi_heap_malloc(heap, n * sizeof *mine));
-    anostr_t *ref = static_cast<anostr_t *>(mi_heap_malloc(heap, n * sizeof *ref));
-    uint32_t *order = static_cast<uint32_t *>(
-        mi_heap_malloc(heap, n * sizeof *order));
+    anostr_t *mine = mi_heap_mallocn_tp(anostr_t, heap, n);
+    anostr_t *ref = mi_heap_mallocn_tp(anostr_t, heap, n);
+    uint32_t *order = mi_heap_mallocn_tp(uint32_t, heap, n);
     if (mine == NULL || ref == NULL || order == NULL) {
         printf("FAIL: %s: oracle scratch alloc\n", what);
         failures++;
@@ -601,7 +600,7 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
     enum { N = 200 };
     anostr_t items[N];
     for (uint32_t it = 0; it < iterations; it++) {
-        mi_heap_t *scratch LOCALHEAPATTR = mi_heap_new();
+        mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
         if (scratch == NULL) {
             printf("FAIL: soak heap\n");
             failures++;
@@ -617,8 +616,8 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 
 int main(int argc, char **argv)
 {
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("FAIL: mi_heap_new\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
 
     corpus_init();
     test_collate_prefix();

@@ -55,7 +55,7 @@ typedef enum {
 int ano_log_init(void);
 int ano_log_cleanup(void);
 
-// Scope-bound teardown, LOCALHEAPATTR-style (anoptic_memory.h).
+// Scope-bound teardown, ANO_SCOPED_HEAP-style (anoptic_memory.h).
 void ano_log_scope_release(const int *initStatus);
 #define ANO_LOG_SCOPE_ATTR __attribute__((__cleanup__(ano_log_scope_release)))
 

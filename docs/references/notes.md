@@ -20,20 +20,20 @@ C over C++: control, simplicity, ABI stability. Where C lacks modern convenience
 
 Most allocations in a game frame are scope-shaped: born together, used together, die together. Per-object malloc/free is the wrong granularity.
 
-Allocate from a **scoped heap** (mimalloc local heap); destroy the heap when the scope exits. Setup/teardown is O(regions). A gigabyte of frame-scratch dies in microseconds via `mi_heap_destroy` (pages returned, no content iteration).
+Allocate from a **scoped first-class heap**; destroy the heap when the scope exits. A heap groups allocations by lifetime and accepts allocation from every thread. Destruction releases the group without iterating object contents.
 
 Literature: Tofte & Talpin region inference (ML), Cyclone explicit regions, Muratori/Fleury arena tradition.
 
 Mechanism in C is `__attribute__((cleanup))`:
 
 ```c
-#define LOCALHEAPATTR __attribute__((__cleanup__(ano_heap_release)))
+#define ANO_SCOPED_HEAP __attribute__((__cleanup__(ano_heap_cleanup)))
 
 // Usage: heap is automatically destroyed when it leaves scope.
-mi_heap_t *frameHeap LOCALHEAPATTR = mi_heap_new();
+mi_heap_t *frameHeap ANO_SCOPED_HEAP = ano_heap_create();
 ```
 
-Same mechanism as systemd (`_cleanup_`), GLib (`g_autoptr`), and the Linux kernel. Clang-only policy: fully supported.
+Same mechanism as systemd (`_cleanup_`), GLib (`g_autoptr`), and the Linux kernel. The engine's GCC toolchain supports it directly.
 
 **Memory hierarchy (planned):**
 - **Process arena**: the OS is the outermost garbage collector. `exit()` is a region free.
@@ -46,7 +46,7 @@ Same mechanism as systemd (`_cleanup_`), GLib (`g_autoptr`), and the Linux kerne
 
 **Related models:**
 - Rust `Drop`: per-object RAII. Arenas (`bumpalo`, `typed-arena`) exist because per-object ownership has costs. Engine approach is coarser-grained for bulk simulation data.
-- Zig allocator-passing + `defer arena.deinit()`: morally identical to `LOCALHEAPATTR`. Zig requires explicit defer; C cleanup attribute is automatic.
+- Zig allocator-passing + `defer arena.deinit()`: morally identical to `ANO_SCOPED_HEAP`. Zig requires explicit defer; C cleanup attribute is automatic.
 - OCaml/Haskell generational GC nursery: a bump allocator. Engine model: lexical region boundaries, no GC.
 
 No garbage collector. OS reclaims on context switches; everything else is deterministic.
@@ -150,7 +150,7 @@ First real slice of the simulation/render split in code. Authoritative simulatio
 
 **Memory system (foundational):**
 - mimalloc as global allocator with override
-- `LOCALHEAPATTR` macro for scoped heap teardown
+- `ANO_SCOPED_HEAP` macro for scoped heap teardown
 - `ano_salloc` for stack allocation
 - Hugepage reservation tested and validated
 - Scoped heap experiments in `ano_strings.c` (the "mem_chariot" tests)
@@ -221,11 +221,11 @@ Test plan (what the rewrite must make verifiable). The current test only asserts
 - Multi-thread: P producers insert concurrently; every message is eventually flushed (count + per-record integrity, no torn or interleaved bytes), clean under TSan; measure hot-path cost per enqueue (target sub-microsecond) and assert a loose ceiling.
 - Boundaries: empty message; a max-length message at `LOG_MESSAGE_MAX` with truncation handled; a record landing exactly at `LOG_BUFFER_MAX` (high end); the chosen full-buffer behavior; an empty flush (low end).
 
-**Step 2 -- Dependency update:** Bump GLFW, stb, jsmn, mimalloc submodules to latest stable. Quick audit for API changes. Fold mimalloc finalization into this: integration already done; version bump + validate `mi_heap_new` / `mi_heap_destroy` / `mi_heap_zalloc_aligned`. Confirm hugepage support. Validate scoped heap teardown (`LOCALHEAPATTR`). Ensure global override (`mimalloc-override.h`) is clean. Low risk, low effort.
+**Step 2 -- Dependency update:** Bump GLFW, stb, jsmn, mimalloc submodules to latest stable. Quick audit for API changes. Fold mimalloc finalization into this: integration already done; version bump + validate `mi_heap_new` / `mi_heap_destroy` / `mi_heap_zalloc_aligned`. Confirm hugepage support. Validate scoped heap teardown (`ANO_SCOPED_HEAP`). Ensure global override (`mimalloc-override.h`) is clean. Low risk, low effort.
 
 **Step 3 -- Windows high-resolution timing:** Linux (`clock_nanosleep` + `CLOCK_MONOTONIC`) delivers sub-microsecond precision. Windows falls back to `Sleep()` (ms granularity; 15.6ms default). Bring `ano_sleep` on Windows to parity: `timeBeginPeriod(1)`, `WaitableTimer` or `Sleep(1)` for coarse wait, then `ano_busywait` for the sub-ms remainder. Emulator-grade pattern (Yuzu/Ryujinx). Also consider `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` (Win10 1803+) for native sub-ms OS sleeps without the spin tail. Tick needs deterministic length; 15.6ms sleep jitter makes that impossible.
 
-**Step 4 -- ano_strings:** Owned string type: `{char* ptr, uint32_t len, uint32_t capacity}` with `LOCALHEAPATTR`-style scoped cleanup. Allocations through a heap parameter so strings can live in any arena. Copy-on-slice. ~150 lines. UTF-8 support deferred: UTF-8 is byte-transparent in storage. Validation/iteration added later as a layer, when the text renderer demands it.
+**Step 4 -- ano_strings:** Owned string type: `{char* ptr, uint32_t len, uint32_t capacity}` with `ANO_SCOPED_HEAP`-style scoped cleanup. Allocations through a heap parameter so strings can live in any arena. Copy-on-slice. ~150 lines. UTF-8 support deferred: UTF-8 is byte-transparent in storage. Validation/iteration added later as a layer, when the text renderer demands it.
 
 **Step 5 -- Lock-free collections:**
 
@@ -250,7 +250,7 @@ Design sketch:
   - within a stripe, the owner reads/writes with zero atomics
 ```
 
-Producer claims a stripe (fetch_add on head), fills with plain stores, publishes via release-store on a commit flag. Consumer walks stripes in order via acquire-loads on commit flags. No per-item CAS. Cross-core traffic is intentional ownership transfer only. Thread-local heaps (mimalloc) keep the allocator from causing false sharing.
+Producer claims a stripe (fetch_add on head), fills with plain stores, publishes via release-store on a commit flag. Consumer walks stripes in order via acquire-loads on commit flags. No per-item CAS. Cross-core traffic is intentional ownership transfer only. First-class subsystem heaps keep allocator ownership aligned with the data lifetime.
 
 Batched throughput (amortize sync over N items per stripe) with lock-free progress (stalled producer leaves an uncommitted stripe; doesn't block others). On a 16-core Ryzen, cache-line bouncing is the dominant cost; align the algorithm to the coherency unit.
 

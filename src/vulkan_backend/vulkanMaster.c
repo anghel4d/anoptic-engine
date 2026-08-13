@@ -104,7 +104,7 @@ void unInitVulkan() // A celebration
 	light_registry_destroy(&rendererState.lightRegistry);
 	if (rendererState.renderHeap)
 	{
-		mi_heap_destroy(rendererState.renderHeap);
+		ano_heap_destroy(rendererState.renderHeap);
 		rendererState.renderHeap = NULL;
 	}
 
@@ -149,7 +149,8 @@ void deferred_delete_resource(RendererState* state, DeletionResourceType type, u
 
     if (q->count >= q->capacity) {
         uint32_t capacity = q->capacity == 0 ? 64u : q->capacity * 2u;
-        DeletionTask* tasks = static_cast<DeletionTask*>(realloc(q->tasks, capacity * sizeof(DeletionTask)));
+        DeletionTask* tasks = mi_reallocn_tp(
+            DeletionTask, q->tasks, capacity);
         if (!tasks) {
             ano_log(ANO_ERROR, "Host OOM: failed to grow deferred deletion queue.");
             return;
@@ -712,7 +713,7 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 
 
 	// ECS <-> render bridge, render-owned slot authority + command/event rings.
-	rendererState.renderHeap = mi_heap_new();
+	rendererState.renderHeap = ano_heap_create();
 	if (!rendererState.renderHeap ||
 	    !render_slots_init(&rendererState.slots, rendererState.renderHeap, maxEntities, MAX_FRAMES_IN_FLIGHT) ||
 	    // Events ring widened to 4096.
@@ -729,8 +730,9 @@ bool initVulkan(AnoResourceManager *resources) // Initializes Vulkan
 	                    MAX_FRAMES_IN_FLIGHT);
 
 	// Stream render_id ring, CPU-only, parallel to xformRing.
-	rendererState.transformStream.idRing = static_cast<uint32_t*>(mi_heap_malloc(rendererState.renderHeap,
-	    (size_t)rendererState.transformStream.ringSlices * STREAM_CAPACITY * sizeof(uint32_t)));
+	rendererState.transformStream.idRing = static_cast<uint32_t*>(mi_heap_mallocn(
+	    rendererState.renderHeap, rendererState.transformStream.ringSlices,
+	    STREAM_CAPACITY * sizeof(uint32_t)));
 	if (!rendererState.transformStream.idRing)
 	{
 		ano_log(ANO_FATAL, "Quitting init: stream id ring allocation failure!");

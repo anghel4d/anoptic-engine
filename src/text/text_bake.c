@@ -216,7 +216,7 @@ static void *bake_grow(mi_heap_t *heap, void *p, uint32_t *cap, uint32_t need, s
     uint32_t next = *cap ? *cap * 2u : 16u;
     while (next < need)
         next *= 2u;
-    void *np = mi_heap_realloc(heap, p, (size_t)next * elem);
+    void *np = mi_heap_reallocn(heap, p, (size_t)next, elem);
     if (np != NULL)
         *cap = next;
     return np;
@@ -450,10 +450,10 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
         ano_log(ANO_WARN, "text: kern extraction skipped (bake %u > 1024 slots)", glyphCount);
         return 0;
     }
-    uint32_t *slotGids = static_cast<uint32_t *>(
-        mi_heap_malloc(scratch, (size_t)glyphCount * sizeof(uint32_t)));
-    int32_t *dense = static_cast<int32_t *>(
-        mi_heap_zalloc(scratch, (size_t)glyphCount * glyphCount * sizeof(int32_t)));
+    uint32_t *slotGids = mi_heap_mallocn_tp(
+        uint32_t, scratch, (size_t)glyphCount);
+    int32_t *dense = mi_heap_calloc_tp(
+        int32_t, scratch, (size_t)glyphCount * glyphCount);
     if (slotGids == NULL || dense == NULL)
         return ENOMEM;
 
@@ -488,8 +488,8 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
         nz += dense[i] != 0;
     if (nz == 0)
         return 0;
-    AnoKernPair *pairs = static_cast<AnoKernPair *>(
-        mi_heap_malloc(heap, (size_t)nz * sizeof(AnoKernPair)));
+    AnoKernPair *pairs = mi_heap_mallocn_tp(
+        AnoKernPair, heap, (size_t)nz);
     if (pairs == NULL)
         return ENOMEM;
     uint32_t w = 0;
@@ -547,24 +547,19 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
     double         metricsInv = 0.0;
 
     // First acquisition. Arms below stay in this heap's scope.
-    mi_heap_t *scratch LOCALHEAPATTR = mi_heap_new();
+    mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
     if (scratch == NULL)
         goto fail;
 
-    glyphs = static_cast<AnoGlyphEntry *>(
-        mi_heap_zalloc(heap, (size_t)glyphCount * sizeof(AnoGlyphEntry)));
-    map = static_cast<AnoGlyphRange *>(
-        mi_heap_malloc(heap, (size_t)rangeCount * sizeof(AnoGlyphRange)));
+    glyphs = mi_heap_calloc_tp(AnoGlyphEntry, heap, (size_t)glyphCount);
+    map = mi_heap_mallocn_tp(AnoGlyphRange, heap, (size_t)rangeCount);
     if (glyphs == NULL || map == NULL)
         goto fail;
 
     // Per-slot face/codepoint/upem for glyph loop + kern pass.
-    slotFace = static_cast<FT_Face *>(
-        mi_heap_malloc(scratch, (size_t)glyphCount * sizeof(FT_Face)));
-    slotCp = static_cast<uint32_t *>(
-        mi_heap_malloc(scratch, (size_t)glyphCount * sizeof(uint32_t)));
-    slotInvUpem = static_cast<double *>(
-        mi_heap_malloc(scratch, (size_t)glyphCount * sizeof(double)));
+    slotFace = mi_heap_mallocn_tp(FT_Face, scratch, (size_t)glyphCount);
+    slotCp = mi_heap_mallocn_tp(uint32_t, scratch, (size_t)glyphCount);
+    slotInvUpem = mi_heap_mallocn_tp(double, scratch, (size_t)glyphCount);
     if (slotFace == NULL || slotCp == NULL || slotInvUpem == NULL)
         goto fail;
     for (uint32_t r = 0; r < rangeCount; r++)
@@ -670,8 +665,8 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
 
     if (stream.count > 0)
     {
-        points = static_cast<uint32_t *>(
-            mi_heap_malloc(heap, (size_t)stream.count * sizeof(uint32_t)));
+        points = mi_heap_mallocn_tp(
+            uint32_t, heap, (size_t)stream.count);
         if (points == NULL)
             goto fail;
         memcpy(points, stream.v, (size_t)stream.count * sizeof(uint32_t));
@@ -694,7 +689,7 @@ int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
     return 0;
 
 // Fail path. Discharge unpublished caller-heap blobs (glyphs/map/points/kerns). mi_free null-safe.
-// Scratch via LOCALHEAPATTR. *out stays zeroed.
+// Scratch via ANO_SCOPED_HEAP. *out stays zeroed.
 fail:
     mi_free(glyphs);
     mi_free(map);

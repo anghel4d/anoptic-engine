@@ -162,8 +162,8 @@ int main(int argc, char **argv)
     }
     tick_calibrate();
 
-    mi_heap_t *heap LOCALHEAPATTR = mi_heap_new();
-    if (heap == NULL) { printf("FAIL: mi_heap_new\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
     pool_init(heap);
 
     uint64_t *buf = static_cast<uint64_t *>(

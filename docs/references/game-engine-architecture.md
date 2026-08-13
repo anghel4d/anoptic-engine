@@ -166,7 +166,7 @@ Validates arena thesis; specs strings and containers.
 **Book -- configuration (§6.5, pp. 470-479).** Persist to **text config** (INI/JSON). Quake **cvars**. Naughty Dog: menu items bound to global addresses; Scheme-like DDL auto-generates C struct headers; lookup by `SID(...)`.
 
 **Anoptic.**
-- Arena hierarchy (process → level → frame → scratch → pool) **is** §6.2 catalogue: level/session = stack+markers; frame = single-frame; scratch = stack; pool = §6.2.1.2; double-buffered = job-result buffers. `LOCALHEAPATTR` = C "destroy region at scope exit." Hugepages back process arena.
+- Arena hierarchy (process → level → frame → scratch → pool) **is** §6.2 catalogue: level/session = stack+markers; frame = single-frame; scratch = stack; pool = §6.2.1.2; double-buffered = job-result buffers. `ANO_SCOPED_HEAP` = C "destroy region at scope exit." Hugepages back process arena.
 - Owned string `{char* ptr, uint32_t len, uint32_t capacity}` = owns-memory + length; copy-on-slice ≈ COW/string_ref; UTF-8-transparent matches recommendation.
 - Containers: stb_ds stopgap = "dynamic arrays for development, fixed-size once budgets known."
 

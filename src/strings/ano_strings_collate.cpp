@@ -376,7 +376,7 @@ static int tie_view_cmp_(const void *a, const void *b)
 template<class StrOf>
 static bool tie_bulk(sort_rec_t *r, size_t n, const StrOf &str_of)
 {
-    tie_view_t *views = static_cast<tie_view_t *>(mi_malloc(n * sizeof *views));
+    tie_view_t *views = mi_mallocn_tp(tie_view_t, n);
     if (views == NULL)
         return false;
 
@@ -452,7 +452,7 @@ static void tie_msd(sort_rec_t *r, size_t n, uint32_t skip, const StrOf &str_of)
     if (n <= 48) {
         sort_recs_insertion(r, n);
     } else {
-        sort_rec_t *tmp = static_cast<sort_rec_t *>(mi_malloc(n * sizeof *tmp));
+        sort_rec_t *tmp = mi_mallocn_tp(sort_rec_t, n);
         if (tmp == NULL) {
             tie_leaf(r, n, str_of);
             return;
@@ -552,7 +552,8 @@ void anostr_sort(anostr_t *items, size_t count)
     if (items == NULL || count < 2)
         return;
     sort_rec_t *recs = count <= UINT32_MAX
-                     ? static_cast<sort_rec_t *>(mi_malloc(2 * count * sizeof *recs))
+                     ? static_cast<sort_rec_t *>(
+                           mi_mallocn(count, 2 * sizeof(sort_rec_t)))
                      : NULL;
     if (recs == NULL) {     // no scratch: correct, slower
         collate_insertion(items, count);
@@ -581,7 +582,8 @@ void anostr_sort_idx(const anostr_t *items, size_t count, uint32_t *order)
     if (items == NULL || count < 2 || count > UINT32_MAX)
         return;
 
-    sort_rec_t *recs = static_cast<sort_rec_t *>(mi_malloc(2 * count * sizeof *recs));
+    sort_rec_t *recs = static_cast<sort_rec_t *>(
+        mi_mallocn(count, 2 * sizeof(sort_rec_t)));
     if (recs == NULL) {
         fb_items_ = items;
         qsort(order, count, sizeof order[0], fb_order_cmp_);
@@ -602,8 +604,8 @@ static const uint64_t *sym_key_cache(anostr_intern_t *t)
     if (t->collateKeyed >= t->count)
         return t->collateKeys;
     if (t->collateKeyCap < t->count) {
-        uint64_t *fresh = static_cast<uint64_t *>(
-            mi_heap_realloc(t->heap, t->collateKeys, (size_t)t->arrCap * sizeof *fresh));
+        uint64_t *fresh = mi_heap_reallocn_tp(
+            uint64_t, t->heap, t->collateKeys, (size_t)t->arrCap);
         if (fresh == NULL)
             return NULL;
         t->collateKeys = fresh;
@@ -620,7 +622,8 @@ void anostr_sym_sort(anostr_intern_t *t, anostr_sym *syms, size_t count)
     if (t == NULL || syms == NULL || count < 2)
         return;
     sort_rec_t *recs = count <= UINT32_MAX
-                     ? static_cast<sort_rec_t *>(mi_malloc(2 * count * sizeof *recs))
+                     ? static_cast<sort_rec_t *>(
+                           mi_mallocn(count, 2 * sizeof(sort_rec_t)))
                      : NULL;
     if (recs == NULL) {
         sym_insertion(t, syms, count);

@@ -112,7 +112,7 @@ ano_file *ano_fs_open_append(const char *path)
     if (fd < 0)
         return NULL;
 
-    ano_file *file = static_cast<ano_file *>(mi_malloc(sizeof *file));
+    ano_file *file = mi_malloc_tp(ano_file);
     if (file == NULL) {
         close(fd);
         return NULL;
@@ -131,7 +131,7 @@ ano_file *ano_fs_open_trunc(const char *path)
     if (fd < 0)
         return NULL;
 
-    ano_file *file = static_cast<ano_file *>(mi_malloc(sizeof *file));
+    ano_file *file = mi_malloc_tp(ano_file);
     if (file == NULL) {
         close(fd);
         return NULL;

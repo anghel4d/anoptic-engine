@@ -6,8 +6,9 @@
 
 /* render_slots.h coverage: alloc, resolve, bulk ranges, capacity, quarantine -> recycle. No Vulkan. Exit 0 == pass. */
 
+#include <anoptic_memory.h>
+
 #include <stdio.h>
-#include <mimalloc.h>
 #include "vulkan_backend/render_slots.h"
 
 static int failures = 0;
@@ -98,14 +99,14 @@ static void test_set_capacity(mi_heap_t *heap)
 
 int main(void)
 {
-    mi_heap_t *heap = mi_heap_new();
+    mi_heap_t *heap = ano_heap_create();
     CHECK(heap != NULL, "heap creation");
 
     test_bulk_range(heap);
     test_lifecycle(heap);
     test_set_capacity(heap);
 
-    mi_heap_destroy(heap);
+    ano_heap_destroy(heap);
 
     if (failures == 0) { printf("anotest_render_slots: all checks passed\n"); return 0; }
     printf("anotest_render_slots: %d check(s) failed\n", failures);

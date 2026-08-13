@@ -161,7 +161,7 @@ Mechanics:
 
 Payoffs: allocation is a pointer bump, release is per-lifetime not per-object, the slim layer makes logging/visualization/leak-detection trivial (e.g. mark popped pages no-access to catch use-after-pop), and arenas work in any language or even assembly. Cited speedup: Andreas Fredriksson's JSON parser: replacing a malloc/free forest with a bump allocator was "at least 100%" faster (time was in the allocator). Caveats from Q&A: arenas are an organizational tool, not an excuse to stop thinking (overlapping lifetimes and return-pointer-to-popped bugs still happen; ASan still helps); for threading, give each thread its own arena, or scope an arena to a shared structure and guard it with a lock at that layer.
 
-For Anoptic. Engine's memory model, stated as theory. `LOCALHEAPATTR` + `mi_heap_*` is Fleury's scoped arena with automatic teardown (his "missile null garbage collector" = engine's "OS is the outermost GC; `exit()` is a region free"). Architect's note that arenas are "the FP memory model with the GC removed" is Fleury's A→B+lifetime exactly. Concrete lifts: reserve-commit dynamic array would let geometrically-doubling GPU-side buffers grow without reallocate-and-copy (commit more pages behind a fixed virtual reservation); thread-local-scratch discipline and aliasing rule belong in the arena API before the renderer rewrite leans on scratch arenas; free-list-on-arena is the shape of planned pool allocators for the dynamic 10% of entity lifetimes.
+For Anoptic. Engine's memory model, stated as theory. `ANO_SCOPED_HEAP` + `mi_heap_*` is Fleury's scoped arena with automatic teardown (his "missile null garbage collector" = engine's "OS is the outermost GC; `exit()` is a region free"). Architect's note that arenas are "the FP memory model with the GC removed" is Fleury's A→B+lifetime exactly. Concrete lifts: reserve-commit dynamic array would let geometrically-doubling GPU-side buffers grow without reallocate-and-copy (commit more pages behind a fixed virtual reservation); thread-local-scratch discipline and aliasing rule belong in the arena API before the renderer rewrite leans on scratch arenas; free-list-on-arena is the shape of planned pool allocators for the dynamic 10% of entity lifetimes.
 
 ## Segment 6: John Lakos, Local ("Arena") Memory Allocators (CppCon 2017, parts 1–2)
 
@@ -257,9 +257,9 @@ Where the engine already aligns with the corpus, and where the corpus would refi
 
 | Anoptic mechanism (`docs/notes.md`) | Corpus source | Verdict |
 |---|---|---|
-| Scoped arenas: `LOCALHEAPATTR` + `mi_heap_destroy` | Fleury arenas; Lakos release/wink | Canonical. Teardown is O(regions); this is the engine's correct core. |
+| Scoped arenas: `ANO_SCOPED_HEAP` + `mi_heap_destroy` | Fleury arenas; Lakos release/wink | Canonical. Teardown is O(regions); this is the engine's correct core. |
 | Hierarchy process>level>frame>scratch>pool | Fleury frame/permanent/scratch; Lakos per-subsystem | Aligned. Add explicit per-system and per-resolution-level arenas to fight diffusion over long sessions. |
-| mimalloc as global override | Lakos: global always inferior on long-running locality | Keep as fallback. The 3–16× lives in the local heaps; ensure hot subsystems own theirs. |
+| mimalloc as global override | Lakos: global always inferior on long-running locality | Keep as fallback. Hot subsystems own first-class heaps that express their actual lifetime and remain allocation-safe across workers. |
 | 1 GiB hugepages (PDPE1GB) | Meyers TLB; Fleury reserve/commit | Aligned. Pair with reserve-commit growth to keep the TLB win and avoid realloc-copy. |
 | ECS `(index, generation)` handles | Kelley handles-are-better-pointers | Aligned. Halves handle size with a safety tag; exactly the recommended pattern. |
 | Chunked sparse-set, swap-and-pop | Collin swap trick; Kelley booleans-out-of-band | Aligned. Dead slots as holes already realize the alive/dead split. |

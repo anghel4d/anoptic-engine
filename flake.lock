@@ -53,17 +53,17 @@
     "mimalloc-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1777501344,
-        "narHash": "sha256-7wJ6IE6WXuIFmuuM1W5TawC4LYjhc18aYlaujnOXyx4=",
+        "lastModified": 1785951679,
+        "narHash": "sha256-vNVZw2YsDkf0GcdFTNb/fXMQLQYvoc8P425LupPShpo=",
         "owner": "microsoft",
         "repo": "mimalloc",
-        "rev": "02a2f5df9d7d46d30263b83832eebeeab62dc5fe",
+        "rev": "acf2fdd329f9dc2a7ffe3f12a133fe7175e39378",
         "type": "github"
       },
       "original": {
         "owner": "microsoft",
         "repo": "mimalloc",
-        "rev": "02a2f5df9d7d46d30263b83832eebeeab62dc5fe",
+        "rev": "acf2fdd329f9dc2a7ffe3f12a133fe7175e39378",
         "type": "github"
       }
     },

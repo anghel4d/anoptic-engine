@@ -299,8 +299,7 @@ Type *zero_array(uint64_t count)
         return nullptr;
     if (count > SIZE_MAX / sizeof(Type))
         return nullptr;
-    return static_cast<Type *>(
-        mi_calloc(static_cast<size_t>(count), sizeof(Type)));
+    return mi_calloc_tp(Type, static_cast<size_t>(count));
 }
 
 void release_scratch(ImportScratch& scratch)
@@ -737,7 +736,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
         || extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *extent = static_cast<uint8_t *>(
-        mi_calloc(1, static_cast<size_t>(extentSize)));
+        mi_zalloc(static_cast<size_t>(extentSize)));
     if (extent == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     Vertex *vertices = reinterpret_cast<Vertex *>(extent);
@@ -987,7 +986,7 @@ AnoResourceError build_import_artifacts(
             jobCount, sizeof(ImportJob), &jobBytes))
         return ANO_RESOURCE_OVERFLOW;
     ImportJob *jobs = jobBytes == 0 ? nullptr
-        : static_cast<ImportJob *>(mi_calloc(1, jobBytes));
+        : static_cast<ImportJob *>(mi_zalloc(jobBytes));
     if (jobBytes != 0 && jobs == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
 
@@ -1080,7 +1079,7 @@ AnoResourceError import_scene_root(AnoResourceCooker& cooker,
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *extent = extentSize == 0 ? nullptr
         : static_cast<uint8_t *>(
-            mi_calloc(1, static_cast<size_t>(extentSize)));
+            mi_zalloc(static_cast<size_t>(extentSize)));
     if (extentSize != 0 && extent == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     SceneRenderable *renderables =

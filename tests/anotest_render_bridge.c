@@ -626,7 +626,8 @@ static void test_size_add_array(void)
 typedef struct
 {
     AnoRenderBridge          *b;
-    ANO_ATOMIC(bool)              stop;
+    ANO_ATOMIC(bool)          stop;
+    ANO_ATOMIC(bool)          backpressured;
     AnoGlyphInstance          inst[2];
     uint32_t                  attempts; // thread-owned; read after join
     AnoRenderSubmitResultCode code;
@@ -645,6 +646,7 @@ static void *spin_fn(void *arg)
             ctx->code = r.code;
             return NULL; // landed, or never can
         case ANO_RENDER_SUBMIT_BACKPRESSURE:
+            atomic_store(&ctx->backpressured, true);
             if (atomic_load(&ctx->stop)) { ctx->code = r.code; return NULL; }
             ano_sleep(1000);
             break;
@@ -662,8 +664,17 @@ static void test_shutdown_during_backpressure(mi_heap_t *heap)
     SpinCtx ctx = { .b = &b };
     fill_glyphs(ctx.inst, 2u);
     anothread_t t;
-    CHECK(ano_thread_create(&t, NULL, spin_fn, &ctx) == 0, "shutdown: spawn the parked producer");
-    ano_sleep(10000); // ~10 ms of refused attempts
+    const bool spawned = ano_thread_create(&t, NULL, spin_fn, &ctx) == 0;
+    CHECK(spawned, "shutdown: spawn the parked producer");
+    if (!spawned) {
+        ano_render_bridge_destroy(&b);
+        return;
+    }
+    for (uint32_t waits = 0; waits < 1000u
+         && !atomic_load(&ctx.backpressured); ++waits)
+        ano_sleep(1000);
+    CHECK(atomic_load(&ctx.backpressured),
+          "shutdown: producer reached backpressure");
     atomic_store(&ctx.stop, true);
     ano_thread_join(t, NULL);
 
@@ -675,7 +686,7 @@ static void test_shutdown_during_backpressure(mi_heap_t *heap)
 
 int main(void)
 {
-    mi_heap_t *heap = mi_heap_new();
+    mi_heap_t *heap = ano_heap_create();
     CHECK(heap != NULL, "heap creation");
 
     test_single_threaded(heap);
@@ -719,7 +730,7 @@ int main(void)
     CHECK(evt_order_err == 0, "events arrived in FIFO order");
 
     ano_render_bridge_destroy(&bridge);
-    mi_heap_destroy(heap);
+    ano_heap_destroy(heap);
 
     if (failures == 0) { printf("anotest_render_bridge: all checks passed\n"); return 0; }
     printf("anotest_render_bridge: %d check(s) failed\n", failures);

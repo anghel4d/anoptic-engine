@@ -7,6 +7,7 @@
 
 #include <anoptic_atomic.h>
 #include <anoptic_threads.h>
+#include <mimalloc.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -35,6 +36,12 @@ inline void *parallel_worker(void *argument)
     }
 }
 
+inline void *parallel_pool_worker(void *argument)
+{
+    mi_thread_set_in_threadpool();
+    return parallel_worker(argument);
+}
+
 inline void parallel_for(uint64_t count, void *context,
                          ParallelFunction function)
 {
@@ -54,7 +61,7 @@ inline void parallel_for(uint64_t count, void *context,
     uint32_t spawned = 0;
     for (; spawned + 1 < workerCount; ++spawned)
         if (ano_thread_create(
-                &workers[spawned], nullptr, parallel_worker, &batch) != 0)
+                &workers[spawned], nullptr, parallel_pool_worker, &batch) != 0)
             break;
     (void)parallel_worker(&batch);
     for (uint32_t worker = 0; worker < spawned; ++worker)

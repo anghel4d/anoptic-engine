@@ -329,9 +329,8 @@ AnoResourceError collect_dependencies(
         || required > SIZE_MAX / sizeof(AnoResourceDependency))
         return result == ANO_RESOURCE_DEPENDENCY_CAPACITY
             ? ANO_RESOURCE_OVERFLOW : result;
-    AnoResourceDependency *values = static_cast<AnoResourceDependency *>(
-        mi_malloc(static_cast<size_t>(required)
-                  * sizeof(AnoResourceDependency)));
+    AnoResourceDependency *values = mi_mallocn_tp(
+        AnoResourceDependency, static_cast<size_t>(required));
     if (values == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     uint64_t actual = 0;
@@ -591,10 +590,10 @@ AnoResourceError prepare_decoded(
         || mesh.vertices.count > SIZE_MAX / sizeof(schema::Vertex)
         || mesh.indices.count > SIZE_MAX / sizeof(uint32_t))
         return ANO_RESOURCE_NON_CANONICAL;
-    schema::Vertex* portable = static_cast<schema::Vertex*>(mi_heap_malloc(
-        heap, static_cast<size_t>(mesh.vertices.count) * sizeof(schema::Vertex)));
-    uint32_t* indices = static_cast<uint32_t*>(mi_heap_malloc(
-        heap, static_cast<size_t>(mesh.indices.count) * sizeof(uint32_t)));
+    schema::Vertex* portable = mi_heap_mallocn_tp(
+        schema::Vertex, heap, static_cast<size_t>(mesh.vertices.count));
+    uint32_t* indices = mi_heap_mallocn_tp(
+        uint32_t, heap, static_cast<size_t>(mesh.indices.count));
     if (!portable || !indices) return ANO_RESOURCE_OUT_OF_MEMORY;
     const ano::ArtifactView<schema::Mesh> view = {
         .value = mesh, .bytes = artifact};
@@ -644,9 +643,9 @@ bool reserve_scene(AnoRenderResidency& residency, uint32_t *slot)
         if (capacity < residency.sceneCapacity
             || capacity > SIZE_MAX / sizeof(RealizedScene))
             return false;
-        void *grown = mi_realloc(
-            residency.scenes,
-            static_cast<size_t>(capacity) * sizeof(RealizedScene));
+        void *grown = mi_reallocn(
+            residency.scenes, static_cast<size_t>(capacity),
+            sizeof(RealizedScene));
         if (grown == nullptr)
             return false;
         residency.scenes = static_cast<RealizedScene *>(grown);
@@ -673,14 +672,13 @@ bool clone_scene_binding(AnoRenderResidency& candidate,
 
     RealizedScene copied = {
         .renderables = oldScene.renderableCount == 0 ? nullptr
-            : static_cast<AnoRenderableDesc *>(mi_malloc(
-                static_cast<size_t>(oldScene.renderableCount)
-                * sizeof(AnoRenderableDesc))),
+            : mi_mallocn_tp(
+                AnoRenderableDesc,
+                static_cast<size_t>(oldScene.renderableCount)),
         .renderableCount = oldScene.renderableCount,
         .lights = oldScene.lightCount == 0 ? nullptr
-            : static_cast<schema::SceneLight *>(mi_malloc(
-                static_cast<size_t>(oldScene.lightCount)
-                * sizeof(schema::SceneLight))),
+            : mi_mallocn_tp(
+                schema::SceneLight, static_cast<size_t>(oldScene.lightCount)),
         .lightCount = oldScene.lightCount,
     };
     if ((copied.renderableCount != 0 && copied.renderables == nullptr)
@@ -1083,16 +1081,14 @@ bool realize_scene(const Scene& scene, RenderResourceContext& context,
         || scene.lights.count > SIZE_MAX / sizeof(SceneLight))
         return false;
     SceneRenderable *portable = scene.renderables.count == 0 ? nullptr
-        : static_cast<SceneRenderable *>(mi_malloc(
-            static_cast<size_t>(scene.renderables.count)
-            * sizeof(SceneRenderable)));
+        : mi_mallocn_tp(SceneRenderable,
+                        static_cast<size_t>(scene.renderables.count));
     SceneLight *lights = scene.lights.count == 0 ? nullptr
-        : static_cast<SceneLight *>(mi_malloc(
-            static_cast<size_t>(scene.lights.count) * sizeof(SceneLight)));
+        : mi_mallocn_tp(SceneLight,
+                        static_cast<size_t>(scene.lights.count));
     AnoRenderableDesc *renderables = scene.renderables.count == 0 ? nullptr
-        : static_cast<AnoRenderableDesc *>(mi_calloc(
-            static_cast<size_t>(scene.renderables.count),
-            sizeof(AnoRenderableDesc)));
+        : mi_calloc_tp(AnoRenderableDesc,
+                       static_cast<size_t>(scene.renderables.count));
     if ((scene.renderables.count != 0
          && (portable == nullptr || renderables == nullptr))
         || (scene.lights.count != 0 && lights == nullptr)) {
@@ -1210,8 +1206,7 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     if (epoch == nullptr || preparationHeap == nullptr || residency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *residency = nullptr;
-    AnoRenderResidency *created = static_cast<AnoRenderResidency *>(
-        mi_calloc(1, sizeof(AnoRenderResidency)));
+    AnoRenderResidency *created = mi_zalloc_tp(AnoRenderResidency);
     if (created == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     AnoResourceError result = ano_resource_epoch_retain(epoch);
@@ -1224,14 +1219,11 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
             || created->bindingCount > SIZE_MAX / sizeof(AnoAssetId))
             result = ANO_RESOURCE_OVERFLOW;
         else {
-            created->bindings = static_cast<RenderBinding *>(mi_calloc(
-                static_cast<size_t>(created->bindingCount),
-                sizeof(RenderBinding)));
-            created->realizationPlan = static_cast<AnoAssetId *>(
-                mi_heap_malloc(
-                    preparationHeap,
-                    static_cast<size_t>(created->bindingCount)
-                        * sizeof(AnoAssetId)));
+            created->bindings = mi_calloc_tp(
+                RenderBinding, static_cast<size_t>(created->bindingCount));
+            created->realizationPlan = mi_heap_mallocn_tp(
+                AnoAssetId, preparationHeap,
+                static_cast<size_t>(created->bindingCount));
         }
         if (result == ANO_RESOURCE_OK
             && (!created->bindings || !created->realizationPlan))
@@ -1332,7 +1324,7 @@ AnoResourceError ano_vk_resource_residency_create(
     if (manager == nullptr || residency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     const AnoResidencyEpoch *epoch = nullptr;
-    mi_heap_t *preparationHeap = mi_heap_new();
+    mi_heap_t *preparationHeap = ano_heap_create();
     if (preparationHeap == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     AnoResourceError result = ano_resource_epoch_acquire(manager, &epoch);
@@ -1350,7 +1342,7 @@ AnoResourceError ano_vk_resource_residency_create(
         *residency = nullptr;
     }
     ano_resource_epoch_release(epoch);
-    mi_heap_destroy(preparationHeap);
+    ano_heap_destroy(preparationHeap);
     return result;
 }
 

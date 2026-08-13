@@ -26,14 +26,14 @@ AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
     uint32_t rate   = d.sampleRate ? d.sampleRate : 48000u;
     uint32_t voices = d.maxVoices ? d.maxVoices : 96u;
 
-    mi_heap_t *heap = mi_heap_new();
+    mi_heap_t *heap = ano_heap_create();
     if (!heap)
         return NULL;
     // zalloc_aligned: honors alignas(ANO_THREAD_LINE) members
     AnoSynth *s = static_cast<AnoSynth *>(
         mi_heap_zalloc_aligned(heap, sizeof *s, alignof(AnoSynth)));
     if (!s) {
-        mi_heap_destroy(heap);
+        ano_heap_destroy(heap);
         return NULL;
     }
     s->magic      = ANO_SYNTH_MAGIC;
@@ -42,28 +42,24 @@ AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
     s->maxVoices  = voices;
     s->smoothCoef = expf(-1.0f / (0.030f * (float)rate));
     atomic_init(&s->startFrame, ANO_SYNTH_IDLE);
-    atomic_init(&s->transportEpoch, 0u); // epochSeen 0 via calloc
+    atomic_init(&s->transportEpoch, 0u); // epochSeen is zero from allocation
 
-    s->voices   = static_cast<AnoSynthVoice *>(
-        mi_heap_calloc(heap, voices, sizeof *s->voices));
-    s->duckGain = static_cast<float *>(
-        mi_heap_calloc(heap, ANO_SYNTH_SPAN_MAX, sizeof(float)));
-    s->wtBank   = static_cast<float *>(
-        mi_heap_calloc(heap, (size_t)ANO_SYNTH_WT_FRAMES * ANO_SYNTH_WT_LEN,
-                       sizeof(float)));
+    s->voices = mi_heap_calloc_tp(AnoSynthVoice, heap, voices);
+    s->duckGain = mi_heap_calloc_tp(float, heap, ANO_SYNTH_SPAN_MAX);
+    s->wtBank = mi_heap_calloc_tp(
+        float, heap, (size_t)ANO_SYNTH_WT_FRAMES * ANO_SYNTH_WT_LEN);
     s->bellFrames = (uint64_t)(1.6f * (float)rate);
-    s->bell       = static_cast<float *>(
-        mi_heap_calloc(heap, s->bellFrames, sizeof(float)));
+    s->bell = mi_heap_calloc_tp(float, heap, s->bellFrames);
 
     // shimmer history: 2 s, power-of-two
     uint32_t cap = 1;
     while (cap < rate * 2u)
         cap <<= 1;
     s->grainCap  = cap;
-    s->grainRing = static_cast<float *>(mi_heap_calloc(heap, cap, sizeof(float)));
+    s->grainRing = mi_heap_calloc_tp(float, heap, cap);
 
     if (!s->voices || !s->duckGain || !s->wtBank || !s->bell || !s->grainRing) {
-        mi_heap_destroy(heap);
+        ano_heap_destroy(heap);
         return NULL;
     }
     ano_synth_bake_wavetable(s->wtBank);
@@ -74,7 +70,7 @@ AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
 void ano_synth_destroy(AnoSynth *s)
 {
     if (s)
-        mi_heap_destroy(s->heap);
+        ano_heap_destroy(s->heap);
 }
 
 uint32_t ano_synth_dropped(const AnoSynth *s)
@@ -159,17 +155,13 @@ bool ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCount,
     s->rawCap      = eventCount;
     s->noteCap     = eventCount;
     s->anchorMask = s->barMask = s->noteMask = UINT32_MAX; // batch: plain arrays
-    s->anchors = static_cast<AnoSynthAnchor *>(
-        mi_heap_calloc(s->heap, s->anchorCap, sizeof *s->anchors));
-    s->bars = static_cast<AnoSynthBar *>(
-        mi_heap_calloc(s->heap, s->barCap, sizeof *s->bars));
+    s->anchors = mi_heap_calloc_tp(AnoSynthAnchor, s->heap, s->anchorCap);
+    s->bars = mi_heap_calloc_tp(AnoSynthBar, s->heap, s->barCap);
     s->raw = eventCount
-        ? static_cast<AnoNoteEvent *>(
-            mi_heap_calloc(s->heap, s->rawCap, sizeof *s->raw))
+        ? mi_heap_calloc_tp(AnoNoteEvent, s->heap, s->rawCap)
         : NULL;
     s->notes = eventCount
-        ? static_cast<AnoSynthNote *>(
-            mi_heap_calloc(s->heap, s->rawCap, sizeof *s->notes))
+        ? mi_heap_calloc_tp(AnoSynthNote, s->heap, s->rawCap)
         : NULL;
     if (!s->anchors || !s->bars || (eventCount && (!s->raw || !s->notes)))
         return false;
@@ -325,12 +317,9 @@ bool ano_synth_live_begin(AnoSynth *s, double barQuarters)
     s->anchorMask  = LIVE_ANCHORS - 1u;
     s->barMask     = LIVE_BARS - 1u;
     s->noteMask    = LIVE_NOTES - 1u;
-    s->anchors = static_cast<AnoSynthAnchor *>(
-        mi_heap_calloc(s->heap, s->anchorCap, sizeof *s->anchors));
-    s->bars = static_cast<AnoSynthBar *>(
-        mi_heap_calloc(s->heap, s->barCap, sizeof *s->bars));
-    s->notes = static_cast<AnoSynthNote *>(
-        mi_heap_calloc(s->heap, s->noteCap, sizeof *s->notes));
+    s->anchors = mi_heap_calloc_tp(AnoSynthAnchor, s->heap, s->anchorCap);
+    s->bars = mi_heap_calloc_tp(AnoSynthBar, s->heap, s->barCap);
+    s->notes = mi_heap_calloc_tp(AnoSynthNote, s->heap, s->noteCap);
     if (!s->anchors || !s->bars || !s->notes)
         return false;
 

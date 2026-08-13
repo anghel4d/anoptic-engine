@@ -23,7 +23,7 @@ Three cases.
 - Backward jumps. Write a loop.
 - Jumping into the scope of a variably-modified type. C forbids it. Hoist the VLA or size it statically.
 - Out of a function. Failure return; the label is how every arm reaches one.
-- Where scope-bound cleanup already runs. `LOCALHEAPATTR` releases on every exit; a label freeing the same heap is a double free.
+- Where scope-bound cleanup already runs. `ANO_SCOPED_HEAP` releases on every exit; a label freeing the same heap is a double free.
 
 ## Naming and placement
 
@@ -150,7 +150,7 @@ Any cross-file discharge. Acquisition and only correct discharge in different TU
 
 Ranked by what a failure strands, not arm count. First two strand live resources today; rest are repetition, asymmetry risk, or tightening.
 
-1. `text_bake.c:507` - `ano_text_font_bake_ranges`. Nine arms after first acquisition. Leak is real: `glyphs` and `map` from caller's heap, no arm frees them, `*out` zeroed at `:523` so caller holds no handle. Last two arms (`:636`, `:643`) also strand `pairs` that `bake_kerns` published into `out->kerns`. Label discharges `glyphs`, `map`, `out->kerns` and re-totals `*out`; `LOCALHEAPATTR` scratch needs nothing. Settle with callee `text_bake.c:440` - `bake_kerns` (four arms); shared caller-heap ownership ambiguity.
+1. `text_bake.c:507` - `ano_text_font_bake_ranges`. Nine arms after first acquisition. Leak is real: `glyphs` and `map` from caller's heap, no arm frees them, `*out` zeroed at `:523` so caller holds no handle. Last two arms (`:636`, `:643`) also strand `pairs` that `bake_kerns` published into `out->kerns`. Label discharges `glyphs`, `map`, `out->kerns` and re-totals `*out`; `ANO_SCOPED_HEAP` scratch needs nothing. Settle with callee `text_bake.c:440` - `bake_kerns` (four arms); shared caller-heap ownership ambiguity.
    Converted 2026-07-26 - single `fail:`, kern publish moved commit-last; record in docs/BUGS_DONE.md.
 2. `main.c:350` - `music_world_start`. Four arms, none discharging. Arm at `:396` fires after `ano_audio_init` succeeded: live mixer thread and open device survive a reported failure. Caller (`:1044`) logs and continues; `music_world_stop` does not run until `:1069`. Label discharges `g_synth`, `g_music` and on that last arm only `ano_audio_shutdown`. Cascade shape: discharge set differs per arm.
    Converted 2026-07-26 - single `fail:` through `music_world_stop(false)`; cascade premise was false - `ano_audio_shutdown` is handle-guarded (`ano_audio.c:270-273`), no-op when audio never came up. Record in docs/BUGS_DONE.md.
@@ -172,7 +172,7 @@ Ranked by what a failure strands, not arm count. First two strand live resources
 
 Already converted, leave alone: all three audio platform backends - `alsa_start` (`audio_linux.c:93`), `pw_start` (`:371`), `coreaudio_start` (`audio_macos.c:56`), `wasapi_start`/`wasapi_main`/`dsound_start`/`dsound_main` (`audio_win64.c:472`/`:313`/`:808`/`:691`) - all cascading labels, all correct for their non-null-safe deallocators.
 
-Already discharged by scope; converting would be a regression: `ano_meshoptimizer.c` `ano_optimize_vertex_cache` (`:119`) and `ano_simplify_ex` (`:662`), and `audio_mixer.c:685` `ano_audio_render_offline`, all `LOCALHEAPATTR`. Bare returns correct by construction.
+Already discharged by scope; converting would be a regression: `ano_meshoptimizer.c` `ano_optimize_vertex_cache` (`:119`) and `ano_simplify_ex` (`:662`), and `audio_mixer.c:685` `ano_audio_render_offline`, all `ANO_SCOPED_HEAP`. Bare returns correct by construction.
 
 Below the bar or holding nothing: `getRequiredExtensions` (`instance.c:171`, no arms; defects are unchecked `calloc` and per-string `strdup` leak, neither a label addresses), `createImageViews` (`swapchain.c:455`, already unwinds its own prefix), `recordCommandBuffer` (`frame/record.c:20`, three arms but no resource), `ano_vk_ui_init` (`ui_raster.c:186`, degrades rather than refusing), `ano_text_font_load` (`text.c:124`, two arms, under the bar), plus `createInstance`, `initWindow`, `ano_vk_init_geometry_pool`, `createDescriptorPool`, `createBindlessTextureArray`, `ano_synth_create`, `ano_synth_score_begin`, `ano_synth_live_begin`, `ano_music_create`, `ano_render_ui_set`.
 

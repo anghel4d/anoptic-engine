@@ -61,7 +61,7 @@ int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(
 #endif
 
     int rc;
-    thread_tramp_t *t = static_cast<thread_tramp_t *>(mi_malloc(sizeof *t));
+    thread_tramp_t *t = mi_malloc_tp(thread_tramp_t);
     if (t == NULL) {
         rc = pthread_create(thread, attr, func, arg);    // no shim beats no thread
     } else {

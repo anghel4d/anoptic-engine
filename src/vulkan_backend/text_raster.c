@@ -516,7 +516,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         return true;
 
     // CPU side: bake blobs live on textHeap.
-    state->textHeap = mi_heap_new();
+    state->textHeap = ano_heap_create();
     ano_fspath game = ano_fs_gamepath();
     char fontPath[512];
     snprintf(fontPath, sizeof fontPath, "%s/%s", game.str, ANO_TEXT_FONT_REL);
@@ -1081,7 +1081,7 @@ void ano_vk_text_destroy(VulkanContext* ctx, RendererState* state)
     ano_text_shutdown();
     if (state->textHeap != NULL)
     {
-        mi_heap_destroy(state->textHeap);
+        ano_heap_destroy(state->textHeap);
         state->textHeap = NULL;
     }
 }

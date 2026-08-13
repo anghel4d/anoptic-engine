@@ -64,8 +64,7 @@ static void coreaudio_teardown(AnoCoreAudioState *st)
 
 static bool coreaudio_start(AnoAudioMixer *mx)
 {
-    AnoCoreAudioState *st = static_cast<AnoCoreAudioState *>(
-        mi_heap_calloc(mx->heap, 1, sizeof *st));
+    AnoCoreAudioState *st = mi_heap_zalloc_tp(AnoCoreAudioState, mx->heap);
     if (!st)
         return false;
 

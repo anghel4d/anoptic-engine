@@ -279,6 +279,7 @@ AnoResourceError prepare_startup_resources_reload(
 
 void *prepare_reload_worker(void *argument)
 {
+    mi_thread_set_in_threadpool();
     ReloadWorker& worker = *static_cast<ReloadWorker *>(argument);
     ano_mutex_lock(&worker.mutex);
     for (;;) {
@@ -291,7 +292,7 @@ void *prepare_reload_worker(void *argument)
         ano_mutex_unlock(&worker.mutex);
 
         AnoResourceReload *reload = nullptr;
-        mi_heap_t *heap = mi_heap_new();
+        mi_heap_t *heap = ano_heap_create();
         AnoRenderResourcePublication *publication = nullptr;
         AnoResourceError result = heap
             ? prepare_startup_resources_reload(
@@ -317,7 +318,7 @@ void *prepare_reload_worker(void *argument)
         worker.heap = nullptr;
         worker.publication = nullptr;
         ano_mutex_unlock(&worker.mutex);
-        if (heap) mi_heap_destroy(heap);
+        ano_heap_destroy(heap);
         ano_mutex_lock(&worker.mutex);
         if (stop) break;
         worker.state = RELOAD_WORKER_IDLE;
@@ -1509,8 +1510,6 @@ hudDone:
 
 int main()
 {
-    mi_version();
-
     // Source-provider bindings and shader paths are game-relative.
     // The executable directory is the game's filesystem root.
     if (!ano_fs_chdir_gamepath())
