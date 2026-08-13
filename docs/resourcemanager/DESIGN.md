@@ -377,6 +377,14 @@ responses. Fairness, eventual retirement, bounded backpressure, and absence of
 permanent starvation are separate progress properties over infinite behavior.
 Neither class of law is silently inferred from the other.
 
+The abstract carriers and laws in this chapter are machine-checked by the Lean
+kernel under `proofs/`. `Anoptic.Coverage.allInterfacesChecked` exhaustively
+covers the 24 ideal whole-engine interfaces, while `Anoptic.Integration`
+checks representative composition across resource, render, world, reload,
+music, and synth boundaries. Concrete C++26 and platform implementations enter
+through explicit refinement witnesses; the formal model is not runtime
+machinery.
+
 ### Factorization laws
 
 Every Anoptic module, including the resource manager, obeys these laws:

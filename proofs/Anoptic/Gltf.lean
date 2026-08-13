@@ -1,0 +1,77 @@
+/-
+SPDX-FileCopyrightText: 2026 Anoptic Game Engine Authors
+
+SPDX-License-Identifier: LGPL-3.0
+Anoptic targets ISO C++26.
+-/
+
+import Std
+
+namespace Anoptic
+
+namespace Gltf
+
+abbrev Bytes := List UInt8
+
+/-- The foreign source sum retains whether bytes arrived as JSON or GLB. -/
+inductive Raw where
+  | json : Bytes → Raw
+  | glb : Bytes → Raw
+  deriving DecidableEq
+
+inductive SourceKind where
+  | json
+  | glb
+  deriving DecidableEq
+
+def Raw.kind : Raw → SourceKind
+  | .json _ => .json
+  | .glb _ => .glb
+
+def Raw.bytes : Raw → Bytes
+  | .json value => value
+  | .glb value => value
+
+@[simp] theorem json_kind (bytes : Bytes) : (Raw.json bytes).kind = .json := rfl
+
+@[simp] theorem glb_kind (bytes : Bytes) : (Raw.glb bytes).kind = .glb := rfl
+
+theorem json_ne_glb (jsonBytes glbBytes : Bytes) :
+    Raw.json jsonBytes ≠ Raw.glb glbBytes := by
+  intro equality
+  cases equality
+
+theorem raw_exhaustive (raw : Raw) :
+    (∃ bytes, raw = .json bytes) ∨ (∃ bytes, raw = .glb bytes) := by
+  cases raw with
+  | json bytes => exact .inl ⟨bytes, rfl⟩
+  | glb bytes => exact .inr ⟨bytes, rfl⟩
+
+structure Parsed where
+  source : Raw
+  bufferCount : Nat
+
+/-- Binding requires a value at every buffer input named by the parsed source. -/
+structure Bound where
+  parsed : Parsed
+  buffers : Fin parsed.bufferCount → Bytes
+
+def bind (parsed : Parsed) (buffers : Fin parsed.bufferCount → Bytes) : Bound :=
+  ⟨parsed, buffers⟩
+
+@[simp] theorem bind_retains_parsed (parsed : Parsed)
+    (buffers : Fin parsed.bufferCount → Bytes) :
+    (bind parsed buffers).parsed = parsed :=
+  rfl
+
+@[simp] theorem bind_retains_source (parsed : Parsed)
+    (buffers : Fin parsed.bufferCount → Bytes) :
+    (bind parsed buffers).parsed.source = parsed.source :=
+  rfl
+
+/-- A projection is pure; parsing and source acquisition remain owner effects. -/
+structure Projection (Output : Type) where
+  run : Bound → Output
+
+end Gltf
+end Anoptic
