@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Darwin spinlock/barrier gap-fill: C23 atomics. No OS locks.
+// Darwin spinlock/barrier gap-fill over the C++26 atomic substrate. No OS locks.
 
 #if defined(__APPLE__)
 

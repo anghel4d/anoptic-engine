@@ -48,9 +48,9 @@ Kerning comes from GPOS pair tables and never bridges faces. The shaper drops th
 
 ## UTF-8 in string literals: yes, really
 
-The source files are UTF-8 and C23 clang consumes UTF-8 source natively, so demo text is typed as itself:
+The source files are UTF-8 and the C++26 compiler consumes UTF-8 source natively, so demo text is typed as itself:
 
-```c
+```cpp
 n = ano_text_shape_lit(bake,
                        "Ἄνδρα μοι ἔννεπε, Μοῦσα, πολύτροπον",
                        22.0f, homerOrg, aegean, hud, HUD_TEXT_CAP, NULL);

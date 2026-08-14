@@ -37,7 +37,7 @@ typedef pthread_rwlock_t anothread_rwlock_t;
 typedef pthread_rwlockattr_t anothread_rwlockattr_t;
 
 #if defined(__APPLE__)
-// Darwin: POSIX barrier stand-in (C23 atomics). attr ignored.
+// Darwin: POSIX barrier stand-in using the engine's C++26 atomic substrate. attr ignored.
 typedef struct {
     unsigned int count;       // cohort size, set at init
     atomic_uint  arrived;     // [phase : high half][arrivals : low half]

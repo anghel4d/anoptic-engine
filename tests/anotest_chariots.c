@@ -124,13 +124,13 @@ int main(void) {
  *  FINDINGS -- what this experiment was really probing, reverse-engineered later.
  *  The maintained, asserted distillation lives in tests/anotest_memory.c.
  *
- *  Layout, empirically confirmed (clang -std=c23, arm64):
+ *  Layout under the engine's C++26 ABI:
  *    sizeof(mem_chariot_t) = 32   alignof = 16
  *    offsets: tdLo 0  tdHi 8  hhhahaf 0  wpUUID 16  irctdb 24  wheels 28
  *  hhhahaf overlaps tdLo|tdHi exactly: the u128 is the two 64-bit halves
- *  concatenated (low half == tdLo) on little-endian. Reading the union member
- *  you did not last write is well-defined in C (6.5.2.3) for _BitInt(128) -- no
- *  padding, no trap representations -- but the half<->whole correspondence is
+ *  concatenated (low half == tdLo) on little-endian. Storage overlap does not
+ *  make an inactive-union read valid C++26; maintained code uses `std::bit_cast`,
+ *  `memcpy`, or explicit byte conversion. Half-to-whole correspondence remains
  *  endian-dependent (holds on LE: arm64, x86-64; halves swap on BE).
  *
  *  The sizing is the Rosetta Stone: 4096 * 8192 = 2^25 elements * 32 B = exactly

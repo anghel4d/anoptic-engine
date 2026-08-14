@@ -63,7 +63,7 @@ resource-specific arena API.
 
 | Header | Public responsibility |
 |---|---|
-| `anoptic_resources.h` | C-compatible stable IDs, content IDs, schema fingerprints, byte/range values, quality values, errors, and the compiled-language view |
+| `anoptic_resources.h` | C++26 stable IDs, content IDs, schema fingerprints, byte/range values, quality values, errors, and the compiled-language view |
 | `anoptic_resources_typed.h` | C++26 cell and transform annotations, `AssetRef<T>`, reflected `up()`/`down()` navigation, relative wire types, reflection compiler, and typed generated operations |
 | `anoptic_resources_revision.h` | Immutable revision ownership, identity, typed lookup, selected `(transform, output-port)` provenance, dependencies, and navigation views shared by live cooking and opened packs |
 | `anoptic_resources_cook.h` | Source roots, import requests, build profiles, cooker configuration, diagnostics, incremental cook results, and CAS control |
@@ -78,9 +78,10 @@ resource-specific arena API.
 headers include the base header and only the public module headers their
 signatures require. No public header includes a private `src/` header.
 
-Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
-namespace `ano`. C-compatible headers expose no `std::meta::info`, templates, or
-foreign backend types.
+Every resource header is a C++26 interface in namespace `ano`. Reflection may
+generate an `extern "C"` projection only where a genuine foreign boundary needs
+one; the engine API itself may expose `std::meta::info`, templates, and other
+C++26 facilities while foreign backend types remain private.
 
 ### Base values
 

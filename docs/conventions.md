@@ -2,12 +2,12 @@
 
 ## C+Ultra
 
-In-tree `.c` files compile as C++26 while retaining C-shaped source, data layout, and filenames. Use lambdas, namespaces, strong types, concepts, templates, `constexpr`, `consteval`, and reflection where they remove runtime work or duplicated declarations. Prefer plain data and value semantics. Do not introduce inheritance, virtual polymorphism, RTTI, exceptions, or unnecessary ownership frameworks. Preserve measured hot-path behavior and the `-nostdlib++` build.
+Every first-party source and header compiles as C++26 or later, irrespective of filename suffix. Use lambdas, namespaces, strong types, concepts, templates, `constexpr`, `consteval`, and reflection where they remove runtime work or duplicated declarations. Prefer plain data and value semantics. Do not introduce inheritance, virtual polymorphism, RTTI, exceptions, or unnecessary ownership frameworks. Preserve measured hot-path behavior and the `-nostdlib++` build.
 
 ## Modules
 
 - Public interfaces live in `include/anoptic_<module>.h`; implementations live in `src/<module>/`.
-- Cross-module calls use public headers and C ABI surfaces where practical. Public engine functions begin with `ano_`.
+- Cross-module calls use typed C++26 public headers. Generated `extern "C"` projections exist only for genuine foreign ABI boundaries.
 - Private helpers stay inside `src/<module>/`; use namespaces for private C++ names.
 - Each source module owns its `CMakeLists.txt`.
 

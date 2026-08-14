@@ -17,7 +17,7 @@
 // Column-major 4x4: m[i][j] = column i, row j. m[i] is a contiguous column; m[3] is translation.
 // Matches GLSL mat4 (memcpy upload, no transpose). See docs/math-conventions.md.
 // Function args decay to float(*)[4].
-// Align the array type; C23 6.7.6 forbids an alignment specifier on the typedef.
+// Align the array type itself so every value carries the required SIMD alignment.
 typedef float mat4[4][4] __attribute__((aligned(16)));
 
 typedef struct Vector2

@@ -1,8 +1,8 @@
 # `src/` Directory
 
 `src/` contains interpreters of the public types declared in `include/`.
-In-tree `.c` files compile as C++26. The spelling preserves the engine's
-C-shaped ABI and data style; it does not reduce the language model to C.
+Every in-tree source file compiles as C++26 or later. A `.c` suffix preserves
+only a filename and data-oriented style; it does not select the C language.
 
 For a public interface with valued requests `Q` and response family `R(q)`, an
 owner module implements

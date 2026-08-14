@@ -279,7 +279,7 @@ Every probe produced its expected result. The acceptance controls matter: the bu
 | Switch/control-flow policy | Existing C warnings and tests | C++ target makes non-exhaustive enum switches, implicit fallthrough, and missing returns errors |
 | Exceptions and RTTI | Not applicable to C-only reference | Explicitly disabled in C++ islands and compile-fail tested |
 | Inheritance and virtual dispatch | Not expressible in C | Available in the language; absent from the current implementation, locally blocked by `final`/`Data`, but not globally prohibited |
-| Public caller types | C enums, integers, pointers, and plain structs | Deliberately unchanged C ABI; stronger types are implementation-side and do not make arbitrary caller integers unrepresentable |
+| Public caller types | Raw enums, integers, pointers, and plain structs | C++26 strong types cross first-party boundaries; generated foreign projections lower them only where required |
 | General memory safety | Raw pointer, extent, lifetime, union-tag, arithmetic, and concurrency obligations remain | The same obligations remain outside the specifically converted contracts |
 
 The variant is materially safer in the code it actually converts, but it is not a memory-safe language boundary and it is not a global “no OOP” dialect. `ano::Data` is an opt-in proof, `final` is a per-class prohibition, and `[[assume]]` is not validation: it is safe only after every incoming path has established the invariant. A missed ingress check can make an assumption more dangerous, so every assumption needs a malformed-input regression test.
@@ -300,7 +300,7 @@ Validation totals: 29/29 enabled WSL tests on each revision, 29/29 enabled nativ
 
 ## Recommendation
 
-Adopt strict C++26 language mode for every first-party host-engine translation unit. The pilot islands are the proof-of-toolchain stage, not the final architecture. Third-party C dependencies may remain C, and first-party exports may retain `extern "C"` where a stable external ABI is useful; a C ABI does not require a C implementation.
+Adopt strict C++26 for every first-party host-engine source and header. Third-party C dependencies remain C23, and reflection generates `extern "C"` projections only where a genuine foreign boundary requires one. A C ABI does not require a C implementation or a C-compatible engine header.
 
 This is a compiler and language-mode migration, not an object-oriented redesign. Preserve the SoA architecture, plain layouts, explicit allocation, platform abstraction, procedural module surfaces, and data-oriented algorithms. Use namespaces, lambdas, concepts, templates, `constexpr`/`consteval`, typed enums, reflection as the deployed compiler gains it, and stronger non-owning value types throughout the engine. Keep `-fno-exceptions`, `-fno-rtti`, exhaustive enum switches, fallthrough and return errors, no C++ standard-library runtime dependency, and the measured code-generation admission rule. Add an AST policy check if inheritance and virtual members are to be prohibited globally.
 

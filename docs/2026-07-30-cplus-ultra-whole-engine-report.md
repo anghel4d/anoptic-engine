@@ -10,7 +10,7 @@ Reference: fetched `origin/module-audio` at `e2dbe3b84283bd250731eb3a94baad68046
 
 Use the C++26 compiler for every first-party host-engine and test translation unit.
 
-Keep the `.c` and `.h` names, the SoA data model, procedural APIs, plain structs, direct control flow, and public C ABI. Keep third-party C dependencies in C language mode. Do not convert the engine into an object hierarchy, do not introduce exception control flow or RTTI, and do not take a C++ standard-library runtime dependency. This is C+Ultra: C-shaped systems code with C++26 compile-time machinery and stricter type checking.
+Keep the `.c` and `.h` names, the SoA data model, procedural APIs, plain structs, and direct control flow. Every first-party source and header is C++26; third-party C dependencies remain in C23 language mode, and reflection generates `extern "C"` projections only for genuine foreign boundaries. Do not convert the engine into an object hierarchy, introduce exception control flow or RTTI, or take a C++ standard-library runtime dependency.
 
 This branch implements that decision. It is not a set of C++ islands: the final WSL compilation database contains 146 first-party `.c` compile commands, all 146 use `clang++ -std=gnu++26`, all carry `-fno-exceptions -fno-rtti`, and zero escape the policy. The same graph contains 84 third-party `.c` compile commands, all 84 remain C.
 
@@ -21,7 +21,7 @@ The performance call is also yes. Controlled reruns find no whole-frame FPS regr
 - `ano_enable_cplus_ultra(target)` marks first-party `.c` sources as C++ and requires GNU C++26, while external C targets remain untouched.
 - Every first-party C++ translation unit is built without exceptions and RTTI.
 - Clang makes format mismatches, non-exhaustive enum switches, implicit fallthrough, missing returns, C-only designator forms, reordered designators, dangling references, C++ VLAs, and writable string literals fatal.
-- Public module headers retain C23 compatibility and wrap their callable surface in `extern "C"` for C++ consumers and implementations.
+- Public module headers use the complete C++26 language. A concrete foreign boundary receives a generated C-ABI projection instead of constraining the source API.
 - Linux links with `-nostdlib++`; Linux and Windows binary audits find no `libstdc++`, `libc++`, `libsupc++`, or equivalent C++ runtime import.
 - `ano::Data<T>` accepts only standard-layout, trivially-copyable, non-polymorphic data where the contract is applied.
 - `ano::EnumValue`, `ano::EnumTable`, `ano::EnumFlags`, and consteval registry builders prove dense enum ranges, unique keys, complete tables, and valid inversions at compile time.
@@ -51,7 +51,7 @@ No OOP redesign was performed. The new helper classes are small value contracts 
 | Compile-contract matrix | 31/31 expected accept/reject outcomes |
 | CPU benchmark processes | 64/64 successful |
 | Official FPS points | 82/82 `FRONT`, requested extent realized, GPU profile complete: 24 initial sweep points plus 58 root-cause points |
-| Public headers | all 18 compile together as C23 and C++26 with the build’s normal POSIX and allocator include contract |
+| Public headers | all first-party headers compile together as C++26 with the build's normal platform and allocator include contract |
 
 The sanitizer caveat is environmental, not hidden: WSL’s Vulkan skip path creates a Wayland/libdecor window before device selection fails, and LeakSanitizer reports allocations retained by Fontconfig/Pango/libdecor at process shutdown. The same native Vulkan tests pass with a real device. Leak detection was not silently disabled for the reported full sanitizer run.
 
@@ -75,7 +75,7 @@ The on-disk files are slightly larger because symbol and name-table representati
 
 Linux `readelf -d` lists libc, libm, libdl, pthread, rt, atomic, Vulkan, and the loader; no C++ runtime is needed. Windows imports the Universal CRT, Win32 system DLLs, and Vulkan; no C++ runtime DLL is imported.
 
-All callable public headers now carry C language linkage under C++. Representative final Linux symbols are the raw names `ano_busywait`, `ano_fs_sync`, `ano_text_init`, `ano_thread_join`, and `ano_ui_clip`. Private functions declared only in `src/` may be mangled, which is intentional and not an ABI promise.
+First-party public headers use ordinary C++26 linkage and typed namespace-qualified declarations. A genuine foreign boundary receives generated C-language linkage and an ABI-safe projection; private symbols remain implementation details.
 
 ## CPU benchmark method
 
@@ -265,7 +265,7 @@ The corrected renderer result is neutral. Code layout and alignment are not the 
 
 ## Runtime hostile-interface matrix
 
-“Clean” means the case returned its documented safe fallback/rejection without ASan or UBSan. It does not mean the caller byte became unrepresentable at the C ABI.
+“Clean” means the case returned its documented safe fallback or rejection without ASan or UBSan. A generated foreign projection still validates every raw representation before constructing the typed C++26 value.
 
 | case | C reference | C+Ultra |
 | --- | --- | --- |
@@ -324,7 +324,7 @@ There is no compiler option that globally disables user-defined inheritance or v
 
 Plain positional initialization can still compile after a table’s semantic row order changes. The solution is not another warning flag; it is the explicit-key consteval enum-map form used by the new registries.
 
-Public callers still pass C-compatible integers, enums, pointers, and structs. Strong internal types validate those representations at module boundaries without breaking the public ABI. If a value must be impossible to construct even for external callers, the ABI itself must change to opaque handles or checked constructors.
+First-party callers use the typed C++26 API directly. Generated foreign projections lower strong types to ABI-safe integers, enums, pointers, structs, opaque handles, or checked constructors without becoming a second semantic authority.
 
 C++26 reflection was not made a build dependency in this pass. The branch establishes the language mode and compile-time registry patterns needed to adopt standardized reflection as soon as the pinned Clang toolchain’s implementation is stable enough for production.
 
@@ -332,9 +332,9 @@ C++26 reflection was not made a build dependency in this pass. The branch establ
 
 1. Continue replacing raw tag-plus-index pairs at audio, renderer, and music module boundaries with validated raw-to-strong conversions performed once on entry.
 2. Convert remaining parallel enum/name/function tables into explicit-key consteval registries so completeness and uniqueness are proven independently of declaration order.
-3. Introduce small unit/index wrappers for frame IDs, slot IDs, byte counts, sample counts, texture IDs, and entity ranges inside modules, erasing them only at the C ABI.
+3. Introduce small unit/index wrappers for frame IDs, slot IDs, byte counts, sample counts, texture IDs, and entity ranges, lowering them only in generated foreign projections.
 4. Add an AST policy test for inheritance, `virtual`, and polymorphic class definitions outside an explicit allowlist if the project wants a global no-OOP rule.
-5. Use C++26 reflection for registry generation only after the pinned compiler supports the chosen facility without an unstable compatibility layer.
+5. Use C++26 reflection as the structural authority for registry generation and reject parallel handwritten inventories.
 6. Use the implemented Windows `--compare-exe` path for small-window FPS comparisons: six adjacent pairs per resolution by default, ABBA/BAAB balanced order, paired 95% confidence, and DWM exposure. Treat function alignment and PGO as independent optimization work, not a fix for this nonexistent regression.
 
 ## Artifacts

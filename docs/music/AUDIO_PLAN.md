@@ -24,7 +24,7 @@ Distilled from TECH_SPEC §11–§12 and the prototype:
 ### 1.2 What the engine has today
 
 - No audio code yet: no `include/anoptic_audio.h`, no `src/audio/`, no build-sequence slot in docs/TODO.md. First audio module.
-- Render bridge is the shipped bridge template (`src/render_bridge/render_bridge.h`): bounded lock-free SPSC ring (`AnoSpscRing`, cursors `_Alignas(ANO_THREAD_LINE)`), latest-wins seqlock (`ano_seqpub_store/load`), copy-at-submit for POD commands, owned-`mi_malloc`-block for fat payloads (consumer frees), backpressure-retry on command overflow, best-effort + capacity advisory on the event ring. Design rule from `anoptic_render.h`: discrete lossless facts on command/event ring; continuous latest-wins state on published double buffer.
+- Render bridge is the shipped bridge template (`src/render_bridge/render_bridge.h`): bounded lock-free SPSC ring (`AnoSpscRing`, cursors `alignas(ANO_THREAD_LINE)`), latest-wins seqlock (`ano_seqpub_store/load`), copy-at-submit for plain-data commands, owned `mi_malloc` blocks for fat payloads, backpressure retry on command overflow, and best-effort capacity advisory on the event ring. Discrete lossless facts use command/event rings; continuous latest-wins state uses a published double buffer.
 - `include/anoptic_collections.h` is an empty stub; generic lock-free collections not landed. Render bridge keeps private ring/seqlock copies with a migrate-later note. Audio bridge does the same; second consumer. Promote both into `anoptic_collections.h` later.
 - Memory exposes first-class lifetime heaps (`ano_heap_create` + `ANO_SCOPED_HEAP`) and explicitly contiguous immutable regions, alongside aligned allocation and hardware-interference constants. Render and audio own dedicated heaps and build their fixed pools on top.
 - Threads: `ano_thread_create/join` wrap pthreads (winpthreads on win64, shim on macOS). Runtime today: three threads (main/render, logic via `anoLogicThreadMain` ~2 ms tick / sole render-command producer, logger drain). Audio mixer is the fourth, spawned/joined like the logic thread, shut down before its bridge is destroyed.
@@ -36,7 +36,7 @@ Facts checked against primary sources this week:
 
 - miniaudio 0.11.25 (2026-03): active, public-domain/MIT-0, compiles to device-I/O-only (`MA_NO_ENGINE`, `MA_NO_NODE_GRAPH`, `MA_NO_DECODING`, …, custom alloc callbacks). Data path callback-driven and lock-free; control path holds internal mutexes. No native PipeWire (Linux rides pulse-compat with forced 25 ms default buffer); none in unreleased 0.12. One 96k-line foreign TU.
 - libsoundio abandoned (last real release 2019, last commit mid-2023). PortAudio maintained but mid-weight; no IAudioClient3 low-latency shared mode, no native PipeWire. SDL3 audio excellent and native-PipeWire but is a framework (charter-excluded). sokol_audio too thin to adopt (f32 stereo only, no device selection); excellent reference reading.
-- Hand-rolled pure-C backends are proven (miniaudio, sokol, libsoundio): WASAPI via COM-from-C (`lpVtbl`), IAudioClient3 event-driven shared mode (periods 128–480 frames driver-dependent, classic 480/10 ms floor), `IMMNotificationClient` for default-device change; CoreAudio AUHAL pure-C API, 128–512-frame buffers routine, property listener for device change; Linux 2026 = PipeWire native `pw_stream` (`PW_STREAM_FLAG_RT_PROCESS` keeps process callback lock-free; `PW_KEY_NODE_LATENCY` requests quantum; dlopen `libpipewire-0.3`, no link-time dep) + dlopen'd ALSA fallback for headless/non-PipeWire. PipeWire is default server on every major distro. Effort estimate: WASAPI 800–1500 lines, AUHAL 500–900, PipeWire + ALSA 1100–1600.
+- Direct C++26 platform backends are proven by miniaudio, sokol, and libsoundio: WASAPI through the COM ABI, IAudioClient3 event-driven shared mode (periods 128–480 frames driver-dependent, classic 480/10 ms floor), and `IMMNotificationClient` for default-device change; CoreAudio AUHAL's foreign ABI with routine 128–512-frame buffers and a property listener; Linux through native PipeWire `pw_stream` plus a dynamically loaded ALSA fallback for headless systems. The first-party implementation remains C++26 while each operating-system API stays behind its actual foreign boundary.
 - Format policy (no owned device resampler): engine mixer fixed at f32 interleaved 48 kHz; WASAPI shared mixes at engine rate, AUHAL converts client→device, PipeWire graph resamples. Only raw-ALSA fallback needs one f32→s16 conversion loop. Safe latency budget all platforms: 512–1024 frames total buffering (~10–21 ms); go lower opportunistically, never as a requirement.
 
 ### 1.4 Backend decision
@@ -120,7 +120,7 @@ Negotiation policy: request f32 interleaved stereo 48 kHz, 512-frame period; acc
 
 ### 3.3 The DSP primitive library
 
-`src/audio/dsp/`: plain C kernels over `float *restrict` blocks, shared by bus inserts (audio) and voices (synth). Contents: exactly TECH_SPEC §12.2 inventory, built in dependency order (smoothers and SVF first, FDN and limiter last). Rules from the findings:
+`src/audio/dsp/`: direct C++26 numerical kernels over non-overlapping float blocks, shared by bus inserts (audio) and voices (synth). Contents: exactly TECH_SPEC §12.2 inventory, built in dependency order (smoothers and SVF first, FDN and limiter last). Rules from the findings:
 
 - Every stochastic primitive takes an explicit seed; every state struct has an init that zeroes it (finding 8).
 - Every buffer-position input declares clamp-or-wrap and enforces it in the node, loudly in debug (finding 7).
@@ -182,8 +182,8 @@ One `AnoAudioBridge`, mirroring `AnoRenderBridge` field for field:
 struct AnoAudioBridge {                    // src/audio/audio_bridge.h (private)
     AnoSpscRing commands;                  // logic -> audio (AnoAudioCommand, POD, copied by value)
     AnoSpscRing events;                    // audio -> logic (AnoAudioEvent, <= 32 bytes, static-asserted)
-    AnoAudioListener  listener;  _Alignas(ANO_CACHE_LINE) _Atomic uint64_t listenerVersion;  // logic publishes
-    AnoAudioTelemetry telemetry; _Alignas(ANO_CACHE_LINE) _Atomic uint64_t telemetryVersion; // audio publishes
+    AnoAudioListener  listener;  alignas(ANO_CACHE_LINE) ano::Atomic<uint64_t> listenerVersion;  // logic publishes
+    AnoAudioTelemetry telemetry; alignas(ANO_CACHE_LINE) ano::Atomic<uint64_t> telemetryVersion; // audio publishes
 };
 ```
 
@@ -250,7 +250,7 @@ Rough scale: audio module 4–6k lines, synth 5–8k, music port on the order of
 ## 8. Risks and open questions
 
 - Device matrix ownership is the price of option A: Bluetooth rate switches, `AUDCLNT_E_DEVICE_INVALIDATED` reopen loops, PipeWire quantum negotiation. Mitigations: reopen-between-blocks confines it to one file per platform; miniaudio/sokol are reference implementations; option C remains available per-platform without API churn.
-- Audio-thread hosting of `advance_bar` assumes µs-scale bars hold in C under worst-case phrase machinery. Measured per-bar time ships in telemetry from phase 7's first build; escape hatch (generation on another thread, one bar ahead) is a driver swap by design.
+- Audio-thread hosting of `advance_bar` assumes microsecond-scale bars under worst-case phrase machinery. Measured per-bar time ships in telemetry; generation on another thread one bar ahead remains a driver substitution by design.
 - CPython RNG bit-parity (rejection-sampling `randrange`, order-sensitive `choices`) is fiddly; confined to `src/music/rng.c`, validated by byte-diffing `raw_events` before anything audible depends on it.
 - Cross-platform float determinism deliberately not promised for DSP; per-platform goldens plus RMS cross-checks (ui-render reference-evaluator precedent). Generation core (integer/branch logic over pinned float op order) does target cross-platform identity.
 - Sample rate: engine fixes 48 kHz; prototype conformance goldens are 44.1 kHz. Synth and DSP take rate as an init parameter (all §12.2 constants specified in time units, not samples). Offline conformance at 44.1 kHz; live engine at 48 kHz.

@@ -6,15 +6,15 @@ Cross-reference of Jason Gregory, *Game Engine Architecture*, 3rd edition (CRC P
 
 - **Book** -- distilled, page-cited content.
 - **Anoptic** -- map to our principles / build steps / files.
-- **Verdict** -- ✅ validates · ⚠️ challenges or warns · ➕ nuance or technique we lack. C++→C23 translations called out where they matter.
+- **Verdict** -- ✅ validates · ⚠️ challenges or warns · ➕ nuance or technique we lack. C++26 translations are called out where they matter.
 
-**Worldview.** Gregory: AAA-console 2018, C++/OOP, middleware (Havok, PhysX, Granny), optical-disc / limited RAM, photoreal, modest entity counts. Anoptic: **C23/Clang-only**, no frameworks, **data-oriented**, **lock-free**, desktop SSD + huge RAM, **non-photoreal**, **millions** of entities. Book use: (a) language-agnostic low-level catalogue (allocators, handles, events, jobs); (b) foil where OOP/console assumptions fail. Translate: `std::atomic` → C11 `_Atomic`; RAII destructor → `__attribute__((cleanup))`; "awkward in C++" → often free in C.
+**Worldview.** Gregory: AAA-console 2018, C++/OOP, middleware (Havok, PhysX, Granny), optical-disc / limited RAM, photoreal, modest entity counts. Anoptic: **C++26 with reflection**, no frameworks, **data-oriented**, **lock-free**, desktop SSD + huge RAM, **non-photoreal**, **millions** of entities. Book use: (a) language-agnostic low-level catalogue (allocators, handles, events, jobs); (b) foil where OOP/console assumptions fail. Translate runtime object hierarchies into plain values, reflected compile-time structure, explicit ownership, and direct typed operations.
 
 **Edition note -- 4th ed. (CRC Press, 2026).** Two volumes. **Vol I -- Foundations and Core Engine Systems**: Ch 1-10 (everything here except rendering and gameplay/events). **Vol II -- Graphics, Motion, and Sound**: rendering, new photoreal lighting chapters, animation (motion matching), physics, audio, game object model + events + scripting. So **Ch 11** and **Ch 15-16** here map to Vol II (section numbers differ there).
 
 - *Vol I numbering stable* for Ch 3-8, 10. Only §1.6 *Runtime Engine Architecture* → **§1.5** (new §1.6 = *Tools and the Asset Pipeline*). Page numbers shifted; `(p. …)` below remain **3rd-ed**.
 - *Concurrency chapter reorganized.* §4.9 finer subsections (4.9.2.1-.12 atomics, 4.9.3 barriers, 4.9.4 memory ordering, 4.9.5 atomics + C++ memory_order, 4.9.7 spin locks, 4.9.8 transactions, 4.9.9 lock-free linked list). Substance unchanged. **4.9.9 still shows only `push_front()`** (Herb Sutter CppCon 2014) -- no pop/dequeue. Our "book shows push, not pop" note holds.
-- *New relevant addition:* UB / strict-aliasing / type-punning (§3.3) -- see Ch 3 block below. C++-standards survey through **C++23** (§3.1.2) is C++-specific; orthogonal to C23.
+- *New relevant addition:* UB / strict-aliasing / type-punning (§3.3) -- see Ch 3 block below. The standards survey through **C++23** (§3.1.2) predates the engine's required C++26 reflection model.
 
 ---
 
@@ -77,7 +77,7 @@ Hardware basis for DOD and cache-line-striped lock-free design.
 
 **Verdict.**
 - ✅ DOD, contiguous SoA arrays, hugepages grounded here.
-- ➕ Decide aliasing policy *before* load-in-place: prefer `memcpy`/`union` (free in C), or `-fno-strict-aliasing` on asset/serialization TUs. Never bare pointer-cast pun.
+- ➕ Decide aliasing policy *before* load-in-place: use `std::bit_cast`, `memcpy`, or explicit byte decoding in C++26. Never use inactive-union reads or bare pointer-cast punning.
 - ✅ No vtable in POD components: supported by vtable-pointer/pointer-chase discussion.
 - ➕ Cache-line-stripe is *consistent* with the hardware model; Gregory never aligns algorithms to the coherency unit -- our contribution. Cite §3.5.4.8 + §4.9.4.2. Watch **false sharing**: 64-byte-align each stripe. Direct-mapped "ping-pong eviction" (p. 194) = single-core cousin of multi-core line-bounce.
 
@@ -100,7 +100,7 @@ New-in-3rd-ed chapter; most important for us. Logger, lock-free collections, job
 - **`volatile` does NOT help in C/C++** (pp. 302-303): forces re-reads only; no CPU reordering or cache coherency fix. (Java/C# `volatile` differs.) **Compiler barrier** (`asm volatile("" ::: "memory")`) stops compiler reorder, not CPU -- **LTO can defeat function-call-as-barrier** (p. 304).
 - **Atomic RMW**: TAS, exchange, **CAS** (write iff `*p == expected`). **ABA** (p. 297): A→B→A fools CAS -- defeat with sequence/generation counters or **LL/SC** (pp. 297-299).
 - **Memory ordering (pp. 304-314):** MESI walk-through; coherency opts can reverse write order across cores. Fix: **fences**; **acquire/release**: **write-release** (producers) -- no prior r/w after; **read-acquire** (consumers) -- no later r/w before. x86 **strongly ordered**; Alpha / PowerPC / ARM weak. ARM: `ldar`/`stlr`.
-- **C++11 atomics → C11/C23 (pp. 314-317):** `std::atomic<T>` → `_Atomic T`; default **seq_cst**; `std::memory_order_*` → C11 `memory_order_relaxed / acquire / release / acq_rel / seq_cst`. 32/64-bit lock-free; larger → mutex (`atomic_is_lock_free`). **80/20:** drop below seq_cst only when profiled; **check disassembly**.
+- **C++ atomics (pp. 314-317):** Anoptic's `ano::Atomic<T>` preserves the C++ memory-order vocabulary while lowering directly through compiler builtins and importing no standard-library runtime. **80/20:** drop below `seq_cst` only when the protocol proves it and check the disassembly.
 - **Lock-free transaction (pp. 327-330):** work in **thread-private** memory; **single atomic CAS/LL-SC to publish**; on failure retry (failure = another thread succeeded → progress). Example: `push_front` via `head.compare_exchange_weak(node->next, node)`. **Book shows only push** -- pop is where ABA bites.
 - **Lock-not-needed assertions (pp. 325-327):** single-threaded early-frame + single-threaded late-frame → **no lock**; assert with `BEGIN/END_ASSERT_LOCK_NOT_NECESSARY` (Naughty Dog shipped this).
 
@@ -114,7 +114,7 @@ New-in-3rd-ed chapter; most important for us. Logger, lock-free collections, job
 **Verdict.**
 - ✅ Acquire/release commit-header MPSC, transaction/retry, sequence counters for ABA, private-then-collate, lock-not-needed assertions all endorsed. Adopt `BEGIN/END_ASSERT_LOCK_NOT_NECESSARY`.
 - ⚠️ **Tension:** Gregory cautions lock-free is hard; restrict to most critical subsystems; spin locks elsewhere (pp. 289, 555). Anoptic's "no mutexes but Vulkan" is *more* aggressive. Every lock-free structure must clear ABA + ordering + linearizability. Build M&S/Vyukov baselines first (notes.md Phase A); benchmark before cache-line-stripe (Phase B).
-- ⚠️ **Don't use `volatile` for sync** -- `_Atomic` on logger `tail_index` is correct; plain `volatile` is a bug. Beware LTO defeating function-call barriers.
+- ⚠️ **Don't use `volatile` for sync** -- `ano::Atomic` on logger `tail_index` is correct; plain `volatile` is a bug. Beware LTO defeating function-call barriers.
 - ➕ Book stops at lock-free `push`; our dequeue + stripe-publication ordering go beyond -- cite Vyukov and McKenney.
 - ➕ SIMD "scalar-first, then widen" for eventual component kernels; 16-byte SSE alignment dovetails §3.3 + arena alignment.
 
@@ -174,7 +174,7 @@ Validates arena thesis; specs strings and containers.
 - ✅✅ §6.2 strongest external validation of memory architecture. *Hydro Thunder* double-ended stack = our level-vs-frame split. Stack/pool fragmentation-immunity = why we refuse a general heap.
 - ✅ Start-up/shut-down: in **C this is free** -- no constructors to misorder. Modules use `ano_*_init()`/`ano_*_cleanup()` (e.g. [anoptic_log.h](../../include/anoptic_log.h)). Keep `main()` calling in explicit dependency order.
 - ✅ Owned-string + length + UTF-8 transparency confirmed; `strcmp`/`strcpy` profiling = empirical case.
-- ➕ **Adopt hashed string ids early.** Natural id for ECS type names, event types ([Ch 16](#ch-16-foundation)), resource GUIDs ([Ch 7](#ch-7)), config keys. C23 `constexpr` hashing ≈ `"name"_sid` without UDLs. **64-bit** from the start. One primitive, four subsystems.
+- ➕ **Adopt reflected string identities early.** Natural identity for ECS type names, event types ([Ch 16](#ch-16-foundation)), resource cells ([Ch 7](#ch-7)), and config keys. C++26 reflection and `consteval` hashing derive them from declarations. **64-bit** from the start where collision policy permits. One primitive, four subsystems.
 - ➕ **Handles for relocatable data.** If level/pool ever defragment: §6.2.2.2 -- only handles survive. Also ECS entity-handle pattern ([Ch 16](#ch-16-foundation)). Cross-arena refs = handles.
 - ⚠️ Confirm containers avoid STL-style hidden allocation; closed/open-addressing hash (fixed memory, prime + quadratic) if we outgrow stb_ds.
 
@@ -350,19 +350,19 @@ Out of scope for current/near-future roadmap:
 
 Concrete book → roadmap deltas, roughly by payoff.
 
-1. **Hashed string ids (`_sid`), 64-bit, compile-time.** Not yet in notes.md. Serves ECS type names, **event types**, **resource GUIDs**, **config keys**, **logger channel names**. C23 constexpr hashing ≈ Naughty Dog `"name"_sid`. *Refs: §6.4.3, §16.8.2, §7.2.3, §10.1.3.* **Highest payoff -- unblocks four subsystems.**
+1. **Reflected identities, 64-bit where appropriate, compile-time.** Serves ECS type names, **event types**, **resource cells**, **config keys**, and **logger channel names**. C++26 reflection and `consteval` hashing derive the mapping once. *Refs: §6.4.3, §16.8.2, §7.2.3, §10.1.3.* **Highest payoff -- unblocks four subsystems.**
 2. **Logger channels as 64-bit bitmask + arena-aware memory stats.** Per-subsystem channels; per-arena high-water marks; dump allocator state on FATAL. *Refs: §10.1.3, §10.9.* **Cheap; logger in flight now.**
 3. **`BEGIN/END_ASSERT_LOCK_NOT_NECESSARY` macro.** Debug-build invariant for single-writer-phase assumptions. *Ref: §4.9.7.*
 4. **Build classic lock-free baselines (M&S, Vyukov MPMC); benchmark before cache-line-stripe experiment.** Clear ABA + ordering + linearizability first. *Refs: §4.9, notes.md Phase A→B.*
 5. **Pin matrix convention in `vertex.h`.** Document column-major / Vulkan clip space (z∈[0,1], flipped Y) -- book's row-vector formulas are the transpose. *Ref: §5.3.2, §5.3.12.*
 6. **Event bus = §16.8 directly:** Command-pattern events, `_sid` types, Variant key-value args, interest-registration pub-sub, future-stamped + prioritized queue, **pool/arena-allocated** events. Layer **lock-free** substrate (and cache-line-stripe bulk bus) on top. *Refs: §16.8, notes.md event-bus work.*
-7. **Resource manager (biggest gap):** **registry** (`_sid` GUID → pointer), **refcounted lifetimes** on level/session arena, **offline bake** glTF → **load-in-place** binary (kills runtime jsmn), **handles** for inter-resource refs. PODS + arenas make load-in-place free in C. *Refs: §7.2; notes.md glTF malloc/free debt.*
+7. **Resource manager:** a reflected cell graph, generation-owned immutable volumes, offline glTF cooking, cache-optimal packed revisions, and typed handles for inter-resource references. C++26 reflection derives schemas and routes from declarations. *Refs: §7.2; [resource-manager design](../resourcemanager/DESIGN.md).*
 8. **Async I/O layer (thread + lock-free queue + completion callback/semaphore).** Prerequisite for hitch-free **scoped-resolution catch-up**. *Ref: §7.1.3.*
 9. **Entity handles = id + generation, validated on deref.** Relocation-safe ECS reference; all cross-arena refs are handles. *Refs: §16.5.2, §6.2.2.2.*
 10. **Main loop: fixed-timestep accumulator + render interpolation + Δt clamp.** Book gives constraints, not the explicit pattern -- implement the standard synthesis. *Refs: §8.5; Gaffer "Fix Your Timestep."*
 11. **Renderer: render-queue sort key (material/shader/depth) + optional z-prepass + mesh LOD chains** tied to sim LOD distance metric. *Refs: §11.2.*
 12. **Parallel tick (later): object snapshots + deferred mutation request queue + bucketed updates** on the job system. *Refs: §16.6-16.7, §8.6.*
-13. **Settle type-punning / aliasing policy before load-in-place (item 7).** Standardize on `memcpy` or `union` (legal/free in C23), or `-fno-strict-aliasing` on asset/serialization TUs; ban bare pointer-cast puns. Audit glTF byte reads. *Ref: §3.3 (4th ed.); prerequisite for load-in-place.*
+13. **Enforce the type-punning and aliasing policy for load-in-place data.** Standardize on `std::bit_cast`, `memcpy`, or explicit byte decoding; ban inactive-union reads and bare pointer-cast puns. Audit glTF byte reads. *Ref: §3.3 (4th ed.).*
 
 ---
 

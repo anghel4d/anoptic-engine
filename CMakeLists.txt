@@ -6,7 +6,7 @@ message(STATUS "Toolchain file specified: ${CMAKE_TOOLCHAIN_FILE}")
 message(STATUS "System name: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "System version: ${CMAKE_SYSTEM_VERSION}")
 message(STATUS "System processor: ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "C Compiler: ${CMAKE_C_COMPILER}")
+message(STATUS "External C Compiler: ${CMAKE_C_COMPILER}")
 message(STATUS "C++ Compiler: ${CMAKE_CXX_COMPILER}")
 
 # Anoptic Engine Only Supports 64-bit Compilation
@@ -22,12 +22,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# Enable C23 standard with GNU extensions (gnu23).
+# External C dependencies compile as C23 with GNU extensions.
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
 
-# C+Ultra: C-shaped first-party sources use the C++26 frontend without renaming.
+# Every first-party source uses the C++26 frontend without regard to its suffix.
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)

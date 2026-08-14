@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// C boundary for resource identities, canonical bytes, and errors.
+// C++26 resource identities, canonical bytes, and domain errors.
 
 #ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_H
 #define ANOPTICENGINE_ANOPTIC_RESOURCES_H

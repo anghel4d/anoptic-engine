@@ -8,11 +8,11 @@ No off-the-shelf engine fits this workload. Unity and Unreal optimize for render
 
 Ludicrous-scale simulation at interactive framerates. The engine is the foundation; the game builds on top.
 
-## Language: C23
+## Language: C++26
 
-C23, Clang 17+ only. C23 was in beta when development began (2022-2023); compiler coverage is now mature.
+C++26 or later for every first-party source and header. The selected compiler must implement the required standard features, including reflection.
 
-C over C++: control, simplicity, ABI stability. Where C lacks modern conveniences (ownership, scoped cleanup, type-safe generics), use targeted Clang extensions and C23 features. Know what the machine does; smallest abstraction that makes that control ergonomic.
+Use C++26's type system, `constexpr`, `consteval`, concepts, and reflection while retaining explicit ownership, data-oriented layout, and direct control flow. C23 is limited to external dependencies and generated `extern "C"` foreign-ABI projections; it never constrains the engine API.
 
 ## Core Architectural Principles
 
@@ -24,7 +24,7 @@ Allocate from a **scoped first-class heap**; destroy the heap when the scope exi
 
 Literature: Tofte & Talpin region inference (ML), Cyclone explicit regions, Muratori/Fleury arena tradition.
 
-Mechanism in C is `__attribute__((cleanup))`:
+The GCC C++26 implementation provides `__attribute__((cleanup))` for lexical region ownership:
 
 ```c
 #define ANO_SCOPED_HEAP __attribute__((__cleanup__(ano_heap_cleanup)))
@@ -67,7 +67,7 @@ Minimal MPSC (many-producer, single-consumer) queue:
 - **Cold path (deferred IO):** flusher thread wakes on interval, drains buffer in one batched file write, resets index.
 - **Immediate mode:** fatal messages bypass the queue and hit stderr synchronously (flusher will not run during crash).
 
-Current implementation uses a mutex ("make it correct first"). `_Atomic` on `tail_index` is the breadcrumb for lock-free: producers `fetch_add` to reserve, write payload, set per-slot commit marker with release ordering. Consumer walks forward until an uncommitted slot. Same pattern as Quill and NanoLog.
+Current implementation uses a mutex ("make it correct first"). `ano::Atomic` on `tail_index` is the breadcrumb for lock-free: producers `fetch_add` to reserve, write payload, set per-slot commit marker with release ordering. Consumer walks forward until an uncommitted slot. Same pattern as Quill and NanoLog.
 
 **Gap problem:** reservations can commit out of order (A reserves 0-100, B reserves 100-180, B finishes first). Per-slot commit headers with release semantics solve it. Further reading: Dmitry Vyukov's MPSC intrusive queue and bounded MPMC queue.
 
@@ -166,7 +166,7 @@ First real slice of the simulation/render split in code. Authoritative simulatio
 - Best-in-class precision timestamps sourced from the highest-resolution monotonic clocks available on each platform: `CLOCK_MONOTONIC` on Linux, invariant TSC (rdtsc) with a QPC fallback on Windows, mach timebase on macOS
 - Windows timebase (Step 1 follow-up, 2026-07-03): x86-64 uses rdtsc when the CPU reports an invariant TSC (CPUID 0x80000007 EDX[8]), calibrated against QPC (median of three ~4 ms Sleep-bracketed samples) so `ano_ticks_to_ns` converts correctly. This replaces a bare 10 MHz QPC (100 ns grain, too coarse to order log records stamped in the same window) with a sub-nanosecond counter. The timebase is resolved once and frozen so `ano_timestamp_ticks` and `ano_ticks_to_ns` never disagree; QPC remains the fallback on non-invariant-TSC or non-x86 Windows builds.
 - Windows implementation uses overflow-safe counter-to-nanosecond conversion: splits the counter into seconds and sub-seconds before scaling, avoiding uint64_t overflow on long-running machines. Same technique used by Yuzu/Ryujinx emulator timing code.
-- `cached_performance_frequency` is `_Atomic` for thread-safe lazy initialization
+- `cached_performance_frequency` is `ano::Atomic` for thread-safe lazy initialization
 - `ano_busywait`: tight spinloop on the monotonic clock for sub-microsecond waits where OS sleep granularity is too coarse, with `MAX_BUSYWAIT_NS` safety cap
 - `ano_sleep` (Linux): `clock_nanosleep` with `CLOCK_MONOTONIC` and `EINTR` retry loop
 - `ano_sleep` (Windows): per-thread high-resolution waitable timer (`CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, Win10 1803+) for the coarse wait plus an `ano_busywait` spin tail (Step 3, done; verified green on a real Windows host 2026-07-02).
@@ -199,7 +199,7 @@ First real slice of the simulation/render split in code. Authoritative simulatio
 
 Current state (mutex version, audited June 2026). The concurrency half is correct; the output half is absent.
 - The mutex-guarded enqueue (`enqueue_log_string`) is race-free and the bounds check at logging_core.c:56 has no overflow: the accepted case writes its terminating NUL at worst index `LOG_BUFFER_MAX-1`. Verified under TSan.
-- `tail_index` is `_Atomic` but only ever touched under `log_buffer_mtx`. Redundant today; kept as the breadcrumb for the lock-free version.
+- `tail_index` is `ano::Atomic` but only ever touched under `log_buffer_mtx`. Redundant today; kept as the breadcrumb for the lock-free version.
 - Output is entirely stubbed. All three `write_to_log_file` calls are commented out (logging_core.c:59, 128, 177); `output_file_path` is never assigned; `ano_log_output_dir` is declared in the public header but never defined (first caller = link error). So enqueued DEBUG/INFO/WARN/ERROR never reach any sink: `write_all_buffered` formats the batch, discards it, and resets the index. Only immediate mode (FATAL, `_now`) prints, to stdout for <=WARN and stderr for >WARN.
 - `ano_log_immediate` calls `write_all_buffered()` unconditionally ("TODO: Remove this", logging_core.c:180), so an immediate message also wipes the pending enqueue buffer, and the immediate line prints before any buffered lines it implicitly drops.
 - No timestamp exists anywhere. The "preserve order via timestamps" goal is unbuilt; ordering today is an accident of the mutex (FIFO). The prefix is only `LEVEL file:line:`.

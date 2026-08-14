@@ -495,7 +495,7 @@ export default function NixBuildSystemRundown() {
             ],
             [
               "macOS, Apple Silicon",
-              "clang 22 (llvmPackages_latest 〜 full C23)",
+              "C++26 reflection compiler",
               "ld64 (Apple policy, no override)",
               "ThinLTO (same llvm-ar note)",
               <Code>llvmPackages_latest.stdenv</Code>,

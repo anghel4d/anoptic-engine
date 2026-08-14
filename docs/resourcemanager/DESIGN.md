@@ -410,9 +410,10 @@ Every Anoptic module, including the resource manager, obeys these laws:
    operation belong to that operation's product, not to a universal fat record.
    Compatible plans use a pullback or refined product rather than an unchecked
    pair.
-3. Failure is semantically a sum. A C ABI may lower it to a status and caller
-   storage only when the generated contract makes the payload observable solely
-   on success; the public C++ type does not expose contradictory states.
+3. Failure is semantically a sum. A generated foreign ABI projection may lower
+   it to a status and caller storage only when the contract makes the payload
+   observable solely on success; the public C++ type does not expose
+   contradictory states.
 4. Temporal legality is indexed by state. Build, seal, publish, retire, and
    reset transitions use distinct capabilities or typestates whenever a caller
    could otherwise express an illegal sequence.
@@ -891,9 +892,8 @@ Pack construction is a separate deterministic operation over that revision.
 
 ### Module boundary
 
-The resource API follows the engine's base-plus-extension convention. The base
-header is C-compatible; the typed header and owner extensions are C++26
-compile-time interfaces.
+The resource API follows the engine's base-plus-extension convention. Every
+base and extension header is a C++26 compile-time interface.
 
 | Public header | Boundary |
 |---|---|
@@ -908,10 +908,11 @@ compile-time interfaces.
 | `anoptic_audio_resources.h` | Audio artifacts and transforms, opaque audio slots, streaming adoption, and the mixer-owned realization bridge |
 | `anoptic_text_resources.h` | Font artifacts and transforms, opaque text slots, and the text-owned realization bridge |
 
-Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
-namespace `ano`; reflected cell declarations live in the shared
-`ano::asset_schema` namespace. C-compatible headers expose neither templates nor
-`std::meta::info`. The base header includes no owner extension.
+Every public resource declaration lives in namespace `ano`; reflected cell
+declarations live in the shared `ano::asset_schema` namespace. Reflection may
+generate an `extern "C"` projection only for a genuine foreign boundary. C23
+source compatibility does not restrict templates, `std::meta::info`, or any
+other engine API facility. The base header includes no owner extension.
 
 Each owner extension declares its artifact types and transformation functions.
 The owning module implements device or library effects behind that public

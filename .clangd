@@ -1,16 +1,16 @@
 # clangd configuration.
 #
 # Point clangd at the CMake-generated compilation database so every file is
-# analyzed with its REAL flags: -std=gnu23, all the -I include paths, the
+# analyzed with its real flags: -std=gnu++26, reflection, all include paths, the
 # -isystem VulkanSDK path, and -DDEBUG_BUILD. Without this clangd falls back to
-# bare defaults (no includes, wrong C standard) and reports a storm of false
+# bare defaults (no includes, wrong C++ standard) and reports a storm of false
 # "file not found" / "unknown type name" errors.
 #
 # The database lives in build/Tests: a Debug build (so the #ifdef DEBUG_BUILD
 # branch is active in the editor) configured with -DANOPTIC_TESTS=ON, so it is a
 # strict superset of build/Debug -- every engine TU PLUS the tests/ TUs. Pointing
 # at build/Debug instead left test files (anotest_*.c) out of the database, so
-# clangd fell back to default flags (no -std=gnu23) and flagged C23 bool, etc.
+# clangd must consume the generated C++26 compile commands rather than infer flags.
 # Regenerate any time CMakeLists / sources move:
 #     ./build.sh 3
 CompileFlags:

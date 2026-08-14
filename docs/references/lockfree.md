@@ -104,7 +104,7 @@ FAA is one of a family of **unconditional** read-modify-write (RMW) operations, 
 | ARMv8.1-A (LSE) | `LDADD` / `LDADDA` / `LDADDAL` | true single-instruction atomic add with optional acquire/release. |
 | ARMv8.0 (no LSE) | `LDAXR`/`STLXR` loop | there is no atomic-add instruction; the compiler emits an LL/SC retry loop, so "FAA" is *secretly a CAS-class loop here* and loses its contention advantage. |
 
-The ARM caveat matters for this engine's targets. Apple Silicon (M1 and later) implements LSE, so FAA is a real single instruction on the macOS target. On generic aarch64, Clang/GCC default to "outline atomics" that runtime-detect LSE; for the Apple target build with `-mcpu=apple-m1` (or `-march=armv8.4-a`) so FAA inlines to `LDADD` instead of an LL/SC loop. On the Ryzen x86-64 target it is always `LOCK XADD`. Verify this in the disassembly before trusting any FAA-based scalability claim on ARM. The difference is invisible in C source and total in the generated code.
+The ARM caveat matters for this engine's targets. Apple Silicon (M1 and later) implements LSE, so FAA is a real single instruction on the macOS target. On generic aarch64, GCC may use outline atomics that runtime-detect LSE; for the Apple target build with `-mcpu=apple-m1` (or `-march=armv8.4-a`) so FAA inlines to `LDADD` instead of an LL/SC loop. On the Ryzen x86-64 target it is always `LOCK XADD`. Verify this in the disassembly before trusting any FAA-based scalability claim on ARM. The difference is invisible in source and total in the generated code.
 
 ---
 
@@ -205,10 +205,10 @@ LCRQ/SCQ solve it with **cycle numbers** (a generation tag per cell): the dequeu
 
 ---
 
-### 8. C23 spelling
+### 8. C++26 spelling
 
-```c
-#include <stdatomic.h>
+```cpp
+#include <anoptic_atomic.h>
 
 // Pure index/ticket allocation: relaxed is enough. Atomicity and uniqueness only.
 // Ordering is established separately at publication.

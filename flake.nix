@@ -419,7 +419,7 @@
               // args
             );
 
-          # Windows cross: MinGW-w64 ucrt64 (C11 timespec_get). x86_64-linux hosts only.
+          # Windows cross: MinGW-w64 ucrt64. x86_64-linux hosts only.
           crossPkgs = pkgs.pkgsCross.ucrt64;
           mkWin =
             args:

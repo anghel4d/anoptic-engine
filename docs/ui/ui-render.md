@@ -16,7 +16,7 @@ From the stated intent: layout, dimensions, positioning, styling computed CPU-si
 logic thread; element specs + layering order submitted to the render thread; pushed to GPU
 buffers; rendered on-device. Vector draws for crisp AA at any scale; provisions
 for transparency, texturing, shadows, glow. No hard constraints beyond the engine's usual
-ones: C23 + GLSL in-house, no heavyweight deps, feature-gated fallbacks, analytic math over
+ones: C++26 + GLSL in-house, no heavyweight deps, feature-gated fallbacks, analytic math over
 brute force where it wins.
 
 Givens that shape everything (all anchors verified this pass):

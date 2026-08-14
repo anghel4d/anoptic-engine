@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// C11 atomic names. C++ uses compiler builtins; no standard-library runtime.
+// C++26 atomic values over compiler builtins; no standard-library runtime.
 
 #ifndef ANOPTIC_ATOMIC_H
 #define ANOPTIC_ATOMIC_H

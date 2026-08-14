@@ -24,7 +24,7 @@ alpha_A : P_A(X_A) -> F_A(X_A)
 
 An API adaptor is only a morphism of shapes. It preserves meaning only when it
 also has a carrier map, a natural map between effects, and a commuting proof.
-The implementation in `src/` interprets the selected algebra. C ABI records,
+The implementation in `src/` interprets the selected algebra. Foreign ABI records,
 calling conventions, queues, and memory layouts are physical representations
 of it, not additional semantic authorities.
 
@@ -45,10 +45,12 @@ pullback, and arbitrary compatibility uses a proof-carrying refined product.
 For API adaptors, the unique terminal map is `A -> 1`, not `1 -> A`. Polynomial
 zero has no request; polynomial unit has one request with no response positions.
 
-Runtime C ABI functions begin with `ano_`. C++26 compile-time facilities live in
-namespace `ano`. Reflected resource-cell declarations live in
-`ano::asset_schema`. Platform types, foreign-library types, private allocation
-policy, and backend objects do not cross this directory.
+Every first-party public interface is C++26 and lives in namespace `ano`.
+Reflection may generate an `extern "C"` projection only at a genuine foreign
+boundary; C23 source compatibility never constrains the engine API. Reflected
+resource-cell declarations live in `ano::asset_schema`. Platform types,
+foreign-library types, private allocation policy, and backend objects do not
+cross this directory.
 Portability is a property of each module's interpretation, not a module of its
 own.
 
@@ -60,8 +62,8 @@ Every public header obeys the following rules:
 2. Alternatives use one closed sum; a tag plus alternative storage is an ABI
    encoding generated at a boundary. Alternative payloads within one ordered
    lane are sums; independently ordered lanes are products.
-3. A fallible response is one domain-local outcome. A C status plus caller
-   storage may lower that outcome only when the generated contract makes the
+3. A fallible response is one domain-local outcome. A generated foreign status
+   plus caller storage may lower that outcome only when the contract makes the
    payload observable solely on success.
 4. Distinct protocol states use distinct capabilities when sequencing affects
    legality. Building, sealed, published, and retired values are not one
@@ -141,7 +143,7 @@ semantic ownership or composition laws.
 | Algebraic module | Public header boundary | Current disposition |
 |---|---|---|
 | Structural reflection and compile-time values | `anoptic_meta.h` | Normalize one shared witness and expose typed module projections; fold `anoptic_meta_types.h` into this authority; domain command policy leaves meta |
-| Domain outcomes | `anoptic_results.h` | Retain as the C-compatible lowering of typed `T + E` outcomes |
+| Domain outcomes | `anoptic_results.h` | Retain as the C++26 `T + E` algebra; generate any C-linkage projection beside the concrete foreign boundary |
 | Atomic values | `anoptic_atomic.h` | Retain as the no-runtime compiler-builtin boundary |
 | Linear algebra and ABI values | `anoptic_math.h` | Retain; layout and coordinate semantics become reflected type facts |
 | Runtime memory ownership | `anoptic_memory.h` | Retain regions, sealed volumes, and raw C allocation boundary |

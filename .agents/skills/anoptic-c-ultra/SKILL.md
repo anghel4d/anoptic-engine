@@ -6,7 +6,9 @@ description: >-
 
 # Doctrine
 
-Use safe, modern C++26 in a predominantly C-like style: C with lambdas, ordinary `constexpr`/`consteval` computation, concepts, and reflection-driven generation. Prefer plain data, value semantics, namespaces, strong types, C ABIs, compile-time validation, and immutable generated results. Avoid OOP cruft, inheritance, virtual polymorphism, RTTI, exceptions, and unnecessary library ownership abstractions. Preserve hot-path layout and measured performance.
+Every first-party source and header compiles as ISO C++26 or later, including files named `.c` and `.h`. C23 is limited to external dependencies and generated `extern "C"` foreign-ABI projections; it never constrains an engine source API.
+
+Use safe, modern C++26 with ordinary `constexpr`/`consteval` computation, concepts, and reflection-driven generation. Prefer plain data, value semantics, namespaces, strong types, compile-time validation, immutable generated results, and foreign ABI projections only where an external boundary requires them. Avoid OOP cruft, inheritance, virtual polymorphism, RTTI, exceptions, and unnecessary library ownership abstractions. Preserve hot-path layout and measured performance.
 
 ## Compile-time programming
 
@@ -37,7 +39,7 @@ Reject designs that add a parallel handwritten registry, tag switch, type-erased
 
 Runtime-only effects do not create a second architectural ownership layer. Parsing, decoding, and transformation remain ordinary `constexpr` algorithms whenever their operations permit constant evaluation. I/O, allocation, and device API calls execute in small concrete functions, but their signatures, eligibility, selection, binding, and structural adaptation remain inputs to the reflected compile-time program. Do not call those runtime effects template-owned kernels or let them become another source of schema truth.
 
-Use only facilities implemented by the selected compiler. When arbitrary body synthesis is unavailable, compose expansion statements, spliced direct calls, generated aggregates, and retained static data. Do not compensate for a missing generation facility by restoring duplicated structural machinery.
+Use the ISO C++26 facilities required by the architecture and select a compiler that implements them. Compose expansion statements, spliced direct calls, generated aggregates, and retained static data without restoring duplicated structural machinery as a compatibility layer.
 
 ## Safety and runtime style
 

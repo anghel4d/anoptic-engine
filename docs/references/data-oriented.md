@@ -277,7 +277,7 @@ Where the engine already aligns with the corpus, and where the corpus would refi
 | Scoped resolution: arenas per LOD level | Lakos per-subsystem allocators + DIV LUC; Acton different-data-different-problem | Aligned. Promote = allocate richer arena; demote = release/wink. |
 | No mutexes outside Vulkan | Scott (preemption, priority inversion, thread death) | Aligned with the formal motivation. |
 | GPU-driven cull, no PBR | Collin culling philosophy | Aligned. Add screen-area (not distance) culling for the LOD threshold. |
-| Timing `_Atomic` lazy init | Scott "label atomic, seq_cst default" | Aligned. |
+| Timing `ano::Atomic` lazy init | Scott "label atomic, seq_cst default" | Aligned. |
 
 Reclamation decision, made concrete for the Ryzen/x86-64 target. CAS carries the ABA problem, so any future structure that recycles pointers (a Step-5A M&S queue baseline) needs counted pointers via CMPXCHG16B or a packed index+counter, *unless* it is built on monotonic indices (the SPSC ring, the logger, a stripe claimed by `fetch_add`), in which case it is ABA-free for free. For slot/node recycling, the engine already has the better answer: frame-gated quarantine is epoch reclamation, and it should be the default over hazard pointers (whose per-dereference fence costs ~30 cycles) everywhere the frame clock is available.
 

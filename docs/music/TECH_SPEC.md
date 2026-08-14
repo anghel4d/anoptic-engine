@@ -62,7 +62,7 @@ L3  ORCHESTRATION   the conductor: owns the Seeder, owns ALL state, calls the
     CONSUMERS       IR, never called during generation
 ```
 
-The only near-cycle (melody ↔ motif) is a Python artifact; in C the shared `Motif` struct lives in a common header and the cycle goes away.
+The only near-cycle (melody ↔ motif) is a Python artifact; the shared C++26 `Motif` value lives in a common header and the cycle disappears.
 
 ### 2.3 Thread model (contract)
 
@@ -87,7 +87,7 @@ The music engine is **single-threaded by design**. No locking, no async, no conc
 ### 3.2 Meter derivations (contract)
 
 `Meter{numerator, denominator}` is two ints; everything else is computed (and
-worth precomputing per distinct meter in C):
+worth precomputing per distinct meter at compile time):
 
 | Derived | Formula | 4/4 | 6/8 |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 // Scanline Sweeper coverage for textraster.comp, textworld.vert, textworld.frag
 // (uicoverage.glsl reuses curve_area, em_box). Glyph buffers: set 0, bindings 0/1/2.
 // solve_mono / curve_area / window_sum mirror src/text/text_raster_ref.c (hand-synced).
-// Blank glyph (curveCount 0): callee-side in C, caller-side here.
+// Blank glyph (curveCount 0): callee-side on the CPU, caller-side here.
 // Port: copysignf -> sign ternary; vec2/unpackHalf2x16 vs half_lo/half_hi.
 
 // Mirrors AnoGlyphEntry (32 B).

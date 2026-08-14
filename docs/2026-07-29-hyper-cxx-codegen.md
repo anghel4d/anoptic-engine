@@ -10,11 +10,11 @@ Branch: `codex/hyper-c-codegen`, local and uncommitted
 
 The experiment clears the adoption bar for strict C++26 as the language mode for all first-party host-engine translation units. The current targeted conversions are the proof-of-toolchain stage, not the intended permanent boundary.
 
-The useful pattern is a small private `.cpp` island behind a C ABI, with a finite runtime choice dispatched once and represented as template parameters inside the hot loop. That produced repeatable real-workload improvements of 1.5–5.4% in string collation sorts and 3.1–9.9% in source mixing, including 7.2% for a mixed 48-voice workload. It did not improve normal renderer throughput because the retained changes are not on the normal frame path; controlled three-run medians were 708.7 FPS baseline and 710.1 FPS variant, a neutral +0.20%.
+The useful pattern is a C++26 module with a finite runtime choice dispatched once and represented as compile-time facts inside the hot loop. A generated `extern "C"` projection is added only when a genuine foreign caller requires one. The experiment produced repeatable real-workload improvements of 1.5–5.4% in string collation sorts and 3.1–9.9% in source mixing, including 7.2% for a mixed 48-voice workload. It did not improve normal renderer throughput because the retained changes are not on the normal frame path; controlled three-run medians were 708.7 FPS baseline and 710.1 FPS variant, a neutral +0.20%.
 
-The branch keeps private C++ islands for string collation tie resolution, audio source rendering, audio effect validation, music mode/vocabulary registries, and the composer-to-synth patch bridge. The logger stays C because three constant-specialized C functions obtain the relevant code generation without changing language. A renderer pass-plan conversion and an audio-filter template expansion were both prototyped and rejected: the former lacked a justified production boundary, while the latter was measurably slower than one compact runtime loop.
+The branch uses C++26 throughout string collation tie resolution, audio source rendering, audio effect validation, music mode/vocabulary registries, the composer-to-synth patch bridge, and the logger. Three ordinary constant-specialized logger functions obtain the relevant code generation without templates. A renderer pass-plan conversion and an audio-filter template expansion were both prototyped and rejected: the former lacked a justified production boundary, while the latter was measurably slower than one compact runtime loop.
 
-The safety continuation moves the build to strict C++26, adds dense enum values, masked flags, explicit keyed enum tables, compile-time inversion of bijective enum maps, and a trivial non-owning option. Duplicate, missing, invalid, and non-bijective registry associations fail constant evaluation. Runtime values are validated at C ingress, then `[[assume]]` carries the proven invariant into hot C++ paths without paying the range check again.
+The safety continuation moves the build to strict C++26, adds dense enum values, masked flags, explicit keyed enum tables, compile-time inversion of bijective enum maps, and a trivial non-owning option. Duplicate, missing, invalid, and non-bijective registry associations fail constant evaluation. Runtime values are validated at untrusted or foreign ingress, then `[[assume]]` carries the proven invariant into hot paths without paying the range check again.
 
 The whole engine still builds as one product on Linux/WSL and Windows, links no C++ standard-library runtime, and grows by 8,216 bytes on Linux and 7,680 bytes on Windows, about 0.33%. The final contract changes neither improve nor regress measured audio performance; they are safer for the separate compile-time and malformed-input reasons below, while the first-phase string and source specializations retain their measured gains.
 
@@ -26,11 +26,11 @@ Operating posture: This (the State of the Art) is Prior Work therefore trivial.
 
 The existing dirty WSL checkout was left untouched. Baseline Linux executables were frozen before source edits under ignored `scratch/hyper-c-codegen/baseline/bin/`. The native baseline was rebuilt from the clean `module-audio` checkout before the controlled renderer A/B.
 
-The first performance probes used C++23. The retained branch now requires strict C++26 with extensions disabled; both WSL and native Windows Clang 22.1.8 emit and accept `-std=c++26`. No result depends on static reflection: the keyed registries are explicit compile-time data and can later become a reflection consumer without changing their C ABI.
+The first performance probes used C++23. The engine requires C++26 with reflection for every first-party source and header. Reflected declarations now replace explicit keyed registries as the structural authority and generate a foreign ABI projection only where one is required.
 
 ## C++ contract
 
-The public engine remains a C ABI. Templates, callable types, `enum class`, `if constexpr`, concepts, and namespaces are private implementation machinery.
+The public engine API is C++26. Templates, callable types, `enum class`, `if constexpr`, concepts, namespaces, and reflection are available across first-party module boundaries; only generated foreign projections use C language linkage.
 
 - C++ sources compile with strict `-std=c++26`, `-fno-exceptions`, and `-fno-rtti`.
 - C++ compilation treats non-exhaustive enum switches, implicit fallthrough, and missing returns as errors.
@@ -97,7 +97,7 @@ That result is a ceiling for dispatch bookkeeping, not a renderer result. Real p
 
 ## Kept change 1: string collation
 
-`ano_strings_collate.c` became a private C++ translation unit, now compiled in strict C++26 mode. Its public functions and data remain C. The former `rec_str_fn_t(void *, uint32_t)` boundary was replaced with `item_strings_t` and `sym_strings_t` callables passed through templated `recs_presorted`, `resolve_ties`, `tie_msd`, `tie_leaf`, `tie_bulk`, and `tie_insertion`.
+`ano_strings_collate.c` is a C++26 translation unit despite its suffix. Its public functions and data use typed C++26 declarations. The former `rec_str_fn_t(void *, uint32_t)` boundary was replaced with `item_strings_t` and `sym_strings_t` callables passed through specialized `recs_presorted`, `resolve_ties`, `tie_msd`, `tie_leaf`, `tie_bulk`, and `tie_insertion` operations.
 
 This is compile-time duck typing, not object polymorphism. There is no base class, vtable, owning wrapper, or generalized framework.
 
@@ -116,9 +116,9 @@ The trade is favorable for a hot sorting kernel: a few kilobytes buy a repeatabl
 
 ## Kept change 2: audio source rendering
 
-The per-source sample loop previously re-evaluated source kind, channel count, loop mode, and positional mode for every sample. The new C ABI function dispatches once per source per block, then enters one of eight private template instantiations selected by `VoiceShape`, `Loop`, and `Positional`.
+The per-source sample loop previously re-evaluated source kind, channel count, loop mode, and positional mode for every sample. The typed C++26 entry point dispatches once per source per block, then enters one of eight specialized loops selected by `VoiceShape`, `Loop`, and `Positional`.
 
-The loop still advances smoothers, duration, phase/cursor, filtering, gain, and pan in the original order. Tone, mono buffer, stereo buffer, loop, non-loop, positional, and non-positional behavior remain explicit. The source state itself remains a plain C struct and passes the `ano::Data` contract.
+The loop still advances smoothers, duration, phase/cursor, filtering, gain, and pan in the original order. Tone, mono buffer, stereo buffer, loop, non-loop, positional, and non-positional behavior remain explicit. The source state remains a standard-layout C++26 value and passes the `ano::Data` contract.
 
 | offline workload, lower is better | baseline p50 ns | variant p50 ns | change |
 | --- | ---: | ---: | ---: |
@@ -172,7 +172,7 @@ The likely explanation is mundane: the mode branches are perfectly predictable, 
 
 ## Kept change 4: logger bases, still C
 
-The logger's generic `put_base(..., base, ...)` became three ordinary C functions: `put_base8`, `put_base10`, and `put_base16`, sharing only the reverse copy. This exposes the divisor as a compile-time constant without introducing C++.
+The logger's generic `put_base(..., base, ...)` became three ordinary non-template C++26 functions: `put_base8`, `put_base10`, and `put_base16`, sharing only the reverse copy. This exposes the divisor as a compile-time constant without introducing a second metaprogramming mechanism.
 
 Linked executable-wide integer divide instructions fall from 112 to 108, one removal for each reachable power-of-two formatting path after optimization. The logger-tail executable grows from 208,688 to 210,344 bytes, +1,656 bytes or +0.79%.
 
@@ -184,9 +184,9 @@ The isolated formatter result establishes better instructions, but no whole-logg
 
 The renderer-style probe proves that a truly static pass plan can collapse aggressively. I did not convert `frame/record.c` on that evidence alone.
 
-The production translation unit is coupled to C23 `_Atomic` state and C enum conventions, the pass bodies are Vulkan-heavy, and the current bulk command dispatch was not demonstrated to dominate a frame. Moving that boundary merely to obtain pretty assembly would expand the experiment, create C/C++ atomic compatibility work, and risk code duplication without a measurable target.
+The production translation unit uses the engine's C++26 atomic state and enum conventions, the pass bodies are Vulkan-heavy, and the current bulk command dispatch was not demonstrated to dominate a frame. Moving that boundary merely to obtain pretty assembly would expand the experiment and risk code duplication without a measurable target.
 
-The correct future version would first isolate a C-compatible frame snapshot and a genuinely fixed pass plan, then benchmark the real command-recording path. Until that boundary exists, the 79% microprobe result is an upper bound on bookkeeping only.
+The correct future version first isolates a typed standard-layout frame snapshot and a genuinely fixed pass plan, then benchmarks the real command-recording path. Until that boundary exists, the 79% microprobe result is an upper bound on bookkeeping only.
 
 ## Whole-engine result
 
@@ -231,9 +231,9 @@ The five initial LeakSanitizer failures are an honest environment limitation, no
 
 - `.gitignore`: admit private `.cpp` engine sources.
 - `CMakeLists.txt`: strict C++26 mode, module scanning off, enum/control-flow errors, no exceptions/RTTI, no standard-library runtime, sanitizer-compatible runtime selection.
-- `include/anoptic_audio.h`, `include/anoptic_log.h`, `include/anoptic_music.h`, `include/anoptic_strings.h`, `include/anoptic_strings_utf.h`, `include/anoptic_synth.h`: C linkage guards and closed audio enum counts.
+- `include/anoptic_audio.h`, `include/anoptic_log.h`, `include/anoptic_music.h`, `include/anoptic_strings.h`, `include/anoptic_strings_utf.h`, `include/anoptic_synth.h`: typed C++26 declarations and closed audio enum counts.
 - `include/anoptic_meta.h`: trivial data concept, option, dense enum value, masked flags, explicit enum tables, consteval keyed-map construction/inversion, and optimizer assumptions.
-- `src/strings/ano_strings_collate.cpp`, `src/strings/CMakeLists.txt`: templated collation access and C ABI.
+- `src/strings/ano_strings_collate.cpp`, `src/strings/CMakeLists.txt`: typed collation access and its implementation boundary.
 - `src/audio/audio_source.h`, `src/audio/audio_source.cpp`, `src/audio/audio_fx.cpp`, `src/audio/audio_internal.h`, `src/audio/audio_mixer.c`, `src/audio/CMakeLists.txt`: plain shared source/effect state, checked enum ingress, and block-level specialized source rendering.
 - `src/music/music_modes.cpp`, `src/music/music_modes.h`, `src/music/music_vocab.cpp`, `src/music/music_vocab.h`, and callers: keyed mode/layer/patch registries with checked C accessors.
 - `src/synth/synth_patch.cpp`, `src/synth/ano_synth.c`, `src/synth/CMakeLists.txt`: explicit composer-to-synth enum map, consteval inverse, and C bridge.
@@ -254,7 +254,7 @@ Use a private C++ island when all of these are true:
 
 Use a keyed consteval enum table when a positional table is load-bearing, especially across two distinct enum spaces. Validate raw protocol values once at ingress. Use `[[assume]]` only when every write feeding the invariant is audited and an invalid-ingress regression test exists.
 
-Stay in C when a constant-specialized helper gives the optimizer the same information, as in the logger. Stay dynamic when the choice genuinely changes per item or when the expensive operation dwarfs dispatch, as in the current renderer boundary.
+Stay with an ordinary non-templated function when a constant-specialized helper gives the optimizer the same information, as in the logger. Stay dynamic when the choice genuinely changes per item or when the expensive operation dwarfs dispatch, as in the current renderer boundary.
 
 Templates and `constexpr` help instruction generation only by making facts visible early enough for inlining, branch deletion, constant propagation, strength reduction, unrolling, and dead-code elimination. Stronger types, namespaces, lambdas, and reflection are valuable design tools, but they do not independently make an instruction cheaper.
 
@@ -264,13 +264,13 @@ Templates and `constexpr` help instruction generation only by making facts visib
 2. Renderer lighting metadata: replace the two raw `ANO_LIGHTING_MODE_COUNT` name arrays in window/profiling code with one keyed accessor. This is small, removes duplicated spelling, and gives invalid configuration values defined behavior.
 3. Drum vocabulary: move `ANO_DRUM_NAMES` and `ANO_DRUM_PITCHES` into one keyed `AnoDrum` registry with compile-time MIDI-range and uniqueness checks.
 4. Music parser tables and private state machines: close `OverrideId`, motif lifecycle, modifier kind, source state, and buffer state enums where a complete domain exists, then make their switches exhaustive. These are correctness wins; benchmark only the paths that are actually hot.
-5. Renderer pass specialization: reconsider only after a C-compatible frame snapshot exposes a genuinely fixed pass plan and profiling shows dispatch bookkeeping matters. The microprobe remains an upper bound, not permission to template Vulkan code.
+5. Renderer pass specialization: reconsider only after a typed standard-layout frame snapshot exposes a genuinely fixed pass plan and profiling shows dispatch bookkeeping matters. The microprobe remains an upper bound, not permission to template Vulkan code.
 
-Static reflection can eventually generate counts, names, and keyed rows, but it should replace explicit boilerplate only after the deployed Clang implements the required C++26 facility reliably. The C ABI and checked lookup surface should remain the same.
+C++26 reflection generates counts, names, keyed rows, and any required foreign ABI projection from one declaration authority. Explicit structural boilerplate and parallel lookup inventories do not remain alongside it.
 
 ## Recommendation
 
-Adopt strict C++26 for every first-party host-engine translation unit. Keep third-party C dependencies in their native language and retain `extern "C"` only where a stable external ABI is useful. A C ABI does not require a C implementation.
+Adopt strict C++26 for every first-party host-engine source and header. Keep third-party C dependencies in C23 and generate `extern "C"` declarations only where a genuine foreign boundary requires them. A C ABI does not require a C implementation or a C-compatible engine header.
 
 This is not permission for an “idiomatic C++” object rewrite. Preserve the SoA architecture, procedural modules, plain layouts, explicit allocation, and platform abstraction. Do not introduce an object hierarchy. Use the C++26 compiler to make namespaces, lambdas, concepts, templates, `constexpr`/`consteval`, typed enums, reflection, and stronger non-owning types available everywhere instead of behind permanent language islands.
 
