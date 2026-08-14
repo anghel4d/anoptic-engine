@@ -10,10 +10,6 @@
 #ifndef ANO_AUDIO_FORMAT_H
 #define ANO_AUDIO_FORMAT_H
 
-#if !defined(__cplusplus) || __cplusplus < 202302L
-#error "audio_format.h requires C++26"
-#endif
-
 #include <stddef.h>
 #include <stdint.h>
 

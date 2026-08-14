@@ -8,7 +8,6 @@
 // DISABLED in ctest. Run from an -O3 build.
 
 #include <math.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

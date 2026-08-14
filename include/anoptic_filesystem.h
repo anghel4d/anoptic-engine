@@ -4,19 +4,12 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-#ifndef ANOPTICENGINE_ANOPTIC_FILEPATH_H
-#define ANOPTICENGINE_ANOPTIC_FILEPATH_H
+#pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <stddef.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Paths */
@@ -84,10 +77,4 @@ int ano_fs_sync(ano_file *file);
 // Output: 0 on success, -1 on error. Handle freed either way.
 int ano_fs_close(ano_file *file);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_FILEPATH_H

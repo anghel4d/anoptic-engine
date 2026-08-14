@@ -201,13 +201,6 @@ static_assert(ANOSTR_SID32("foobar") == 0xbf9cf968u, "SID FNV32 foobar");
 static_assert(ANOSTR_SID("foo") != ANOSTR_SID("bar"), "distinct literals distinct ids");
 static_assert(ANOSTR_SID("a\0b") == 0xe5d29919042666b2ULL, "SID counts the embedded NUL");
 
-// 128-byte literal at ANOSTR_SID_MAX. Overlong is a negative build test (out of band).
-#define SID128_LIT \
-    "aaaaaaaaaaaaaaaa" "aaaaaaaaaaaaaaaa" "aaaaaaaaaaaaaaaa" "aaaaaaaaaaaaaaaa" \
-    "aaaaaaaaaaaaaaaa" "aaaaaaaaaaaaaaaa" "aaaaaaaaaaaaaaaa" "aaaaaaaaaaaaaaaa"
-static_assert(sizeof(SID128_LIT) - 1 == 128, "128-byte literal");
-static_assert(ANOSTR_SID(SID128_LIT) != 0, "128-byte SID is an ICE");
-
 // SID as static init and enum.
 static const anostr_sid   g_sid_init   = ANOSTR_SID("level_loaded");
 static const anostr_sid32 g_sid32_init = ANOSTR_SID32("level_loaded");

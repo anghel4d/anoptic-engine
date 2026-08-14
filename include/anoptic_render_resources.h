@@ -6,8 +6,7 @@
 
 // Portable render artifacts consumed by renderer-owned realization transforms.
 
-#ifndef ANOPTICENGINE_ANOPTIC_RENDER_RESOURCES_H
-#define ANOPTICENGINE_ANOPTIC_RENDER_RESOURCES_H
+#pragma once
 
 #include "anoptic_resources_typed.h"
 #include "anoptic_resources_cook.h"
@@ -26,16 +25,15 @@ typedef enum AnoRenderResourceReloadStatus {
 
 // Takes ownership of reload. Keep preparationHeap live until poll or cancel
 // consumes the publication.
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" AnoResourceError ano_render_resources_prepare_reload(
+AnoResourceError ano_render_resources_prepare_reload(
     AnoResourceReload *reload, mi_heap_t *preparationHeap,
     AnoRenderResourcePublication **publication);
 // Polls owner work and commits a ready candidate. A terminal result consumes
 // *publication and sets it to null. Rejection preserves the current epoch.
-extern "C" AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
+AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
     AnoRenderResourcePublication **publication);
 // Cancels and consumes an unpublished candidate.
-extern "C" void ano_render_resources_cancel_reload(
+void ano_render_resources_cancel_reload(
     AnoRenderResourcePublication *publication);
 
 namespace asset_schema {
@@ -292,5 +290,3 @@ bool realize_scene(const Scene&, RenderResourceContext&, GpuScene&) noexcept;
 } // namespace asset_schema
 
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_RENDER_RESOURCES_H

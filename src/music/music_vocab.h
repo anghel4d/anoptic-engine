@@ -11,15 +11,10 @@
 
 #include <stdint.h>
 
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
+namespace ano {
 
 const char *ano_music_layer_name(uint32_t layer);
 
-#ifdef __cplusplus
-}
-#endif
+} // namespace ano
 
 #endif // ANO_MUSIC_VOCAB_H

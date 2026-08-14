@@ -11,7 +11,6 @@
 #define ANO_DSP_DYNAMICS_H
 
 #include <math.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <mimalloc.h>
 

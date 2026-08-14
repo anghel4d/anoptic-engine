@@ -20,7 +20,6 @@ using namespace ano;
 #include <limits.h>
 #include <stdarg.h>
 #include <anoptic_atomic.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>

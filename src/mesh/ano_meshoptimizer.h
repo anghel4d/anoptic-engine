@@ -4,12 +4,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
-
-
 /* Types */
 
 typedef struct {
@@ -78,9 +72,5 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
                        const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride,
                        size_t target_index_count, float target_error, float edge_len_factor,
                        float* out_result_error);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // ANO_MESHOPTIMIZER_H

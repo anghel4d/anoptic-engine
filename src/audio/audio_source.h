@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Voice state and render boundary. No bridge atomics: usable from C and C++.
+// Voice state and render boundary. No bridge atomics.
 
 #ifndef ANO_AUDIO_SOURCE_H
 #define ANO_AUDIO_SOURCE_H
@@ -59,15 +59,6 @@ typedef struct AnoAudioSource
     float airLp;              // mono pre-pan state
 } AnoAudioSource;
 
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
-
 void ano_audio_source_render(AnoAudioSource *source, float *mix, uint32_t frames, float fsInv);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // ANO_AUDIO_SOURCE_H

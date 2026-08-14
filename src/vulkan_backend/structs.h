@@ -11,7 +11,6 @@
 #include <stdlib.h>
 #include <vulkan/vulkan.h>
 #include "gpu_alloc.h"
-#include <stdbool.h>
 #include <anoptic_atomic.h>
 
 using namespace ano;

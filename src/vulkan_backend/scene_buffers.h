@@ -9,7 +9,6 @@
 #ifndef ANO_SCENE_BUFFERS_H
 #define ANO_SCENE_BUFFERS_H
 
-#include <stdbool.h>
 
 #include "vulkan_backend/structs.h"
 

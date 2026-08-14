@@ -6,8 +6,6 @@
 
 #include <anoptic_memory.h>
 
-using namespace ano;
-
 namespace std {
 
 // No-runtime stubs: -nostdlib++ is unconditional, so the engine supplies the

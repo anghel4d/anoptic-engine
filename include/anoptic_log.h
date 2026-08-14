@@ -12,17 +12,11 @@
 //   ano_debug_log(...) / ano_debug_rlog(...)               Debug builds only
 // ANO_ prefix is load-bearing (windows.h ERROR, stdio FILE).
 
-#ifndef ANOPTIC_LOG_H
-#define ANOPTIC_LOG_H
+#pragma once
 
 #include <stdarg.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 // MinGW's plain printf checker models legacy MSVCRT; Anoptic targets UCRT and C99 formats.
 #if defined(__MINGW32__)
@@ -87,16 +81,12 @@ void ano_log_set_route(ano_loglevel_t level, ano_logroute_t route);
 // Drain all buffered records on the calling thread.
 void ano_log_flush(void);
 
-#ifdef __cplusplus
-}
-
 [[nodiscard]] constexpr ano_logroute_t operator|(ano_logroute_t left,
                                                   ano_logroute_t right) noexcept
 {
     return static_cast<ano_logroute_t>(
         static_cast<unsigned>(left) | static_cast<unsigned>(right));
 }
-#endif
 
 
 /* Call-site Macros */
@@ -123,5 +113,3 @@ void ano_log_flush(void);
 #endif
 
 } // namespace ano
-
-#endif // ANOPTIC_LOG_H

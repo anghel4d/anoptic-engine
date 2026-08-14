@@ -6,7 +6,6 @@
 #ifndef PIPELINE_ADDITIVE_H
 #define PIPELINE_ADDITIVE_H
 
-#include <stdbool.h>
 #include "vulkan_backend/structs.h"
 
 // Initialize the additive pipeline: one variant, ONE/ONE commutative blend (order-independent),

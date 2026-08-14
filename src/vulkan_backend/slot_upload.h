@@ -9,7 +9,6 @@
 #ifndef ANO_SLOT_UPLOAD_H
 #define ANO_SLOT_UPLOAD_H
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <vulkan/vulkan.h>
 

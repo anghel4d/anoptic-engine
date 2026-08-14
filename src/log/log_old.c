@@ -19,7 +19,6 @@ using namespace ano;
 #include <mimalloc.h>
 #include <stdarg.h>
 #include <anoptic_atomic.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 

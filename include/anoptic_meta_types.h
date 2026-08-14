@@ -6,12 +6,7 @@
 
 // Value contracts. EnumValue needs anoptic_meta.h's reflected enum proofs.
 
-#ifndef ANOPTICENGINE_ANOPTIC_META_H
-#error "Include <anoptic_meta.h> instead of <anoptic_meta_types.h>"
-#endif
-
-#ifndef ANOPTICENGINE_ANOPTIC_META_TYPES_H
-#define ANOPTICENGINE_ANOPTIC_META_TYPES_H
+#pragma once
 
 #include <concepts>
 #include <cstddef>
@@ -170,5 +165,3 @@ private:
 };
 
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_META_TYPES_H

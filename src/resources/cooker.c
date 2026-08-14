@@ -682,7 +682,7 @@ void finish_transaction(AnoResourceCooker& cooker, bool publishSources = false)
 
 } // namespace
 
-extern "C" AnoResourceError ano::ano_resource_cooker_create(
+AnoResourceError ano::ano_resource_cooker_create(
     AnoResourceCookerConfig config, AnoResourceCooker **output)
 {
     if (output == nullptr || config.firstDerivedAsset.value < 2)
@@ -710,7 +710,7 @@ extern "C" AnoResourceError ano::ano_resource_cooker_create(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
+void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
 {
     if (cooker == nullptr)
         return;
@@ -731,7 +731,7 @@ extern "C" void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
     mi_free(cooker);
 }
 
-extern "C" AnoResourceError ano::ano_resource_cooker_begin(
+AnoResourceError ano::ano_resource_cooker_begin(
     AnoResourceCooker *cooker)
 {
     if (cooker == nullptr)
@@ -745,7 +745,7 @@ extern "C" AnoResourceError ano::ano_resource_cooker_begin(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" AnoResourceError ano::ano_resource_source_bind(
+AnoResourceError ano::ano_resource_source_bind(
     AnoResourceCooker *cooker, AnoResourceSourceId source, const char *path)
 {
     if (cooker == nullptr || source.value == 0 || path == nullptr
@@ -774,7 +774,7 @@ extern "C" AnoResourceError ano::ano_resource_source_bind(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" AnoResourceError ano::ano_resource_cook(
+AnoResourceError ano::ano_resource_cook(
     AnoResourceCooker *cooker, const AnoCookedRevision **output)
 {
     if (cooker == nullptr || output == nullptr)
@@ -1066,7 +1066,7 @@ extern "C" AnoResourceError ano::ano_resource_cook(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_revision_retain(
+AnoResourceError ano::ano_resource_revision_retain(
     const AnoCookedRevision *revision)
 {
     if (revision == nullptr)
@@ -1083,7 +1083,7 @@ extern "C" AnoResourceError ano::ano_resource_revision_retain(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" void ano::ano_resource_revision_release(
+void ano::ano_resource_revision_release(
     const AnoCookedRevision *constant)
 {
     if (constant == nullptr)
@@ -1128,7 +1128,7 @@ AnoResourceError ano_resource_revision_dependencies(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" AnoResourceError ano::ano_resource_revision_resolve(
+AnoResourceError ano::ano_resource_revision_resolve(
     const AnoCookedRevision *revision, AnoAssetId asset,
     AnoResourceTypeId requiredType, AnoResourceBytes *bytes)
 {
@@ -1162,19 +1162,19 @@ AnoResourceError ano_resource_revision_validate(
         ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_MANIFEST;
 }
 
-extern "C" AnoResourceError ano::ano_resource_revision_export_pack(
+AnoResourceError ano::ano_resource_revision_export_pack(
     const AnoCookedRevision *revision, AnoResourceMutableBytes *pack)
 {
     return ano_resource_pack_build(revision, pack);
 }
 
-extern "C" void ano::ano_resource_exported_pack_release(
+void ano::ano_resource_exported_pack_release(
     AnoResourceMutableBytes pack)
 {
     mi_free(pack.data);
 }
 
-extern "C" void ano::ano_resource_cooker_cancel(AnoResourceCooker *cooker)
+void ano::ano_resource_cooker_cancel(AnoResourceCooker *cooker)
 {
     if (cooker != nullptr)
         atomic_store_explicit(&cooker->cancelled, true, memory_order_release);
@@ -1403,7 +1403,7 @@ AnoResourceError ano::ano_resource_cooker_encode_batch(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_cooker_add(
+AnoResourceError ano::ano_resource_cooker_add(
     AnoResourceCooker *cooker, AnoAssetId asset, AnoResourceTypeId type,
     AnoResourceCommitGroupId commitGroup, AnoResourceBytes artifact)
 {

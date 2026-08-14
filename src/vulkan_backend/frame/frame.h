@@ -10,7 +10,6 @@
 #define ANO_FRAME_H
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <vulkan/vulkan.h>
 
 #include <anoptic_time.h>

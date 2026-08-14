@@ -1,6 +1,6 @@
 /*
  * Anoptic-native glTF 2.0 loader. The .h extension is intentional.
- * Public entry points use the C ABI. Define ANOGLTF_IMPLEMENTATION in exactly
+ * Define ANOGLTF_IMPLEMENTATION in exactly
  * one first-party .c translation unit.
  *
  * Parse and validate like cgltf 1.15. The bounded JSON tokenizer is adapted
@@ -9,14 +9,6 @@
  */
 
 #pragma once
-
-#if !defined(__cplusplus)
-#error "anogltf.h is C+Ultra: compile this .h from a C++26 translation unit"
-#endif
-
-#if __cplusplus < 202302L
-#error "anogltf.h requires C++26"
-#endif
 
 #include <meta>
 
@@ -875,9 +867,6 @@ static_assert(std::is_same_v<
     decltype(ano_gltf_index_of<AnoGltfAnimationChannel>(nullptr, 0, nullptr)),
     AnoGltfAnimationChannelIndex>);
 
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-
 [[nodiscard]] AnoGltfResult ano_gltf_parse_memory(
     const void* bytes, size_t byteCount, const AnoGltfOptions* options, AnoGltfData** outData);
 [[nodiscard]] AnoGltfResult ano_gltf_parse_file(
@@ -925,8 +914,6 @@ void ano_gltf_free(AnoGltfData* data);
 void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16]);
 [[nodiscard]] bool ano_gltf_node_transform_world(
     const AnoGltfData* data, AnoGltfNodeIndex node, float output[16]);
-
-}
 
 } // namespace ano
 
@@ -4551,9 +4538,6 @@ static bool node_transform_world(
 
 } // namespace anogltf_detail
 
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-
 AnoGltfResult ano_gltf_parse_memory(
     const void* bytes, size_t byteCount, const AnoGltfOptions* options, AnoGltfData** outData)
 {
@@ -4772,8 +4756,6 @@ const char* ano_gltf_result_string(AnoGltfResult result)
     }
     return "unknown result";
 }
-
-} // extern "C"
 
 } // namespace ano
 

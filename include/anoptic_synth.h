@@ -8,21 +8,13 @@
 // Owns voice pool, patches, BeatClock, deadline schedule. Console = layout/setup + ACMD_BUS_SET / ACMD_FX_SET.
 // Score load + transport on the logic thread while idle. After start, mixer-thread hooks are the sole runtime touchers: no alloc, lock, or bridge. Offline: same generator on the caller via AnoAudioOfflineDesc.
 
-#ifndef ANOPTIC_SYNTH_H
-#define ANOPTIC_SYNTH_H
+#pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
-
 #include <anoptic_audio.h>
 #include <anoptic_music.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Console Shape */
@@ -183,10 +175,4 @@ uint32_t ano_synth_console_setup(AnoAudioOfflineEvent *out, uint32_t cap);
 uint32_t ano_synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *out,
                                       uint32_t cap);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTIC_SYNTH_H

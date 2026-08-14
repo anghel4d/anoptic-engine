@@ -11,7 +11,6 @@
 #define ANO_RENDER_SLOTS_H
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <mimalloc.h>   // mi_heap_t: table storage lives in a caller-provided heap
 
 #define ANO_RENDER_SLOT_UNMAPPED 0xFFFFFFFFu

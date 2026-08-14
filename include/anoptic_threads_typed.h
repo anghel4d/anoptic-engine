@@ -6,12 +6,7 @@
 
 // C++26 typed lock-free transport. Header-only; runtime thread API stays in anoptic_threads.h.
 
-#ifndef ANOPTIC_THREADS_TYPED_H
-#define ANOPTIC_THREADS_TYPED_H
-
-#ifndef __cplusplus
-#error "anoptic_threads_typed.h requires C++26"
-#endif
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -260,5 +255,3 @@ static_assert(alignof(ByteSpscRing) == ANO_THREAD_LINE);
 static_assert(alignof(SeqPub<uint64_t>) == ANO_THREAD_LINE);
 
 } // namespace ano
-
-#endif // ANOPTIC_THREADS_TYPED_H

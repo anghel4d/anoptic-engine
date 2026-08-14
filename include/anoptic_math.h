@@ -4,8 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-#ifndef ANOPTIC_MATH_H
-#define ANOPTIC_MATH_H
+#pragma once
 
 namespace ano {
 
@@ -46,5 +45,3 @@ static_assert(sizeof(Vector3) == 12, "Vector3 is the packed vertex-stream vec3, 
 static_assert(sizeof(Vector4) == 16 && alignof(Vector4) == 16, "Vector4 is not std430 vec4");
 
 } // namespace ano
-
-#endif // ANOPTIC_MATH_H

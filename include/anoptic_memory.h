@@ -4,12 +4,11 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-#ifndef ANOPTICENGINE_ANOPTIC_MEMORY_H
-#define ANOPTICENGINE_ANOPTIC_MEMORY_H
+#pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <span>
 #include <stdlib.h> // before mimalloc-override.h (MinGW _msize/_aligned_msize)
 #include <string.h> // before mimalloc-override.h (MinGW strdup)
 #include <mimalloc.h>
@@ -28,14 +27,8 @@
 
 namespace ano {
 
-#ifdef __cplusplus
-#define ANO_MEMORY_CONSTEXPR constexpr
-#else
-#define ANO_MEMORY_CONSTEXPR
-#endif
-
 // Checked size arithmetic. Failure leaves *result untouched.
-static inline ANO_MEMORY_CONSTEXPR bool ano_size_add(
+static inline constexpr bool ano_size_add(
     size_t lhs, size_t rhs, size_t *result)
 {
     if (result == NULL || rhs > SIZE_MAX - lhs)
@@ -44,7 +37,7 @@ static inline ANO_MEMORY_CONSTEXPR bool ano_size_add(
     return true;
 }
 
-static inline ANO_MEMORY_CONSTEXPR bool ano_size_multiply(
+static inline constexpr bool ano_size_multiply(
     size_t lhs, size_t rhs, size_t *result)
 {
     if (result == NULL || (lhs != 0 && rhs > SIZE_MAX / lhs))
@@ -53,7 +46,7 @@ static inline ANO_MEMORY_CONSTEXPR bool ano_size_multiply(
     return true;
 }
 
-static inline ANO_MEMORY_CONSTEXPR bool ano_size_align(
+static inline constexpr bool ano_size_align(
     size_t value, size_t alignment, size_t *result)
 {
     if (result == NULL || alignment == 0
@@ -65,19 +58,6 @@ static inline ANO_MEMORY_CONSTEXPR bool ano_size_align(
     *result = (value + mask) & ~mask;
     return true;
 }
-
-#undef ANO_MEMORY_CONSTEXPR
-
-} // namespace ano
-
-#ifdef __cplusplus
-#include <span>
-
-namespace ano {
-
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 // Hardware interference sizes. Compile-time only (alignas / struct layout); not a runtime query.
 // ANO_CACHE_LINE: coherency grain for packing (128 Apple aarch64, else 64).
@@ -111,9 +91,6 @@ void* ano_aligned_malloc(size_t size, size_t alignment);
 
 // Only a pointer from ano_aligned_malloc. Else UB.
 void ano_aligned_free(void* ptr);
-
-#ifdef __cplusplus
-}
 
 struct MemoryReservation final {
     size_t offset = 0;
@@ -180,6 +157,3 @@ void memory_volume_seal(MemoryVolume *volume) noexcept;
     const MemoryVolume *volume, MemoryReservation reservation) noexcept;
 
 } // namespace ano
-#endif
-
-#endif //ANOPTICENGINE_ANOPTIC_MEMORY_H

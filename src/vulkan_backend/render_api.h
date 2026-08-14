@@ -9,7 +9,6 @@
 #ifndef ANO_RENDER_API_H
 #define ANO_RENDER_API_H
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <anoptic_render_resources.h>
 

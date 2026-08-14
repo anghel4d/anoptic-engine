@@ -6,8 +6,7 @@
 
 // Structural reflection and value contracts. Header-only.
 
-#ifndef ANOPTICENGINE_ANOPTIC_META_H
-#define ANOPTICENGINE_ANOPTIC_META_H
+#pragma once
 
 #include <meta>
 #include <stddef.h>
@@ -410,5 +409,3 @@ inline constexpr bool dependent_false = false;
 } // namespace ano
 
 #include <anoptic_meta_types.h>
-
-#endif // ANOPTICENGINE_ANOPTIC_META_H

@@ -6,12 +6,7 @@
 
 // C++26 resource declarations compile directly into canonical operations.
 
-#ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_TYPED_H
-#define ANOPTICENGINE_ANOPTIC_RESOURCES_TYPED_H
-
-#ifndef __cplusplus
-#error "anoptic_resources_typed.h requires C++26"
-#endif
+#pragma once
 
 #include "anoptic_meta.h"
 #include "anoptic_resources.h"
@@ -1606,5 +1601,3 @@ static_assert([] {
 }());
 
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_RESOURCES_TYPED_H

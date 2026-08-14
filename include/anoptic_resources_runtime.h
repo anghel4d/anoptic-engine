@@ -6,17 +6,11 @@
 
 // Residency goals, immutable epochs, and transactional manifest publication.
 
-#ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_RUNTIME_H
-#define ANOPTICENGINE_ANOPTIC_RESOURCES_RUNTIME_H
+#pragma once
 
 #include "anoptic_resources_pack.h"
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 typedef struct AnoResourceManager AnoResourceManager;
 typedef struct AnoResidencyEpoch AnoResidencyEpoch;
@@ -89,10 +83,4 @@ AnoResourceError ano_resource_epoch_changed(const AnoResidencyEpoch *epoch,
                                              uint64_t index,
                                              AnoAssetId *asset);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_RESOURCES_RUNTIME_H

@@ -47,7 +47,7 @@ static_assert(ano::Data<decltype(kPatchNames)>);
 
 } // namespace
 
-const char *ano_music_layer_name(uint32_t layer)
+const char *ano::ano_music_layer_name(uint32_t layer)
 {
     const auto parsed = Layer::from_raw(layer);
     return parsed ? kLayerNames.values[parsed->index()] : "unknown";

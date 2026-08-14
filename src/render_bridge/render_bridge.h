@@ -19,7 +19,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <stdbool.h>
 #include <mimalloc.h>
 #include <anoptic_math.h>
 

@@ -37,7 +37,7 @@ bool importer_matches(const char *path, const ano::Importer& importer)
 
 } // namespace
 
-extern "C" AnoResourceError ano::ano_resource_import(
+AnoResourceError ano::ano_resource_import(
     AnoResourceCooker *cooker, const AnoResourceImportRequest *request)
 {
     if (cooker == nullptr || request == nullptr || request->source.value == 0
@@ -84,7 +84,7 @@ extern "C" AnoResourceError ano::ano_resource_import(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_artifact_schema(
+AnoResourceError ano::ano_resource_artifact_schema(
     AnoResourceTypeId type, AnoResourceSchema *schema)
 {
     if (schema == nullptr)
@@ -109,7 +109,7 @@ extern "C" AnoResourceError ano::ano_resource_artifact_schema(
     return ANO_RESOURCE_TYPE_MISMATCH;
 }
 
-extern "C" AnoResourceError ano::ano_resource_validate_artifact(
+AnoResourceError ano::ano_resource_validate_artifact(
     AnoResourceTypeId type, AnoResourceBytes bytes)
 {
     static constexpr auto resourceDeclarations = std::define_static_array(
@@ -125,7 +125,7 @@ extern "C" AnoResourceError ano::ano_resource_validate_artifact(
     return ANO_RESOURCE_TYPE_MISMATCH;
 }
 
-extern "C" AnoResourceError ano::ano_resource_artifact_dependencies(
+AnoResourceError ano::ano_resource_artifact_dependencies(
     AnoResourceTypeId type, AnoResourceBytes bytes,
     AnoResourceDependency *dependencies, uint64_t dependencyCapacity,
     uint64_t *dependencyCount)

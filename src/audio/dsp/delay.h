@@ -11,7 +11,6 @@
 #ifndef ANO_DSP_DELAY_H
 #define ANO_DSP_DELAY_H
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <mimalloc.h>
 

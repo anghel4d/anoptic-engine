@@ -9,7 +9,6 @@
 #ifndef ANO_SHADOW_H
 #define ANO_SHADOW_H
 
-#include <stdbool.h>
 #include <stdint.h>
 
 #include "vulkan_backend/structs.h"   // RendererState, VulkanContext, Shadow* types

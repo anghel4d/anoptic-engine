@@ -11,18 +11,12 @@
 // Renderer folds logical->device once at compose via ano_ui_*_scale. Layout never sees pixels.
 // AA, tiles, and the reference evaluator run after the fold, in device pixels.
 
-#ifndef ANOPTICENGINE_ANOPTIC_UI_H
-#define ANOPTICENGINE_ANOPTIC_UI_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Primitive Kinds */
@@ -317,9 +311,6 @@ void ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY, const uint32_t *offsets,
                            const uint32_t *entries, int32_t px, int32_t py, float out[4]);
 
-#ifdef __cplusplus
-}
-
 struct UiColor final {
     float rgba[4];
 
@@ -418,6 +409,3 @@ inline uint32_t ui_paint_linear(AnoUiBuilder* builder, const float p0[2],
 }
 
 } // namespace ano
-#endif
-
-#endif

@@ -11,7 +11,6 @@
 #define ANO_MUSIC_THEORY_H
 
 #include <stdint.h>
-#include <stdbool.h>
 
 #include "music_det.h"
 #include "music_modes.h"

@@ -13,28 +13,15 @@
  * Transport (SPSC rings, events, snapshot, viewstate) stays private in src/render_bridge/.
  */
 
-#ifndef ANOPTIC_RENDER_H
-#define ANOPTIC_RENDER_H
+#pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <anoptic_math.h>
 #include <anoptic_text.h> // logic-side shaping
 #include <anoptic_ui.h>   // logic-side layout
 #include <anoptic_resources_runtime.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-#define ANO_RENDER_META(...) [[=__VA_ARGS__]]
-#else
-#define ANO_RENDER_META(...)
-#endif
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 // ---------------------------------------------------------------------------
 // Renderer lifecycle (render world; runs on the main thread)
@@ -195,29 +182,27 @@ typedef struct AnoMotionDescriptor
     Vector4  p1;
 } AnoMotionDescriptor; // 48 bytes
 
-#ifdef __cplusplus
 enum class AnoRenderCommandPayload : uint8_t { create, update, destroy, bulk_create, bulk_update, bulk_destroy, stream, light_attach, light_update, light_detach, text_set, text_clear, ui_set, ui_clear };
 enum class AnoRenderPayloadOwnership : uint8_t { inline_value, conditional_owned };
 enum class AnoRenderLightPolicy : uint8_t { none, entity, attach, update };
 struct AnoRenderCommandContract final { AnoRenderCommandPayload payload; AnoRenderPayloadOwnership ownership; AnoRenderLightPolicy lightPolicy; };
-#endif
 
 typedef enum RenderCommandKind
 {
-    RCMD_CREATE ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::create, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::entity}),
-    RCMD_UPDATE ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::update, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::entity}),
-    RCMD_DESTROY ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::destroy, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}),
-    RCMD_BULK_CREATE ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::bulk_create, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}),
-    RCMD_BULK_UPDATE ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::bulk_update, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}),
-    RCMD_BULK_DESTROY ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::bulk_destroy, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}),
-    RCMD_STREAM_TRANSFORMS ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::stream, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}),
-    RCMD_LIGHT_ATTACH ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::light_attach, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::attach}),
-    RCMD_LIGHT_UPDATE ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::light_update, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::update}),
-    RCMD_LIGHT_DETACH ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::light_detach, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}),
-    RCMD_TEXT_SET ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::text_set, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}),
-    RCMD_TEXT_CLEAR ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::text_clear, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}),
-    RCMD_UI_SET ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::ui_set, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}),
-    RCMD_UI_CLEAR ANO_RENDER_META(AnoRenderCommandContract{AnoRenderCommandPayload::ui_clear, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}),
+    RCMD_CREATE [[=AnoRenderCommandContract{AnoRenderCommandPayload::create, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::entity}]],
+    RCMD_UPDATE [[=AnoRenderCommandContract{AnoRenderCommandPayload::update, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::entity}]],
+    RCMD_DESTROY [[=AnoRenderCommandContract{AnoRenderCommandPayload::destroy, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}]],
+    RCMD_BULK_CREATE [[=AnoRenderCommandContract{AnoRenderCommandPayload::bulk_create, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}]],
+    RCMD_BULK_UPDATE [[=AnoRenderCommandContract{AnoRenderCommandPayload::bulk_update, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}]],
+    RCMD_BULK_DESTROY [[=AnoRenderCommandContract{AnoRenderCommandPayload::bulk_destroy, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}]],
+    RCMD_STREAM_TRANSFORMS [[=AnoRenderCommandContract{AnoRenderCommandPayload::stream, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}]],
+    RCMD_LIGHT_ATTACH [[=AnoRenderCommandContract{AnoRenderCommandPayload::light_attach, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::attach}]],
+    RCMD_LIGHT_UPDATE [[=AnoRenderCommandContract{AnoRenderCommandPayload::light_update, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::update}]],
+    RCMD_LIGHT_DETACH [[=AnoRenderCommandContract{AnoRenderCommandPayload::light_detach, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}]],
+    RCMD_TEXT_SET [[=AnoRenderCommandContract{AnoRenderCommandPayload::text_set, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}]],
+    RCMD_TEXT_CLEAR [[=AnoRenderCommandContract{AnoRenderCommandPayload::text_clear, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}]],
+    RCMD_UI_SET [[=AnoRenderCommandContract{AnoRenderCommandPayload::ui_set, AnoRenderPayloadOwnership::conditional_owned, AnoRenderLightPolicy::none}]],
+    RCMD_UI_CLEAR [[=AnoRenderCommandContract{AnoRenderCommandPayload::ui_clear, AnoRenderPayloadOwnership::inline_value, AnoRenderLightPolicy::none}]],
 } RenderCommandKind;
 
 // CREATE/UPDATE payload bits. Multiple bits = multi-field update in one message.
@@ -230,11 +215,9 @@ typedef enum RenderFieldBits
     RFIELD_USERDATA  = 1 << 4, // AnoInstanceData
 } RenderFieldBits;
 
-#ifdef __cplusplus
 struct AnoRenderFieldUse final { uint32_t fields; uint32_t commands; };
 struct AnoRenderBulkRequired final {};
 struct AnoRenderOwnedPayloadFor final { uint32_t commands; };
-#endif
 
 // Per-renderable instance channel. Game owns pack/unpack.
 //
@@ -270,12 +253,12 @@ typedef struct RenderUpdateBatch
 {
     uint32_t        count;
     uint32_t        fields;       // RenderFieldBits shared by every entry
-    const uint32_t *render_ids ANO_RENDER_META(AnoRenderBulkRequired{}); // [count]; unresolved ids are skipped
-    const mat4 *transforms ANO_RENDER_META(AnoRenderFieldUse{RFIELD_TRANSFORM, 1u << RCMD_BULK_UPDATE}); // teleport rewrites base pose
-    const AnoMotionDescriptor *motion ANO_RENDER_META(AnoRenderFieldUse{RFIELD_ANIM, 1u << RCMD_BULK_UPDATE});
-    const uint32_t *mesh ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, 1u << RCMD_BULK_UPDATE});
-    const uint32_t *material ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, 1u << RCMD_BULK_UPDATE});
-    const AnoInstanceData *instance_data ANO_RENDER_META(AnoRenderFieldUse{RFIELD_USERDATA, 1u << RCMD_BULK_UPDATE});
+    const uint32_t *render_ids [[=AnoRenderBulkRequired{}]]; // [count]; unresolved ids are skipped
+    const mat4 *transforms [[=AnoRenderFieldUse{RFIELD_TRANSFORM, 1u << RCMD_BULK_UPDATE}]]; // teleport rewrites base pose
+    const AnoMotionDescriptor *motion [[=AnoRenderFieldUse{RFIELD_ANIM, 1u << RCMD_BULK_UPDATE}]];
+    const uint32_t *mesh [[=AnoRenderFieldUse{RFIELD_MESH_MAT, 1u << RCMD_BULK_UPDATE}]];
+    const uint32_t *material [[=AnoRenderFieldUse{RFIELD_MESH_MAT, 1u << RCMD_BULK_UPDATE}]];
+    const AnoInstanceData *instance_data [[=AnoRenderFieldUse{RFIELD_USERDATA, 1u << RCMD_BULK_UPDATE}]];
 } RenderUpdateBatch;
 
 // Mass despawn (RCMD_BULK_DESTROY). Submit via ano_render_submit_bulk_destroy (copies until return).
@@ -351,26 +334,26 @@ typedef struct RenderCommand
     uint32_t          render_id;        // logical name; valid for CREATE/UPDATE/DESTROY
     uint32_t          fields;           // RenderFieldBits, for CREATE/UPDATE
 
-    mat4 transform ANO_RENDER_META(AnoRenderFieldUse{RFIELD_TRANSFORM, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}); // base pose
-    AnoMotionDescriptor motion ANO_RENDER_META(AnoRenderFieldUse{RFIELD_ANIM, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
-    uint32_t mesh_index ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
-    uint32_t material_index ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
-    AnoAssetId resource_asset ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
-    uint32_t resource_primitive ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
-    mat4 resource_root ANO_RENDER_META(AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
+    mat4 transform [[=AnoRenderFieldUse{RFIELD_TRANSFORM, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]]; // base pose
+    AnoMotionDescriptor motion [[=AnoRenderFieldUse{RFIELD_ANIM, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
+    uint32_t mesh_index [[=AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
+    uint32_t material_index [[=AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
+    AnoAssetId resource_asset [[=AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
+    uint32_t resource_primitive [[=AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
+    mat4 resource_root [[=AnoRenderFieldUse{RFIELD_MESH_MAT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
     uint32_t          light_index;      // ANO_RENDER_NO_LIGHT if not a light
-    RenderLightParams light ANO_RENDER_META(AnoRenderFieldUse{RFIELD_LIGHT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}); // also LIGHT_ATTACH/UPDATE
+    RenderLightParams light [[=AnoRenderFieldUse{RFIELD_LIGHT, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]]; // also LIGHT_ATTACH/UPDATE
     uint32_t          light_id;         // RCMD_LIGHT_* : producer-owned logical light handle
     float             light_offset[3];  // RCMD_LIGHT_ATTACH/UPDATE : offset in the parent's model space
     uint32_t          light_fields;     // RCMD_LIGHT_UPDATE : ANO_LIGHT_FIELD_* mask (0 == ALL)
-    AnoInstanceData instance_data ANO_RENDER_META(AnoRenderFieldUse{RFIELD_USERDATA, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)});
+    AnoInstanceData instance_data [[=AnoRenderFieldUse{RFIELD_USERDATA, (1u << RCMD_CREATE) | (1u << RCMD_UPDATE)}]];
 
-    const RenderCreateBatch *batch ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_BULK_CREATE});
-    const RenderUpdateBatch *update ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_BULK_UPDATE});
-    const RenderDestroyBatch *destroy ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_BULK_DESTROY});
-    const RenderTextBlock *text ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_TEXT_SET}); // render-owned copy; registry adopts it
+    const RenderCreateBatch *batch [[=AnoRenderOwnedPayloadFor{1u << RCMD_BULK_CREATE}]];
+    const RenderUpdateBatch *update [[=AnoRenderOwnedPayloadFor{1u << RCMD_BULK_UPDATE}]];
+    const RenderDestroyBatch *destroy [[=AnoRenderOwnedPayloadFor{1u << RCMD_BULK_DESTROY}]];
+    const RenderTextBlock *text [[=AnoRenderOwnedPayloadFor{1u << RCMD_TEXT_SET}]]; // render-owned copy; registry adopts it
     uint32_t          text_id;          // RCMD_TEXT_SET/CLEAR : producer-owned logical block handle
-    const RenderUiBlock *ui ANO_RENDER_META(AnoRenderOwnedPayloadFor{1u << RCMD_UI_SET}); // render-owned copy; registry adopts it
+    const RenderUiBlock *ui [[=AnoRenderOwnedPayloadFor{1u << RCMD_UI_SET}]]; // render-owned copy; registry adopts it
     uint32_t          ui_id;            // RCMD_UI_SET/CLEAR : producer-owned logical block handle
     bool              bulk_owned;       // render frees the owned payload after consume or drop (bulk/text/ui submit helpers set this)
     uint64_t          stream_seq;       // RCMD_STREAM_TRANSFORMS: published ring-slice token
@@ -449,21 +432,19 @@ AnoRenderSubmitResult ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_i
 // Sentinel render_id for "the cursor is over no renderable" in a REVENT_PICK_RESULT.
 #define ANO_RENDER_NO_PICK 0xFFFFFFFFu
 
-#ifdef __cplusplus
 enum class AnoInputPayloadKind : uint8_t { key, button, cursor, scroll, focus, resize, character };
 struct AnoInputContract final { AnoInputPayloadKind payload; };
-#endif
 
 // Input kinds. GLFW codes forwarded as stable ints. New device = AnoInputKind + union arm.
 typedef enum AnoInputKind
 {
-    ANO_INPUT_KEY ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::key}),
-    ANO_INPUT_MOUSE_BUTTON ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::button}),
-    ANO_INPUT_CURSOR_POS ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::cursor}),
-    ANO_INPUT_SCROLL ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::scroll}),
-    ANO_INPUT_FOCUS ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::focus}),
-    ANO_INPUT_FRAMEBUFFER_RESIZE ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::resize}),
-    ANO_INPUT_CHAR ANO_RENDER_META(AnoInputContract{AnoInputPayloadKind::character}),
+    ANO_INPUT_KEY [[=AnoInputContract{AnoInputPayloadKind::key}]],
+    ANO_INPUT_MOUSE_BUTTON [[=AnoInputContract{AnoInputPayloadKind::button}]],
+    ANO_INPUT_CURSOR_POS [[=AnoInputContract{AnoInputPayloadKind::cursor}]],
+    ANO_INPUT_SCROLL [[=AnoInputContract{AnoInputPayloadKind::scroll}]],
+    ANO_INPUT_FOCUS [[=AnoInputContract{AnoInputPayloadKind::focus}]],
+    ANO_INPUT_FRAMEBUFFER_RESIZE [[=AnoInputContract{AnoInputPayloadKind::resize}]],
+    ANO_INPUT_CHAR [[=AnoInputContract{AnoInputPayloadKind::character}]],
 } AnoInputKind;
 
 typedef struct AnoKeyInputEvent { int32_t key, scancode, action, mods; } AnoKeyInputEvent;
@@ -474,19 +455,17 @@ typedef struct AnoFocusInputEvent { int32_t focused; } AnoFocusInputEvent;
 typedef struct AnoResizeInputEvent { uint32_t width, height; } AnoResizeInputEvent;
 typedef struct AnoCharInputEvent { uint32_t codepoint; } AnoCharInputEvent;
 
-#ifdef __cplusplus
 struct AnoInputPayloadFor final { AnoInputKind kind; AnoInputPayloadKind payload; };
-#endif
 
 typedef union AnoInputPayload
 {
-    AnoKeyInputEvent key ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_KEY, AnoInputPayloadKind::key});
-    AnoButtonInputEvent button ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_MOUSE_BUTTON, AnoInputPayloadKind::button});
-    AnoCursorInputEvent cursor ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_CURSOR_POS, AnoInputPayloadKind::cursor});
-    AnoScrollInputEvent scroll ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_SCROLL, AnoInputPayloadKind::scroll});
-    AnoFocusInputEvent focus ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_FOCUS, AnoInputPayloadKind::focus});
-    AnoResizeInputEvent resize ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_FRAMEBUFFER_RESIZE, AnoInputPayloadKind::resize});
-    AnoCharInputEvent ch ANO_RENDER_META(AnoInputPayloadFor{ANO_INPUT_CHAR, AnoInputPayloadKind::character});
+    AnoKeyInputEvent key [[=AnoInputPayloadFor{ANO_INPUT_KEY, AnoInputPayloadKind::key}]];
+    AnoButtonInputEvent button [[=AnoInputPayloadFor{ANO_INPUT_MOUSE_BUTTON, AnoInputPayloadKind::button}]];
+    AnoCursorInputEvent cursor [[=AnoInputPayloadFor{ANO_INPUT_CURSOR_POS, AnoInputPayloadKind::cursor}]];
+    AnoScrollInputEvent scroll [[=AnoInputPayloadFor{ANO_INPUT_SCROLL, AnoInputPayloadKind::scroll}]];
+    AnoFocusInputEvent focus [[=AnoInputPayloadFor{ANO_INPUT_FOCUS, AnoInputPayloadKind::focus}]];
+    AnoResizeInputEvent resize [[=AnoInputPayloadFor{ANO_INPUT_FRAMEBUFFER_RESIZE, AnoInputPayloadKind::resize}]];
+    AnoCharInputEvent ch [[=AnoInputPayloadFor{ANO_INPUT_CHAR, AnoInputPayloadKind::character}]];
 } AnoInputPayload;
 
 // One input sample. Fixed-size POD, sub-tagged on `kind`; rides the events ring inside a RenderEvent.
@@ -496,31 +475,27 @@ typedef struct AnoInputEvent
     AnoInputPayload u; // key is the largest arm (16 B); cursor is in overlay logical units
 } AnoInputEvent;
 
-#ifdef __cplusplus
 enum class AnoRenderEventPayloadKind : uint8_t { none, render_id, input, pick_render_id, batch_token };
 struct AnoRenderEventContract final { AnoRenderEventPayloadKind payload; };
-#endif
 
 // Render->logic events. Render master sole producer; logic sole consumer (ano_render_poll_event).
 typedef enum RenderEventKind
 {
-    REVENT_SLOT_RETIRED ANO_RENDER_META(AnoRenderEventContract{AnoRenderEventPayloadKind::render_id}),
-    REVENT_CAPACITY ANO_RENDER_META(AnoRenderEventContract{AnoRenderEventPayloadKind::none}),
-    REVENT_INPUT ANO_RENDER_META(AnoRenderEventContract{AnoRenderEventPayloadKind::input}),
-    REVENT_PICK_RESULT ANO_RENDER_META(AnoRenderEventContract{AnoRenderEventPayloadKind::pick_render_id}),
-    REVENT_BATCH_CONSUMED ANO_RENDER_META(AnoRenderEventContract{AnoRenderEventPayloadKind::batch_token}),
+    REVENT_SLOT_RETIRED [[=AnoRenderEventContract{AnoRenderEventPayloadKind::render_id}]],
+    REVENT_CAPACITY [[=AnoRenderEventContract{AnoRenderEventPayloadKind::none}]],
+    REVENT_INPUT [[=AnoRenderEventContract{AnoRenderEventPayloadKind::input}]],
+    REVENT_PICK_RESULT [[=AnoRenderEventContract{AnoRenderEventPayloadKind::pick_render_id}]],
+    REVENT_BATCH_CONSUMED [[=AnoRenderEventContract{AnoRenderEventPayloadKind::batch_token}]],
 } RenderEventKind;
 
-#ifdef __cplusplus
 struct AnoRenderEventPayloadFor final { RenderEventKind kind; AnoRenderEventPayloadKind payload; };
-#endif
 
 typedef union AnoRenderEventPayload
 {
-    uint32_t render_id ANO_RENDER_META(AnoRenderEventPayloadFor{REVENT_SLOT_RETIRED, AnoRenderEventPayloadKind::render_id});
-    AnoInputEvent input ANO_RENDER_META(AnoRenderEventPayloadFor{REVENT_INPUT, AnoRenderEventPayloadKind::input});
-    uint32_t pick_render_id ANO_RENDER_META(AnoRenderEventPayloadFor{REVENT_PICK_RESULT, AnoRenderEventPayloadKind::pick_render_id});
-    uint64_t batch_token ANO_RENDER_META(AnoRenderEventPayloadFor{REVENT_BATCH_CONSUMED, AnoRenderEventPayloadKind::batch_token});
+    uint32_t render_id [[=AnoRenderEventPayloadFor{REVENT_SLOT_RETIRED, AnoRenderEventPayloadKind::render_id}]];
+    AnoInputEvent input [[=AnoRenderEventPayloadFor{REVENT_INPUT, AnoRenderEventPayloadKind::input}]];
+    uint32_t pick_render_id [[=AnoRenderEventPayloadFor{REVENT_PICK_RESULT, AnoRenderEventPayloadKind::pick_render_id}]];
+    uint64_t batch_token [[=AnoRenderEventPayloadFor{REVENT_BATCH_CONSUMED, AnoRenderEventPayloadKind::batch_token}]];
 } AnoRenderEventPayload;
 
 typedef struct RenderEvent
@@ -596,12 +571,5 @@ int32_t ano_render_get_shadow_lod_bias(void);
 void ano_render_set_view_hiz_enable(uint32_t view, bool enable);
 bool ano_render_get_view_hiz_enable(uint32_t view);
 
-#ifdef __cplusplus
-}
-#endif
-
-#undef ANO_RENDER_META
 
 } // namespace ano
-
-#endif // ANOPTIC_RENDER_H

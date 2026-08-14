@@ -6,17 +6,11 @@
 
 // Canonical manifests and vendor-neutral authenticated shipping packs.
 
-#ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_PACK_H
-#define ANOPTICENGINE_ANOPTIC_RESOURCES_PACK_H
+#pragma once
 
 #include "anoptic_resources.h"
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 typedef struct AnoResourceManifest AnoResourceManifest;
 typedef struct AnoResourcePack AnoResourcePack;
@@ -76,9 +70,6 @@ AnoResourceError ano_resource_revision_export_pack(
     const AnoCookedRevision *revision, AnoResourceMutableBytes *pack);
 void ano_resource_exported_pack_release(AnoResourceMutableBytes pack);
 
-#ifdef __cplusplus
-}
-
 } // namespace ano
 
 #include "anoptic_resources_typed.h"
@@ -91,6 +82,3 @@ struct [[=Artifact{}]] Manifest final {
 };
 
 } // namespace ano::asset_schema
-#endif
-
-#endif // ANOPTICENGINE_ANOPTIC_RESOURCES_PACK_H

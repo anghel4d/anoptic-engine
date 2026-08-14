@@ -8,8 +8,7 @@
 // No FreeType type crosses this header.
 // Threading: init/load/bake/shutdown on ONE thread. Bake/shape data readable any thread.
 
-#ifndef ANOPTICENGINE_ANOPTIC_TEXT_H
-#define ANOPTICENGINE_ANOPTIC_TEXT_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -18,11 +17,6 @@
 #include "anoptic_strings.h"
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Module lifecycle */
@@ -162,10 +156,4 @@ void ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
 #define ano_text_measure_runs_lit(bake, textlit, runs, runCount, width, height) \
     ano_text_measure_runs((bake), anostr_lit(textlit), (runs), (runCount), (width), (height))
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif

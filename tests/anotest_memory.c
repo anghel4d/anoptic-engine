@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <stdbool.h>
 #include <mimalloc.h>
 
 #include "anoptic_memory.h"

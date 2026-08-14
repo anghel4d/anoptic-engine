@@ -9,7 +9,6 @@
 #define TEXTURE_H
 
 #include <vulkan/vulkan.h>
-#include <stdbool.h>
 
 #include "vulkan_backend/components.h"
 #include "vulkan_backend/instance/instanceInit.h"

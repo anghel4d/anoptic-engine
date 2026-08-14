@@ -9,7 +9,6 @@
 using namespace ano;
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <anoptic_atomic.h>
 #include <string.h>
 #include <math.h>

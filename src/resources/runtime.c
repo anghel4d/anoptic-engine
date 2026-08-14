@@ -351,7 +351,7 @@ AnoResourceError lock_manager(AnoResourceManager *manager)
 
 } // namespace
 
-extern "C" AnoResourceError ano::ano_resource_manager_create(
+AnoResourceError ano::ano_resource_manager_create(
     const AnoCookedRevision *revision, AnoResourceManager **manager)
 {
     if (revision == nullptr || manager == nullptr)
@@ -391,7 +391,7 @@ extern "C" AnoResourceError ano::ano_resource_manager_create(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" void ano::ano_resource_manager_destroy(AnoResourceManager *manager)
+void ano::ano_resource_manager_destroy(AnoResourceManager *manager)
 {
     if (manager == nullptr)
         return;
@@ -411,7 +411,7 @@ extern "C" void ano::ano_resource_manager_destroy(AnoResourceManager *manager)
     mi_free(manager);
 }
 
-extern "C" AnoResourceError ano::ano_resource_goal_set(
+AnoResourceError ano::ano_resource_goal_set(
     AnoResourceManager *manager, AnoResourceGoal goal)
 {
     if (manager == nullptr || goal.goal.value == 0 || goal.asset.value == 0
@@ -464,7 +464,7 @@ extern "C" AnoResourceError ano::ano_resource_goal_set(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_goal_remove(
+AnoResourceError ano::ano_resource_goal_remove(
     AnoResourceManager *manager, AnoResourceGoalId goal)
 {
     if (manager == nullptr || goal.value == 0)
@@ -492,7 +492,7 @@ extern "C" AnoResourceError ano::ano_resource_goal_remove(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_reconcile(
+AnoResourceError ano::ano_resource_reconcile(
     AnoResourceManager *manager)
 {
     AnoResourceError result = lock_manager(manager);
@@ -516,7 +516,7 @@ extern "C" AnoResourceError ano::ano_resource_reconcile(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_reload_prepare(
+AnoResourceError ano::ano_resource_reload_prepare(
     AnoResourceManager *manager, const AnoCookedRevision *revision,
     AnoResourceReload **reload)
 {
@@ -560,24 +560,24 @@ extern "C" AnoResourceError ano::ano_resource_reload_prepare(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" const AnoResidencyEpoch *ano::ano_resource_reload_epoch(
+const AnoResidencyEpoch *ano::ano_resource_reload_epoch(
     const AnoResourceReload *reload)
 {
     return reload == nullptr ? nullptr : reload->epoch;
 }
 
-extern "C" bool ano::ano_resource_reload_has_changes(
+bool ano::ano_resource_reload_has_changes(
     const AnoResourceReload *reload)
 {
     return reload != nullptr && reload->hasChanges;
 }
 
-extern "C" void ano::ano_resource_reload_abort(AnoResourceReload *reload)
+void ano::ano_resource_reload_abort(AnoResourceReload *reload)
 {
     destroy_reload(reload);
 }
 
-extern "C" AnoResourceError ano::ano_resource_reload_commit(
+AnoResourceError ano::ano_resource_reload_commit(
     AnoResourceReload *reload)
 {
     if (reload == nullptr || reload->manager == nullptr)
@@ -609,7 +609,7 @@ extern "C" AnoResourceError ano::ano_resource_reload_commit(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_acquire(
+AnoResourceError ano::ano_resource_epoch_acquire(
     AnoResourceManager *manager, const AnoResidencyEpoch **epoch)
 {
     if (manager == nullptr || epoch == nullptr)
@@ -626,7 +626,7 @@ extern "C" AnoResourceError ano::ano_resource_epoch_acquire(
     return result;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_retain(
+AnoResourceError ano::ano_resource_epoch_retain(
     const AnoResidencyEpoch *epoch)
 {
     if (epoch == nullptr)
@@ -635,7 +635,7 @@ extern "C" AnoResourceError ano::ano_resource_epoch_retain(
         ? ANO_RESOURCE_OK : ANO_RESOURCE_OVERFLOW;
 }
 
-extern "C" void ano::ano_resource_epoch_release(
+void ano::ano_resource_epoch_release(
     const AnoResidencyEpoch *epoch)
 {
     if (epoch == nullptr)
@@ -646,13 +646,13 @@ extern "C" void ano::ano_resource_epoch_release(
         destroy_epoch(mutableEpoch);
 }
 
-extern "C" AnoResidencyEpochId ano::ano_resource_epoch_id(
+AnoResidencyEpochId ano::ano_resource_epoch_id(
     const AnoResidencyEpoch *epoch)
 {
     return epoch == nullptr ? AnoResidencyEpochId{0} : epoch->id;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_manifest_id(
+AnoResourceError ano::ano_resource_epoch_manifest_id(
     const AnoResidencyEpoch *epoch, AnoManifestId *manifest)
 {
     if (epoch == nullptr || manifest == nullptr)
@@ -661,7 +661,7 @@ extern "C" AnoResourceError ano::ano_resource_epoch_manifest_id(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_resolve(
+AnoResourceError ano::ano_resource_epoch_resolve(
     const AnoResidencyEpoch *epoch, AnoAssetId asset,
     AnoResourceTypeId requiredType, AnoResourceBytes *bytes)
 {
@@ -686,7 +686,7 @@ extern "C" AnoResourceError ano::ano_resource_epoch_resolve(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_dependencies(
+AnoResourceError ano::ano_resource_epoch_dependencies(
     const AnoResidencyEpoch *epoch, AnoAssetId asset,
     const AnoResourceDependency **dependencies, uint64_t *count)
 {
@@ -709,13 +709,13 @@ extern "C" AnoResourceError ano::ano_resource_epoch_dependencies(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" uint64_t ano::ano_resource_epoch_asset_count(
+uint64_t ano::ano_resource_epoch_asset_count(
     const AnoResidencyEpoch *epoch)
 {
     return epoch == nullptr ? 0 : epoch->bindingCount;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_asset(
+AnoResourceError ano::ano_resource_epoch_asset(
     const AnoResidencyEpoch *epoch, AnoAssetId asset,
     AnoResourceTypeId *type, bool *resident)
 {
@@ -729,13 +729,13 @@ extern "C" AnoResourceError ano::ano_resource_epoch_asset(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" uint64_t ano::ano_resource_epoch_changed_count(
+uint64_t ano::ano_resource_epoch_changed_count(
     const AnoResidencyEpoch *epoch)
 {
     return epoch == nullptr ? 0 : epoch->changedCount;
 }
 
-extern "C" AnoResourceError ano::ano_resource_epoch_changed(
+AnoResourceError ano::ano_resource_epoch_changed(
     const AnoResidencyEpoch *epoch, uint64_t index, AnoAssetId *asset)
 {
     if (epoch == nullptr || asset == nullptr)

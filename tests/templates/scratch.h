@@ -11,7 +11,6 @@
 #ifndef ANOPTIC_TEST_TEMPLATES_SCRATCH_H
 #define ANOPTIC_TEST_TEMPLATES_SCRATCH_H
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 

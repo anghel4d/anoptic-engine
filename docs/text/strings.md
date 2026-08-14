@@ -207,10 +207,7 @@ sid table from one list.
 
 ## Limits, for reference
 
-- `ANOSTR_SID_MAX` = 128 bytes; a longer literal is a **compile error** (negative array
-  size), never a truncation.
 - Bytes hashed = `sizeof(lit) - 1`: embedded `\0` bytes count, exactly like `anostr_lit`.
-- The macro folds to an immediate at every `-O` level, `-O0` included (clang and gcc; the
-  ICE-context use is a GNU extension, per the engine's gnu23 build policy).
+- The `consteval` function produces a standard constant expression at every optimization level.
 - Measured (5950X, -O3, `anotest_sidbench`): sid switch 9.1 ns/event vs strcmp chain 24.1, runtime-hash-then-switch 16.4, `anostr_intern_find` 16.8; bulk-keying 20k ids: 58 ns/key intern, 0 with sids (ids already in `.rodata`).
 - Bulk reads (same rig, 50k records × 4 keying, 2M lookups): sid→index ~6 ns (136 M/s); `anostr_intern_find` ~62 ns; hash-plus-`anostr_eq` ~47 ns; sorted-sid `bsearch` ~96 ns. Baked sid touches no string bytes.

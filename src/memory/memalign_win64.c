@@ -7,8 +7,6 @@
 #ifdef _WIN64
 
 #include <anoptic_memory.h>
-
-using namespace ano;
 #include <mimalloc.h>
 
 // mi_malloc_aligned returns a live block for size 0.

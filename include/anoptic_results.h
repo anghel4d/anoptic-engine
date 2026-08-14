@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0
  * Anoptic targets ISO C++26. */
 
-#ifndef ANOPTIC_RESULTS_H
-#define ANOPTIC_RESULTS_H
+#pragma once
 
 #include <expected>
 #include <meta>
@@ -112,5 +111,3 @@ constexpr void inspect_error(Self&& self, Observer&& observer)
 }
 
 } // namespace ano
-
-#endif /* ANOPTIC_RESULTS_H */

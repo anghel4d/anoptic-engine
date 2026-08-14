@@ -117,11 +117,6 @@ typedef struct AnoAudioFx
     } u;
 } AnoAudioFx;
 
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
-
 // NONE = empty pass-through. false on alloc failure.
 bool ano_audio_fx_init(AnoAudioFx *fx, uint32_t kind, mi_heap_t *heap,
                        uint32_t sampleRate, float coefBlock);
@@ -131,9 +126,5 @@ void ano_audio_fx_set(AnoAudioFx *fx, uint32_t paramId, float value);
 
 // Interleaved stereo in place. NONE/bypass = no-op.
 void ano_audio_fx_process(AnoAudioFx *fx, float *stereo, uint32_t frames, uint32_t sampleRate);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // ANO_AUDIO_FX_H

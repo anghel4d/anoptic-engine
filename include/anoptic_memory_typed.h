@@ -6,8 +6,7 @@
 
 // Reflected contiguous-volume layouts and typed allocation for engine data.
 
-#ifndef ANOPTICENGINE_ANOPTIC_MEMORY_TYPED_H
-#define ANOPTICENGINE_ANOPTIC_MEMORY_TYPED_H
+#pragma once
 
 #include <anoptic_memory.h>
 #include <anoptic_meta.h>
@@ -292,5 +291,3 @@ template<Data T>
 }
 
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_MEMORY_TYPED_H

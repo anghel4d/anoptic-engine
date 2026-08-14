@@ -354,10 +354,6 @@ static const anostr_sid sid_static_table[] = {
     ANOSTR_SID("player_spawn"), ANOSTR_SID("player_death"), ANOSTR_SID("level_loaded"),
 };
 
-// 128-byte literal at ANOSTR_SID_MAX; longer fails to compile.
-#define SID_16B "0123456789abcdef"
-#define SID_128B SID_16B SID_16B SID_16B SID_16B SID_16B SID_16B SID_16B SID_16B
-
 static int sid_dispatch(anostr_sid id)
 {
     switch (id) {
@@ -377,8 +373,6 @@ static void test_sid(void)
           "SID32: equals anostr_hash32 of the same literal");
     CHECK(ANOSTR_SID("a\0b") == anostr_hash(anostr_lit("a\0b")),
           "SID: embedded NUL bytes count, matching anostr_lit");
-    CHECK(ANOSTR_SID(SID_128B) == anostr_hash(anostr_lit(SID_128B)),
-          "SID: agreement at the 128-byte cap");
     CHECK(ANOSTR_SID("player_spawn") != ANOSTR_SID("player_death"),
           "SID: distinct literals get distinct ids");
 

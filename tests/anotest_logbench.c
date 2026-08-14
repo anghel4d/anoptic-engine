@@ -21,7 +21,6 @@ using namespace ano;
 
 #include <stdarg.h>
 #include <anoptic_atomic.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

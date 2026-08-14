@@ -4,8 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-#ifndef ANOPTIC_THREADS_H
-#define ANOPTIC_THREADS_H
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -14,11 +13,6 @@
 #include <time.h>     // struct timespec for ano_thread_cond_timedwait
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 typedef pthread_t anothread_t;
 
@@ -166,10 +160,4 @@ int ano_thread_barrier_wait(anothread_barrier_t *barrier);
 
 int ano_thread_barrier_destroy(anothread_barrier_t *barrier);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTIC_THREADS_H

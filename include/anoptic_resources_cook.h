@@ -6,17 +6,11 @@
 
 // Reflected source import and deterministic pack cooking.
 
-#ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_COOK_H
-#define ANOPTICENGINE_ANOPTIC_RESOURCES_COOK_H
+#pragma once
 
 #include "anoptic_resources_pack.h"
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 typedef struct AnoResourceCooker AnoResourceCooker;
 
@@ -83,9 +77,6 @@ AnoResourceError ano_resource_revision_resolve(
     AnoResourceTypeId requiredType, AnoResourceBytes *bytes);
 void ano_resource_cooker_cancel(AnoResourceCooker *cooker);
 
-#ifdef __cplusplus
-}
-
 namespace detail {
 
 template<class ArtifactType>
@@ -129,6 +120,3 @@ AnoResourceError cook_artifact(
 }
 
 } // namespace ano
-#endif
-
-#endif // ANOPTICENGINE_ANOPTIC_RESOURCES_COOK_H

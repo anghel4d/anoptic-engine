@@ -8,17 +8,13 @@
 // Units: start/dur are quarter-note beats from piece start. Beats -> seconds via the tempo map.
 // Dev-build inspection fields (degree, chord symbol, role) live in src/music/, never here.
 
-#ifndef ANOPTIC_MUSIC_H
-#define ANOPTIC_MUSIC_H
+#pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 namespace ano {
 
-#ifdef __cplusplus
-#define ANO_MUSIC_META(...) [[=__VA_ARGS__]]
 struct AnoModeContract final {
     uint8_t intervals[7];
     int brightness;
@@ -31,14 +27,6 @@ struct AnoCadenceContract final {
     int8_t arrivalDegrees[2];
     int8_t approachDegrees[2];
 };
-#else
-#define ANO_MUSIC_META(...)
-#endif
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 // Six layers, canonical order, fixed.
 typedef enum AnoMusicLayer
@@ -125,13 +113,13 @@ typedef struct AnoMeter
 // One declaration owns scale intervals, brightness, and affect-mapping membership.
 typedef enum AnoMode
 {
-    ANO_MODE_IONIAN ANO_MUSIC_META(AnoModeContract{{0, 2, 4, 5, 7, 9, 11}, 2}) = 0,
-    ANO_MODE_DORIAN ANO_MUSIC_META(AnoModeContract{{0, 2, 3, 5, 7, 9, 10}, 0}),
-    ANO_MODE_PHRYGIAN ANO_MUSIC_META(AnoModeContract{{0, 1, 3, 5, 7, 8, 10}, -2}),
-    ANO_MODE_LYDIAN ANO_MUSIC_META(AnoModeContract{{0, 2, 4, 6, 7, 9, 11}, 3}),
-    ANO_MODE_MIXOLYDIAN ANO_MUSIC_META(AnoModeContract{{0, 2, 4, 5, 7, 9, 10}, 1}),
-    ANO_MODE_AEOLIAN ANO_MUSIC_META(AnoModeContract{{0, 2, 3, 5, 7, 8, 10}, -1}),
-    ANO_MODE_LOCRIAN ANO_MUSIC_META(AnoModeContract{{0, 1, 3, 5, 6, 8, 10}, -1, false}),
+    ANO_MODE_IONIAN [[=AnoModeContract{{0, 2, 4, 5, 7, 9, 11}, 2}]] = 0,
+    ANO_MODE_DORIAN [[=AnoModeContract{{0, 2, 3, 5, 7, 9, 10}, 0}]],
+    ANO_MODE_PHRYGIAN [[=AnoModeContract{{0, 1, 3, 5, 7, 8, 10}, -2}]],
+    ANO_MODE_LYDIAN [[=AnoModeContract{{0, 2, 4, 6, 7, 9, 11}, 3}]],
+    ANO_MODE_MIXOLYDIAN [[=AnoModeContract{{0, 2, 4, 5, 7, 9, 10}, 1}]],
+    ANO_MODE_AEOLIAN [[=AnoModeContract{{0, 2, 3, 5, 7, 8, 10}, -1}]],
+    ANO_MODE_LOCRIAN [[=AnoModeContract{{0, 1, 3, 5, 6, 8, 10}, -1, false}]],
     ANO_MODE_COUNT,
     ANO_MODE_NONE = -1, // valence-driven (with mapper) / ionian (without)
 } AnoMode;
@@ -141,12 +129,12 @@ const char *ano_mode_name(AnoMode mode);
 
 typedef enum AnoCadencePolicy
 {
-    ANO_CADENCE_AUTHENTIC ANO_MUSIC_META(AnoCadenceContract{
-        1, 'D', {1, 3}, {1, -1}, {5, 7}}) = 0,
-    ANO_CADENCE_HALF ANO_MUSIC_META(AnoCadenceContract{
-        5, 'P', {2, 5}, {5, -1}, {2, 4}}),
-    ANO_CADENCE_DECEPTIVE ANO_MUSIC_META(AnoCadenceContract{
-        6, 'D', {1, 3}, {6, -1}, {5, 7}}),
+    ANO_CADENCE_AUTHENTIC [[=AnoCadenceContract{
+        1, 'D', {1, 3}, {1, -1}, {5, 7}}]] = 0,
+    ANO_CADENCE_HALF [[=AnoCadenceContract{
+        5, 'P', {2, 5}, {5, -1}, {2, 4}}]],
+    ANO_CADENCE_DECEPTIVE [[=AnoCadenceContract{
+        6, 'D', {1, 3}, {6, -1}, {5, 7}}]],
     ANO_CADENCE_COUNT,
     ANO_CADENCE_NONE = -1, // not a cadence bar
 } AnoCadencePolicy;
@@ -514,10 +502,4 @@ size_t ano_music_snapshot_size(void);
 bool   ano_music_snapshot(const AnoMusicEngine *e, void *buf, size_t cap);
 bool   ano_music_restore(AnoMusicEngine *e, const void *buf, size_t len);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTIC_MUSIC_H

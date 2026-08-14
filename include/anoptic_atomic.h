@@ -6,8 +6,7 @@
 
 // C++26 atomic values over compiler builtins; no standard-library runtime.
 
-#ifndef ANOPTIC_ATOMIC_H
-#define ANOPTIC_ATOMIC_H
+#pragma once
 
 namespace ano {
 
@@ -141,5 +140,3 @@ static_assert(alignof(Atomic<unsigned>) == alignof(unsigned));
 } // namespace ano
 
 #define ANO_ATOMIC(T) ::ano::Atomic<T>
-
-#endif // ANOPTIC_ATOMIC_H

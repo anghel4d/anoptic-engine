@@ -6,7 +6,6 @@
 #ifndef PIPELINE_TRANSMISSION_H
 #define PIPELINE_TRANSMISSION_H
 
-#include <stdbool.h>
 #include "vulkan_backend/structs.h"
 
 bool ano_pipeline_transmission_init(VulkanContext* ctx, RendererState* state, PipelinePrototype* proto);

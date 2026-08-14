@@ -6,19 +6,12 @@
 
 // C++26 resource identities, canonical bytes, and domain errors.
 
-#ifndef ANOPTICENGINE_ANOPTIC_RESOURCES_H
-#define ANOPTICENGINE_ANOPTIC_RESOURCES_H
+#pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 typedef struct AnoAssetId {
     uint64_t value;
@@ -138,19 +131,7 @@ AnoResourceError ano_resource_artifact_dependencies(
     AnoResourceDependency *dependencies, uint64_t dependencyCapacity,
     uint64_t *dependencyCount);
 
-#ifdef __cplusplus
-}
-#endif
-
-#if defined(__cplusplus)
 static_assert(sizeof(AnoContentId) == 32);
 static_assert(sizeof(AnoSchemaFingerprint) == 32);
-#else
-_Static_assert(sizeof(AnoContentId) == 32, "AnoContentId must be 256 bits");
-_Static_assert(sizeof(AnoSchemaFingerprint) == 32,
-               "AnoSchemaFingerprint must be 256 bits");
-#endif
 
 } // namespace ano
-
-#endif // ANOPTICENGINE_ANOPTIC_RESOURCES_H

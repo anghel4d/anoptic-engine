@@ -6,8 +6,7 @@
 
 // Stable-address, hole-reusing storage. std::hive when <hive> exists; else P0447 plf::hive.
 
-#ifndef ANOPTICENGINE_ANOPTIC_HIVE_H
-#define ANOPTICENGINE_ANOPTIC_HIVE_H
+#pragma once
 
 #if __has_include(<hive>)
 #include <hive>
@@ -24,5 +23,3 @@ using plf::hive;
 using plf::hive_limits;
 }
 #endif
-
-#endif // ANOPTICENGINE_ANOPTIC_HIVE_H

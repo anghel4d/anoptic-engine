@@ -17,7 +17,6 @@ using namespace ano;
 #include <time.h>
 #include <errno.h>
 #include <anoptic_atomic.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 

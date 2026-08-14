@@ -10,7 +10,6 @@
 #define ANO_BUFFER_TYPES_H
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <stddef.h>
 #include <anoptic_atomic.h>
 

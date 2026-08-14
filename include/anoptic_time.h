@@ -6,17 +6,11 @@
 
 // Platform time: monotonic clocks, civil time, busywait, and yielding sleep.
 
-#ifndef ANOPTIC_TIME_H
-#define ANOPTIC_TIME_H
+#pragma once
 
 #include <stdint.h>
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Timestamps */
@@ -68,10 +62,4 @@ int ano_busywait(uint64_t ns);
 // Sleep for us microseconds. Yields to the scheduler.
 int ano_sleep(uint64_t us);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTIC_TIME_H

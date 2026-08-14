@@ -126,7 +126,7 @@ void render(AnoAudioSource *s, float *mix, uint32_t frames, float fsInv)
 
 } // namespace
 
-extern "C" void ano_audio_source_render(AnoAudioSource *s, float *mix,
+void ano_audio_source_render(AnoAudioSource *s, float *mix,
                                           uint32_t frames, float fsInv)
 {
     ano::assume(s->kind < ANO_AUDIO_SOURCE_COUNT);

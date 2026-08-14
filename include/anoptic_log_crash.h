@@ -26,17 +26,11 @@
 // TODO: Ask user if they want to send telemetry (future implement)
 // First boot post-crash, investigate what happened, append it to logs in further details if necessary/possible/desireable.
 
-#ifndef ANOPTIC_LOG_CRASH_H
-#define ANOPTIC_LOG_CRASH_H
+#pragma once
 
 #include "anoptic_log.h"
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Lifecycle Functions */
@@ -62,10 +56,4 @@ int ano_log_crash_thread_arm(void);
 // Release what ano_log_crash_thread_arm reserved, just before the thread exits. Safe to call unarmed.
 void ano_log_crash_thread_disarm(void);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif // ANOPTIC_LOG_CRASH_H

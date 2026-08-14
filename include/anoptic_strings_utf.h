@@ -11,8 +11,7 @@
 // Collation/case/class: Latin, Greek, Cyrillic, Runic, kana, Han (code point), punct.
 // Unlisted scripts fall back to code-point order.
 
-#ifndef ANOPTICENGINE_ANOPTIC_STRINGS_UTF_H
-#define ANOPTICENGINE_ANOPTIC_STRINGS_UTF_H
+#pragma once
 
 // Shim char16_t where <uchar.h> is missing.
 #if __has_include(<uchar.h>)
@@ -25,11 +24,6 @@
 #include "anoptic_strings.h"
 
 namespace ano {
-
-#ifdef __cplusplus
-// No foreign consumer is currently identified; retain this C linkage pending removal.
-extern "C" {
-#endif
 
 
 /* Types */
@@ -154,10 +148,4 @@ anostr_t anostr_from_utf32(mi_heap_t *heap, const anorune_t *src, size_t count);
 // value -> NUL-terminated rune array from heap. Rune count (sans NUL) in *count if non-NULL. NULL on fail.
 anorune_t *anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count);
 
-#ifdef __cplusplus
-}
-#endif
-
 } // namespace ano
-
-#endif //ANOPTICENGINE_ANOPTIC_STRINGS_UTF_H
