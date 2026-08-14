@@ -8,7 +8,7 @@ int main() {
     const char *capturePath = "anotest_vk_lifecycle.ppm";
     remove(capturePath);
     printf("Starting Vulkan lifecycle test...\n");
-    bool result = initVulkan(nullptr);
+    const auto result = initVulkan(nullptr);
     if (!result) {
         if (g_AnoVkNoSuitableGpu) {
             printf("SKIP: no Vulkan device here can run the renderer.\n");
