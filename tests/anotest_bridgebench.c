@@ -18,6 +18,8 @@
 #include <mimalloc.h>
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_music.h>
 #include <anoptic_synth.h>
 #include <anoptic_threads.h>

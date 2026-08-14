@@ -6,6 +6,8 @@
 
 #include <anoptic_memory.h>
 
+using namespace ano;
+
 namespace std {
 
 // No-runtime stubs: -nostdlib++ is unconditional, so the engine supplies the
@@ -37,12 +39,12 @@ __glibcxx_assert_fail(const char *, int, const char *, const char *) noexcept
 
 } // namespace std
 
-mi_heap_t *ano_heap_create(void)
+mi_heap_t *ano::ano_heap_create(void)
 {
     return mi_heap_new();
 }
 
-void ano_heap_destroy(mi_heap_t *heap)
+void ano::ano_heap_destroy(mi_heap_t *heap)
 {
     if (heap == NULL)
         return;
@@ -52,7 +54,7 @@ void ano_heap_destroy(mi_heap_t *heap)
     mi_heap_destroy(heap);
 }
 
-void ano_heap_cleanup(mi_heap_t **heap)
+void ano::ano_heap_cleanup(mi_heap_t **heap)
 {
     if (heap != NULL)
         ano_heap_destroy(*heap);

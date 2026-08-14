@@ -15,6 +15,8 @@
 #include <string.h>
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_time.h>
 
 /* ALSA fallback */

@@ -14,6 +14,8 @@
 #include "vulkan_backend/structs.h"   // LightRegistry, LightData, LIGHT_ROW_* enum
 #include <anoptic_render.h>           // RenderLightParams, ANO_LIGHT_FIELD_*
 
+using namespace ano;
+
 void     light_registry_init(LightRegistry* r, uint32_t base, uint32_t capacity, uint32_t framesInFlight);
 void     light_registry_destroy(LightRegistry* r);
 uint32_t light_registry_alloc(LightRegistry* r, uint32_t light_id, uint32_t parentRid);

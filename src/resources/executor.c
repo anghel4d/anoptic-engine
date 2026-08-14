@@ -5,6 +5,8 @@
 #include "parallel.h"
 
 #include <anoptic_atomic.h>
+
+using namespace ano;
 #include <anoptic_memory_typed.h>
 #include <anoptic_threads.h>
 

@@ -15,6 +15,8 @@
 
 #include <anoptic_log.h>
 
+using namespace ano;
+
 static_assert(static_cast<uint32_t>(kAudioFormatLinearPCM) == ANO_AUDIO_CORE_FORMAT_LINEAR_PCM);
 static_assert(static_cast<uint32_t>(kAudioFormatFlagIsFloat) == ANO_AUDIO_CORE_FLAG_FLOAT);
 static_assert(static_cast<uint32_t>(kAudioFormatFlagIsSignedInteger) ==

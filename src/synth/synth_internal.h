@@ -14,6 +14,8 @@
 
 #include <anoptic_atomic.h>
 
+using namespace ano;
+
 #include <anoptic_memory.h>
 #include <anoptic_synth.h>
 
@@ -154,7 +156,7 @@ typedef struct AnoSynthAnchor
 
 #define ANO_SYNTH_MAGIC 0x53594E54u // 'SYNT'
 
-struct AnoSynth
+struct ano::AnoSynth
 {
     uint32_t magic;
     uint32_t sampleRate;

@@ -16,6 +16,8 @@
 // required/forbidden substrings, sentinel counts. No args = parent, argv[1] = scenario. Exit 0 = pass.
 
 #include <anoptic_log_crash.h>
+
+using namespace ano;
 #include <anoptic_filesystem.h>
 #include <anoptic_threads.h>
 #include <anoptic_time.h>

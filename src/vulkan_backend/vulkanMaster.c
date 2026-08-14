@@ -9,6 +9,8 @@
 #include <math.h>
 #include <vulkan/vulkan.h>
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <anoptic_log.h>
 #include <anoptic_time.h>
 
@@ -58,7 +60,7 @@ static Monitors monitors =
 
 // Assorted utility functions
 
-void unInitVulkan()
+void ano::unInitVulkan()
 {
 	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
 	{
@@ -133,7 +135,7 @@ void unInitVulkan()
 }
 
 // out: true when no window, or glfwWindowShouldClose. Safe before init and after teardown.
-bool anoShouldClose()
+bool ano::anoShouldClose()
 {
 	if (window == NULL) return true;
 	return glfwWindowShouldClose(window);
@@ -219,7 +221,7 @@ static void dischargeAcquire(uint32_t frameIndex)
 
 // Invariant: after acquire, imageAvailable is consumed by graphics submit or `discharge`.
 // Present path advances the slot; discharge keeps it.
-void drawFrame()
+void ano::drawFrame()
 {
 	if (renderUnrecoverable) return; // latched: never re-enter the acquire on this renderer
 
@@ -373,7 +375,7 @@ void drawFrame()
 }
 
 
-bool initVulkan(AnoResourceManager *resources)
+bool ano::initVulkan(AnoResourceManager *resources)
 {
 	renderUnrecoverable = false; // a fresh renderer, whatever the previous one latched
 

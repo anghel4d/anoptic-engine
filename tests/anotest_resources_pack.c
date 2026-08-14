@@ -5,6 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_render_resources.h>
+
+using namespace ano;
 #include <anoptic_resources_pack.h>
 
 #include <stdint.h>

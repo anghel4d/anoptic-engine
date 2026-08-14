@@ -11,6 +11,8 @@
 
 #include <anoptic_filesystem.h>   // MAXPATH
 
+using namespace ano;
+
 #include <stddef.h>
 #include <string.h>
 

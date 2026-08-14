@@ -12,6 +12,8 @@
 // Deterministic. argv[1] = per-thread iters. TSan suppressions: mimalloc abandon/teardown only.
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_threads.h>
 #include <anoptic_time.h>
 

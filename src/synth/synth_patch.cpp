@@ -8,6 +8,8 @@
 
 #include <anoptic_synth.h>
 
+using namespace ano;
+
 #include <anoptic_meta.h>
 
 namespace {
@@ -24,19 +26,19 @@ static_assert(ano::Data<SynthPatch>);
 
 } // namespace
 
-uint32_t ano_synth_patch_id(const char *name)
+uint32_t ano::ano_synth_patch_id(const char *name)
 {
     return ano_music_patch_id(name);
 }
 
-const char *ano_synth_patch_name(uint32_t id)
+const char *ano::ano_synth_patch_name(uint32_t id)
 {
     const SynthPatch patch = SynthPatch::from_raw(id).value_or(
         SynthPatch::constant<ANO_SYNTH_PATCH_DEFAULT>());
     return ano_music_patch_name(static_cast<uint32_t>(patch.index()));
 }
 
-uint32_t ano_synth_patch_of(uint32_t musicPatch)
+uint32_t ano::ano_synth_patch_of(uint32_t musicPatch)
 {
     const MusicPatch music = MusicPatch::from_raw(musicPatch).value_or(
         MusicPatch::constant<ANO_PATCH_NONE>());

@@ -10,6 +10,8 @@
 
 #include <anoptic_time.h>
 
+using namespace ano;
+
 // Consumer only: blockRing, deviceScratch, underruns, deviceRun.
 static void *null_device_main(void *arg)
 {

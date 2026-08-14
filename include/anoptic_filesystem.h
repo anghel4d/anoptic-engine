@@ -11,7 +11,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -84,5 +87,7 @@ int ano_fs_close(ano_file *file);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTICENGINE_ANOPTIC_FILEPATH_H

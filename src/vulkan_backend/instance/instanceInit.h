@@ -15,6 +15,8 @@
 #include "vulkan_backend/texture/texture.h"
 #include "anoptic_time.h"
 
+using namespace ano;
+
 /* Function Interfaces */
 
 VkResult createInstance(VulkanContext* ctx);

@@ -10,6 +10,8 @@
 
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 namespace {
 
 using Mode = ano::EnumValue<AnoMode>;
@@ -47,7 +49,7 @@ static_assert(ano::Data<decltype(kModeNames)>);
 
 } // namespace
 
-const char *ano_mode_name(AnoMode mode)
+const char *ano::ano_mode_name(AnoMode mode)
 {
     return kModeNames.values[mode_or_ionian(mode).index()];
 }

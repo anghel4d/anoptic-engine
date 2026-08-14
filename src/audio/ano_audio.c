@@ -15,6 +15,8 @@
 
 #include <anoptic_log.h>
 
+using namespace ano;
+
 // Ring element size budget.
 static_assert(sizeof(AnoAudioEvent) <= 32u, "AnoAudioEvent grew past 32 bytes; revisit the events ring");
 static_assert(sizeof(AnoAudioCommand) <= 192u, "AnoAudioCommand grew past 192 bytes; revisit the command ring");
@@ -96,7 +98,7 @@ void ano_audio_bridge_destroy(AnoAudioBridge *bridge)
     bridge->events.destroy([](void* memory) { mi_free(memory); });
 }
 
-bool ano_audio_init(const AnoAudioConfig *cfg)
+bool ano::ano_audio_init(const AnoAudioConfig *cfg)
 {
     if (g_mixer) {
         ano_log(ANO_WARN, "audio: init called with the audio world already up; ignored.");
@@ -255,7 +257,7 @@ static void audio_discharge_blocks(AnoAudioMixer *mx)
     }
 }
 
-void ano_audio_shutdown(void)
+void ano::ano_audio_shutdown(void)
 {
     if (!g_mixer)
         return;
@@ -277,36 +279,36 @@ void ano_audio_shutdown(void)
     ano_log(ANO_INFO, "audio: down.");
 }
 
-AnoAudioBridge *anoAudioBridge(void)
+AnoAudioBridge *ano::anoAudioBridge(void)
 {
     return g_mixer ? g_mixer->bridge : NULL;
 }
 
 /* Public producer endpoints */
 
-bool ano_audio_submit(AnoAudioBridge *bridge, const AnoAudioCommand *cmd)
+bool ano::ano_audio_submit(AnoAudioBridge *bridge, const AnoAudioCommand *cmd)
 {
     return bridge->commands.push(*cmd);
 }
 
-bool ano_audio_poll_event(AnoAudioBridge *bridge, AnoAudioEvent *out)
+bool ano::ano_audio_poll_event(AnoAudioBridge *bridge, AnoAudioEvent *out)
 {
     return bridge->events.pop(*out);
 }
 
-void ano_audio_publish_listener(AnoAudioBridge *bridge, const AnoAudioListener *l)
+void ano::ano_audio_publish_listener(AnoAudioBridge *bridge, const AnoAudioListener *l)
 {
     bridge->listener.publish(*l);
 }
 
-bool ano_audio_acquire_telemetry(AnoAudioBridge *bridge, AnoAudioTelemetry *out)
+bool ano::ano_audio_acquire_telemetry(AnoAudioBridge *bridge, AnoAudioTelemetry *out)
 {
     return bridge->telemetry.acquire(*out);
 }
 
 /* Buffer producer endpoints */
 
-bool ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
+bool ano::ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
                                const float *interleaved, uint64_t frames, uint32_t channels)
 {
     if (!bridge || !interleaved || frames == 0u || channels < 1u || channels > 2u)
@@ -332,13 +334,13 @@ bool ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
     return true;
 }
 
-bool ano_audio_buffer_release(AnoAudioBridge *bridge, uint32_t buffer_id)
+bool ano::ano_audio_buffer_release(AnoAudioBridge *bridge, uint32_t buffer_id)
 {
     AnoAudioCommand c = { .kind = ACMD_BUFFER_RELEASE, .source_id = buffer_id };
     return bridge->commands.push(c);
 }
 
-void ano_audio_block_free(void *block)
+void ano::ano_audio_block_free(void *block)
 {
     mi_free(block);
 }

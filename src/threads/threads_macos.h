@@ -13,6 +13,8 @@
 
 #include <anoptic_threads.h>   // Darwin pthread_spinlock_t / pthread_barrier_t
 
+using namespace ano;
+
 #define PTHREAD_BARRIER_SERIAL_THREAD (-1)
 
 

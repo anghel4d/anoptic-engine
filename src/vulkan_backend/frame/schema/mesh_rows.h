@@ -3,6 +3,8 @@
 
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include "vulkan_backend/structs.h"
 
 template<class Record>

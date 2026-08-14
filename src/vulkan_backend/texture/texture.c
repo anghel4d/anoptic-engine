@@ -7,6 +7,8 @@
 
 #include <anoptic_log.h>
 
+using namespace ano;
+
 #include "vulkan_backend/vulkanMaster.h"
 
 #include <string.h>

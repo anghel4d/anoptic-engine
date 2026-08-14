@@ -7,6 +7,8 @@
 // WAV write/load. Interleaved f32 <-> IEEE-float (or PCM) WAV. stdio.
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_memory.h>
 
 #include <math.h>
@@ -27,7 +29,7 @@ static void put_u32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24);
 }
 
-bool ano_audio_wav_write(const char *path, const float *interleaved,
+bool ano::ano_audio_wav_write(const char *path, const float *interleaved,
                          uint64_t frames, uint32_t channels, uint32_t sampleRate)
 {
     if (!path || !interleaved || channels == 0u || sampleRate == 0u)
@@ -120,7 +122,7 @@ static uint64_t wav_resample(const float *src, uint64_t srcFrames, uint32_t chan
     return dstFrames;
 }
 
-float *ano_audio_wav_load(const char *path, uint32_t targetRate,
+float *ano::ano_audio_wav_load(const char *path, uint32_t targetRate,
                           uint64_t *outFrames, uint32_t *outChannels)
 {
     if (!path || !outFrames || !outChannels)

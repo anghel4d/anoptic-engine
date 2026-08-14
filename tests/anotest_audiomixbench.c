@@ -16,6 +16,8 @@
 
 #include <anoptic_audio.h>
 
+using namespace ano;
+
 #include "templates/bench.h"
 
 enum {

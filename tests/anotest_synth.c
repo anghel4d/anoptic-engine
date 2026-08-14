@@ -14,6 +14,8 @@
 #include <string.h>
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_synth.h>
 
 #include "templates/rng.h"

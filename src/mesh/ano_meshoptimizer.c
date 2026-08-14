@@ -1,5 +1,7 @@
 #include "ano_meshoptimizer.h"
 #include <anoptic_memory.h>   // MI_OVERRIDE is OFF: heap APIs come from this header
+
+using namespace ano;
 #include <string.h>
 #include <math.h>
 #include <float.h>

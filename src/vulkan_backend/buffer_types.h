@@ -13,6 +13,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <anoptic_atomic.h>
+
+using namespace ano;
 #include <vulkan/vulkan.h>
 
 #include "vulkan_backend/gpu_alloc.h"

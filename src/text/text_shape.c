@@ -7,6 +7,8 @@
 // Shaper over immutable AnoFontBake. Any thread. No ligatures, marks, or bidi.
 
 #include "anoptic_text.h"
+
+using namespace ano;
 #include "anoptic_strings_utf.h"
 #include "text/text_internal.h"
 
@@ -142,7 +144,7 @@ static bool runs_valid(const AnoTextRun *runs, uint32_t runCount, anostr_t text)
     return sum == anostr_len(text);
 }
 
-uint32_t ano_text_shape(const AnoFontBake *bake, anostr_t text,
+uint32_t ano::ano_text_shape(const AnoFontBake *bake, anostr_t text,
                         float sizePx, const float origin[2], const float color[4],
                         AnoGlyphInstance *out, uint32_t cap, float *penOut)
 {
@@ -153,7 +155,7 @@ uint32_t ano_text_shape(const AnoFontBake *bake, anostr_t text,
     return shape_core(bake, text, &run, 1, origin, out, cap, penOut, NULL, NULL, NULL);
 }
 
-uint32_t ano_text_shape_runs(const AnoFontBake *bake, anostr_t text,
+uint32_t ano::ano_text_shape_runs(const AnoFontBake *bake, anostr_t text,
                              const AnoTextRun *runs, uint32_t runCount,
                              const float origin[2],
                              AnoGlyphInstance *out, uint32_t cap, float *penOut)
@@ -164,7 +166,7 @@ uint32_t ano_text_shape_runs(const AnoFontBake *bake, anostr_t text,
                       NULL, NULL, NULL);
 }
 
-void ano_text_measure(const AnoFontBake *bake, anostr_t text,
+void ano::ano_text_measure(const AnoFontBake *bake, anostr_t text,
                       float sizePx, float *width, float *height)
 {
     float maxW = 0.0f;
@@ -181,7 +183,7 @@ void ano_text_measure(const AnoFontBake *bake, anostr_t text,
         *height = (float)lines * (bake != NULL ? bake->lineHeight : 0.0f) * sizePx;
 }
 
-void ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
+void ano::ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
                            const AnoTextRun *runs, uint32_t runCount,
                            float *width, float *height)
 {

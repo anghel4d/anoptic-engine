@@ -7,6 +7,8 @@
 #ifndef ANOPTIC_MATH_H
 #define ANOPTIC_MATH_H
 
+namespace ano {
+
 
 /* Types */
 
@@ -42,5 +44,7 @@ static_assert(sizeof(mat4) == 64 && alignof(mat4) == 16, "mat4 is not std430 (16
 static_assert(sizeof(Vector2) == 8 && alignof(Vector2) == 8, "Vector2 is not std430 vec2");
 static_assert(sizeof(Vector3) == 12, "Vector3 is the packed vertex-stream vec3, 12 bytes");
 static_assert(sizeof(Vector4) == 16 && alignof(Vector4) == 16, "Vector4 is not std430 vec4");
+
+} // namespace ano
 
 #endif // ANOPTIC_MATH_H

@@ -31,6 +31,8 @@
 #include <string.h>
 #include <type_traits>
 
+namespace ano {
+
 inline constexpr uint32_t ANO_GLTF_NO_INDEX = UINT32_MAX;
 
 struct AnoGltfJsonName final {
@@ -873,6 +875,7 @@ static_assert(std::is_same_v<
     decltype(ano_gltf_index_of<AnoGltfAnimationChannel>(nullptr, 0, nullptr)),
     AnoGltfAnimationChannelIndex>);
 
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 
 [[nodiscard]] AnoGltfResult ano_gltf_parse_memory(
@@ -925,9 +928,13 @@ void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16]);
 
 }
 
+} // namespace ano
+
 #ifdef ANOGLTF_IMPLEMENTATION
 
 #include <stdio.h>
+
+namespace ano {
 
 namespace anogltf_detail {
 
@@ -4544,6 +4551,7 @@ static bool node_transform_world(
 
 } // namespace anogltf_detail
 
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 
 AnoGltfResult ano_gltf_parse_memory(
@@ -4766,6 +4774,8 @@ const char* ano_gltf_result_string(AnoGltfResult result)
 }
 
 } // extern "C"
+
+} // namespace ano
 
 #endif // ANOGLTF_IMPLEMENTATION
 

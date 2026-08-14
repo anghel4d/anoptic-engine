@@ -12,6 +12,8 @@
 #define LOG_CRASH_POSIX_H
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_memory.h>
 #include "log/log_crash_internal.h"
 

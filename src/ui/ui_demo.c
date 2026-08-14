@@ -9,6 +9,8 @@
 
 #include "anoptic_ui.h"
 
+using namespace ano;
+
 
 /* Demo Scene */
 
@@ -17,7 +19,7 @@
 
 // Emission order is paint order. Unattached paint table: gradient rrect still emits (paintRef NONE).
 // Unattached curves: path_fill returns NONE.
-void ano_ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
+void ano::ano_ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
 {
     const float shadow[4]   = PM(0.00f, 0.00f, 0.00f, 0.55f);
     const float plate[4]    = PM(0.086f, 0.098f, 0.117f, 0.96f);

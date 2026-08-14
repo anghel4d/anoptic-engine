@@ -9,6 +9,8 @@
 
 #if defined(__APPLE__)
 #include "anoptic_time.h"
+
+using namespace ano;
 #include <mach/mach_time.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -50,11 +52,11 @@ static inline uint64_t timebase_freq(void) {
     return freq;
 }
 
-uint64_t ano_timestamp_ticks() {
+uint64_t ano::ano_timestamp_ticks() {
     return mach_absolute_time();
 }
 
-uint64_t ano_ticks_to_ns(uint64_t ticks) {
+uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
 
     uint64_t freq = timebase_freq();
 
@@ -65,22 +67,22 @@ uint64_t ano_ticks_to_ns(uint64_t ticks) {
     return remainder + (seconds * 1000000000LL);
 }
 
-uint64_t ano_timestamp_raw() {
+uint64_t ano::ano_timestamp_raw() {
     return ano_ticks_to_ns(ano_timestamp_ticks());
 }
 
-uint64_t ano_timestamp_us() {
+uint64_t ano::ano_timestamp_us() {
     return ano_timestamp_raw() / 1000;
 }
 
-uint32_t ano_timestamp_ms() {
+uint32_t ano::ano_timestamp_ms() {
     return (uint32_t)(ano_timestamp_raw() / 1000000LL);
 }
 
 
 /* Generic Date-Time Stamps */
 
-int64_t ano_timestamp_unix() {
+int64_t ano::ano_timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
@@ -93,7 +95,7 @@ int64_t ano_timestamp_unix() {
     return (int64_t)currentTime;
 }
 
-ano_datetime ano_localtime(int64_t unix_seconds) {
+ano_datetime ano::ano_localtime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
     struct tm tm;
@@ -109,7 +111,7 @@ ano_datetime ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-int ano_busywait(uint64_t ns) {
+int ano::ano_busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
         printf("Requested busywait time exceeds maximum limit. Returning.\n");
@@ -142,7 +144,7 @@ static uint64_t ano_ns_to_ticks(uint64_t ns) {
 // Absolute mach_wait_until in half-remainder steps, then spin ANO_SLEEP_SPIN_NS.
 // QoS stretches relative waits ~1.5x; half-remainder is immune below 2x.
 // Re-arming the absolute deadline absorbs KERN_ABORTED without drift.
-int ano_sleep(uint64_t us) {
+int ano::ano_sleep(uint64_t us) {
 
     uint64_t waitTicks = ano_ns_to_ticks(us * 1000ULL);
     uint64_t deadline = mach_absolute_time() + waitTicks;

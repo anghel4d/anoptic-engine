@@ -11,7 +11,10 @@
 
 #include <stdint.h>
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -68,5 +71,7 @@ int ano_sleep(uint64_t us);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTIC_TIME_H

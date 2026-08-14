@@ -15,6 +15,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+namespace ano {
+
 #ifdef __cplusplus
 #define ANO_MUSIC_META(...) [[=__VA_ARGS__]]
 struct AnoModeContract final {
@@ -34,6 +36,7 @@ struct AnoCadenceContract final {
 #endif
 
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -514,5 +517,7 @@ bool   ano_music_restore(AnoMusicEngine *e, const void *buf, size_t len);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTIC_MUSIC_H

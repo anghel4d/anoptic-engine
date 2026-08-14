@@ -7,6 +7,8 @@
 #if defined(_WIN32)
 
 #include "anoptic_filesystem.h"
+
+using namespace ano;
 #include "filesystem/filesystem_internal.h"
 
 #include <stdio.h>
@@ -23,7 +25,7 @@
 
 // GetModuleFileNameA (not TCHAR). -A mangles paths outside the active codepage.
 // Debt: GetModuleFileNameW + UTF-8.
-ano_fspath ano_fs_gamepath(void) {
+ano_fspath ano::ano_fs_gamepath(void) {
 
     ano_fspath result = {0};
 
@@ -46,7 +48,7 @@ ano_fspath ano_fs_gamepath(void) {
     return result;
 }
 
-ano_fspath ano_fs_userpath(void) {
+ano_fspath ano::ano_fs_userpath(void) {
     ano_fspath result = {0};
 
     const char *appdata = getenv("APPDATA");
@@ -64,7 +66,7 @@ ano_fspath ano_fs_userpath(void) {
     return result;
 }
 
-bool ano_fs_chdir_gamepath(void)
+bool ano::ano_fs_chdir_gamepath(void)
 {
     ano_fspath dir = ano_fs_gamepath();
     return dir.length > 0 && _chdir(dir.str) == 0;
@@ -85,12 +87,12 @@ int fs_mkdir(const char *path)
 
 /* Append-Only File */
 
-struct ano_file {
+struct ano::ano_file {
     HANDLE handle;
 };
 
 // FILE_SHARE_DELETE: POSIX unlink parity while open.
-ano_file *ano_fs_open_append(const char *path)
+ano_file *ano::ano_fs_open_append(const char *path)
 {
     if (path == NULL)
         return NULL;
@@ -111,7 +113,7 @@ ano_file *ano_fs_open_append(const char *path)
 }
 
 // Truncate with a throwaway CREATE_ALWAYS (needs GENERIC_WRITE), then reopen FILE_APPEND_DATA.
-ano_file *ano_fs_open_trunc(const char *path)
+ano_file *ano::ano_fs_open_trunc(const char *path)
 {
     if (path == NULL)
         return NULL;
@@ -126,7 +128,7 @@ ano_file *ano_fs_open_trunc(const char *path)
 }
 
 // written == 0 on TRUE is error (not retry).
-int ano_fs_write(ano_file *file, const void *data, size_t length)
+int ano::ano_fs_write(ano_file *file, const void *data, size_t length)
 {
     if (file == NULL || (data == NULL && length != 0))
         return -1;
@@ -144,7 +146,7 @@ int ano_fs_write(ano_file *file, const void *data, size_t length)
     return 0;
 }
 
-int ano_fs_sync(ano_file *file)
+int ano::ano_fs_sync(ano_file *file)
 {
     if (file == NULL)
         return -1;
@@ -152,7 +154,7 @@ int ano_fs_sync(ano_file *file)
 }
 
 // Handle freed either way.
-int ano_fs_close(ano_file *file)
+int ano::ano_fs_close(ano_file *file)
 {
     if (file == NULL)
         return -1;

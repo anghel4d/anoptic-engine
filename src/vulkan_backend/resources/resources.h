@@ -6,6 +6,8 @@
 #define ANOPTICENGINE_VULKAN_RESOURCE_RESIDENCY_H
 
 #include <anoptic_render.h>
+
+using namespace ano;
 #include <anoptic_memory.h>
 #include <vulkan/vulkan.h>
 

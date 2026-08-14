@@ -7,6 +7,8 @@
 #if defined(__linux__)
 
 #include "anoptic_filesystem.h"
+
+using namespace ano;
 #include "filesystem/filesystem_internal.h"
 
 #include <unistd.h>
@@ -23,7 +25,7 @@
 /* Paths */
 
 // readlink("/proc/self/exe"). Hand-rolled split: dirname() is not portably reentrant.
-ano_fspath ano_fs_gamepath(void)
+ano_fspath ano::ano_fs_gamepath(void)
 {
     ano_fspath result = {0};
 
@@ -47,7 +49,7 @@ ano_fspath ano_fs_gamepath(void)
     return result;
 }
 
-ano_fspath ano_fs_userpath(void)
+ano_fspath ano::ano_fs_userpath(void)
 {
     ano_fspath result = {0};
 
@@ -66,7 +68,7 @@ ano_fspath ano_fs_userpath(void)
     return result;
 }
 
-bool ano_fs_chdir_gamepath(void)
+bool ano::ano_fs_chdir_gamepath(void)
 {
     ano_fspath dir = ano_fs_gamepath();
     return dir.length > 0 && chdir(dir.str) == 0;
@@ -87,11 +89,11 @@ int fs_mkdir(const char *path)
 
 /* Append-Only File */
 
-struct ano_file {
+struct ano::ano_file {
     int fd;
 };
 
-ano_file *ano_fs_open_append(const char *path)
+ano_file *ano::ano_fs_open_append(const char *path)
 {
     if (path == NULL)
         return NULL;
@@ -109,7 +111,7 @@ ano_file *ano_fs_open_append(const char *path)
     return file;
 }
 
-ano_file *ano_fs_open_trunc(const char *path)
+ano_file *ano::ano_fs_open_trunc(const char *path)
 {
     if (path == NULL)
         return NULL;
@@ -128,7 +130,7 @@ ano_file *ano_fs_open_trunc(const char *path)
 }
 
 // 0 once all bytes are written. Loops past short writes and EINTR.
-int ano_fs_write(ano_file *file, const void *data, size_t length)
+int ano::ano_fs_write(ano_file *file, const void *data, size_t length)
 {
     if (file == NULL || (data == NULL && length != 0))
         return -1;
@@ -148,7 +150,7 @@ int ano_fs_write(ano_file *file, const void *data, size_t length)
     return 0;
 }
 
-int ano_fs_sync(ano_file *file)
+int ano::ano_fs_sync(ano_file *file)
 {
     if (file == NULL)
         return -1;
@@ -156,7 +158,7 @@ int ano_fs_sync(ano_file *file)
 }
 
 // Handle freed either way.
-int ano_fs_close(ano_file *file)
+int ano::ano_fs_close(ano_file *file)
 {
     if (file == NULL)
         return -1;

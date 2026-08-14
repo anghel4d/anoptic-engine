@@ -15,6 +15,8 @@
 #include <math.h>
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_memory.h>
 #include <anoptic_time.h>
 #include "audio/audio_bridge.h" // private transport: layout asserts only

@@ -15,6 +15,8 @@
 #include <string.h>
 
 #include "anoptic_ui.h"
+
+using namespace ano;
 #include "templates/rng.h"
 
 static int failures = 0;

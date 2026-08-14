@@ -15,6 +15,8 @@
 #endif
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_memory.h>
 #include <anoptic_strings_utf.h>
 #include <anoptic_threads.h>

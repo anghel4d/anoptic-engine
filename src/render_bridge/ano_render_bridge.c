@@ -13,6 +13,8 @@
 #include "bulk_update_plan.h"
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include <stdint.h>
 #include <string.h>
 
@@ -67,12 +69,12 @@ void ano_render_bridge_destroy(AnoRenderBridge *bridge)
 
 /* Logic Master Endpoints */
 
-bool ano_render_submit(AnoRenderBridge *bridge, const RenderCommand *cmd)
+bool ano::ano_render_submit(AnoRenderBridge *bridge, const RenderCommand *cmd)
 {
     return bridge->commands.push(*cmd);
 }
 
-bool ano_render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_t parent_render_id,
+bool ano::ano_render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_t parent_render_id,
                              const RenderLightParams *params, float ox, float oy, float oz)
 {
     RenderCommand c = { .kind = RCMD_LIGHT_ATTACH, .render_id = parent_render_id, .light_id = light_id };
@@ -81,13 +83,13 @@ bool ano_render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_
     return bridge->commands.push(c);
 }
 
-bool ano_render_light_update(AnoRenderBridge *bridge, uint32_t light_id,
+bool ano::ano_render_light_update(AnoRenderBridge *bridge, uint32_t light_id,
                              const RenderLightParams *params, float ox, float oy, float oz)
 {
     return ano_render_light_update_fields(bridge, light_id, params, ox, oy, oz, ANO_LIGHT_FIELD_ALL);
 }
 
-bool ano_render_light_update_fields(AnoRenderBridge *bridge, uint32_t light_id,
+bool ano::ano_render_light_update_fields(AnoRenderBridge *bridge, uint32_t light_id,
                                     const RenderLightParams *params, float ox, float oy, float oz,
                                     uint32_t fields)
 {
@@ -97,7 +99,7 @@ bool ano_render_light_update_fields(AnoRenderBridge *bridge, uint32_t light_id,
     return bridge->commands.push(c);
 }
 
-bool ano_render_light_detach(AnoRenderBridge *bridge, uint32_t light_id)
+bool ano::ano_render_light_detach(AnoRenderBridge *bridge, uint32_t light_id)
 {
     RenderCommand c = { .kind = RCMD_LIGHT_DETACH, .light_id = light_id };
     return bridge->commands.push(c);
@@ -107,7 +109,7 @@ bool ano_render_light_detach(AnoRenderBridge *bridge, uint32_t light_id)
 /* Bulk */
 
 // inv: NULL batch before count; zero count before any array touch. Only mask-named arrays are read.
-AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, const RenderUpdateBatch *batch)
+AnoRenderSubmitResult ano::ano_render_submit_bulk_update(AnoRenderBridge *bridge, const RenderUpdateBatch *batch)
 {
     if (batch == NULL)
         return ANO_RENDER_SUBMIT_INVALID;
@@ -153,7 +155,7 @@ AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, con
 }
 
 // Mass despawn into one render-owned block. Zero count before id read.
-AnoRenderSubmitResult ano_render_submit_bulk_destroy(AnoRenderBridge *bridge, const uint32_t *render_ids, uint32_t count)
+AnoRenderSubmitResult ano::ano_render_submit_bulk_destroy(AnoRenderBridge *bridge, const uint32_t *render_ids, uint32_t count)
 {
     if (count == 0u)
         return ANO_RENDER_SUBMIT_ACCEPTED; // documented no-op
@@ -185,7 +187,7 @@ static_assert(ANO_RENDER_TEXT_MAX <= (SIZE_MAX - sizeof(RenderTextBlock)) / size
                "a full screen-text block must fit size_t");
 
 // Packs header + instances into one render-owned block. count 0 -> clear.
-AnoRenderSubmitResult ano_render_text_set(AnoRenderBridge *bridge, uint32_t text_id,
+AnoRenderSubmitResult ano::ano_render_text_set(AnoRenderBridge *bridge, uint32_t text_id,
                                           const AnoGlyphInstance *instances, uint32_t count)
 {
     if (count == 0u)
@@ -211,7 +213,7 @@ AnoRenderSubmitResult ano_render_text_set(AnoRenderBridge *bridge, uint32_t text
     return ANO_RENDER_SUBMIT_ACCEPTED;
 }
 
-AnoRenderSubmitResult ano_render_text_clear(AnoRenderBridge *bridge, uint32_t text_id)
+AnoRenderSubmitResult ano::ano_render_text_clear(AnoRenderBridge *bridge, uint32_t text_id)
 {
     RenderCommand c = { .kind = RCMD_TEXT_CLEAR, .text_id = text_id };
     return bridge->commands.push(c)
@@ -279,7 +281,7 @@ static_assert((size_t)ANO_RENDER_UI_MAX_PRIMS  * sizeof(AnoUiPrim)
 
 // Packs tables + glyphs into one render-owned block.
 // Zero prims -> clear. NULL builder -> INVALID.
-AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id, uint32_t layer,
+AnoRenderSubmitResult ano::ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id, uint32_t layer,
                                         const AnoUiBuilder *ui,
                                         const AnoGlyphInstance *glyphs, uint32_t glyphCount)
 {
@@ -353,7 +355,7 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
     return ANO_RENDER_SUBMIT_ACCEPTED;
 }
 
-AnoRenderSubmitResult ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_id)
+AnoRenderSubmitResult ano::ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_id)
 {
     RenderCommand c = { .kind = RCMD_UI_CLEAR, .ui_id = ui_id };
     return bridge->commands.push(c)
@@ -364,12 +366,12 @@ AnoRenderSubmitResult ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_i
 
 /* Back-Channel */
 
-bool ano_render_poll_event(AnoRenderBridge *bridge, RenderEvent *out)
+bool ano::ano_render_poll_event(AnoRenderBridge *bridge, RenderEvent *out)
 {
     return bridge->events.pop(*out);
 }
 
-bool ano_render_acquire_snapshot(AnoRenderBridge *bridge, RenderSnapshot *out)
+bool ano::ano_render_acquire_snapshot(AnoRenderBridge *bridge, RenderSnapshot *out)
 {
     return bridge->snapshot.acquire(*out);
 }
@@ -409,7 +411,7 @@ static bool view_pose_valid(const AnoViewState *view)
 // in:  bridge, view (logic-owned camera pose)
 // out: nothing; degenerate pose dropped, last accepted stands
 // inv: single producer. Validity checked here once.
-void ano_render_publish_view(AnoRenderBridge *bridge, const AnoViewState *view)
+void ano::ano_render_publish_view(AnoRenderBridge *bridge, const AnoViewState *view)
 {
     if (!view_pose_valid(view)) {
         if (!bridge->viewRejectWarned) {

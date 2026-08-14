@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include "anoptic_filesystem.h"
+
+using namespace ano;
 #include "anoptic_memory.h"
 #include "anoptic_text.h"
 #include "text/text_internal.h"

@@ -12,6 +12,8 @@
 
 #include <anoptic_music.h>
 
+using namespace ano;
+
 #include "music_theory.h"
 #include "music_vocab.h"
 

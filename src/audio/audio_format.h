@@ -19,6 +19,8 @@
 
 #include <anoptic_audio.h>
 
+using namespace ano;
+
 #include <anoptic_meta.h>
 
 enum class AnoAudioNumericKind : uint8_t { floating_point, signed_integer };

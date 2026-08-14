@@ -9,6 +9,8 @@
 // Shadows: Wallace closed form (erf x, 4-sample Gaussian quadrature y). docs/ui/ui-render.md §3.3-3.6.
 
 #include "anoptic_ui.h"
+
+using namespace ano;
 #include "ui_path.h"
 
 #include <math.h>
@@ -115,7 +117,7 @@ static float ui_path_sum(const AnoUiScene *s, uint32_t off, uint32_t curveCount,
 
 /* SDF + Shadow */
 
-float ano_ui_ref_sd_rrect(const float p[2], const float half[2], const float radii[4])
+float ano::ano_ui_ref_sd_rrect(const float p[2], const float half[2], const float radii[4])
 {
     // y-down quadrant: x<0,y<0 tl; x>=0,y<0 tr; x>=0,y>=0 br; x<0,y>=0 bl.
     float r = p[0] >= 0.0f ? (p[1] >= 0.0f ? radii[2] : radii[1])
@@ -149,7 +151,7 @@ static float shadow_x(float x, float y, float sigma, float corner, const float h
     return 0.5f * (ui_erf((x + curved) * k) - ui_erf((x - curved) * k));
 }
 
-float ano_ui_ref_shadow(const float p[2], const float half[2], float corner, float sigma)
+float ano::ano_ui_ref_shadow(const float p[2], const float half[2], float corner, float sigma)
 {
     // 4-sample Gaussian quadrature over y offsets intersecting the box, truncated at 3 sigma.
     float low = p[1] - half[1], high = p[1] + half[1];
@@ -210,7 +212,7 @@ static void ui_stop_color(const AnoUiScene *s, uint32_t first, uint32_t count, f
     for (int k = 0; k < 4; k++) out[k] = st[last].color[k];
 }
 
-void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py,
+void ano::ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py,
                       const float base[4], float out[4])
 {
     if (paintRef == ANO_UI_REF_NONE) {
@@ -246,7 +248,7 @@ void ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py
 
 /* Shade + Eval */
 
-void ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, float out[4])
+void ano::ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, float out[4])
 {
     out[0] = out[1] = out[2] = out[3] = 0.0f;
     if (prim >= s->primCount)
@@ -294,7 +296,7 @@ void ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, fl
 
 // Painter's-order register blend: ascending index, src-over. ADD accumulates rgb only.
 // Result UNCLAMPED premultiplied linear.
-void ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4])
+void ano::ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4])
 {
     float acc[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     for (uint32_t i = 0; i < s->primCount; i++) {
@@ -345,7 +347,7 @@ static uint32_t shade_entry(const AnoUiScene *s, uint32_t entry, int32_t px, int
     return p->flags & ANO_UI_BLEND_MASK;
 }
 
-void ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
+void ano::ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY, const uint32_t *offsets,
                            const uint32_t *entries, int32_t px, int32_t py, float out[4])
 {

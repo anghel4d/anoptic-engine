@@ -1,5 +1,7 @@
 #include <anoptic_resources_typed.h>
 
+using namespace ano;
+
 namespace invalid_schema {
 
 struct [[=ano::Artifact{}]] Source final {

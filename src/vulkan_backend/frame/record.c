@@ -8,6 +8,8 @@
 #include <vulkan/vulkan.h>
 #include <anoptic_log.h>
 
+using namespace ano;
+
 #include "vulkan_backend/vulkanMaster.h"
 #include "vulkan_backend/backend.h"
 #include "vulkan_backend/slot_upload.h"

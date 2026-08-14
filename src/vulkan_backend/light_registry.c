@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <anoptic_memory.h>
 
+using namespace ano;
+
 #include "vulkan_backend/structs.h"
 #include "vulkan_backend/light_registry.h"
 

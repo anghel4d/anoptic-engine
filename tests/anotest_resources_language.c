@@ -7,6 +7,8 @@
 // Reflected schemas, canonical artifacts, hostile-byte rejection, and SHA-256.
 
 #include <anoptic_render_resources.h>
+
+using namespace ano;
 #include <anoptic_resources.h>
 
 #include <stddef.h>

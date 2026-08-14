@@ -11,6 +11,8 @@
 
 #include "anoptic_strings.h"
 
+using namespace ano;
+
 // Inline value from len <= 12 bytes. Starts all-zero so I3 holds.
 static inline anostr_t anostr_make_inline_(const void *bytes, size_t len)
 {
@@ -33,7 +35,7 @@ static inline anostr_t anostr_make_long_(const char *bytes, size_t len)
 }
 
 // Interning table (shared with anostr_sym_sort's key cache). Single mutator.
-struct anostr_intern_t {
+struct ano::anostr_intern_t {
     mi_heap_t *heap;
     uint32_t   count;       // interned strings, dense syms 0..count-1
     uint32_t   slotMask;    // slot capacity minus 1

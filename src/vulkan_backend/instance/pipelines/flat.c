@@ -4,6 +4,8 @@
  * Anoptic targets ISO C++26. */
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include "flat.h"
 #include "vulkan_backend/instance/pipeline.h"
 #include "vulkan_backend/pipeline_registry.h"

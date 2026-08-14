@@ -17,6 +17,8 @@
 #include <mimalloc.h>
 #include "render_bridge/render_bridge.h" // private transport: SPSC ring + bridge + endpoints
 #include "anoptic_memory.h" // ANO_CACHE_LINE / ANO_THREAD_LINE
+
+using namespace ano;
 #include "anoptic_threads.h"
 #include "anoptic_time.h" // ano_sleep
 #include "anoptic_log.h"  // ano_log_set_route

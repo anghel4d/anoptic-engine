@@ -7,6 +7,8 @@
 // Calm blackbox: resolve CRASH.log path, Stage 4 look-back, hand off to platform Stage 1 hooks.
 
 #include <anoptic_log_crash.h>
+
+using namespace ano;
 #include <anoptic_filesystem.h>
 
 #include "log/log_crash_internal.h"
@@ -29,7 +31,7 @@ static void investigate_previous_flight(const char *dir)
     bb_prune_suffix(dir, "_ano.log",   BB_KEEP_LOGS, stamp);
 }
 
-int ano_log_crash_init(void)
+int ano::ano_log_crash_init(void)
 {
     // Resolve <logs>/<stamp>_CRASH.log once. Fallbacks: <gamedir>, then CWD.
     ano_fspath dir = ano_fs_logpath();
@@ -48,12 +50,12 @@ int ano_log_crash_init(void)
     return bb_install();
 }
 
-int ano_log_crash_thread_arm(void)
+int ano::ano_log_crash_thread_arm(void)
 {
     return bb_thread_arm();
 }
 
-void ano_log_crash_thread_disarm(void)
+void ano::ano_log_crash_thread_disarm(void)
 {
     bb_thread_disarm();
 }

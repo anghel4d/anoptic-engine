@@ -60,6 +60,7 @@ typedef struct AnoAudioSource
 } AnoAudioSource;
 
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 

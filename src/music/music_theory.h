@@ -17,6 +17,8 @@
 #include "music_modes.h"
 #include <anoptic_music.h>
 
+using namespace ano;
+
 
 /* Scales */
 

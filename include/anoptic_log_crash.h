@@ -31,7 +31,10 @@
 
 #include "anoptic_log.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -62,5 +65,7 @@ void ano_log_crash_thread_disarm(void);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTIC_LOG_CRASH_H

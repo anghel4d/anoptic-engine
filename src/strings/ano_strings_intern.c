@@ -12,7 +12,7 @@
 
 #define INTERN_INITIAL_SLOTS 64u    // power of two; grows at 70% load
 
-anostr_intern_t *anostr_intern_make(mi_heap_t *heap)
+anostr_intern_t *ano::anostr_intern_make(mi_heap_t *heap)
 {
     if (heap == NULL)
         return NULL;
@@ -87,7 +87,7 @@ static int grow_arrays(anostr_intern_t *t)
     return 0;
 }
 
-anostr_sym anostr_intern(anostr_intern_t *t, anostr_t s)
+anostr_sym ano::anostr_intern(anostr_intern_t *t, anostr_t s)
 {
     if (t == NULL)
         return ANOSTR_SYM_NONE;
@@ -116,21 +116,21 @@ anostr_sym anostr_intern(anostr_intern_t *t, anostr_t s)
     return sym;
 }
 
-anostr_sym anostr_intern_find(const anostr_intern_t *t, anostr_t s)
+anostr_sym ano::anostr_intern_find(const anostr_intern_t *t, anostr_t s)
 {
     if (t == NULL)
         return ANOSTR_SYM_NONE;
     return probe_find(t, anostr_hash(s), s);
 }
 
-anostr_t anostr_sym_str(const anostr_intern_t *t, anostr_sym sym)
+anostr_t ano::anostr_sym_str(const anostr_intern_t *t, anostr_sym sym)
 {
     if (t == NULL || sym >= t->count)
         return anostr_empty();
     return t->strs[sym];
 }
 
-anostr_t anostr_dedupe(anostr_intern_t *t, anostr_t s)
+anostr_t ano::anostr_dedupe(anostr_intern_t *t, anostr_t s)
 {
     anostr_sym sym = anostr_intern(t, s);
     if (sym == ANOSTR_SYM_NONE)
@@ -138,7 +138,7 @@ anostr_t anostr_dedupe(anostr_intern_t *t, anostr_t s)
     return t->strs[sym];
 }
 
-size_t anostr_intern_count(const anostr_intern_t *t)
+size_t ano::anostr_intern_count(const anostr_intern_t *t)
 {
     return t == NULL ? 0 : t->count;
 }

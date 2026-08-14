@@ -9,6 +9,8 @@
 // Assert: wide burst drops nothing, full-width fields; narrow control keeps rendered ~ stored. Exit 0 == pass.
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_threads.h>
 #include <anoptic_filesystem.h>
 

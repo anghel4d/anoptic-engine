@@ -7,6 +7,8 @@
 // Text module: lifetime + FreeType backend. FT_New_Library with custom FT_Memory routes parser allocs into the module mimalloc heap.
 
 #include "anoptic_text.h"
+
+using namespace ano;
 #include "text/text_internal.h"
 
 #include <errno.h>
@@ -49,7 +51,7 @@ static void *text_ft_realloc(FT_Memory memory, long cur_size, long new_size, voi
     return mi_heap_realloc(static_cast<mi_heap_t *>(memory->user), block, (size_t)new_size);
 }
 
-int ano_text_init(void)
+int ano::ano_text_init(void)
 {
     if (g_ftLibrary != NULL)
         return 0;
@@ -83,7 +85,7 @@ int ano_text_init(void)
 }
 
 // Faces, then library, then heap. Init thread.
-void ano_text_shutdown(void)
+void ano::ano_text_shutdown(void)
 {
     for (uint32_t i = 0; i < ANO_TEXT_MAX_FONTS; i++)
     {
@@ -119,7 +121,7 @@ void ano_text_version(int *major, int *minor, int *patch)
 }
 
 // 1-based handle, or 0. Init thread.
-AnoFontId ano_text_font_load(anostr_t path)
+AnoFontId ano::ano_text_font_load(anostr_t path)
 {
     if (g_ftLibrary == NULL || anostr_is_empty(path))
         return 0;

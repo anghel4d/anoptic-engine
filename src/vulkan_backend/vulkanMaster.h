@@ -12,6 +12,8 @@
 
 #include <anoptic_render.h> // lifecycle + command protocol; defined in this translation unit
 
+using namespace ano;
+
 #include "vulkan_backend/structs.h"
 
 #include "vulkan_backend/instance/instanceInit.h"

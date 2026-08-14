@@ -13,6 +13,8 @@
 #include <math.h>
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_time.h>
 
 #include "templates/rng.h"

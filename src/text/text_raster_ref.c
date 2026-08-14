@@ -11,6 +11,8 @@
 // No gamma. Linear coverage like FT_Render_Glyph.
 
 #include "anoptic_text.h"
+
+using namespace ano;
 #include "text/text_internal.h"
 
 #include <math.h>

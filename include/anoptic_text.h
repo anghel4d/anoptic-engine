@@ -17,7 +17,10 @@
 #include "anoptic_memory.h"
 #include "anoptic_strings.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -162,5 +165,7 @@ void ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif

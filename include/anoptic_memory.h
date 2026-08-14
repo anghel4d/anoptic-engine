@@ -26,6 +26,8 @@
 #include <alloca.h>
 #endif
 
+namespace ano {
+
 #ifdef __cplusplus
 #define ANO_MEMORY_CONSTEXPR constexpr
 #else
@@ -66,9 +68,14 @@ static inline ANO_MEMORY_CONSTEXPR bool ano_size_align(
 
 #undef ANO_MEMORY_CONSTEXPR
 
+} // namespace ano
+
 #ifdef __cplusplus
 #include <span>
 
+namespace ano {
+
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -107,8 +114,6 @@ void ano_aligned_free(void* ptr);
 
 #ifdef __cplusplus
 }
-
-namespace ano {
 
 struct MemoryReservation final {
     size_t offset = 0;

@@ -17,7 +17,10 @@
 
 #include <stdarg.h>
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -118,5 +121,7 @@ void ano_log_flush(void);
 #define ano_debug_olog(...) ((void)0)
 #define ano_debug_rolog(...)((void)0)
 #endif
+
+} // namespace ano
 
 #endif // ANOPTIC_LOG_H

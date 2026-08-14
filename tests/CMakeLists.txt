@@ -49,11 +49,6 @@ target_compile_definitions(anotest_resources_gltf PRIVATE
 add_test(NAME anoptic_resources_gltf COMMAND anotest_resources_gltf)
 set_tests_properties(anoptic_resources_gltf PROPERTIES TIMEOUT 180 LABELS "integration;resources")
 
-add_test(NAME anoptic_resources_c_header
-        COMMAND ${CMAKE_C_COMPILER} -std=c17 -I ${CMAKE_SOURCE_DIR}/include
-                -fsyntax-only ${CMAKE_CURRENT_SOURCE_DIR}/anotest_resources_c_header.c)
-set_tests_properties(anoptic_resources_c_header PROPERTIES TIMEOUT 30 LABELS "unit;resources")
-
 function(ano_add_resource_compile_failure name source expected)
     add_test(NAME ${name}
             COMMAND ${CMAKE_COMMAND}

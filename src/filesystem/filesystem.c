@@ -7,6 +7,8 @@
 // Common TU: session stamp and log directory.
 
 #include "anoptic_filesystem.h"
+
+using namespace ano;
 #include "filesystem/filesystem_internal.h"
 
 #include <anoptic_time.h>
@@ -19,7 +21,7 @@
 /* Session Stamp */
 
 // One stamp per process, latched by first caller. Racing loser spins on winner.
-const char *ano_fs_session_stamp(void)
+const char *ano::ano_fs_session_stamp(void)
 {
     static ANO_ATOMIC(int) state;   // 0 unset, 1 building, 2 ready
     static char stamp[24];      // "YYYY-MM-DD_XXXXXX" is 17 + NUL
@@ -42,7 +44,7 @@ const char *ano_fs_session_stamp(void)
 
 /* Log Path */
 
-ano_fspath ano_fs_logpath(void)
+ano_fspath ano::ano_fs_logpath(void)
 {
     ano_fspath dir = ano_fs_gamepath();
     if (dir.length == 0 || dir.length + 5 >= MAXPATH)

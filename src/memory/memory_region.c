@@ -6,6 +6,8 @@
 
 #include <anoptic_memory.h>
 
+using namespace ano;
+
 namespace ano {
 
 struct MemoryRegion final {

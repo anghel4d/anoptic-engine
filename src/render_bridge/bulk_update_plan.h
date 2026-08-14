@@ -13,6 +13,8 @@
 
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include <stddef.h>
 #include <stdint.h>
 #include <type_traits>

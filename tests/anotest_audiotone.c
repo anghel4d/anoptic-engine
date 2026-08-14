@@ -12,6 +12,8 @@
 #include <stdlib.h>
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_time.h>
 
 static int failures = 0;

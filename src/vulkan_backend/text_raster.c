@@ -18,6 +18,8 @@
 #include "vulkan_backend/vertex/vertex.h"
 #include <anoptic_memory_typed.h>
 
+using namespace ano;
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>

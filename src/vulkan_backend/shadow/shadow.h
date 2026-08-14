@@ -15,6 +15,8 @@
 #include "vulkan_backend/structs.h"   // RendererState, VulkanContext, Shadow* types
 #include <anoptic_render.h>           // AnoMotionDescriptor
 
+using namespace ano;
+
 /* shadow/shadow_cache.c */
 
 // Invalidate a frustum block's cached atlas layers.

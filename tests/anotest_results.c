@@ -5,6 +5,8 @@
 
 #include "anoptic_results.h"
 
+using namespace ano;
+
 namespace {
 
 enum class ParseError {

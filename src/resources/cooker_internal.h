@@ -3,6 +3,8 @@
 
 #include <anoptic_resources_cook.h>
 
+using namespace ano;
+
 #include <anoptic_memory_typed.h>
 
 #include "parallel.h"
@@ -35,7 +37,7 @@ struct AnoResourceRevisionStorage final {
     ano::MemoryReservation artifact;
 };
 
-struct AnoCookedRevision final {
+struct ano::AnoCookedRevision final {
     size_t references;
     AnoResourceManifestEntry *entries;
     AnoResourceRevisionStorage *storage;

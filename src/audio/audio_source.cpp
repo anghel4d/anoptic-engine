@@ -10,6 +10,8 @@
 
 #include <anoptic_audio.h>
 
+using namespace ano;
+
 #include "audio_source.h"
 #include <anoptic_meta.h>
 

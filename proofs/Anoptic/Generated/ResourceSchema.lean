@@ -33,7 +33,7 @@ structure Importer where
   deriving DecidableEq, Repr
 
 def artifacts : List Artifact := [
-  { name := "Manifest", typeId := 16373365112598258678, fingerprint := "14c707a6cdd17c3d59d00beaa2b1a6809b3bbd41779eeb568c15c2ad16f37ed0", fixedSize := 32, fieldCount := 2, dependencies := [] },
+  { name := "Manifest", typeId := 16373365112598258678, fingerprint := "8c0368f388919f2d03cba0d5524b7a76aa60697ab627da803b5169f566ef6071", fixedSize := 32, fieldCount := 2, dependencies := [] },
   { name := "Texture", typeId := 5386929302838048813, fingerprint := "0d2727c412e650f6a8e91ff681eea29392d62b1bc562f33318d369db740d5adb", fixedSize := 30, fieldCount := 6, dependencies := [] },
   { name := "Material", typeId := 6833136620976133851, fingerprint := "bf76e0c0ad6cc3be4c222cc27cfe35922145a4572cdda795aef63cb51ab6ff05", fixedSize := 1037, fieldCount := 31, dependencies := ["Texture"] },
   { name := "Mesh", typeId := 2896650656725398085, fingerprint := "0d82b4536de2452f43315648af7d48a1c6fa78824992933f9110207d209c1a5b", fixedSize := 64, fieldCount := 5, dependencies := ["Material"] },

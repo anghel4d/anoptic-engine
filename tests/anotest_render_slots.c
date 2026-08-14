@@ -8,6 +8,8 @@
 
 #include <anoptic_memory.h>
 
+using namespace ano;
+
 #include <stdio.h>
 #include "vulkan_backend/render_slots.h"
 

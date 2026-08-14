@@ -3,6 +3,8 @@
  * Anoptic targets ISO C++26. */
 
 #include <anoptic_render_resources.h>
+
+using namespace ano;
 #include <anoptic_resources_cook.h>
 
 #include <stdio.h>

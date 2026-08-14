@@ -17,6 +17,8 @@
 
 #include <anoptic_filesystem.h>
 
+using namespace ano;
+
 // Base for relative scratch paths. "." = CWD (repointed by scratch_anchor_to_exe()).
 #ifndef ANO_TEST_OUTDIR
 #define ANO_TEST_OUTDIR "."

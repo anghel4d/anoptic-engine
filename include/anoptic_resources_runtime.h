@@ -11,7 +11,10 @@
 
 #include "anoptic_resources_pack.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -89,5 +92,7 @@ AnoResourceError ano_resource_epoch_changed(const AnoResidencyEpoch *epoch,
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTICENGINE_ANOPTIC_RESOURCES_RUNTIME_H

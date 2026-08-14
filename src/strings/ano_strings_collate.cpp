@@ -13,6 +13,8 @@
 
 #include "anoptic_strings_utf.h"
 
+using namespace ano;
+
 #include "strings/ano_collate_tables.h"
 #include "strings/ano_strings_internal.h"
 
@@ -123,7 +125,7 @@ static int collate_level(anostr_t a, anostr_t b, int level)
     }
 }
 
-int anostr_collate(anostr_t a, anostr_t b)
+int ano::anostr_collate(anostr_t a, anostr_t b)
 {
     if (anostr_eq(a, b))
         return 0;   // byte-equal is collate-equal
@@ -179,7 +181,7 @@ static uint64_t collate_prefix_skip(anostr_t s, uint32_t skip)
     return key;
 }
 
-uint64_t anostr_collate_prefix(anostr_t s)
+uint64_t ano::anostr_collate_prefix(anostr_t s)
 {
     return collate_prefix_skip(s, 0);
 }
@@ -240,7 +242,7 @@ static void collate_key_emit(key_buf_t *kb, key_buf_t *l2, key_buf_t *l3, anostr
     kb->oom = kb->oom || l2->oom || l3->oom;
 }
 
-anostr_t anostr_collate_key(mi_heap_t *heap, anostr_t s)
+anostr_t ano::anostr_collate_key(mi_heap_t *heap, anostr_t s)
 {
     key_buf_t kb = {0}, l2 = {0}, l3 = {0};
     collate_key_emit(&kb, &l2, &l3, s);
@@ -545,7 +547,7 @@ static void sym_insertion(const anostr_intern_t *t, anostr_sym *syms, size_t cou
     }
 }
 
-void anostr_sort(anostr_t *items, size_t count)
+void ano::anostr_sort(anostr_t *items, size_t count)
 {
     if (items == NULL || count < 2)
         return;
@@ -571,7 +573,7 @@ void anostr_sort(anostr_t *items, size_t count)
     mi_free(recs);
 }
 
-void anostr_sort_idx(const anostr_t *items, size_t count, uint32_t *order)
+void ano::anostr_sort_idx(const anostr_t *items, size_t count, uint32_t *order)
 {
     if (order == NULL || count == 0)
         return;
@@ -615,7 +617,7 @@ static const uint64_t *sym_key_cache(anostr_intern_t *t)
     return t->collateKeys;
 }
 
-void anostr_sym_sort(anostr_intern_t *t, anostr_sym *syms, size_t count)
+void ano::anostr_sym_sort(anostr_intern_t *t, anostr_sym *syms, size_t count)
 {
     if (t == NULL || syms == NULL || count < 2)
         return;
@@ -647,12 +649,12 @@ void anostr_sym_sort(anostr_intern_t *t, anostr_sym *syms, size_t count)
     mi_free(recs);
 }
 
-bool anostr_eq_base(anostr_t a, anostr_t b)
+bool ano::anostr_eq_base(anostr_t a, anostr_t b)
 {
     return collate_level(a, b, 0) == 0;
 }
 
-bool anostr_starts_base(anostr_t s, anostr_t prefix)
+bool ano::anostr_starts_base(anostr_t s, anostr_t prefix)
 {
     ce_iter_t S = { .s = s }, P = { .s = prefix };
     for (;;) {
@@ -664,7 +666,7 @@ bool anostr_starts_base(anostr_t s, anostr_t prefix)
     }
 }
 
-size_t anostr_find_base(anostr_t s, anostr_t needle, size_t from)
+size_t ano::anostr_find_base(anostr_t s, anostr_t needle, size_t from)
 {
     size_t len = anostr_len(s);
     size_t i = from < len ? from : len;

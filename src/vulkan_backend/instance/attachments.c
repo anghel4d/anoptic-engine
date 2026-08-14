@@ -11,6 +11,8 @@
 #include <ctype.h>
 #include <math.h>
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <anoptic_log.h>
 
 #ifndef GLFW_INCLUDE_VULKAN

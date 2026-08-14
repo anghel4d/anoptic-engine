@@ -149,27 +149,27 @@ int pthread_barrier_destroy(pthread_barrier_t *barrier) {
 
 /* Spinlocks: ano_ wrappers (Darwin) */
 
-int ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
+int ano::ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
 
     return pthread_spin_init(lock, pshared);
 }
 
-int ano_thread_spin_destroy(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_destroy(anothread_spinlock_t *lock) {
 
     return pthread_spin_destroy(lock);
 }
 
-int ano_thread_spin_lock(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_lock(anothread_spinlock_t *lock) {
 
     return pthread_spin_lock(lock);
 }
 
-int ano_thread_spin_trylock(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_trylock(anothread_spinlock_t *lock) {
 
     return pthread_spin_trylock(lock);
 }
 
-int ano_thread_spin_unlock(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
 
     return pthread_spin_unlock(lock);
 }
@@ -177,17 +177,17 @@ int ano_thread_spin_unlock(anothread_spinlock_t *lock) {
 
 /* Synchronization Barriers: ano_ wrappers (Darwin) */
 
-int ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
+int ano::ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
 
     return pthread_barrier_init(barrier, attr, count);
 }
 
-int ano_thread_barrier_wait(anothread_barrier_t *barrier) {
+int ano::ano_thread_barrier_wait(anothread_barrier_t *barrier) {
 
     return pthread_barrier_wait(barrier);
 }
 
-int ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
+int ano::ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
 
     return pthread_barrier_destroy(barrier);
 }

@@ -14,6 +14,8 @@
 #include "anoptic_resources_runtime.h"
 #include "anoptic_memory.h"
 
+namespace ano {
+
 typedef struct AnoRenderResourcePublication AnoRenderResourcePublication;
 
 typedef enum AnoRenderResourceReloadStatus {
@@ -24,6 +26,7 @@ typedef enum AnoRenderResourceReloadStatus {
 
 // Takes ownership of reload. Keep preparationHeap live until poll or cancel
 // consumes the publication.
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" AnoResourceError ano_render_resources_prepare_reload(
     AnoResourceReload *reload, mi_heap_t *preparationHeap,
     AnoRenderResourcePublication **publication);
@@ -35,7 +38,7 @@ extern "C" AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
 extern "C" void ano_render_resources_cancel_reload(
     AnoRenderResourcePublication *publication);
 
-namespace ano::asset_schema {
+namespace asset_schema {
 
 enum class TextureFormat : uint8_t {
     rgba8,
@@ -286,6 +289,8 @@ bool realize_mesh(const Mesh&, RenderResourceContext&, GpuMesh&) noexcept;
 [[=Transform{Executor::render_master, Streaming::whole, true}]]
 bool realize_scene(const Scene&, RenderResourceContext&, GpuScene&) noexcept;
 
-} // namespace ano::asset_schema
+} // namespace asset_schema
+
+} // namespace ano
 
 #endif // ANOPTICENGINE_ANOPTIC_RENDER_RESOURCES_H

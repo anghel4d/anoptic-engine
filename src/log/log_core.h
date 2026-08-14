@@ -10,6 +10,8 @@
 #define ANOPTICENGINE_LOG_CORE_H
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_memory.h>   // ANO_CACHE_LINE
 
 // Stored line + "HH:MM:SS " prefix = 4096. Max entry spans ceil((16 + MSG_MAX) / ANO_CL) <= 64 lines.

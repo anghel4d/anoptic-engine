@@ -14,6 +14,8 @@
 
 #include <anoptic_music.h>
 
+using namespace ano;
+
 #include "music/music_conductor.h"
 
 static int failures = 0;

@@ -13,7 +13,10 @@
 #include <anoptic_atomic.h>
 #include <time.h>     // struct timespec for ano_thread_cond_timedwait
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -166,5 +169,7 @@ int ano_thread_barrier_destroy(anothread_barrier_t *barrier);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTIC_THREADS_H

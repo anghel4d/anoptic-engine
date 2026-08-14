@@ -10,12 +10,12 @@
 // Lock-free bridge producer.
 
 // Valid after initVulkan() returns.
-AnoRenderBridge* anoRenderBridge(void) { return &rendererState.bridge; }
+AnoRenderBridge* ano::anoRenderBridge(void) { return &rendererState.bridge; }
 
 // Reserve next free transform-ring slice into out.
 // out: filled on success; false if slice in flight
 // inv: produceSeq unchanged
-bool ano_render_stream_begin(AnoStreamRegion* out) {
+bool ano::ano_render_stream_begin(AnoStreamRegion* out) {
     TransformStreamBuffer* ts = &rendererState.transformStream;
     uint64_t seq = ts->produceSeq + 1u;
     if (seq > ts->ringSlices) {
@@ -32,7 +32,7 @@ bool ano_render_stream_begin(AnoStreamRegion* out) {
 }
 
 // Publish filled region as {seq,count}.
-bool ano_render_stream_commit(const AnoStreamRegion* region, uint32_t count) {
+bool ano::ano_render_stream_commit(const AnoStreamRegion* region, uint32_t count) {
     TransformStreamBuffer* ts = &rendererState.transformStream;
     if (count > ts->capacity) count = ts->capacity;
     RenderCommand cmd = { .kind = RCMD_STREAM_TRANSFORMS,

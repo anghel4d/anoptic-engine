@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <anoptic_render_resources.h>
 
+using namespace ano;
+
 bool ano_render_load_scene_assets(AnoResourceManager *resources);
 void ano_render_resources_apply_pending(uint32_t frameIndex);
 void ano_render_resources_collect_retired(uint64_t completedFrameSerial);

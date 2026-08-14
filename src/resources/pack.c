@@ -7,6 +7,8 @@
 #include "cooker_internal.h"
 
 #include <anoptic_memory_typed.h>
+
+using namespace ano;
 #include <anoptic_resources_pack.h>
 
 #include <stddef.h>
@@ -82,7 +84,7 @@ AnoResourceError decode_manifest(
 
 } // namespace
 
-struct AnoResourceManifest {
+struct ano::AnoResourceManifest {
     ano::MemoryVolume *volume;
     ResourceManifest root;
     AnoResourceManifestEntry *entries;
@@ -90,7 +92,7 @@ struct AnoResourceManifest {
     AnoManifestId id;
 };
 
-struct AnoResourcePack {
+struct ano::AnoResourcePack {
     AnoResourceManifest *manifest;
     AnoCookedRevision *revision;
 };
@@ -155,7 +157,7 @@ AnoResourceError make_manifest(
 
 } // namespace
 
-extern "C" AnoResourceError ano_resource_manifest_open(
+extern "C" AnoResourceError ano::ano_resource_manifest_open(
     AnoResourceBytes bytes, AnoResourceManifest **manifest)
 {
     if (manifest == nullptr || (bytes.data == nullptr && bytes.size != 0))
@@ -189,7 +191,7 @@ extern "C" AnoResourceError ano_resource_manifest_open(
     return result;
 }
 
-extern "C" void ano_resource_manifest_close(AnoResourceManifest *manifest)
+extern "C" void ano::ano_resource_manifest_close(AnoResourceManifest *manifest)
 {
     if (manifest == nullptr)
         return;
@@ -197,7 +199,7 @@ extern "C" void ano_resource_manifest_close(AnoResourceManifest *manifest)
     mi_free(manifest);
 }
 
-extern "C" AnoResourceError ano_resource_manifest_id(
+extern "C" AnoResourceError ano::ano_resource_manifest_id(
     const AnoResourceManifest *manifest, AnoManifestId *id)
 {
     if (manifest == nullptr || id == nullptr)
@@ -206,13 +208,13 @@ extern "C" AnoResourceError ano_resource_manifest_id(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" uint64_t ano_resource_manifest_entry_count(
+extern "C" uint64_t ano::ano_resource_manifest_entry_count(
     const AnoResourceManifest *manifest)
 {
     return manifest == nullptr ? 0 : manifest->root.entries.count;
 }
 
-extern "C" AnoResourceError ano_resource_manifest_find(
+extern "C" AnoResourceError ano::ano_resource_manifest_find(
     const AnoResourceManifest *manifest, AnoAssetId asset,
     AnoResourceManifestEntry *entry)
 {
@@ -227,7 +229,7 @@ extern "C" AnoResourceError ano_resource_manifest_find(
     return ANO_RESOURCE_OK;
 }
 
-extern "C" AnoResourceError ano_resource_manifest_dependency(
+extern "C" AnoResourceError ano::ano_resource_manifest_dependency(
     const AnoResourceManifest *manifest, AnoAssetId asset, uint64_t index,
     AnoResourceDependency *dependency)
 {
@@ -413,7 +415,7 @@ AnoResourceError ano_resource_pack_build(
     return result;
 }
 
-extern "C" AnoResourceError ano_resource_pack_open(
+extern "C" AnoResourceError ano::ano_resource_pack_open(
     AnoResourceBytes bytes, AnoResourcePack **pack)
 {
     if (pack == nullptr)
@@ -601,7 +603,7 @@ extern "C" AnoResourceError ano_resource_pack_open(
     return result;
 }
 
-extern "C" void ano_resource_pack_close(AnoResourcePack *pack)
+extern "C" void ano::ano_resource_pack_close(AnoResourcePack *pack)
 {
     if (pack == nullptr)
         return;
@@ -610,7 +612,7 @@ extern "C" void ano_resource_pack_close(AnoResourcePack *pack)
     mi_free(pack);
 }
 
-extern "C" AnoResourceError ano_resource_pack_revision(
+extern "C" AnoResourceError ano::ano_resource_pack_revision(
     const AnoResourcePack *pack, const AnoCookedRevision **revision)
 {
     if (pack == nullptr || revision == nullptr)
@@ -623,13 +625,13 @@ extern "C" AnoResourceError ano_resource_pack_revision(
     return retained;
 }
 
-extern "C" const AnoResourceManifest *ano_resource_pack_manifest(
+extern "C" const AnoResourceManifest *ano::ano_resource_pack_manifest(
     const AnoResourcePack *pack)
 {
     return pack == nullptr ? nullptr : pack->manifest;
 }
 
-extern "C" AnoResourceError ano_resource_pack_view(
+extern "C" AnoResourceError ano::ano_resource_pack_view(
     const AnoResourcePack *pack, AnoAssetId asset, AnoResourceBytes *bytes)
 {
     if (pack == nullptr || bytes == nullptr)
@@ -643,7 +645,7 @@ extern "C" AnoResourceError ano_resource_pack_view(
         pack->revision, asset, item->type, bytes);
 }
 
-extern "C" AnoResourceError ano_resource_pack_read(
+extern "C" AnoResourceError ano::ano_resource_pack_read(
     const AnoResourcePack *pack, AnoAssetId asset,
     AnoResourceMutableBytes output, uint64_t *packSize)
 {

@@ -5,6 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_render_resources.h>
+
+using namespace ano;
 #include <anoptic_resources_cook.h>
 #include <anoptic_resources_pack.h>
 #include <anoptic_resources_typed.h>
@@ -35,7 +37,7 @@ bool importer_matches(const char *path, const ano::Importer& importer)
 
 } // namespace
 
-extern "C" AnoResourceError ano_resource_import(
+extern "C" AnoResourceError ano::ano_resource_import(
     AnoResourceCooker *cooker, const AnoResourceImportRequest *request)
 {
     if (cooker == nullptr || request == nullptr || request->source.value == 0
@@ -82,7 +84,7 @@ extern "C" AnoResourceError ano_resource_import(
     return result;
 }
 
-extern "C" AnoResourceError ano_resource_artifact_schema(
+extern "C" AnoResourceError ano::ano_resource_artifact_schema(
     AnoResourceTypeId type, AnoResourceSchema *schema)
 {
     if (schema == nullptr)
@@ -107,7 +109,7 @@ extern "C" AnoResourceError ano_resource_artifact_schema(
     return ANO_RESOURCE_TYPE_MISMATCH;
 }
 
-extern "C" AnoResourceError ano_resource_validate_artifact(
+extern "C" AnoResourceError ano::ano_resource_validate_artifact(
     AnoResourceTypeId type, AnoResourceBytes bytes)
 {
     static constexpr auto resourceDeclarations = std::define_static_array(
@@ -123,7 +125,7 @@ extern "C" AnoResourceError ano_resource_validate_artifact(
     return ANO_RESOURCE_TYPE_MISMATCH;
 }
 
-extern "C" AnoResourceError ano_resource_artifact_dependencies(
+extern "C" AnoResourceError ano::ano_resource_artifact_dependencies(
     AnoResourceTypeId type, AnoResourceBytes bytes,
     AnoResourceDependency *dependencies, uint64_t dependencyCapacity,
     uint64_t *dependencyCount)

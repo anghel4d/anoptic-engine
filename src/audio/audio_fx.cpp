@@ -9,6 +9,8 @@
 #include "audio_fx.h"
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include <math.h>
 #include <string.h>
 

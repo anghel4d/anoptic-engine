@@ -22,6 +22,8 @@
 #include <stdbool.h>
 #include <mimalloc.h>
 #include <anoptic_math.h>
+
+using namespace ano;
 #include <anoptic_render.h>
 #include <anoptic_threads_typed.h>
 
@@ -89,7 +91,7 @@ static_assert(ano::TransportData<RenderSnapshot>);
 static_assert(ano::TransportData<AnoViewState>);
 
 // Completes the opaque AnoRenderBridge declared in anoptic_render.h.
-struct AnoRenderBridge
+struct ano::AnoRenderBridge
 {
     ano::SpscRing<RenderCommand> commands; // logic -> render
     ano::SpscRing<RenderEvent> events;     // render -> logic

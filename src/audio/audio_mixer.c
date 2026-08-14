@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_time.h>
 
 #define ANO_AUDIO_TAU_F  6.28318530717958647692f
@@ -567,7 +569,7 @@ void *ano_audio_mixer_main(void *arg)
     return NULL;
 }
 
-bool ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames)
+bool ano::ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames)
 {
     if (!out)
         return false;

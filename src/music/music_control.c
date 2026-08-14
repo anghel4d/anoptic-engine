@@ -13,6 +13,8 @@
 
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include "music_control.h"
 #include "music_ir.h"
 
@@ -117,7 +119,7 @@ AnoAffect ano_affect_clamped(AnoAffect a)
     };
 }
 
-AnoMappingTable ano_mapping_table_default(void)
+AnoMappingTable ano::ano_mapping_table_default(void)
 {
     AnoMappingTable z;
     memset(&z, 0, sizeof z); // padding is part of the engine's snapshot
@@ -162,7 +164,7 @@ AnoMappingTable ano_mapping_table_default(void)
     return z;
 }
 
-AnoMappingTable ano_mapping_table_electronic(void)
+AnoMappingTable ano::ano_mapping_table_electronic(void)
 {
     // Timbres may cross layer grain.
     AnoMappingTable t = ano_mapping_table_default();

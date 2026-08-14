@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #include <anoptic_meta.h>
+
+using namespace ano;
 #include "vulkan_backend/components.h"
 
 enum class AnoFrameAttachment : uint8_t {

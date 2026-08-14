@@ -8,6 +8,8 @@
 
 #include <anogltf.h>
 #include <anoptic_memory_typed.h>
+
+using namespace ano;
 #include <anoptic_render_resources.h>
 #include <stb_image.h>
 

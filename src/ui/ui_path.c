@@ -11,6 +11,8 @@
 #include <stddef.h>
 
 #include "anoptic_ui.h"
+
+using namespace ano;
 #include "ui_path.h"
 
 static_assert(sizeof(AnoQuad) == 48 && offsetof(AnoQuad, y) == 24,
@@ -27,7 +29,7 @@ static uint32_t pack_pt(double x, double y)
     return (uint32_t)ano_half_pack((float)x) | ((uint32_t)ano_half_pack((float)y) << 16);
 }
 
-void ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, float s)
+void ano::ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, float s)
 {
     for (uint32_t i = 0; i < count; i++)
     {
@@ -63,7 +65,7 @@ static bool emit_quad(uint32_t *curves, uint32_t *w, uint32_t cap, uint32_t *seg
 
 /* Path Fill */
 
-uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
+uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
                           const float color[4], uint32_t paintRef, uint32_t clipRef,
                           uint32_t flags)
 {

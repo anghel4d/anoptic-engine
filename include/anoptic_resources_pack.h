@@ -11,7 +11,10 @@
 
 #include "anoptic_resources.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -75,6 +78,8 @@ void ano_resource_exported_pack_release(AnoResourceMutableBytes pack);
 
 #ifdef __cplusplus
 }
+
+} // namespace ano
 
 #include "anoptic_resources_typed.h"
 

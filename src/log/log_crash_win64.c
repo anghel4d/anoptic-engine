@@ -9,6 +9,8 @@
 // Deadman: watchdog thread parked on an event since init.
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include "log/log_crash_internal.h"
 
 #define WIN32_LEAN_AND_MEAN

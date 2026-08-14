@@ -5,6 +5,8 @@
 #include "resources.h"
 
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <anoptic_render_resources.h>
 
 #include "vulkan_backend/backend.h"

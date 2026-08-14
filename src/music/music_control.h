@@ -13,6 +13,8 @@
 
 #include <anoptic_music.h>
 
+using namespace ano;
+
 #include "music_theory.h"
 
 // Doubles here (Python floats are). Affect axes for mappers.

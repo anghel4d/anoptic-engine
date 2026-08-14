@@ -5,6 +5,8 @@
 
 #include "vulkan_backend/geometry.h"
 #include <anoptic_memory_typed.h>
+
+using namespace ano;
 #include <string.h>
 #include <stdio.h>
 #include <anoptic_log.h>

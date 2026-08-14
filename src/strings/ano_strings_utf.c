@@ -8,6 +8,8 @@
 
 #include "anoptic_strings_utf.h"
 
+using namespace ano;
+
 #include "strings/ano_unicode_tables.h"
 
 /* Decode */
@@ -47,7 +49,7 @@ static int utf8_decode(const uint8_t *p, size_t n, anorune_t *out)
     return 1 + need;
 }
 
-anorune_t anostr_rune_next(anostr_t s, size_t *i)
+anorune_t ano::anostr_rune_next(anostr_t s, size_t *i)
 {
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
     size_t at = *i;
@@ -65,7 +67,7 @@ anorune_t anostr_rune_next(anostr_t s, size_t *i)
     return r;
 }
 
-anorune_t anostr_rune_prev(anostr_t s, size_t *i)
+anorune_t ano::anostr_rune_prev(anostr_t s, size_t *i)
 {
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
     size_t at = *i;
@@ -92,7 +94,7 @@ anorune_t anostr_rune_prev(anostr_t s, size_t *i)
     return ANORUNE_REPLACEMENT;
 }
 
-size_t anostr_rune_count(anostr_t s)
+size_t ano::anostr_rune_count(anostr_t s)
 {
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
     size_t count = 0;
@@ -101,7 +103,7 @@ size_t anostr_rune_count(anostr_t s)
     return count;
 }
 
-bool anostr_utf8_valid(anostr_t s)
+bool ano::anostr_utf8_valid(anostr_t s)
 {
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
     size_t i = 0;
@@ -117,7 +119,7 @@ bool anostr_utf8_valid(anostr_t s)
 
 /* Encode */
 
-int anorune_encode(char buf[4], anorune_t r)
+int ano::anorune_encode(char buf[4], anorune_t r)
 {
     if (r > ANORUNE_MAX || rune_is_surrogate(r))
         r = ANORUNE_REPLACEMENT;
@@ -143,7 +145,7 @@ int anorune_encode(char buf[4], anorune_t r)
     return 4;
 }
 
-int anostr_builder_append_rune(anostr_builder_t *b, anorune_t r)
+int ano::anostr_builder_append_rune(anostr_builder_t *b, anorune_t r)
 {
     char buf[4];
     int n = anorune_encode(buf, r);
@@ -160,37 +162,37 @@ static inline const ano_uc_record_t *uc_record(anorune_t r)
     return &ano_uc_records[ano_uc_stage2[block * 256 + (r & 0xFFu)]];
 }
 
-anorune_t anorune_to_upper(anorune_t r)
+anorune_t ano::anorune_to_upper(anorune_t r)
 {
     return (anorune_t)((int64_t)r + uc_record(r)->upper_delta);
 }
 
-anorune_t anorune_to_lower(anorune_t r)
+anorune_t ano::anorune_to_lower(anorune_t r)
 {
     return (anorune_t)((int64_t)r + uc_record(r)->lower_delta);
 }
 
-bool anorune_is_letter(anorune_t r)
+bool ano::anorune_is_letter(anorune_t r)
 {
     return (uc_record(r)->flags & ANO_UC_LETTER) != 0;
 }
 
-bool anorune_is_digit(anorune_t r)
+bool ano::anorune_is_digit(anorune_t r)
 {
     return (uc_record(r)->flags & ANO_UC_DIGIT) != 0;
 }
 
-bool anorune_is_whitespace(anorune_t r)
+bool ano::anorune_is_whitespace(anorune_t r)
 {
     return (uc_record(r)->flags & ANO_UC_WHITESPACE) != 0;
 }
 
-bool anorune_is_mark(anorune_t r)
+bool ano::anorune_is_mark(anorune_t r)
 {
     return (uc_record(r)->flags & ANO_UC_MARK) != 0;
 }
 
-bool anorune_is_punct(anorune_t r)
+bool ano::anorune_is_punct(anorune_t r)
 {
     return (uc_record(r)->flags & ANO_UC_PUNCT) != 0;
 }
@@ -246,7 +248,7 @@ static size_t cull_find_first(anostr_t s, uint8_t ucMask, const uint64_t asciiSe
     return s.len;
 }
 
-anostr_t anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
+anostr_t ano::anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
 {
     uint8_t ucMask = cull_uc_mask(classes);
     if (ucMask == 0 || s.len == 0)
@@ -305,7 +307,7 @@ static int rune_cmp_(const void *a, const void *b)
     return x < y ? -1 : (x > y);
 }
 
-anostr_t anostr_rune_sort(mi_heap_t *heap, anostr_t s)
+anostr_t ano::anostr_rune_sort(mi_heap_t *heap, anostr_t s)
 {
     if (s.len < 2)
         return s;
@@ -371,7 +373,7 @@ static anorune_t utf16_next(const char16_t *src, size_t count, size_t *i)
     return ANORUNE_REPLACEMENT;
 }
 
-anostr_t anostr_from_utf16(mi_heap_t *heap, const char16_t *src, size_t count)
+anostr_t ano::anostr_from_utf16(mi_heap_t *heap, const char16_t *src, size_t count)
 {
     if (src == NULL)
         return anostr_empty();
@@ -387,7 +389,7 @@ anostr_t anostr_from_utf16(mi_heap_t *heap, const char16_t *src, size_t count)
     return anostr_freeze(&b);
 }
 
-anostr_t anostr_from_utf16_cstr(mi_heap_t *heap, const char16_t *src)
+anostr_t ano::anostr_from_utf16_cstr(mi_heap_t *heap, const char16_t *src)
 {
     if (src == NULL)
         return anostr_empty();
@@ -397,7 +399,7 @@ anostr_t anostr_from_utf16_cstr(mi_heap_t *heap, const char16_t *src)
     return anostr_from_utf16(heap, src, count);
 }
 
-char16_t *anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
+char16_t *ano::anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
 {
     if (count != NULL)
         *count = 0;
@@ -427,7 +429,7 @@ char16_t *anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
     return exact != NULL ? exact : out;
 }
 
-anostr_t anostr_from_utf32(mi_heap_t *heap, const anorune_t *src, size_t count)
+anostr_t ano::anostr_from_utf32(mi_heap_t *heap, const anorune_t *src, size_t count)
 {
     if (src == NULL)
         return anostr_empty();
@@ -442,7 +444,7 @@ anostr_t anostr_from_utf32(mi_heap_t *heap, const anorune_t *src, size_t count)
     return anostr_freeze(&b);
 }
 
-anorune_t *anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count)
+anorune_t *ano::anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count)
 {
     if (count != NULL)
         *count = 0;

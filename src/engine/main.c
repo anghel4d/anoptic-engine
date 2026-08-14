@@ -5,6 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>

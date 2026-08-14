@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "anoptic_memory.h"
+
+using namespace ano;
 #include "anoptic_strings.h"
 #include "templates/bench.h"
 #include "templates/rng.h"

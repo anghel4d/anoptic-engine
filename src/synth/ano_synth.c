@@ -15,12 +15,14 @@
 #include <string.h>
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_time.h>
 
 
 /* Lifecycle */
 
-AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
+AnoSynth *ano::ano_synth_create(const AnoSynthDesc *desc)
 {
     AnoSynthDesc d = desc ? *desc : (AnoSynthDesc){0};
     uint32_t rate   = d.sampleRate ? d.sampleRate : 48000u;
@@ -67,13 +69,13 @@ AnoSynth *ano_synth_create(const AnoSynthDesc *desc)
     return s;
 }
 
-void ano_synth_destroy(AnoSynth *s)
+void ano::ano_synth_destroy(AnoSynth *s)
 {
     if (s)
         ano_heap_destroy(s->heap);
 }
 
-uint32_t ano_synth_dropped(const AnoSynth *s)
+uint32_t ano::ano_synth_dropped(const AnoSynth *s)
 {
     return s->dropped;
 }
@@ -137,7 +139,7 @@ static double clock_time_at(const AnoSynth *s, double beat)
 
 /* Score Loading */
 
-bool ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCount,
+bool ano::ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCount,
                            uint32_t tempoCount, uint32_t eventCount)
 {
     if (barQuarters <= 0.0 || barCount == 0u || tempoCount == UINT32_MAX)
@@ -175,14 +177,14 @@ bool ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCount,
     return true;
 }
 
-bool ano_synth_score_tempo(AnoSynth *s, double beat, double bpm)
+bool ano::ano_synth_score_tempo(AnoSynth *s, double beat, double bpm)
 {
     if (bpm <= 0.0 || !s->anchors || s->scoreReady)
         return false; // no clock, or map closed
     return clock_add(s, beat, bpm);
 }
 
-bool ano_synth_score_bar(AnoSynth *s, uint32_t bar, const AnoMusicalParams *p,
+bool ano::ano_synth_score_bar(AnoSynth *s, uint32_t bar, const AnoMusicalParams *p,
                          const AnoMusicAffect *a)
 {
     if (!p || !a || s->barCount >= s->barCap || bar != s->barCount)
@@ -195,7 +197,7 @@ bool ano_synth_score_bar(AnoSynth *s, uint32_t bar, const AnoMusicalParams *p,
     return true;
 }
 
-bool ano_synth_score_event(AnoSynth *s, const AnoNoteEvent *ev)
+bool ano::ano_synth_score_event(AnoSynth *s, const AnoNoteEvent *ev)
 {
     if (!ev || s->rawCount >= s->rawCap || ev->dur <= 0.0
         || ev->layer >= ANO_MUSIC_LAYER_COUNT
@@ -248,7 +250,7 @@ static int note_cmp(const void *a, const void *b)
     return x->seq < y->seq ? -1 : x->seq > y->seq ? 1 : 0;
 }
 
-bool ano_synth_score_end(AnoSynth *s)
+bool ano::ano_synth_score_end(AnoSynth *s)
 {
     if (s->barCount == 0u)
         return false;
@@ -277,14 +279,14 @@ bool ano_synth_score_end(AnoSynth *s)
     return true;
 }
 
-uint64_t ano_synth_score_frames(const AnoSynth *s, float tailSeconds)
+uint64_t ano::ano_synth_score_frames(const AnoSynth *s, float tailSeconds)
 {
     if (!s->scoreReady || s->live)
         return 0; // live has no end
     return s->lastNoteEnd + (uint64_t)(tailSeconds * (float)s->sampleRate);
 }
 
-double ano_synth_time_at(const AnoSynth *s, double beat)
+double ano::ano_synth_time_at(const AnoSynth *s, double beat)
 {
     return s->scoreReady ? clock_time_at(s, beat) : 0.0;
 }
@@ -296,7 +298,7 @@ double ano_synth_time_at(const AnoSynth *s, double beat)
 #define LIVE_BARS      16u
 #define LIVE_ANCHORS  256u
 
-bool ano_synth_live_begin(AnoSynth *s, double barQuarters)
+bool ano::ano_synth_live_begin(AnoSynth *s, double barQuarters)
 {
     if (barQuarters <= 0.0)
         return false;
@@ -356,7 +358,7 @@ static void live_order(AnoSynth *s, uint32_t from)
     }
 }
 
-bool ano_synth_live_bar(AnoSynth *s, uint32_t bar,
+bool ano::ano_synth_live_bar(AnoSynth *s, uint32_t bar,
                         const AnoTempoPoint *tempo, uint32_t tempoCount,
                         const AnoMusicalParams *p, const AnoMusicAffect *a,
                         const AnoNoteEvent *events, uint32_t eventCount)
@@ -420,7 +422,7 @@ bool ano_synth_live_bar(AnoSynth *s, uint32_t bar,
     return true;
 }
 
-uint32_t ano_synth_live_pending(const AnoSynth *s, uint64_t worldFrame)
+uint32_t ano::ano_synth_live_pending(const AnoSynth *s, uint64_t worldFrame)
 {
     if (!s->live)
         return 0;
@@ -435,12 +437,12 @@ uint32_t ano_synth_live_pending(const AnoSynth *s, uint64_t worldFrame)
     return n;
 }
 
-uint32_t ano_synth_live_late(const AnoSynth *s)
+uint32_t ano::ano_synth_live_late(const AnoSynth *s)
 {
     return s->liveLate;
 }
 
-uint32_t ano_synth_live_overflow(const AnoSynth *s)
+uint32_t ano::ano_synth_live_overflow(const AnoSynth *s)
 {
     return s->liveOverflow;
 }
@@ -499,7 +501,7 @@ static void music_topup(AnoSynth *s, uint64_t worldFrame)
             break;
 }
 
-bool ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music)
+bool ano::ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music)
 {
     if (!music)
         return false;
@@ -517,7 +519,7 @@ bool ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music)
     return true;
 }
 
-void ano_synth_detach_music(AnoSynth *s)
+void ano::ano_synth_detach_music(AnoSynth *s)
 {
     if (atomic_load_explicit(&s->startFrame, memory_order_acquire) == ANO_SYNTH_IDLE)
         s->music = NULL;
@@ -562,12 +564,12 @@ static bool music_seek(AnoSynth *s, const void *snapshot)
     return true;
 }
 
-uint32_t ano_synth_music_bar_us(const AnoSynth *s)
+uint32_t ano::ano_synth_music_bar_us(const AnoSynth *s)
 {
     return s->musicBarUs;
 }
 
-uint32_t ano_synth_music_bar_us_max(const AnoSynth *s)
+uint32_t ano::ano_synth_music_bar_us_max(const AnoSynth *s)
 {
     return s->musicBarUsMax;
 }
@@ -631,7 +633,7 @@ static void synth_transport_sync(AnoSynth *s)
     synth_runtime_reset(s);
 }
 
-bool ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
+bool ano::ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
 {
     if (!e || !cmd)
         return false;
@@ -673,7 +675,7 @@ bool ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
     return known && applied;
 }
 
-void ano_synth_control(void *user, const AnoAudioCommand *cmd)
+void ano::ano_synth_control(void *user, const AnoAudioCommand *cmd)
 {
     AnoSynth *s = synth_of(user, "ano_synth_control");
     if (!s)
@@ -692,7 +694,7 @@ void ano_synth_control(void *user, const AnoAudioCommand *cmd)
     ano_music_apply_command(s->music, cmd);
 }
 
-uint32_t ano_synth_poll(void *user, AnoAudioEvent *out, uint32_t cap)
+uint32_t ano::ano_synth_poll(void *user, AnoAudioEvent *out, uint32_t cap)
 {
     AnoSynth *s = synth_of(user, "ano_synth_poll");
     if (!s)
@@ -704,7 +706,7 @@ uint32_t ano_synth_poll(void *user, AnoAudioEvent *out, uint32_t cap)
     return n;
 }
 
-void ano_synth_stats(void *user, AnoAudioTelemetry *t)
+void ano::ano_synth_stats(void *user, AnoAudioTelemetry *t)
 {
     AnoSynth *s = synth_of(user, "ano_synth_stats");
     if (!s)
@@ -719,7 +721,7 @@ void ano_synth_stats(void *user, AnoAudioTelemetry *t)
 
 /* Transport */
 
-void ano_synth_transport_start(AnoSynth *s, uint64_t worldFrame)
+void ano::ano_synth_transport_start(AnoSynth *s, uint64_t worldFrame)
 {
     // Stage only. Reset at next mixer hook (synth_transport_sync), once per epoch.
     // Epoch bump before startFrame release. Restarts converge in one block.
@@ -727,7 +729,7 @@ void ano_synth_transport_start(AnoSynth *s, uint64_t worldFrame)
     atomic_store_explicit(&s->startFrame, worldFrame, memory_order_release);
 }
 
-void ano_synth_transport_stop(AnoSynth *s)
+void ano::ano_synth_transport_stop(AnoSynth *s)
 {
     atomic_store_explicit(&s->startFrame, ANO_SYNTH_IDLE, memory_order_release);
 }
@@ -892,7 +894,7 @@ static void synth_render_span(AnoSynth *s, float *const *busMix, uint32_t pos, u
     }
 }
 
-void ano_synth_generator(void *user, float *const *busMix, uint32_t busCount,
+void ano::ano_synth_generator(void *user, float *const *busMix, uint32_t busCount,
                          uint32_t frames, uint64_t startFrame)
 {
     AnoSynth *s = synth_of(user, "ano_synth_generator");
@@ -953,7 +955,7 @@ static const float STRIP_EQ[6][5] = {
 #define CONSOLE_REV_INIT 0.20f
 #define CONSOLE_DLY_INIT 0.10f
 
-uint32_t ano_synth_console_layout(AnoAudioBusDesc *out, uint32_t cap)
+uint32_t ano::ano_synth_console_layout(AnoAudioBusDesc *out, uint32_t cap)
 {
     if (!out || cap < ANO_SYNTH_CONSOLE_BUSES)
         return 0;
@@ -1010,7 +1012,7 @@ static AnoAudioOfflineEvent fx_evt(uint64_t frame, uint32_t bus, uint32_t slot,
     return (AnoAudioOfflineEvent){ .frame = frame, .cmd = fx_cmd(bus, slot, param, value) };
 }
 
-uint32_t ano_synth_console_setup(AnoAudioOfflineEvent *out, uint32_t cap)
+uint32_t ano::ano_synth_console_setup(AnoAudioOfflineEvent *out, uint32_t cap)
 {
     if (!out || cap < 64u)
         return 0;
@@ -1055,7 +1057,7 @@ static uint32_t console_bar_cmds(const AnoSynthBar *bar, AnoAudioCommand *out)
     return n;
 }
 
-uint32_t ano_synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *out,
+uint32_t ano::ano_synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *out,
                                       uint32_t cap)
 {
     if (!s->scoreReady || s->live || !out || cap < s->barCount * ANO_SYNTH_BAR_CMDS)
@@ -1070,7 +1072,7 @@ uint32_t ano_synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *o
     return n;
 }
 
-uint32_t ano_synth_commands(void *user, AnoAudioCommand *out, uint32_t cap)
+uint32_t ano::ano_synth_commands(void *user, AnoAudioCommand *out, uint32_t cap)
 {
     AnoSynth *s = synth_of(user, "ano_synth_commands");
     if (!s)

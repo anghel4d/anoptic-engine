@@ -12,6 +12,8 @@
 #include <stdlib.h>
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_synth.h>
 #include <anoptic_time.h>
 

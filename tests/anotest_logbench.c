@@ -10,6 +10,8 @@
 //   2. Multi-thread throughput: P producers + one concurrent flusher.
 
 #include <anoptic_log.h>        // ring logger (ano_log_*)
+
+using namespace ano;
 #include "log/log_old.h"    // mutex baseline (mtxlog_*)
 #include <anoptic_threads.h>
 #include <anoptic_time.h>

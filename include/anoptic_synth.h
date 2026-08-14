@@ -17,7 +17,10 @@
 #include <anoptic_audio.h>
 #include <anoptic_music.h>
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -183,5 +186,7 @@ uint32_t ano_synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *o
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif // ANOPTIC_SYNTH_H

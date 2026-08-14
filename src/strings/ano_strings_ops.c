@@ -8,7 +8,7 @@
 
 #include "strings/ano_strings_internal.h"
 
-size_t anostr_find(anostr_t s, anostr_t needle, size_t from)
+size_t ano::anostr_find(anostr_t s, anostr_t needle, size_t from)
 {
     if (from > s.len)
         from = s.len;
@@ -31,7 +31,7 @@ size_t anostr_find(anostr_t s, anostr_t needle, size_t from)
     return ANOSTR_NPOS;
 }
 
-anostr_t anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, anostr_t repl)
+anostr_t ano::anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, anostr_t repl)
 {
     if (needle.len == 0 || needle.len > s.len)
         return s;
@@ -76,7 +76,7 @@ anostr_t anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, anostr
                                       : anostr_make_long_(dst, (size_t)total);
 }
 
-anostr_t anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_t count)
+anostr_t ano::anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_t count)
 {
     if (count == 0 || parts == NULL)
         return anostr_empty();
@@ -123,13 +123,13 @@ anostr_t anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_
     return anostr_make_long_(dst, (size_t)total);
 }
 
-anostr_t anostr_concat(mi_heap_t *heap, anostr_t a, anostr_t b)
+anostr_t ano::anostr_concat(mi_heap_t *heap, anostr_t a, anostr_t b)
 {
     anostr_t parts[2] = { a, b };
     return anostr_join(heap, anostr_empty(), parts, 2);
 }
 
-bool anostr_split_next(anostr_split_t *it, anostr_t *piece)
+bool ano::anostr_split_next(anostr_split_t *it, anostr_t *piece)
 {
     if (it->done)
         return false;

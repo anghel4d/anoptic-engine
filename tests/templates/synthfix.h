@@ -14,6 +14,8 @@
 
 #include <anoptic_synth.h>
 
+using namespace ano;
+
 // Load path into s. True on complete well-formed fixture.
 static bool synthfix_load(AnoSynth *s, const char *path)
 {

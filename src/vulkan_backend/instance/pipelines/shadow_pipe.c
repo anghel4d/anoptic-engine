@@ -5,6 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <anoptic_filesystem.h>
 #include <anoptic_log.h>
 #include "vulkan_backend/instance/descriptor_layout_schema.h"

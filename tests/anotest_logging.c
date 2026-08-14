@@ -8,6 +8,8 @@
 // Every case drains via ano_log_flush before readback. Final case leaves a human-readable log.
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_strings.h>
 #include <anoptic_threads.h>
 #include <anoptic_time.h>

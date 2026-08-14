@@ -23,6 +23,8 @@
 #include <anoptic_ui.h>   // logic-side layout
 #include <anoptic_resources_runtime.h>
 
+namespace ano {
+
 #ifdef __cplusplus
 #define ANO_RENDER_META(...) [[=__VA_ARGS__]]
 #else
@@ -30,6 +32,7 @@
 #endif
 
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -598,5 +601,7 @@ bool ano_render_get_view_hiz_enable(uint32_t view);
 #endif
 
 #undef ANO_RENDER_META
+
+} // namespace ano
 
 #endif // ANOPTIC_RENDER_H

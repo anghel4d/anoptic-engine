@@ -5,6 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_memory_typed.h>
+
+using namespace ano;
 #include <anoptic_filesystem.h>
 #include <anoptic_log.h>
 #include "pipeline.h"

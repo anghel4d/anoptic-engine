@@ -11,6 +11,8 @@
 #include "log/log_old.h"
 
 #include <anoptic_threads.h>
+
+using namespace ano;
 #include <anoptic_filesystem.h>
 #include <anoptic_time.h>
 

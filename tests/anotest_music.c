@@ -8,6 +8,8 @@
 // Doubles compare exactly (==). Exit 0 == pass.
 
 #include <anoptic_atomic.h>
+
+using namespace ano;
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>

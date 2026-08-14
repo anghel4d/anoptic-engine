@@ -3,6 +3,8 @@
 
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include <anoptic_render.h>
 
 namespace ano::render_contract {

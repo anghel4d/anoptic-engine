@@ -1,5 +1,7 @@
 #include "gpu_alloc.h"
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <stdlib.h>
 #include <stdio.h>
 #include <anoptic_log.h>

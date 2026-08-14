@@ -11,6 +11,8 @@
 #define ANO_AUDIO_FX_H
 
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <mimalloc.h>
 
 #include "dsp/smooth.h"
@@ -116,6 +118,7 @@ typedef struct AnoAudioFx
 } AnoAudioFx;
 
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 

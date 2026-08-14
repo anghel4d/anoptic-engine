@@ -24,7 +24,10 @@
 
 #include "anoptic_strings.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -154,5 +157,7 @@ anorune_t *anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif //ANOPTICENGINE_ANOPTIC_STRINGS_UTF_H

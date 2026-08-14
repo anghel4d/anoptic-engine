@@ -13,7 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -147,5 +150,7 @@ _Static_assert(sizeof(AnoContentId) == 32, "AnoContentId must be 256 bits");
 _Static_assert(sizeof(AnoSchemaFingerprint) == 32,
                "AnoSchemaFingerprint must be 256 bits");
 #endif
+
+} // namespace ano
 
 #endif // ANOPTICENGINE_ANOPTIC_RESOURCES_H

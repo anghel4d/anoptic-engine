@@ -17,7 +17,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -316,8 +319,6 @@ void ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
 
 #ifdef __cplusplus
 }
-
-namespace ano {
 
 struct UiColor final {
     float rgba[4];

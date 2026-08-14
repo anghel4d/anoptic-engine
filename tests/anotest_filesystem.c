@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "anoptic_filesystem.h"
+
+using namespace ano;
 #include "templates/scratch.h"
 
 static int failures = 0;

@@ -13,6 +13,8 @@
 #include <string.h>
 #include <anoptic_math.h>   // mat4 / Vector2 / Vector3 / Vector4
 
+using namespace ano;
+
 
 /* Structs */
 

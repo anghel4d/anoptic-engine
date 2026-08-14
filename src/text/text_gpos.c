@@ -10,6 +10,8 @@
 // Type 2 PairPos or type 9 Extension. Value = ValueRecord1.xAdvance. LookupFlag ignored.
 
 #include "anoptic_text.h"
+
+using namespace ano;
 #include "text/text_internal.h"
 
 #include <anoptic_memory.h>

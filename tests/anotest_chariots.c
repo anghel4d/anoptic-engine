@@ -25,6 +25,8 @@
 
 #include "anoptic_strings.h"
 
+using namespace ano;
+
 #include <stdio.h>
 #include <mimalloc.h>
 #include <stdlib.h>

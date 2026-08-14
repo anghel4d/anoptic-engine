@@ -6,6 +6,8 @@
 #define ANOPTICENGINE_RESOURCES_PARALLEL_H
 
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include <anoptic_resources.h>
 
 #include <stdint.h>

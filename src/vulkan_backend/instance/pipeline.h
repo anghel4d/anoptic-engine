@@ -12,6 +12,8 @@
 
 #include "vulkan_backend/structs.h"
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include "vulkan_backend/vertex/vertex.h"
 
 // Pipeline-specific structs

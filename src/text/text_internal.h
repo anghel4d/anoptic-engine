@@ -13,6 +13,8 @@
 
 #include "anoptic_text.h"
 
+using namespace ano;
+
 
 /* Face helpers */
 
@@ -38,13 +40,13 @@ void ano_text_version(int *major, int *minor, int *patch);
 #define ANO_GLYPH_MISSING 0x1u  // codepoint absent from the face (blank stand-in)
 
 // Horizontal kern pair (GPOS PairPos): xAdvance added between glyphs, em, negative pulls together. Sorted by key.
-struct AnoKernPair {
+struct ano::AnoKernPair {
     uint32_t key;       // leftSlot << 16 | rightSlot
     float    xAdvance;  // em
 };
 
 // Directory map: codepoints first..last occupy slots from slotBase. Ranges sorted ascending and disjoint.
-struct AnoGlyphRange {
+struct ano::AnoGlyphRange {
     uint32_t first, last, slotBase;
 };
 

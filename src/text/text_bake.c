@@ -8,6 +8,8 @@
 // Per glyph: decompose to quads (double em), normalize fill-right winding, split at interior per-axis extrema, drop degenerates, quantize halves with controls clamped to endpoint box.
 
 #include "anoptic_text.h"
+
+using namespace ano;
 #include "text/text_internal.h"
 
 #include <errno.h>
@@ -506,7 +508,7 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
 // Module thread. Scratch for temps. Result blobs on caller heap.
 // Failures leave *out zeroed with no caller-heap block live.
 
-int ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
+int ano::ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
                               mi_heap_t *heap, AnoFontBake *out)
 {
     if (ranges == NULL || rangeCount == 0 || heap == NULL || out == NULL)
@@ -689,7 +691,7 @@ fail:
     return rc;
 }
 
-int ano_text_font_bake(AnoFontId font, uint32_t firstCodepoint, uint32_t lastCodepoint,
+int ano::ano_text_font_bake(AnoFontId font, uint32_t firstCodepoint, uint32_t lastCodepoint,
                        mi_heap_t *heap, AnoFontBake *out)
 {
     AnoBakeRange range = { .font = font, .first = firstCodepoint, .last = lastCodepoint };

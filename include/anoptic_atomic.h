@@ -9,8 +9,6 @@
 #ifndef ANOPTIC_ATOMIC_H
 #define ANOPTIC_ATOMIC_H
 
-#ifdef __cplusplus
-
 namespace ano {
 
 enum memory_order : int
@@ -143,37 +141,5 @@ static_assert(alignof(Atomic<unsigned>) == alignof(unsigned));
 } // namespace ano
 
 #define ANO_ATOMIC(T) ::ano::Atomic<T>
-
-using ano::atomic_bool;
-using ano::atomic_compare_exchange_strong;
-using ano::atomic_compare_exchange_strong_explicit;
-using ano::atomic_compare_exchange_weak_explicit;
-using ano::atomic_exchange;
-using ano::atomic_fetch_add;
-using ano::atomic_fetch_add_explicit;
-using ano::atomic_fetch_sub_explicit;
-using ano::atomic_init;
-using ano::atomic_int;
-using ano::atomic_load;
-using ano::atomic_load_explicit;
-using ano::atomic_store;
-using ano::atomic_store_explicit;
-using ano::atomic_thread_fence;
-using ano::atomic_uint;
-using ano::memory_order;
-using ano::memory_order_acq_rel;
-using ano::memory_order_acquire;
-using ano::memory_order_consume;
-using ano::memory_order_relaxed;
-using ano::memory_order_release;
-using ano::memory_order_seq_cst;
-
-#else
-
-#include <stdatomic.h>
-
-#define ANO_ATOMIC(T) _Atomic(T)
-
-#endif
 
 #endif // ANOPTIC_ATOMIC_H

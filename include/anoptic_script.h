@@ -15,6 +15,9 @@ using State = lua_State;
 
 } // namespace ano::script
 
+namespace ano {
+
+// Lua is the concrete foreign consumer of this C linkage.
 extern "C" {
 
 // Lua integration entry point for require("anoptic").
@@ -22,5 +25,7 @@ extern "C" {
 [[nodiscard]] int luaopen_anoptic(lua_State* state);
 
 }
+
+} // namespace ano
 
 #endif /* ANOPTIC_SCRIPT_H */

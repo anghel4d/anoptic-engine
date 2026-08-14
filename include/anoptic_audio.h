@@ -15,6 +15,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+namespace ano {
+
 #ifdef __cplusplus
 #define ANO_AUDIO_META(...) [[=__VA_ARGS__]]
 #else
@@ -22,6 +24,7 @@
 #endif
 
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -471,5 +474,7 @@ float *ano_audio_wav_load(const char *path, uint32_t targetRate,
 #endif
 
 #undef ANO_AUDIO_META
+
+} // namespace ano
 
 #endif // ANOPTIC_AUDIO_H

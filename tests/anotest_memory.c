@@ -19,6 +19,8 @@
 
 #include "anoptic_memory.h"
 
+using namespace ano;
+
 static int failures = 0;
 #define CHECK(cond, msg) do { \
     if (!(cond)) { printf("FAIL: %s (%s:%d)\n", (msg), __FILE__, __LINE__); failures++; } \

@@ -174,7 +174,7 @@ typedef struct AnoBarResult
     uint32_t tempoPointCount;
 } AnoBarResult;
 
-typedef struct AnoMusicEngine
+struct ano::AnoMusicEngine
 {
     AnoEngineConfig   config;
     AnoConductorState st;
@@ -183,7 +183,7 @@ typedef struct AnoMusicEngine
     AnoOverrides overrides;
     bool         urgent;
     AnoScale     scale;
-} AnoMusicEngine;
+};
 
 void ano_engine_init(AnoMusicEngine *e, uint64_t seed, const AnoEngineConfig *cfg);
 

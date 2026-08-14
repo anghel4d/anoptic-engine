@@ -20,7 +20,10 @@
 
 #include "anoptic_memory.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -304,5 +307,7 @@ void anostr_builder_discard(anostr_builder_t *b);
 #ifdef __cplusplus
 }
 #endif
+
+} // namespace ano
 
 #endif //ANOPTICENGINE_ANOPTIC_STRINGS_H

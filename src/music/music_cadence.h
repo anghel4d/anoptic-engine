@@ -11,6 +11,8 @@
 
 #include <anoptic_music.h>
 
+using namespace ano;
+
 #include <anoptic_meta.h>
 
 namespace ano::music {

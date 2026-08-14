@@ -8,6 +8,8 @@
 
 #include <vulkan/vulkan.h>
 #include <anoptic_memory.h>
+
+using namespace ano;
 #include "vulkan_backend/gpu_alloc.h"
 #include "vulkan_backend/vertex/vertex.h"
 #include "mesh/ano_meshoptimizer.h"

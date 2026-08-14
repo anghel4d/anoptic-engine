@@ -11,7 +11,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-anostr_t anostr_from(mi_heap_t *heap, const void *bytes, size_t len)
+anostr_t ano::anostr_from(mi_heap_t *heap, const void *bytes, size_t len)
 {
     if (bytes == NULL || len > UINT32_MAX)
         return anostr_empty();
@@ -26,14 +26,14 @@ anostr_t anostr_from(mi_heap_t *heap, const void *bytes, size_t len)
     return anostr_make_long_(copy, len);
 }
 
-anostr_t anostr_from_cstr(mi_heap_t *heap, const char *cstr)
+anostr_t ano::anostr_from_cstr(mi_heap_t *heap, const char *cstr)
 {
     if (cstr == NULL)
         return anostr_empty();
     return anostr_from(heap, cstr, strlen(cstr));
 }
 
-anostr_t anostr_view(const char *bytes, size_t len)
+anostr_t ano::anostr_view(const char *bytes, size_t len)
 {
     if (bytes == NULL || len > UINT32_MAX)
         return anostr_empty();
@@ -46,7 +46,7 @@ anostr_t anostr_view(const char *bytes, size_t len)
 
 // FNV-1a, both widths. Runtime twins of ANOSTR_SID/ANOSTR_SID32.
 
-uint64_t anostr_hash(anostr_t s)
+uint64_t ano::anostr_hash(anostr_t s)
 {
     const char *p = anostr_bytes(&s);
     uint64_t h = 0xcbf29ce484222325ull;
@@ -57,7 +57,7 @@ uint64_t anostr_hash(anostr_t s)
     return h;
 }
 
-uint32_t anostr_hash32(anostr_t s)
+uint32_t ano::anostr_hash32(anostr_t s)
 {
     const char *p = anostr_bytes(&s);
     uint32_t h = 0x811c9dc5u;
@@ -70,7 +70,7 @@ uint32_t anostr_hash32(anostr_t s)
 
 /* Slicing and Promotion */
 
-anostr_t anostr_slice(anostr_t s, size_t start, size_t end)
+anostr_t ano::anostr_slice(anostr_t s, size_t start, size_t end)
 {
     if (end > s.len)
         end = s.len;
@@ -83,14 +83,14 @@ anostr_t anostr_slice(anostr_t s, size_t start, size_t end)
     return anostr_make_long_(s.ptr + start, n);
 }
 
-anostr_t anostr_keep(mi_heap_t *heap, anostr_t s)
+anostr_t ano::anostr_keep(mi_heap_t *heap, anostr_t s)
 {
     if (s.len <= ANOSTR_INLINE_CAP)
         return s;
     return anostr_from(heap, s.ptr, s.len);
 }
 
-char *anostr_to_cstr(mi_heap_t *heap, anostr_t s)
+char *ano::anostr_to_cstr(mi_heap_t *heap, anostr_t s)
 {
     if (heap == NULL)
         return NULL;
@@ -104,7 +104,7 @@ char *anostr_to_cstr(mi_heap_t *heap, anostr_t s)
 
 /* Builder */
 
-anostr_builder_t anostr_builder_make(mi_heap_t *heap, uint32_t reserve)
+anostr_builder_t ano::anostr_builder_make(mi_heap_t *heap, uint32_t reserve)
 {
     anostr_builder_t b = { .ptr = NULL, .len = 0, .cap = 0, .heap = heap };
     if (heap != NULL && reserve > 0) {
@@ -133,7 +133,7 @@ static int builder_reserve(anostr_builder_t *b, uint64_t need)
     return 0;
 }
 
-int anostr_builder_append(anostr_builder_t *b, const void *bytes, size_t n)
+int ano::anostr_builder_append(anostr_builder_t *b, const void *bytes, size_t n)
 {
     if (b->heap == NULL || bytes == NULL)
         return -1;
@@ -147,19 +147,19 @@ int anostr_builder_append(anostr_builder_t *b, const void *bytes, size_t n)
     return 0;
 }
 
-int anostr_builder_append_str(anostr_builder_t *b, anostr_t s)
+int ano::anostr_builder_append_str(anostr_builder_t *b, anostr_t s)
 {
     return anostr_builder_append(b, anostr_bytes(&s), s.len);
 }
 
-int anostr_builder_append_cstr(anostr_builder_t *b, const char *cstr)
+int ano::anostr_builder_append_cstr(anostr_builder_t *b, const char *cstr)
 {
     if (cstr == NULL)
         return -1;
     return anostr_builder_append(b, cstr, strlen(cstr));
 }
 
-int anostr_builder_appendf(anostr_builder_t *b, const char *fmt, ...)
+int ano::anostr_builder_appendf(anostr_builder_t *b, const char *fmt, ...)
 {
     if (b->heap == NULL || fmt == NULL)
         return -1;
@@ -186,7 +186,7 @@ int anostr_builder_appendf(anostr_builder_t *b, const char *fmt, ...)
     return 0;
 }
 
-anostr_t anostr_freeze(anostr_builder_t *b)
+anostr_t ano::anostr_freeze(anostr_builder_t *b)
 {
     if (b->heap == NULL)
         return anostr_empty();
@@ -204,7 +204,7 @@ anostr_t anostr_freeze(anostr_builder_t *b)
     return s;
 }
 
-void anostr_builder_discard(anostr_builder_t *b)
+void ano::anostr_builder_discard(anostr_builder_t *b)
 {
     mi_free(b->ptr);
     *b = (anostr_builder_t){0};

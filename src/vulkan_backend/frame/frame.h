@@ -15,6 +15,8 @@
 
 #include <anoptic_time.h>
 
+using namespace ano;
+
 #include "vulkan_backend/structs.h"
 
 /* frame/hiz.c */

@@ -8,6 +8,8 @@
 // Watchdog kills a stalled tally. Canaries fence the barrier object. Exit 0 == pass.
 
 #include <anoptic_atomic.h>
+
+using namespace ano;
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

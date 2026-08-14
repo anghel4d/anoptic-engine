@@ -11,6 +11,8 @@
 #define WINVER       0x0A00
 #endif
 #include "anoptic_time.h"
+
+using namespace ano;
 #include <windows.h>
 #include <time.h>
 #include <errno.h>
@@ -208,7 +210,7 @@ static inline int clock_mode(void) {
 #endif // ANO_TSC_ARCH
 
 // rdtsc vs anchor, or QPC. Conversion is in ano_ticks_to_ns.
-uint64_t ano_timestamp_ticks() {
+uint64_t ano::ano_timestamp_ticks() {
 #ifdef ANO_TSC_ARCH
     if (clock_mode() == CLOCK_TSC) {
         for (;;) {
@@ -227,7 +229,7 @@ uint64_t ano_timestamp_ticks() {
     return qpc_now();
 }
 
-uint64_t ano_ticks_to_ns(uint64_t ticks) {
+uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
 
     uint64_t freq;
 #ifdef ANO_TSC_ARCH
@@ -245,22 +247,22 @@ uint64_t ano_ticks_to_ns(uint64_t ticks) {
     return remainder + (seconds * 1000000000ULL);
 }
 
-uint64_t ano_timestamp_raw() {
+uint64_t ano::ano_timestamp_raw() {
     return ano_ticks_to_ns(ano_timestamp_ticks());
 }
 
-uint64_t ano_timestamp_us() {
+uint64_t ano::ano_timestamp_us() {
     return ano_timestamp_raw() / 1000;
 }
 
-uint32_t ano_timestamp_ms() {
+uint32_t ano::ano_timestamp_ms() {
     return (uint32_t)(ano_timestamp_raw() / 1000000LL);
 }
 
 
 /* Generic Date-Time Stamps */
 
-int64_t ano_timestamp_unix() {
+int64_t ano::ano_timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
@@ -272,7 +274,7 @@ int64_t ano_timestamp_unix() {
     return (int64_t)currentTime;
 }
 
-ano_datetime ano_localtime(int64_t unix_seconds) {
+ano_datetime ano::ano_localtime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
     struct tm tm;
@@ -288,7 +290,7 @@ ano_datetime ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-int ano_busywait(uint64_t ns) {
+int ano::ano_busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
         printf("Requested busywait time exceeds maximum limit. Exiting.\n");
@@ -349,7 +351,7 @@ static HANDLE ano_sleep_timer(void) {
 }
 
 // Waitable timer + busywait tail. Yields. Returns 0, or positive errno-ish (Unix parity).
-int ano_sleep(uint64_t us) {
+int ano::ano_sleep(uint64_t us) {
 
     if (us == 0)
         return 0;   // nothing to wait on, matches a zero-length nanosleep

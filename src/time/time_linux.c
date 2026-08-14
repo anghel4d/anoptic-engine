@@ -6,6 +6,8 @@
 
 #if defined(__linux__)
 #include "anoptic_time.h"
+
+using namespace ano;
 #include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -15,23 +17,23 @@
 /* Precision Timestamps */
 
 // Returned ticks are nanoseconds (CLOCK_MONOTONIC timespec).
-uint64_t ano_timestamp_ticks() {
+uint64_t ano::ano_timestamp_ticks() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);   // constant clockid + valid pointer: cannot fail
     return (uint64_t)(ts.tv_sec * 1000000000LL) + ts.tv_nsec;
 }
 
 // Identity: Linux ticks are already ns.
-uint64_t ano_ticks_to_ns(uint64_t ticks) {
+uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
     return ticks;
 }
 
-uint64_t ano_timestamp_raw() {
+uint64_t ano::ano_timestamp_raw() {
     return ano_timestamp_ticks();
 }
 
 // Direct timespec; not ano_timestamp_raw / 1000.
-uint64_t ano_timestamp_us() {
+uint64_t ano::ano_timestamp_us() {
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -39,7 +41,7 @@ uint64_t ano_timestamp_us() {
 }
 
 // Direct timespec; not ano_timestamp_raw / 1e6.
-uint32_t ano_timestamp_ms() {
+uint32_t ano::ano_timestamp_ms() {
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -49,7 +51,7 @@ uint32_t ano_timestamp_ms() {
 
 /* Generic Date-Time Stamps */
 
-int64_t ano_timestamp_unix() {
+int64_t ano::ano_timestamp_unix() {
     time_t currentTime;
     currentTime = time(NULL);
 
@@ -61,7 +63,7 @@ int64_t ano_timestamp_unix() {
     return (int64_t)currentTime;
 }
 
-ano_datetime ano_localtime(int64_t unix_seconds) {
+ano_datetime ano::ano_localtime(int64_t unix_seconds) {
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_r(&t, &tm) == NULL)
@@ -82,7 +84,7 @@ int64_t ano_timestamp_ntp(){
 
 /* Waiting Facilities */
 
-int ano_busywait(uint64_t ns) {
+int ano::ano_busywait(uint64_t ns) {
     if (ns > MAX_BUSYWAIT_NS) {
         printf("Requested busywait time exceeds maximum limit. Returning.\n");
         return -1;
@@ -99,7 +101,7 @@ int ano_busywait(uint64_t ns) {
 }
 
 // Relative clock_nanosleep(CLOCK_MONOTONIC). Restarts on EINTR.
-int ano_sleep(uint64_t us) {
+int ano::ano_sleep(uint64_t us) {
     struct timespec request = {0};
     struct timespec remaining = {0};
 

@@ -10,6 +10,8 @@
 
 #include "anoptic_time.h"
 
+using namespace ano;
+
 uint64_t firshhhahafigits(uint64_t num, uint64_t n) {
 
     uint64_t divisor = 1;

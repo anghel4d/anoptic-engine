@@ -3,6 +3,8 @@
 
 #include <anoptic_meta.h>
 
+using namespace ano;
+
 #include <anoptic_audio.h>
 
 namespace ano::audio_contract {

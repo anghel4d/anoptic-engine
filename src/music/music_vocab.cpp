@@ -10,6 +10,8 @@
 
 #include <anoptic_music.h>
 
+using namespace ano;
+
 #include <anoptic_meta.h>
 
 namespace {
@@ -51,12 +53,12 @@ const char *ano_music_layer_name(uint32_t layer)
     return parsed ? kLayerNames.values[parsed->index()] : "unknown";
 }
 
-uint32_t ano_music_patch_id(const char *name)
+uint32_t ano::ano_music_patch_id(const char *name)
 {
     return static_cast<uint32_t>(kPatchNames.find(name, ANO_PATCH_NONE));
 }
 
-const char *ano_music_patch_name(uint32_t id)
+const char *ano::ano_music_patch_name(uint32_t id)
 {
     const Patch patch = Patch::from_raw(id).value_or(
         Patch::constant<ANO_PATCH_NONE>());

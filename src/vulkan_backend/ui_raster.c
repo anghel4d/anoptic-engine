@@ -11,6 +11,8 @@
 #include "vulkan_backend/text_raster.h"
 #include <anoptic_memory_typed.h>
 
+using namespace ano;
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

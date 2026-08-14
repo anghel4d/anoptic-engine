@@ -7,6 +7,8 @@
 #include <math.h>
 #include <string.h>
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_time.h>
 
 #include "vulkan_backend/vulkanMaster.h"

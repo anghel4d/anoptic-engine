@@ -5,6 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 #include <anoptic_threads.h>
+
+using namespace ano;
 #include <anoptic_log_crash.h>
 #include <anoptic_memory.h>
 #include <pthread.h>
@@ -44,7 +46,7 @@ static void *thread_trampoline(void *p)
     return ret;
 }
 
-int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(* func)(void *), void *arg) {
+int ano::ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(* func)(void *), void *arg) {
 
     // NULL attr: ANO_THREAD_STACK_SIZE, lazily committed. Win64 uses PE --stack instead.
 #if !defined(_WIN32)
@@ -78,7 +80,7 @@ int ano_thread_create(anothread_t *thread, const anothread_attr_t *attr, void *(
     return rc;
 }
 
-uint32_t ano_thread_concurrency(void) {
+uint32_t ano::ano_thread_concurrency(void) {
 
 #if defined(_WIN32)
     const DWORD count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
@@ -89,27 +91,27 @@ uint32_t ano_thread_concurrency(void) {
 #endif
 }
 
-int ano_thread_join(anothread_t thread, void **res) {
+int ano::ano_thread_join(anothread_t thread, void **res) {
 
     return pthread_join(thread, res);
 }
 
-void ano_thread_exit(void *res) {
+void ano::ano_thread_exit(void *res) {
 
     pthread_exit(res);
 }
 
-int ano_thread_detach(anothread_t thread) {
+int ano::ano_thread_detach(anothread_t thread) {
 
     return pthread_detach(thread);
 }
 
-anothread_t ano_thread_self(void) {
+anothread_t ano::ano_thread_self(void) {
 
     return pthread_self();
 }
 
-size_t ano_thread_main_stack(void) {
+size_t ano::ano_thread_main_stack(void) {
 
 #if defined(_WIN32)
     const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)GetModuleHandleW(NULL);
@@ -126,22 +128,22 @@ size_t ano_thread_main_stack(void) {
 
 /* Mutexes */
 
-int ano_mutex_init(anothread_mutex_t *mutex, const anothread_mutexattr_t *attr) {
+int ano::ano_mutex_init(anothread_mutex_t *mutex, const anothread_mutexattr_t *attr) {
 
     return pthread_mutex_init(mutex, attr);
 }
 
-int ano_mutex_lock(anothread_mutex_t *mutex) {
+int ano::ano_mutex_lock(anothread_mutex_t *mutex) {
 
     return pthread_mutex_lock(mutex);
 }
 
-int ano_mutex_unlock(anothread_mutex_t *mutex) {
+int ano::ano_mutex_unlock(anothread_mutex_t *mutex) {
 
     return pthread_mutex_unlock(mutex);
 }
 
-int ano_mutex_destroy(anothread_mutex_t *mutex) {
+int ano::ano_mutex_destroy(anothread_mutex_t *mutex) {
 
     return pthread_mutex_destroy(mutex);
 }
@@ -149,33 +151,33 @@ int ano_mutex_destroy(anothread_mutex_t *mutex) {
 
 /* Condition Variables */
 
-int ano_thread_cond_init(anothread_cond_t *conditionVariable, const anothread_condattr_t *attr) {
+int ano::ano_thread_cond_init(anothread_cond_t *conditionVariable, const anothread_condattr_t *attr) {
 
     return pthread_cond_init(conditionVariable, attr);
 }
 
-int ano_thread_cond_wait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex) {
+int ano::ano_thread_cond_wait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex) {
 
     return pthread_cond_wait(conditionVariable, external_mutex);
 }
 
-int ano_thread_cond_timedwait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex,
+int ano::ano_thread_cond_timedwait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex,
                               const struct timespec *abstime) {
 
     return pthread_cond_timedwait(conditionVariable, external_mutex, abstime);
 }
 
-int  ano_thread_cond_signal(anothread_cond_t *conditionVariable) {
+int  ano::ano_thread_cond_signal(anothread_cond_t *conditionVariable) {
 
     return pthread_cond_signal(conditionVariable);
 }
 
-int ano_thread_cond_broadcast(anothread_cond_t *conditionVariable) {
+int ano::ano_thread_cond_broadcast(anothread_cond_t *conditionVariable) {
 
     return pthread_cond_broadcast(conditionVariable);
 }
 
-int ano_thread_cond_destroy(anothread_cond_t *conditionVariable) {
+int ano::ano_thread_cond_destroy(anothread_cond_t *conditionVariable) {
 
     return pthread_cond_destroy(conditionVariable);
 }
@@ -184,27 +186,27 @@ int ano_thread_cond_destroy(anothread_cond_t *conditionVariable) {
 /* Spinlocks */
 
 #if !defined(__APPLE__)   // macOS: provided by threads_macos.c
-int ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
+int ano::ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
 
     return pthread_spin_init(lock, pshared);
 }
 
-int ano_thread_spin_destroy(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_destroy(anothread_spinlock_t *lock) {
 
     return pthread_spin_destroy(lock);
 }
 
-int ano_thread_spin_lock(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_lock(anothread_spinlock_t *lock) {
 
     return pthread_spin_lock(lock);
 }
 
-int ano_thread_spin_trylock(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_trylock(anothread_spinlock_t *lock) {
 
     return pthread_spin_trylock(lock);
 }
 
-int ano_thread_spin_unlock(anothread_spinlock_t *lock) {
+int ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
 
     return pthread_spin_unlock(lock);
 }
@@ -213,27 +215,27 @@ int ano_thread_spin_unlock(anothread_spinlock_t *lock) {
 
 /* Read-Write Locks */
 
-int ano_thread_rwlock_init(anothread_rwlock_t *rwlock, const anothread_rwlockattr_t *attr) {
+int ano::ano_thread_rwlock_init(anothread_rwlock_t *rwlock, const anothread_rwlockattr_t *attr) {
 
     return pthread_rwlock_init(rwlock, attr);
 }
 
-int ano_thread_rwlock_rdlock(anothread_rwlock_t *rwlock) {
+int ano::ano_thread_rwlock_rdlock(anothread_rwlock_t *rwlock) {
 
     return pthread_rwlock_rdlock(rwlock);
 }
 
-int ano_thread_rwlock_wrlock(anothread_rwlock_t *rwlock) {
+int ano::ano_thread_rwlock_wrlock(anothread_rwlock_t *rwlock) {
 
     return pthread_rwlock_wrlock(rwlock);
 }
 
-int ano_thread_rwlock_unlock(anothread_rwlock_t *rwlock) {
+int ano::ano_thread_rwlock_unlock(anothread_rwlock_t *rwlock) {
 
     return pthread_rwlock_unlock(rwlock);
 }
 
-int ano_thread_rwlock_destroy(anothread_rwlock_t *rwlock) {
+int ano::ano_thread_rwlock_destroy(anothread_rwlock_t *rwlock) {
 
     return pthread_rwlock_destroy(rwlock);
 }
@@ -241,27 +243,27 @@ int ano_thread_rwlock_destroy(anothread_rwlock_t *rwlock) {
 
 /* Thread Attributes */
 
-int ano_thread_attr_init(anothread_attr_t *attr) {
+int ano::ano_thread_attr_init(anothread_attr_t *attr) {
 
     return pthread_attr_init(attr);
 }
 
-int ano_thread_attr_setdetachstate(anothread_attr_t *attr, int flag) {
+int ano::ano_thread_attr_setdetachstate(anothread_attr_t *attr, int flag) {
 
     return pthread_attr_setdetachstate(attr, flag);
 }
 
-int  ano_thread_attr_getstacksize(const anothread_attr_t *attr, size_t *size) {
+int  ano::ano_thread_attr_getstacksize(const anothread_attr_t *attr, size_t *size) {
 
     return pthread_attr_getstacksize(attr, size);
 }
 
-int ano_thread_attr_setstacksize(anothread_attr_t *attr, size_t size) {
+int ano::ano_thread_attr_setstacksize(anothread_attr_t *attr, size_t size) {
 
     return pthread_attr_setstacksize(attr, size);
 }
 
-int ano_thread_attr_destroy(anothread_attr_t *attr) {
+int ano::ano_thread_attr_destroy(anothread_attr_t *attr) {
 
     return pthread_attr_destroy(attr);
 }
@@ -269,22 +271,22 @@ int ano_thread_attr_destroy(anothread_attr_t *attr) {
 
 /* Thread-Data */
 
-int ano_thread_key_create(anothread_key_t *key, void (*dest)(void *)) {
+int ano::ano_thread_key_create(anothread_key_t *key, void (*dest)(void *)) {
 
     return pthread_key_create(key, dest);
 }
 
-int ano_thread_key_delete(anothread_key_t key) {
+int ano::ano_thread_key_delete(anothread_key_t key) {
 
     return pthread_key_delete(key);
 }
 
-int ano_thread_setspecific(anothread_key_t key, const void *value) {
+int ano::ano_thread_setspecific(anothread_key_t key, const void *value) {
 
     return pthread_setspecific(key, value);
 }
 
-void* ano_thread_getspecific(anothread_key_t key) {
+void* ano::ano_thread_getspecific(anothread_key_t key) {
 
     return pthread_getspecific(key);
 }
@@ -294,17 +296,17 @@ void* ano_thread_getspecific(anothread_key_t key) {
 
 #if !defined(__APPLE__)   // macOS: provided by threads_macos.c
 
-int ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
+int ano::ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
 
     return pthread_barrier_init(barrier, attr, count);
 }
 
-int ano_thread_barrier_wait(anothread_barrier_t *barrier) {
+int ano::ano_thread_barrier_wait(anothread_barrier_t *barrier) {
 
     return pthread_barrier_wait(barrier);
 }
 
-int ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
+int ano::ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
 
     return pthread_barrier_destroy(barrier);
 }

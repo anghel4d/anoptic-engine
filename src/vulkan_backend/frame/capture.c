@@ -3,6 +3,8 @@
  * Anoptic targets ISO C++26. */
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_memory.h>
 
 #include <stdio.h>

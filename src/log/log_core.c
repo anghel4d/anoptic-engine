@@ -11,6 +11,8 @@
 #include "log/log_ring.h"
 
 #include <anoptic_threads.h>
+
+using namespace ano;
 #include <anoptic_filesystem.h>
 #include <anoptic_time.h>
 
@@ -763,7 +765,7 @@ static int log_now(ano_loglevel_t level, uint8_t sinks, const char *file, int li
 
 /* Public interface */
 
-int ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
+int ano::ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
                    const char *file, int line, const char *fmt, va_list args)
 {
     unsigned lvlIdx = (unsigned)level <= ANO_FATAL ? (unsigned)level : (unsigned)ANO_FATAL;
@@ -777,7 +779,7 @@ int ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
     return log_buffered(level, (uint8_t)r, file, line, fmt, args);
 }
 
-int ano_log_write(ano_loglevel_t level, ano_logroute_t route,
+int ano::ano_log_write(ano_loglevel_t level, ano_logroute_t route,
                   const char *file, int line, const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
@@ -786,14 +788,14 @@ int ano_log_write(ano_loglevel_t level, ano_logroute_t route,
     return rc;
 }
 
-void ano_log_set_route(ano_loglevel_t level, ano_logroute_t route)
+void ano::ano_log_set_route(ano_loglevel_t level, ano_logroute_t route)
 {
     if ((unsigned)level > ANO_FATAL || (route & ANO_BOTH) == 0)
         return;
     atomic_store_explicit(&g_routeDefault[level], (uint8_t)route, memory_order_relaxed);
 }
 
-int ano_log_output_dir(const char *directoryPath)
+int ano::ano_log_output_dir(const char *directoryPath)
 {
     if (directoryPath == NULL || directoryPath[0] == '\0'
         || !atomic_load_explicit(&g_initialized, memory_order_relaxed))
@@ -814,19 +816,19 @@ int ano_log_output_dir(const char *directoryPath)
     return 0;
 }
 
-void ano_log_set_level(ano_loglevel_t min)
+void ano::ano_log_set_level(ano_loglevel_t min)
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         atomic_store_explicit(&g_minLevel, (int)min, memory_order_relaxed);
 }
 
-void ano_log_flush(void)
+void ano::ano_log_flush(void)
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         drain();
 }
 
-int ano_log_init(void)
+int ano::ano_log_init(void)
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
         return 0;
@@ -897,13 +899,13 @@ int ano_log_init(void)
 }
 
 // ANO_LOG_SCOPE_ATTR target. Cleanup keys off g_initialized.
-void ano_log_scope_release(const int *initStatus)
+void ano::ano_log_scope_release(const int *initStatus)
 {
     (void)initStatus;
     ano_log_cleanup();
 }
 
-int ano_log_cleanup(void)
+int ano::ano_log_cleanup(void)
 {
     if (!atomic_load_explicit(&g_initialized, memory_order_relaxed))
         return 0;

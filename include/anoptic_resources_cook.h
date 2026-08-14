@@ -11,7 +11,10 @@
 
 #include "anoptic_resources_pack.h"
 
+namespace ano {
+
 #ifdef __cplusplus
+// No foreign consumer is currently identified; retain this C linkage pending removal.
 extern "C" {
 #endif
 
@@ -83,7 +86,6 @@ void ano_resource_cooker_cancel(AnoResourceCooker *cooker);
 #ifdef __cplusplus
 }
 
-namespace ano {
 namespace detail {
 
 template<class ArtifactType>

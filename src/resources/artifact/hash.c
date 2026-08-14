@@ -6,6 +6,8 @@
 
 #include <anoptic_resources_typed.h>
 
+using namespace ano;
+
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
 #endif
@@ -88,7 +90,7 @@ void sha256_transform_runtime(uint32_t state[8], const uint8_t block[64])
 
 } // namespace ano::detail
 
-extern "C" const char *ano_resource_error_string(AnoResourceError error)
+extern "C" const char *ano::ano_resource_error_string(AnoResourceError error)
 {
     static constexpr auto names = ano::reflect_enum_names<AnoResourceError>(
         "ANO_RESOURCE_", ano::EnumNameCase::lower);
@@ -96,7 +98,7 @@ extern "C" const char *ano_resource_error_string(AnoResourceError error)
     return name == nullptr ? "unknown_resource_error" : *name;
 }
 
-extern "C" AnoResourceError ano_resource_content_id(AnoResourceBytes bytes,
+extern "C" AnoResourceError ano::ano_resource_content_id(AnoResourceBytes bytes,
                                                      AnoContentId *contentId)
 {
     if (contentId == nullptr || (bytes.data == nullptr && bytes.size != 0))

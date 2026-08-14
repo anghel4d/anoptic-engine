@@ -14,6 +14,8 @@
 #include "log/log_core.h"   // ANO_LOG_MSG_MAX, ring sizing
 
 #include <anoptic_memory.h>          // ANO_CACHE_LINE / ANO_THREAD_LINE
+
+using namespace ano;
 #include <anoptic_atomic.h>
 #include <stdint.h>
 #include <string.h>

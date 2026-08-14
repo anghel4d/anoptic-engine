@@ -13,6 +13,8 @@
 #include "gpu_alloc.h"
 #include <stdbool.h>
 #include <anoptic_atomic.h>
+
+using namespace ano;
 #include <string.h>
 #include <type_traits>
 

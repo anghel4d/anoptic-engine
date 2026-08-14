@@ -9,6 +9,8 @@
 // DISABLED in CTest. Always exits 0. argv[1] = messages-per-producer.
 
 #include <anoptic_log.h>
+
+using namespace ano;
 #include <anoptic_threads.h>
 #include <anoptic_time.h>
 

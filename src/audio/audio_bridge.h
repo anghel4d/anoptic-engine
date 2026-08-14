@@ -15,6 +15,8 @@
 #include <stdbool.h>
 #include <mimalloc.h>
 #include <anoptic_audio.h>
+
+using namespace ano;
 #include <anoptic_threads_typed.h>
 
 
@@ -25,7 +27,7 @@ static_assert(ano::TransportData<AnoAudioEvent>);
 static_assert(ano::TransportData<AnoAudioListener>);
 static_assert(ano::TransportData<AnoAudioTelemetry>);
 
-struct AnoAudioBridge
+struct ano::AnoAudioBridge
 {
     ano::SpscRing<AnoAudioCommand> commands; // logic -> mixer
     ano::SpscRing<AnoAudioEvent> events;     // mixer -> logic

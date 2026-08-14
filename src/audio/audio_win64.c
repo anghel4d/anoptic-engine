@@ -20,6 +20,8 @@
 #include "audio_pull.h"
 #include <anoptic_memory_typed.h>
 
+using namespace ano;
+
 #include <anoptic_log.h>
 #include <anoptic_time.h>
 

@@ -10,13 +10,15 @@
 
 #include "anoptic_ui.h"
 
+using namespace ano;
+
 #include <math.h>
 
 
 /* AABB */
 
 // Identity-inv only. Matches ui_box_hits / ui_pending_bounds.
-void ano_ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2])
+void ano::ano_ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2])
 {
     float pad = p->kind == ANO_UI_SHADOW ? 3.0f * p->param[0] + 1.0f : 1.0f;
     outMin[0] = p->origin[0] - p->halfExt[0] - pad;
@@ -46,7 +48,7 @@ static bool prim_solid_over(const AnoUiPrim *p, float tx0, float ty0, float tx1,
 
 /* Tile Build */
 
-uint32_t ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
+uint32_t ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY,
                            uint32_t *offsets, uint32_t offsetsCap,
                            uint32_t *entries, uint32_t entryCap,

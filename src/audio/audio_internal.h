@@ -12,6 +12,8 @@
 #define ANO_AUDIO_INTERNAL_H
 
 #include <anoptic_atomic.h>
+
+using namespace ano;
 #include <anoptic_threads.h>
 #include "audio_bridge.h"
 #include "audio_format.h"

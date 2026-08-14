@@ -12,6 +12,8 @@
 #define ANOPTIC_TEST_TEMPLATES_BENCH_H
 
 #include <anoptic_time.h>
+
+using namespace ano;
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
