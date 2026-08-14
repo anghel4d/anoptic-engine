@@ -4,6 +4,7 @@
 
 #include "resources.h"
 
+#include <anoptic_compose.h>
 #include <anoptic_memory.h>
 
 using namespace ano;
@@ -488,27 +489,25 @@ bool is_render_input(AnoResourceTypeId type)
     return visit_render_route(type, []<auto, class, class>() {});
 }
 
-AnoResourceError invoke_render_transform(
+ResourceResult<> invoke_render_transform(
     RenderBinding& target, schema::RenderResourceContext& context,
     AnoResourceTypeId type, AnoResourceBytes artifact)
 {
-    AnoResourceError result = ANO_RESOURCE_UNSUPPORTED;
+    ResourceResult<> result = failure(ANO_RESOURCE_UNSUPPORTED);
     (void)visit_render_route(
         type, [&]<auto Declaration, class Input, class Output>() {
-            const ano::DecodeResult<Input> decoded =
-                ano::decode<Input>(artifact);
-            if (!decoded) {
-                result = decoded.error();
-                return;
-            }
-            context.artifact = artifact;
-            const auto output = [:Declaration:](decoded->value, context);
-            if (!output) {
-                result = output.error();
-                return;
-            }
-            publish_output(target, *output);
-            result = ANO_RESOURCE_OK;
+            const auto route = ano::compose(
+                [](AnoResourceBytes bytes) {
+                    return ano::decode<Input>(bytes);
+                })
+                .and_then([&](const ano::ArtifactView<Input>& decoded) {
+                    context.artifact = artifact;
+                    return [:Declaration:](decoded.value, context);
+                })
+                .transform([&](const Output& output) {
+                    publish_output(target, output);
+                });
+            result = route(artifact);
         });
     return result;
 }
@@ -801,31 +800,30 @@ AnoResourceError plan_resident_assets(
     return result;
 }
 
-AnoResourceError realize_planned_asset(
+ResourceResult<> realize_planned_asset(
     AnoRenderResidency& residency, AnoAssetId asset)
 {
     if (asset.value == 0 || asset.value > residency.bindingCount)
-        return ANO_RESOURCE_BAD_MANIFEST;
+        return failure(ANO_RESOURCE_BAD_MANIFEST);
     RenderBinding& target = residency.bindings[asset.value - 1];
     if (target.state != BindingState::prepared)
         return target.state == BindingState::resident
-            ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_MANIFEST;
+            ? ResourceResult<>{} : failure(ANO_RESOURCE_BAD_MANIFEST);
     target.state = BindingState::realizing;
-    const auto artifact = ano_resource_epoch_resolve(
-        residency.source, asset, target.sourceType);
-    AnoResourceError result = artifact ? ANO_RESOURCE_OK : artifact.error();
-    if (artifact) {
-        schema::RenderResourceContext context = {
-            .residency = &residency,
-            .asset = asset,
-            .artifact = *artifact,
-        };
-        result = invoke_render_transform(
-            target, context, target.sourceType, *artifact);
-    }
+    auto result = ano_resource_epoch_resolve(
+        residency.source, asset, target.sourceType)
+        .and_then([&](AnoResourceBytes artifact) {
+            schema::RenderResourceContext context = {
+                .residency = &residency,
+                .asset = asset,
+                .artifact = artifact,
+            };
+            return invoke_render_transform(
+                target, context, target.sourceType, artifact);
+        });
     target.preparedGeometry = {};
     target.uploadOffset = 0;
-    target.state = result == ANO_RESOURCE_OK
+    target.state = result
         ? BindingState::resident : BindingState::absent;
     return result;
 }
@@ -1249,7 +1247,8 @@ AnoResourceError ano_vk_resource_residency_realize_step(
            && realized < assetBudget && result == ANO_RESOURCE_OK) {
         const AnoAssetId asset = residency->realizationPlan[
             residency->realizationCursor++];
-        result = realize_planned_asset(*residency, asset);
+        const auto realization = realize_planned_asset(*residency, asset);
+        result = realization ? ANO_RESOURCE_OK : realization.error();
         ++realized;
     }
     if (result != ANO_RESOURCE_OK) return result;

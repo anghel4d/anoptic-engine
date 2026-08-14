@@ -54,6 +54,29 @@ cross this directory.
 Portability is a property of each module's interpretation, not a module of its
 own.
 
+## Fallible composition
+
+For fallible arrows
+
+```text
+f : A -> Result<B, E>
+g : B -> Result<C, E>
+```
+
+their composition is
+
+```text
+(f >=> g)(value) = f(value).and_then(g)
+```
+
+`anoptic_compose.h` represents that arrow directly as
+`compose(f).and_then(g)`. `transform(h)` lifts a pure `h : B -> C` through the
+same result. Both operations are `constexpr`, retain concrete callable types,
+allocate nothing, and compile to direct calls. The reflected `Result` classifier
+rejects a stage outside the `T + E` algebra during instantiation. This interface
+does not imply a scheduler: owner-thread transfer, transactional state, and
+publication remain explicit effects supplied by their modules.
+
 ## Public type laws
 
 Every public header obeys the following rules:
@@ -144,6 +167,7 @@ semantic ownership or composition laws.
 |---|---|---|
 | Structural reflection and compile-time values | `anoptic_meta.h` | Normalize one shared witness and expose typed module projections; fold `anoptic_meta_types.h` into this authority; domain command policy leaves meta |
 | Domain outcomes | `anoptic_results.h` | Retain as the C++26 `T + E` algebra; generate any C-linkage projection beside the concrete foreign boundary |
+| Fallible composition | `anoptic_compose.h` | Reusable `constexpr` Kleisli composition over typed results; no allocation, erasure, scheduler, or runtime route registry |
 | Atomic values | `anoptic_atomic.h` | Retain as the no-runtime compiler-builtin boundary |
 | Linear algebra and ABI values | `anoptic_math.h` | Retain; layout and coordinate semantics become reflected type facts |
 | Runtime memory ownership | `anoptic_memory.h` | Retain regions, sealed volumes, and raw C allocation boundary |

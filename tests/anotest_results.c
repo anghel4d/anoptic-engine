@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-3.0
  * Anoptic targets ISO C++26. */
 
-#include "anoptic_results.h"
+#include "anoptic_compose.h"
 
 using namespace ano;
 
@@ -19,6 +19,16 @@ constexpr auto parse(bool valid) -> ano::Result<int, ParseError>
     if (valid)
         return 7;
     return ano::failure(ParseError::invalid);
+}
+
+constexpr auto increment(int value) -> ano::Result<int, ParseError>
+{
+    return value + 1;
+}
+
+constexpr auto double_value(int value) -> ano::Result<int, ParseError>
+{
+    return value * 2;
 }
 
 consteval bool result_surface()
@@ -39,6 +49,20 @@ consteval bool result_surface()
 }
 
 static_assert(result_surface());
+
+consteval bool composition_surface()
+{
+    constexpr auto path = ano::compose(parse)
+        .and_then(increment)
+        .and_then(double_value)
+        .transform([](int value) { return value + 3; });
+    const auto value = path(true);
+    const auto error = path(false);
+    return value && *value == 19
+        && ano::has_error(error, ParseError::invalid);
+}
+
+static_assert(composition_surface());
 
 } // namespace
 
