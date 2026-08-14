@@ -1101,12 +1101,12 @@ static AnoRenderSubmitResult submit_bar(AnoRenderBridge* bridge, const AnoFontBa
 #define HUD_OOM_RETRY_US 500000ull
 
 // in:  r, now, dirty (nullable), retryAt (nullable), what
-// out: updates *dirty / *retryAt per r.code
-// inv: switch total over AnoRenderSubmitResultCode (no default)
+// out: updates *dirty / *retryAt per result
+// inv: switch total over AnoRenderSubmitResult (no default)
 static void submit_policy(AnoRenderSubmitResult r, uint64_t now, bool* dirty, uint64_t* retryAt,
                           const char* what)
 {
-	switch (r.code) {
+	switch (r) {
 	case ANO_RENDER_SUBMIT_ACCEPTED:     if (dirty) *dirty = false; if (retryAt) *retryAt = 0; break;
 	case ANO_RENDER_SUBMIT_BACKPRESSURE: if (retryAt) *retryAt = 0; break; // retry next tick
 	case ANO_RENDER_SUBMIT_OOM:          if (retryAt) *retryAt = now + HUD_OOM_RETRY_US; break;
@@ -1126,7 +1126,7 @@ static AnoRenderSubmitResult hud_text_spin(AnoRenderBridge* bridge, uint32_t tex
 {
 	for (;;) {
 		AnoRenderSubmitResult r = hud_text_submit(bridge, text_id, inst, shaped);
-		switch (r.code) {
+		switch (r) {
 		case ANO_RENDER_SUBMIT_ACCEPTED:
 			return r;
 		case ANO_RENDER_SUBMIT_OOM:
@@ -1167,7 +1167,7 @@ void* anoLogicThreadMain(void* arg)
 		const float titleOrg[2] = { 24.0f, 150.0f };
 		uint32_t n = ano_text_shape_runs_lit(bake, TITLE_HEAD TITLE_TAIL, titleRuns, 2,
 		                                     titleOrg, hud, HUD_TEXT_CAP, NULL);
-		if (hud_text_spin(bridge, HUD_TEXT_TITLE, hud, n, "title").code == ANO_RENDER_SUBMIT_BACKPRESSURE)
+		if (hud_text_spin(bridge, HUD_TEXT_TITLE, hud, n, "title") == ANO_RENDER_SUBMIT_BACKPRESSURE)
 			goto hudDone;
 		#undef TITLE_HEAD
 		#undef TITLE_TAIL
@@ -1176,7 +1176,7 @@ void* anoLogicThreadMain(void* arg)
 		const float grey[4] = { 0.6f, 0.6f, 0.6f, 1.0f };
 		n = ano_text_shape_lit(bake, "this line clears itself in 15 s",
 		                       20.0f, noticeOrg, grey, hud, HUD_TEXT_CAP, NULL);
-		if (hud_text_spin(bridge, HUD_TEXT_NOTICE, hud, n, "notice").code == ANO_RENDER_SUBMIT_BACKPRESSURE)
+		if (hud_text_spin(bridge, HUD_TEXT_NOTICE, hud, n, "notice") == ANO_RENDER_SUBMIT_BACKPRESSURE)
 			goto hudDone;
 
 		// Unicode sampler: Elder Futhark + Latin-1 + Cyrillic.
@@ -1185,7 +1185,7 @@ void* anoLogicThreadMain(void* arg)
 		n = ano_text_shape_lit(bake,
 		                       "ᛖᚲ ᚺᛚᛖᚹᚨᚷᚨᛊᛏᛁᛉ ᚺᛟᛚᛏᛁᛃᚨᛉ ᚺᛟᚱᚾᚨ ᛏᚨᚹᛁᛞᛟ · Руны · æ ß",
 		                       22.0f, samplerOrg, gold, hud, HUD_TEXT_CAP, NULL);
-		if (hud_text_spin(bridge, HUD_TEXT_UNICODE, hud, n, "unicode sampler").code == ANO_RENDER_SUBMIT_BACKPRESSURE)
+		if (hud_text_spin(bridge, HUD_TEXT_UNICODE, hud, n, "unicode sampler") == ANO_RENDER_SUBMIT_BACKPRESSURE)
 			goto hudDone;
 
 		// Homer Odyssey 1.1 (polytonic Greek).
@@ -1194,7 +1194,7 @@ void* anoLogicThreadMain(void* arg)
 		n = ano_text_shape_lit(bake,
 		                       "Ἄνδρα μοι ἔννεπε, Μοῦσα, πολύτροπον",
 		                       22.0f, homerOrg, aegean, hud, HUD_TEXT_CAP, NULL);
-		if (hud_text_spin(bridge, HUD_TEXT_HOMER, hud, n, "homer").code == ANO_RENDER_SUBMIT_BACKPRESSURE)
+		if (hud_text_spin(bridge, HUD_TEXT_HOMER, hud, n, "homer") == ANO_RENDER_SUBMIT_BACKPRESSURE)
 			goto hudDone;
 	}
 // HUD setup done, or abandoned on shutdown.
@@ -1362,7 +1362,7 @@ hudDone:
 
 		// ACCEPTED retires the notice; otherwise retry next tick.
 		if (bake != NULL && !noticeCleared && noticeDeadline != 0 && now > noticeDeadline)
-			noticeCleared = ano_render_text_clear(bridge, HUD_TEXT_NOTICE).code == ANO_RENDER_SUBMIT_ACCEPTED;
+			noticeCleared = ano_render_text_clear(bridge, HUD_TEXT_NOTICE) == ANO_RENDER_SUBMIT_ACCEPTED;
 
 		// Hover change dirties; a full ring keeps dirty.
 		if (menuVisible && vpW > 0.0f) {

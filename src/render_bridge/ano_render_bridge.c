@@ -110,13 +110,13 @@ bool ano_render_light_detach(AnoRenderBridge *bridge, uint32_t light_id)
 AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, const RenderUpdateBatch *batch)
 {
     if (batch == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
     if (batch->count == 0u)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED); // documented no-op
+        return ANO_RENDER_SUBMIT_ACCEPTED; // documented no-op
     uint32_t count = batch->count, fields = batch->fields;
     const ano::render_bulk::BulkPackPlan *plan = ano::render_bulk::find_plan(fields);
     if (plan == nullptr)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
 
     const void *sources[ano::render_bulk::segmentCount];
     size_t bytes = sizeof(RenderUpdateBatch);
@@ -126,12 +126,12 @@ AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, con
         if (sources[i] == nullptr
             || !ano_size_align_up(&bytes, segment.alignment)
             || !ano_size_add_array(&bytes, count, segment.stride))
-            return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+            return ANO_RENDER_SUBMIT_INVALID;
     }
 
     char *blk = static_cast<char *>(mi_malloc(bytes));
     if (!blk)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_OOM);
+        return ANO_RENDER_SUBMIT_OOM;
     RenderUpdateBatch *b = (RenderUpdateBatch *)blk;
     *b = (RenderUpdateBatch){ .count = count, .fields = fields };
     size_t offset = sizeof(RenderUpdateBatch);
@@ -147,24 +147,24 @@ AnoRenderSubmitResult ano_render_submit_bulk_update(AnoRenderBridge *bridge, con
     RenderCommand cmd = { .kind = RCMD_BULK_UPDATE, .update = b, .bulk_owned = true };
     if (!ano_render_submit(bridge, &cmd)) {
         ano_render_command_release(&cmd);
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
+        return ANO_RENDER_SUBMIT_BACKPRESSURE;
     }
-    return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
+    return ANO_RENDER_SUBMIT_ACCEPTED;
 }
 
 // Mass despawn into one render-owned block. Zero count before id read.
 AnoRenderSubmitResult ano_render_submit_bulk_destroy(AnoRenderBridge *bridge, const uint32_t *render_ids, uint32_t count)
 {
     if (count == 0u)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED); // documented no-op
+        return ANO_RENDER_SUBMIT_ACCEPTED; // documented no-op
     if (render_ids == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
     size_t bytes = sizeof(RenderDestroyBatch);
     if (!ano_size_add_array(&bytes, count, sizeof(uint32_t)))
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
     char *blk = static_cast<char *>(mi_malloc(bytes));
     if (!blk)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_OOM);
+        return ANO_RENDER_SUBMIT_OOM;
     RenderDestroyBatch *b = (RenderDestroyBatch *)blk;
     uint32_t *ids = (uint32_t *)(blk + sizeof(RenderDestroyBatch));
     memcpy(ids, render_ids, (size_t)count * sizeof(uint32_t));
@@ -173,9 +173,9 @@ AnoRenderSubmitResult ano_render_submit_bulk_destroy(AnoRenderBridge *bridge, co
     RenderCommand cmd = { .kind = RCMD_BULK_DESTROY, .destroy = b, .bulk_owned = true };
     if (!ano_render_submit(bridge, &cmd)) {
         ano_render_command_release(&cmd);
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
+        return ANO_RENDER_SUBMIT_BACKPRESSURE;
     }
-    return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
+    return ANO_RENDER_SUBMIT_ACCEPTED;
 }
 
 
@@ -191,13 +191,13 @@ AnoRenderSubmitResult ano_render_text_set(AnoRenderBridge *bridge, uint32_t text
     if (count == 0u)
         return ano_render_text_clear(bridge, text_id);
     if (instances == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
     if (count > ANO_RENDER_TEXT_MAX)
         count = ANO_RENDER_TEXT_MAX;
     size_t bytes = sizeof(RenderTextBlock) + (size_t)count * sizeof(AnoGlyphInstance);
     char *blk = static_cast<char *>(mi_malloc(bytes));
     if (blk == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_OOM);
+        return ANO_RENDER_SUBMIT_OOM;
     RenderTextBlock *b = (RenderTextBlock *)blk;
     AnoGlyphInstance *inst = (AnoGlyphInstance *)(blk + sizeof(RenderTextBlock));
     memcpy(inst, instances, (size_t)count * sizeof(AnoGlyphInstance));
@@ -206,17 +206,17 @@ AnoRenderSubmitResult ano_render_text_set(AnoRenderBridge *bridge, uint32_t text
     RenderCommand c = { .kind = RCMD_TEXT_SET, .text = b, .text_id = text_id, .bulk_owned = true };
     if (!bridge->commands.push(c)) {
         ano_render_command_release(&c);
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
+        return ANO_RENDER_SUBMIT_BACKPRESSURE;
     }
-    return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
+    return ANO_RENDER_SUBMIT_ACCEPTED;
 }
 
 AnoRenderSubmitResult ano_render_text_clear(AnoRenderBridge *bridge, uint32_t text_id)
 {
     RenderCommand c = { .kind = RCMD_TEXT_CLEAR, .text_id = text_id };
     return bridge->commands.push(c)
-               ? ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED)
-               : ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
+               ? ANO_RENDER_SUBMIT_ACCEPTED
+               : ANO_RENDER_SUBMIT_BACKPRESSURE;
 }
 
 
@@ -284,7 +284,7 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
                                         const AnoGlyphInstance *glyphs, uint32_t glyphCount)
 {
     if (ui == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
     if (ui->primCount == 0u)
         return ano_render_ui_clear(bridge, ui_id);
     if (ui->primCount > ANO_RENDER_UI_MAX_PRIMS || ui->clipCount > ANO_RENDER_UI_MAX_CLIPS
@@ -297,13 +297,13 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
         || (ui->stopCount  > 0u && ui->stops  == NULL)
         || (ui->curveCount > 0u && ui->curves == NULL)) {
         ano_log(ANO_WARN, "UI bridge: ui_id %u dropped (per-block caps or a count over an absent table).", ui_id);
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+        return ANO_RENDER_SUBMIT_INVALID;
     }
     for (uint32_t i = 0; i < ui->primCount; i++) {
         if (!ui_prim_valid(&ui->prims[i], ui->clipCount, ui->paintCount, glyphCount,
                            ui->curves, ui->curveCount, ui->paints, ui->stopCount)) {
             ano_log(ANO_WARN, "UI bridge: ui_id %u dropped (prim %u invalid).", ui_id, i);
-            return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_INVALID);
+            return ANO_RENDER_SUBMIT_INVALID;
         }
     }
     size_t primB = (size_t)ui->primCount * sizeof(AnoUiPrim);
@@ -315,7 +315,7 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
     char *blk = static_cast<char *>(
         mi_malloc(sizeof(RenderUiBlock) + primB + clipB + paintB + stopB + curveB + glyphB));
     if (blk == NULL)
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_OOM);
+        return ANO_RENDER_SUBMIT_OOM;
     RenderUiBlock *b = (RenderUiBlock *)blk;
     char *at = blk + sizeof(RenderUiBlock);
     b->layer = layer;
@@ -348,17 +348,17 @@ AnoRenderSubmitResult ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id,
     RenderCommand c = { .kind = RCMD_UI_SET, .ui = b, .ui_id = ui_id, .bulk_owned = true };
     if (!bridge->commands.push(c)) {
         ano_render_command_release(&c);
-        return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
+        return ANO_RENDER_SUBMIT_BACKPRESSURE;
     }
-    return ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED);
+    return ANO_RENDER_SUBMIT_ACCEPTED;
 }
 
 AnoRenderSubmitResult ano_render_ui_clear(AnoRenderBridge *bridge, uint32_t ui_id)
 {
     RenderCommand c = { .kind = RCMD_UI_CLEAR, .ui_id = ui_id };
     return bridge->commands.push(c)
-               ? ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_ACCEPTED)
-               : ANO_RESULT(AnoRenderSubmitResult, ANO_RENDER_SUBMIT_BACKPRESSURE);
+               ? ANO_RENDER_SUBMIT_ACCEPTED
+               : ANO_RENDER_SUBMIT_BACKPRESSURE;
 }
 
 

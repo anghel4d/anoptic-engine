@@ -898,7 +898,7 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
         &ctx, residency.uploadCommands, &package,
         residency.uploadStaging, target->uploadOffset, texture.width,
         texture.height, usage);
-    if (built.code != ANO_TEXTURE_BUILT)
+    if (built != ANO_TEXTURE_BUILT)
         return false;
     output.colorSlot = (usage & TEXTURE_USE_COLOR)
         ? bindless_register_texture(

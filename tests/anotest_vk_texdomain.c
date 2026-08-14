@@ -65,8 +65,8 @@ int main(void)
     AnoTextureResult built = createTextureImageFromPixels(
         ctx, &pkg, pixels, 4, 4,
         TEXTURE_USE_COLOR | TEXTURE_USE_DATA);
-    if (built.code != ANO_TEXTURE_BUILT) {
-        printf("Error: createTextureImageFromPixels refused both roles (code %d)!\n", (int)built.code);
+    if (built != ANO_TEXTURE_BUILT) {
+        printf("Error: createTextureImageFromPixels refused both roles (code %d)!\n", (int)built);
         return false;
     }
 

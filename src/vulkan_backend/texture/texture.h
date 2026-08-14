@@ -11,19 +11,17 @@
 #include <vulkan/vulkan.h>
 #include <stdbool.h>
 
-#include <anoptic_results.h>
-
 #include "vulkan_backend/components.h"
 #include "vulkan_backend/instance/instanceInit.h"
 
 // Texture construction outcomes.
 // SOURCE rejects texels; DEVICE rejects Vulkan construction; INVALID rejects the call contract.
-ANO_RESULT_TYPE(AnoTextureResult,
+enum [[nodiscard]] AnoTextureResult : uint32_t {
     ANO_TEXTURE_BUILT = 0,   // *pkg complete; caller owns every handle
     ANO_TEXTURE_SOURCE,      // decode refused or outside domain
     ANO_TEXTURE_DEVICE,      // device or texture arena refused
     ANO_TEXTURE_INVALID      // no usage bits, or null destination
-);
+};
 
 // Sample interpretations for one image. Both bits -> one mutable-format image, one allocation.
 typedef enum TextureUsageBits {

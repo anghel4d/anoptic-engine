@@ -18,7 +18,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <anoptic_results.h>
 #include <anoptic_math.h>
 #include <anoptic_text.h> // logic-side shaping
 #include <anoptic_ui.h>   // logic-side layout
@@ -378,17 +377,17 @@ typedef struct RenderCommand
 // Enqueue one command. false = ring full (BACKPRESSURE): retain and retry; never drop.
 bool ano_render_submit(AnoRenderBridge *bridge, const RenderCommand *cmd);
 
-// Outcome of owned-payload producer endpoints below. Inspect result.code only; ACCEPTED is 0.
+// Outcome of owned-payload producer endpoints below.
 // ACCEPTED: allocated, packed, enqueued (or documented no-op). Ownership transfers only on this code.
 // BACKPRESSURE: ring full; packed block released; retry safe.
 // OOM: alloc failed; nothing enqueued.
 // INVALID: contract violation; retire, do not retry.
-ANO_RESULT_TYPE(AnoRenderSubmitResult,
+enum [[nodiscard]] AnoRenderSubmitResult : uint32_t {
     ANO_RENDER_SUBMIT_ACCEPTED = 0,
     ANO_RENDER_SUBMIT_BACKPRESSURE,
     ANO_RENDER_SUBMIT_OOM,
     ANO_RENDER_SUBMIT_INVALID
-);
+};
 
 // Bulk endpoints. Each copies into one render-owned block; caller arrays live until return.
 // zero count = ACCEPTED no-op

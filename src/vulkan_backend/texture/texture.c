@@ -268,13 +268,13 @@ AnoTextureResult createTextureImageFromStaging(
     uint32_t height, TextureUsageFlags usage)
 {
     if (!package)
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
+        return ANO_TEXTURE_INVALID;
     *package = {};
     if (command == VK_NULL_HANDLE || staging == VK_NULL_HANDLE
         || (stagingOffset & 3u) != 0 || !texture_usage_valid(usage))
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
+        return ANO_TEXTURE_INVALID;
     if (width == 0 || height == 0)
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_SOURCE);
+        return ANO_TEXTURE_SOURCE;
 
     const VkFormat format = texture_base_format(usage);
     if (!createImageShared(
@@ -284,7 +284,7 @@ AnoTextureResult createTextureImageFromStaging(
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             &package->image, &package->alloc, false, nullptr, 0,
             textureViewFormats, texture_view_format_count(usage)))
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_DEVICE);
+        return ANO_TEXTURE_DEVICE;
     const bool views = (!(usage & TEXTURE_USE_COLOR)
                         || create_texture_view(
                             context, package->image, &package->srgbView,
@@ -299,7 +299,7 @@ AnoTextureResult createTextureImageFromStaging(
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1)) {
         destroyTexturePackage(context, package);
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_DEVICE);
+        return ANO_TEXTURE_DEVICE;
     }
     copy_buffer_to_image(
         command, staging, stagingOffset, package->image, width, height);
@@ -308,12 +308,12 @@ AnoTextureResult createTextureImageFromStaging(
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1)) {
         destroyTexturePackage(context, package);
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_DEVICE);
+        return ANO_TEXTURE_DEVICE;
     }
     package->mipLevels = 1;
     package->width = width;
     package->height = height;
-    return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_BUILT);
+    return ANO_TEXTURE_BUILT;
 }
 
 AnoTextureResult createTextureImageFromPixels(
@@ -322,16 +322,16 @@ AnoTextureResult createTextureImageFromPixels(
     TextureUsageFlags usage)
 {
     if (!package)
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
+        return ANO_TEXTURE_INVALID;
     *package = {};
     uint64_t pixelCount = 0;
     if (!pixels || width == 0 || height == 0
         || width > UINT64_MAX / height
         || (pixelCount = static_cast<uint64_t>(width) * height)
             > UINT64_MAX / 4u)
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_SOURCE);
+        return ANO_TEXTURE_SOURCE;
     if (!texture_usage_valid(usage))
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_INVALID);
+        return ANO_TEXTURE_INVALID;
 
     const VkDeviceSize bytes = pixelCount * 4u;
     VkBuffer staging = VK_NULL_HANDLE;
@@ -345,20 +345,20 @@ AnoTextureResult createTextureImageFromPixels(
         || !allocation.mapped) {
         vkDestroyBuffer(context->device, staging, nullptr);
         gpu_free(&stagingAllocator, allocation);
-        return ANO_RESULT(AnoTextureResult, ANO_TEXTURE_DEVICE);
+        return ANO_TEXTURE_DEVICE;
     }
     memcpy(allocation.mapped, pixels, static_cast<size_t>(bytes));
 
     VkCommandBuffer command = beginSingleTimeCommands(context);
     AnoTextureResult result = command == VK_NULL_HANDLE
-        ? ANO_RESULT(AnoTextureResult, ANO_TEXTURE_DEVICE)
+        ? ANO_TEXTURE_DEVICE
         : createTextureImageFromStaging(
             context, command, package, staging, 0, width, height, usage);
     if (command != VK_NULL_HANDLE) {
-        if (result.code == ANO_TEXTURE_BUILT) {
+        if (result == ANO_TEXTURE_BUILT) {
             if (!endSingleTimeCommandsChecked(context, command)) {
                 destroyTexturePackage(context, package);
-                result = ANO_RESULT(AnoTextureResult, ANO_TEXTURE_DEVICE);
+                result = ANO_TEXTURE_DEVICE;
             }
         } else {
             vkFreeCommandBuffers(

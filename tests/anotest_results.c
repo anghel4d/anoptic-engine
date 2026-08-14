@@ -80,19 +80,11 @@ consteval bool result_surface()
     return observations == 10 && unitMap && *unitMap == 3;
 }
 
-ANO_RESULT_TYPE(AnoProbeResult,
-    ANO_PROBE_ACCEPTED = 0,
-    ANO_PROBE_REJECTED);
-
 static_assert(result_surface());
-static_assert(ANO_RESULT(AnoProbeResult, ANO_PROBE_ACCEPTED).code
-    == ANO_PROBE_ACCEPTED);
 
 } // namespace
 
 int main()
 {
-    const AnoProbeResult rejected =
-        ANO_RESULT(AnoProbeResult, ANO_PROBE_REJECTED);
-    return rejected.code == ANO_PROBE_REJECTED ? 0 : 1;
+    return 0;
 }

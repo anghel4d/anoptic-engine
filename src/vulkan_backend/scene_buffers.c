@@ -486,7 +486,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
     // Colour role, no borrowed batch.
     if (createTextureImageFromPixels(
             ctx, &fallbackPkg, fallbackPixels, 2, 2,
-            TEXTURE_USE_COLOR).code != ANO_TEXTURE_BUILT) {
+            TEXTURE_USE_COLOR) != ANO_TEXTURE_BUILT) {
         ano_log(ANO_WARN, "Warning: Failed to create fallback texture!");
         return false;
     }
