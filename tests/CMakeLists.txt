@@ -74,6 +74,34 @@ ano_add_resource_compile_failure(anoptic_resources_reject_non_artifact_ref
 ano_add_resource_compile_failure(anoptic_resources_reject_transform_values
         compile_fail/resources_bad_transform_signature.c "must be lvalue references")
 
+add_executable(anotest_results anotest_results.c)
+target_link_libraries(anotest_results PRIVATE anoptic_core)
+add_test(NAME anoptic_results COMMAND anotest_results)
+set_tests_properties(anoptic_results PROPERTIES TIMEOUT 30 LABELS "unit")
+
+add_test(NAME anoptic_results_c_header
+        COMMAND ${CMAKE_C_COMPILER} -std=c17 -I ${CMAKE_SOURCE_DIR}/include
+                -fsyntax-only ${CMAKE_CURRENT_SOURCE_DIR}/anotest_results_c_header.c)
+set_tests_properties(anoptic_results_c_header PROPERTIES
+        TIMEOUT 30 LABELS "unit;compile")
+
+function(ano_add_result_compile_failure name source expected)
+    add_test(NAME ${name}
+            COMMAND ${CMAKE_COMMAND}
+                    -DCXX=${CMAKE_CXX_COMPILER}
+                    -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/${source}
+                    -DINCLUDE_DIR=${CMAKE_SOURCE_DIR}/include
+                    -DEXPECTED=${expected}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/expect_compile_failure.cmake)
+    set_tests_properties(${name} PROPERTIES
+            TIMEOUT 30 LABELS "unit;compile-fail")
+endfunction()
+
+ano_add_result_compile_failure(anoptic_results_reject_duplicate_code
+        compile_fail/results_duplicate_code.c "one unique zero success code")
+ano_add_result_compile_failure(anoptic_results_reject_wrong_domain
+        compile_fail/results_wrong_domain.c "code enum belonging to its status type")
+
 # Testing for ``anoptic_time.h``
 add_executable(anotest_time anotest_time.c)
 target_link_libraries(anotest_time PRIVATE anoptic_core)
