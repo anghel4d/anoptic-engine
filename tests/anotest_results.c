@@ -5,8 +5,6 @@
 
 #include "anoptic_compose.h"
 
-using namespace ano;
-
 namespace {
 
 enum class ParseError {
@@ -19,16 +17,6 @@ constexpr auto parse(bool valid) -> ano::Result<int, ParseError>
     if (valid)
         return 7;
     return ano::failure(ParseError::invalid);
-}
-
-constexpr auto increment(int value) -> ano::Result<int, ParseError>
-{
-    return value + 1;
-}
-
-constexpr auto double_value(int value) -> ano::Result<int, ParseError>
-{
-    return value * 2;
 }
 
 consteval bool result_surface()
@@ -53,8 +41,12 @@ static_assert(result_surface());
 consteval bool composition_surface()
 {
     constexpr auto path = ano::compose(parse)
-        .and_then(increment)
-        .and_then(double_value)
+        .and_then([](int value) -> ano::Result<int, ParseError> {
+            return value + 1;
+        })
+        .and_then([](int value) -> ano::Result<int, ParseError> {
+            return value * 2;
+        })
         .transform([](int value) { return value + 3; });
     const auto value = path(true);
     const auto error = path(false);

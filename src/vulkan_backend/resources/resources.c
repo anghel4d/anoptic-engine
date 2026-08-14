@@ -491,37 +491,32 @@ bool is_render_input(AnoResourceTypeId type)
 
 ResourceResult<> invoke_render_transform(
     RenderBinding& target, schema::RenderResourceContext& context,
-    AnoResourceTypeId type, AnoResourceBytes artifact)
+    AnoResourceTypeId type)
 {
     ResourceResult<> result = failure(ANO_RESOURCE_UNSUPPORTED);
     (void)visit_render_route(
         type, [&]<auto Declaration, class Input, class Output>() {
-            const auto route = ano::compose(
-                [](AnoResourceBytes bytes) {
-                    return ano::decode<Input>(bytes);
-                })
+            const auto route = ano::compose(ano::decode<Input>)
                 .and_then([&](const ano::ArtifactView<Input>& decoded) {
-                    context.artifact = artifact;
                     return [:Declaration:](decoded.value, context);
                 })
                 .transform([&](const Output& output) {
                     publish_output(target, output);
                 });
-            result = route(artifact);
+            result = route(context.artifact);
         });
     return result;
 }
 
 template<class Input>
-AnoResourceError prepare_decoded(AnoRenderResidency&, RenderBinding&,
-                                 const Input&,
-                                 AnoResourceBytes, mi_heap_t*)
+ResourceResult<> prepare_decoded(AnoRenderResidency&, RenderBinding&,
+                                 const Input&, AnoResourceBytes, mi_heap_t*)
 {
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
 template<>
-AnoResourceError prepare_decoded(
+ResourceResult<> prepare_decoded(
     AnoRenderResidency& residency, RenderBinding& binding,
     const schema::Texture& texture,
     AnoResourceBytes artifact, mi_heap_t*)
@@ -533,45 +528,48 @@ AnoResourceError prepare_decoded(
     if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0
         || !bytes || *bytes != texture.bytes.count || *bytes > SIZE_MAX)
-        return ANO_RESOURCE_NON_CANONICAL;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     const ano::ArtifactView<schema::Texture> view = {
         .value = texture, .bytes = artifact};
     const auto pixelsView = ano::borrow_bytes(view, texture.bytes);
     if (!pixelsView)
-        return pixelsView.error();
+        return failure(pixelsView.error());
     if (pixelsView->size != *bytes)
-        return ANO_RESOURCE_NON_CANONICAL;
-    return !reserve_upload_slice(
-                residency, static_cast<VkDeviceSize>(*bytes),
-                &binding.uploadOffset)
-        ? ANO_RESOURCE_OVERFLOW : ANO_RESOURCE_OK;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    return result_if(
+        reserve_upload_slice(
+            residency, static_cast<VkDeviceSize>(*bytes),
+            &binding.uploadOffset),
+        ANO_RESOURCE_OVERFLOW);
 }
 
 template<>
-AnoResourceError prepare_decoded(
+ResourceResult<> prepare_decoded(
     AnoRenderResidency& residency, RenderBinding& binding,
     const schema::Mesh& mesh,
     AnoResourceBytes artifact, mi_heap_t* heap)
 {
-    if (binding.reuseGeometry) return ANO_RESOURCE_OK;
+    if (binding.reuseGeometry) return {};
     if (mesh.vertices.count == 0 || mesh.indices.count == 0
         || mesh.vertices.count > UINT32_MAX || mesh.indices.count > UINT32_MAX
         || mesh.vertices.count > SIZE_MAX / sizeof(schema::Vertex)
         || mesh.indices.count > SIZE_MAX / sizeof(uint32_t))
-        return ANO_RESOURCE_NON_CANONICAL;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     schema::Vertex* portable = mi_heap_mallocn_tp(
         schema::Vertex, heap, static_cast<size_t>(mesh.vertices.count));
     uint32_t* indices = mi_heap_mallocn_tp(
         uint32_t, heap, static_cast<size_t>(mesh.indices.count));
-    if (!portable || !indices) return ANO_RESOURCE_OUT_OF_MEMORY;
+    if (!portable || !indices)
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     const ano::ArtifactView<schema::Mesh> view = {
         .value = mesh, .bytes = artifact};
-    auto result = ano::resolve_span(
-        view, mesh.vertices, portable, mesh.vertices.count);
-    if (result)
-        result = ano::resolve_span(
-            view, mesh.indices, indices, mesh.indices.count);
-    if (!result) return result.error();
+    const auto resolved = ano::resolve_span(
+        view, mesh.vertices, portable, mesh.vertices.count)
+        .and_then([&] {
+            return ano::resolve_span(
+                view, mesh.indices, indices, mesh.indices.count);
+        });
+    if (!resolved) return failure(resolved.error());
     static_assert(sizeof(schema::Vertex) == sizeof(::Vertex));
     const AnoLodConfig lod = ano_lod_config_default(ANO_DEFAULT_LOD_COUNT);
     if (!geometry_prepare_chain(
@@ -579,27 +577,29 @@ AnoResourceError prepare_decoded(
         static_cast<uint32_t>(mesh.vertices.count), indices,
         static_cast<uint32_t>(mesh.indices.count), &lod,
         &binding.preparedGeometry))
-        return ANO_RESOURCE_OWNER_REJECTED;
-    return reserve_upload_slice(
-        residency, binding.preparedGeometry.uploadBytes,
-        &binding.uploadOffset)
-        ? ANO_RESOURCE_OK : ANO_RESOURCE_OVERFLOW;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
+    return result_if(
+        reserve_upload_slice(
+            residency, binding.preparedGeometry.uploadBytes,
+            &binding.uploadOffset),
+        ANO_RESOURCE_OVERFLOW);
 }
 
-AnoResourceError invoke_prepare_transform(
+ResourceResult<> invoke_prepare_transform(
     AnoRenderResidency& residency, RenderBinding& target,
     AnoResourceTypeId type,
     AnoResourceBytes artifact, mi_heap_t* heap)
 {
-    AnoResourceError result = ANO_RESOURCE_UNSUPPORTED;
+    ResourceResult<> result = failure(ANO_RESOURCE_UNSUPPORTED);
     (void)visit_render_route(
         type, [&]<auto, class Input, class>() {
-            const ano::DecodeResult<Input> decoded =
-                ano::decode<Input>(artifact);
-            result = decoded
-                ? prepare_decoded(
-                    residency, target, decoded->value, artifact, heap)
-                : decoded.error();
+            const auto route = ano::compose(ano::decode<Input>)
+                .and_then([&](const ano::ArtifactView<Input>& decoded) {
+                    return prepare_decoded(
+                        residency, target, decoded.value,
+                        decoded.bytes, heap);
+                });
+            result = route(artifact);
         });
     return result;
 }
@@ -761,8 +761,9 @@ AnoResourceError plan_asset(
         target->mesh.geometrySlot = previous->bindings[index].mesh.geometrySlot;
         target->reuseGeometry = true;
     }
-    result = invoke_prepare_transform(
+    const auto preparation = invoke_prepare_transform(
         candidate, *target, type, *artifact, heap);
+    result = preparation ? ANO_RESOURCE_OK : preparation.error();
     if (result == ANO_RESOURCE_OK && !append_realization(candidate, asset))
         result = ANO_RESOURCE_OVERFLOW;
     target->state = result == ANO_RESOURCE_OK
@@ -819,7 +820,7 @@ ResourceResult<> realize_planned_asset(
                 .artifact = artifact,
             };
             return invoke_render_transform(
-                target, context, target.sourceType, artifact);
+                target, context, target.sourceType);
         });
     target.preparedGeometry = {};
     target.uploadOffset = 0;
