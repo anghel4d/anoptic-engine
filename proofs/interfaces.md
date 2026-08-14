@@ -11,9 +11,10 @@ principles.
 
 | Selected carrier | Machine-checked abstract facts | Production connection |
 |---|---|---|
-| Structural compiler | Empty record/choice members are normalized idempotently; witness projections compose; compiler pullbacks and refined products obey their stated laws | Abstract only; no generated whole-declaration witness |
+| Structural compiler | Empty record/choice members are normalized idempotently; witness projections compose; a `CompiledSignature` is noninterfering outside its projection; fail-fast pairing has explicit left-error precedence; compiler pullbacks and refined products obey their stated laws | Abstract only; no generated whole-declaration witness |
 | Outcomes | `Except` identity, associativity, short-circuiting, mapping, and the modeled C-result conversion | Abstract only; C ABI layout and inactive payload are not certified |
 | Polynomial APIs | Dependent extension, products, coproducts, zero, unit, adaptor identity and composition | Abstract only; this is the reusable mathematical nucleus |
+| Semantic algebras | Identity, result, state, and state-plus-result effects are functorial; effect transformations are natural; algebra homomorphisms map shape, carrier, and effect while satisfying a commuting law; identities and composition preserve that law; a concrete shape morphism is proved to have no homomorphic lift for selected interpretations | Abstract only; no production interpreter supplies a carrier/effect refinement witness |
 | Linear algebra | Space-indexed map identity and associative composition | Abstract only; arithmetic, layout, and engine ABI are not certified |
 | Memory | Checked aligned reservation, zero-alignment/overflow rejection, successful reservation bounds, checked plan composition, sealed-volume layout/bounds/disjointness, owner retention, and scratch reset | Abstract only; it mirrors the resource volume contract but is not extracted from `anoptic_memory.h` |
 | Concurrency | Queue send/receive examples, channel-map functor laws, endpoint identity sharing without copied queue state, lane independence, and common publication generation | Abstract only; atomics, memory order, interleavings, wraparound, and progress are unproved |
@@ -23,7 +24,7 @@ principles.
 | Diagnostics | Record-sequence drain homomorphism and a nonreturning crash-interpreter type | Abstract only; queues, loss policy, and signal safety are unproved |
 | glTF/GLB | JSON/GLB source sum, indexed-buffer binding shape, and fallible parse/bind/project regrouping | Abstract only; anogltf parsing is not refined |
 | Mesh | Typed transform identity/associativity and one LOD output per requested budget | Abstract only; topology and numerical properties are unproved |
-| Resource manager | Many-port signatures, output-port provenance, route composition/tensor, dependency closure, canonical codec bijection, noncanonical rejection consequence, revision-indexed epochs, navigation, demand union, COW locality, and failure-preserving publication | Real artifact/transform/importer inventory is generated from headers; one production texture codec witness executes at compile time. Cooker/pack/runtime behavior remains unrefined |
+| Resource manager | Many-port signatures, output-port provenance, route composition/tensor, provenance/producer-polynomial isomorphism, typed one-hole derivative navigation, dependency closure, canonical codec bijection, noncanonical rejection consequence, revision-indexed epochs, demand union, COW locality, and failure-preserving publication | Real artifact/transform/importer inventory is generated from headers; one production texture codec witness executes at compile time. Cooker/pack/runtime behavior remains unrefined |
 | Render resources | Capability-indexed portable/slot values, semantic and payload identity preservation, batch cardinality, and retirement threshold | Abstract only; production renderer realization is unproved |
 | Render protocol | Closed command/event sums and ordered command-fold composition | Abstract only; bulk transport and backend effects are unrefined |
 | Input/display | Closed input-event sum, display transitions, batch composition, and an explicit adapter-refinement predicate | Abstract only; no GLFW adapter witness |
@@ -56,6 +57,9 @@ This is currently the only mechanically derived production inventory.
 ## Composition scope
 
 `CompositionCoverage.allCompositionsChecked` covers the selected abstract enum.
+Its additional compiler examples prove projection noninterference and its
+semantic examples deliberately distinguish a shape morphism from an algebra
+homomorphism by exhibiting both a commuting map and a noncommuting map.
 `ArchitectureGraph.Path.run_assoc` and `EngineComposition` prove laws about their
 handwritten typed models. `Cxx26Mapping` proves that the abstract algebras admit
 candidate staged images and that modeled lowering preserves modeled composition.

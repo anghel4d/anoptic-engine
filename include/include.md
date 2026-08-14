@@ -15,8 +15,18 @@ public interaction shape is
 P_A(X) = sum(q : Q_A) X ^ R_A(q)
 ```
 
-The source in `src/` is an interpreter of that type. C ABI records and functions
-are a lowering of the same algebra, not a second semantic description.
+The shape does not determine its meaning. For carrier `X_A` and effect functor
+`F_A`, a semantic algebra supplies
+
+```text
+alpha_A : P_A(X_A) -> F_A(X_A)
+```
+
+An API adaptor is only a morphism of shapes. It preserves meaning only when it
+also has a carrier map, a natural map between effects, and a commuting proof.
+The implementation in `src/` interprets the selected algebra. C ABI records,
+calling conventions, queues, and memory layouts are physical representations
+of it, not additional semantic authorities.
 
 The public surface does not pretend that every boundary belongs to one global
 category. API adaptors, reflected plan compilers, resource routes, owner state
@@ -24,12 +34,12 @@ machines, transports, and implementation refinements retain their own
 composition laws. Their common compile-time structural authority factors as:
 
 ```text
-D --reify--> S --rho_M--> S_M --C_M--> CompileError_M + Plan_M
+D --reify--> W --rho_M--> W_M --C_M--> CompileError_M + Plan_M
 ```
 
-`S` is one normalized witness for the closed declaration universe. Each public
-module compiler consumes only its projection `S_M`; no runtime registry retains
-`S`. Independent plans pair. Plans that must agree on a shared projection use a
+`W` is one normalized witness for the closed declaration universe. Each public
+module compiler consumes only its projection `W_M`; no runtime registry retains
+`W`. Independent plans pair. Plans that must agree on a shared projection use a
 pullback, and arbitrary compatibility uses a proof-carrying refined product.
 
 For API adaptors, the unique terminal map is `A -> 1`, not `1 -> A`. Polynomial
@@ -116,7 +126,7 @@ Cook, runtime, renderer publication, mixer publication, and text-owner
 publication consume the compiled products through their own headers. An owner
 extension does not include cooker/runtime headers simply to declare a transform.
 The one resource-universe translation unit closes the relevant projection of
-`S`; each transform contributes all reflected input and output ports.
+`W`; each transform contributes all reflected input and output ports.
 
 ## Factored public surface
 

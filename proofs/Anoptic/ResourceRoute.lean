@@ -118,6 +118,106 @@ structure Provenance (Transform : Type v) (signature : Transform → Signature C
     (Ref : Cell → Type w) (target : Cell) extends Producer Transform signature target where
   inputs : Inputs (signature transform) Ref
 
+/--
+The producer polynomial for one target cell.  Its alternatives are selected
+output ports, and each alternative contains the complete dependent product of
+its input references.
+-/
+def ProducerPolynomial (Transform : Type v)
+    (signature : Transform → Signature Cell) (Ref : Cell → Type w)
+    (target : Cell) :=
+  Sigma fun producer : Producer Transform signature target =>
+    Inputs (signature producer.transform) Ref
+
+def Provenance.toPolynomial
+    (provenance : Provenance Transform signature Ref target) :
+    ProducerPolynomial Transform signature Ref target :=
+  ⟨provenance.toProducer, provenance.inputs⟩
+
+def Provenance.ofPolynomial
+    (value : ProducerPolynomial Transform signature Ref target) :
+    Provenance Transform signature Ref target where
+  transform := value.1.transform
+  outputPort := value.1.outputPort
+  produces := value.1.produces
+  inputs := value.2
+
+@[simp] theorem Provenance.ofPolynomial_toPolynomial
+    (provenance : Provenance Transform signature Ref target) :
+    Provenance.ofPolynomial provenance.toPolynomial = provenance := by
+  cases provenance
+  rfl
+
+@[simp] theorem Provenance.toPolynomial_ofPolynomial
+    (value : ProducerPolynomial Transform signature Ref target) :
+    Provenance.toPolynomial (Provenance.ofPolynomial value) = value := by
+  rcases value with ⟨producer, inputs⟩
+  cases producer
+  rfl
+
+/-- One concrete parent reference together with its selected provenance. -/
+structure Instance (Transform : Type v) (signature : Transform → Signature Cell)
+    (Ref : Cell → Type w) (target : Cell)
+    extends Provenance Transform signature Ref target where
+  parent : Ref target
+
+/--
+The one-hole derivative context of a selected producer alternative.  `siblings`
+contains every input except the selected port, and the source cell is an index.
+-/
+structure Derivative (Transform : Type v)
+    (signature : Transform → Signature Cell) (Ref : Cell → Type w)
+    (target source : Cell) where
+  producer : Producer Transform signature target
+  inputPort : (signature producer.transform).InputPort
+  consumes : (signature producer.transform).inputType inputPort = source
+  siblings : (port : (signature producer.transform).InputPort) →
+    port ≠ inputPort → Ref ((signature producer.transform).inputType port)
+
+/-- A selected child, its one-hole context, and the parent instance reference. -/
+structure InputFocus (Transform : Type v)
+    (signature : Transform → Signature Cell) (Ref : Cell → Type w)
+    (target source : Cell) where
+  parent : Ref target
+  child : Ref source
+  context : Derivative Transform signature Ref target source
+
+def Instance.down
+    (resourceInstance : Instance Transform signature Ref target)
+    (inputPort : (signature resourceInstance.transform).InputPort) :
+    InputFocus Transform signature Ref target
+      ((signature resourceInstance.transform).inputType inputPort) where
+  parent := resourceInstance.parent
+  child := resourceInstance.inputs inputPort
+  context := {
+    producer := resourceInstance.toProducer
+    inputPort
+    consumes := rfl
+    siblings := fun port _ => resourceInstance.inputs port
+  }
+
+def InputFocus.reference
+    (focus : InputFocus Transform signature Ref target source) : Ref source :=
+  focus.child
+
+/-- `up` never bifurcates: a selected child retains its one parent instance. -/
+def InputFocus.up
+    (focus : InputFocus Transform signature Ref target source) : Ref target :=
+  focus.parent
+
+@[simp] theorem Instance.down_reference
+    (resourceInstance : Instance Transform signature Ref target)
+    (inputPort : (signature resourceInstance.transform).InputPort) :
+    (resourceInstance.down inputPort).reference =
+      resourceInstance.inputs inputPort :=
+  rfl
+
+@[simp] theorem Instance.down_up
+    (resourceInstance : Instance Transform signature Ref target)
+    (inputPort : (signature resourceInstance.transform).InputPort) :
+    (resourceInstance.down inputPort).up = resourceInstance.parent :=
+  rfl
+
 /-- Immutable references may be shared without postulating a diagonal on cell values. -/
 def shareRef {Cell : Type u} {Ref : Cell → Type v} {cell : Cell}
     (reference : Ref cell) : Ref cell × Ref cell :=

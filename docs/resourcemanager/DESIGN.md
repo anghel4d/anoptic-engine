@@ -137,11 +137,11 @@ The closed declaration universe is normalized once. Each module consumes only
 the projection relevant to its own compiler:
 
 ```text
-D --reify--> S
-S --rho_M--> S_M --C_M--> CompileError_M + Plan_M
+D --reify--> W
+W --rho_M--> W_M --C_M--> CompileError_M + Plan_M
 ```
 
-`S` is a compile-time structural witness, not a runtime schema registry.
+`W` is a compile-time structural witness, not a runtime schema registry.
 `rho_M` prevents a module compiler from inspecting unrelated declarations.
 `C_M` is partial because malformed or incomplete declarations are rejected by
 the `consteval` boundary. The resource universe is one projection of this
@@ -288,24 +288,37 @@ request : Q_A -> Q_B
 response_q : R_B(request(q)) -> R_A(q)
 ```
 
-The opposite response direction is what lets a caller of `A` use an
-implementation of `B`. These adaptors compose. Interface sums express a choice
-of protocol, interface products express independently available protocols, and
-composition expresses one module interpreting another module's values.
+The opposite response direction is what lets a caller of `A` use the shape of
+`B`. These adaptors compose. Interface sums express a choice of protocol and
+interface products express independently available protocols. A shape adaptor
+alone does not interpret either interface.
 
 The unit polynomial is terminal for these adaptors: `Hom(A, 1)` is unique.
 `Hom(1, A)` instead selects a global operation with no response positions and
 is neither generally inhabited nor unique. The zero polynomial has no possible
 request. Empty source files and absent modules do not establish either object.
 
-State and effects are kept outside the polynomial shape. A stateful owner `M`
-implements its interface with an interpreter of the form
+API shape, semantic algebra, interpreter, and physical representation are four
+different planes. For carrier `X_M` and effect functor `F_M`, meaning is supplied
+by an algebra
 
 ```text
-handle_M : S_M x Q_M -> Effect_M(sum(r : R_M(q)) S_M)
+alpha_M : P_M(X_M) -> F_M(X_M)
 ```
 
-where `Effect_M` is the concrete domain in which the owner is allowed to act:
+An `API.Hom A B` induces only a natural translation between `P_A` and `P_B`.
+It becomes an algebra homomorphism only with a carrier map `f`, a natural effect
+map `eta : F_A => F_B`, and the commuting law
+
+```text
+F_B(f)(eta(alpha_A(p))) = alpha_B(P_h(f)(p))
+```
+
+where `P_h(f)` translates the request through both the API adaptor and carrier
+map. Therefore a shape adaptor can exist while no corresponding semantic
+homomorphism exists. The Lean model contains a concrete counterexample.
+
+`F_M` is the concrete domain in which the owner is allowed to act:
 filesystem I/O, worker execution, render-master device work, audio-block work,
 or another explicit effect. Pure functions use the identity effect. Platform
 backends are alternate interpreters of the same request and response families,
@@ -357,7 +370,7 @@ sum(m : Plan_M) sum(n : Plan_N) Compatible(m, n)
 
 Direct compilers over the original declarations would still admit an ordinary
 pairing, but they would duplicate reflection, normalization, diagnostics, and
-authority. The required factorization through `S` exists to make those facts
+authority. The required factorization through `W` exists to make those facts
 singular and coherent, not because product pairing is otherwise impossible.
 
 A reflected module with runtime effects may be described by its API polynomial,
@@ -493,8 +506,8 @@ The route language has several compile-time and runtime interpretations:
 
 | Interpretation | Mapping |
 |---|---|
-| Structural schema `S` | Cell types to fingerprints/layouts; transforms to checked signatures |
-| Canonical wire `W` | Cell products and sums to deterministic bytes and direct validators |
+| Structural schema `W` | Cell types to fingerprints/layouts; transforms to checked signatures |
+| Canonical wire `Wire` | Cell products and sums to deterministic bytes and direct validators |
 | Cook `K_p` | A source-instance graph under profile `p` to an immutable revision |
 | Pack `P` | A revision to authenticated vendor-neutral bytes |
 | Open `O` | Valid pack bytes to the same immutable revision abstraction |
@@ -543,6 +556,14 @@ For example, renderer realization is an effectful interpretation from portable
 render cells to opaque GPU slots. It preserves resource identity and the
 declared dependency behavior, is partial outside the renderer-owned fragment,
 and cannot be called from an I/O worker.
+
+```text
+G_render : L_render -> Kleisli(StateT(RenderState, Result(RenderError, _)))
+```
+
+Audio and text realization have the same form with their own private state and
+error algebras. This notation describes effects and ownership, not a runtime
+virtual-dispatch graph.
 
 ### Whole-engine composition
 
@@ -898,7 +919,7 @@ interface and issues opaque resident slots. The resource runtime schedules those
 operations but never owns Vulkan, audio, or font-library objects.
 
 One engine/resource-universe translation unit includes every public reflected
-extension, normalizes `S` once, and passes `S_R` to
+extension, normalizes `W` once, and passes `W_R` to
 `compile_resource_language`. It is the only place that closes the resource-route
 projection. Public headers and that translation unit never include another
 module's private `src/` headers. Private implementations consume

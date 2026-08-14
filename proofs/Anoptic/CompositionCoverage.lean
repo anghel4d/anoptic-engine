@@ -8,6 +8,7 @@ Anoptic targets ISO C++26.
 import Anoptic.Coverage
 import Anoptic.Compiler
 import Anoptic.Composition
+import Anoptic.Module
 
 namespace Anoptic
 
@@ -20,19 +21,6 @@ structure Witness where
   demandCapacity : Nat
   residencyCapacity : Nat
   deriving DecidableEq
-
-/-- A public algebra binds one request/response family to its witness projection. -/
-structure PublicAlgebra (Shared : Type) where
-  api : API
-  Local : Type
-  Error : Type
-  Plan : Type
-  projection : Shared → Local
-  localCompiler : Compiler.Partial Local Error Plan
-
-def PublicAlgebra.compiler (algebra : PublicAlgebra Shared) :
-    Compiler.Partial Shared algebra.Error algebra.Plan :=
-  Compiler.projected algebra.projection algebra.localCompiler
 
 structure AssetRequest where
   identity : Nat
@@ -60,13 +48,21 @@ def localCompiler : Compiler.Partial LocalWitness CompileError Plan
   | ⟨0⟩ => .error .emptyCapacity
   | ⟨capacity + 1⟩ => .ok ⟨capacity + 1⟩
 
-def algebra : PublicAlgebra Witness where
+def signature : CompiledSignature Witness where
   api := publicAPI
   Local := LocalWitness
   Error := CompileError
   Plan := Plan
   projection := fun witness => ⟨witness.demandCapacity⟩
   localCompiler := localCompiler
+
+def semantics : Semantic.Algebra signature.api where
+  effect := Semantic.Effect.identity
+  Carrier := Nat
+  interpret
+    | ⟨request, continueWith⟩ => continueWith (request.identity != 0)
+
+def module : Module Witness := ⟨signature, semantics⟩
 
 end DemandAlgebra
 
@@ -92,7 +88,7 @@ def localCompiler : Compiler.Partial LocalWitness CompileError Plan
   | ⟨0⟩ => .error .emptyCapacity
   | ⟨capacity + 1⟩ => .ok ⟨capacity + 1⟩
 
-def algebra : PublicAlgebra Witness where
+def signature : CompiledSignature Witness where
   api := publicAPI
   Local := LocalWitness
   Error := CompileError
@@ -100,48 +96,96 @@ def algebra : PublicAlgebra Witness where
   projection := fun witness => ⟨witness.residencyCapacity⟩
   localCompiler := localCompiler
 
+def semantics : Semantic.Algebra signature.api where
+  effect := Semantic.Effect.identity
+  Carrier := Nat
+  interpret
+    | ⟨request, continueWith⟩ => continueWith request.identity
+
+def module : Module Witness := ⟨signature, semantics⟩
+
 end ResidencyAlgebra
 
 /-- The tensor compiler is exactly the pair of two projections from one witness. -/
 def pairedCompiler :=
-  Compiler.pair DemandAlgebra.algebra.compiler
-    ResidencyAlgebra.algebra.compiler
+  Compiler.pair DemandAlgebra.signature.compiler
+    ResidencyAlgebra.signature.compiler
+
+theorem demand_compiler_ignores_residency_capacity
+    (demandCapacity leftResidency rightResidency : Nat) :
+    DemandAlgebra.signature.compiler
+        ⟨demandCapacity, leftResidency⟩ =
+      DemandAlgebra.signature.compiler
+        ⟨demandCapacity, rightResidency⟩ :=
+  DemandAlgebra.signature.noninterference rfl
+
+theorem residency_compiler_ignores_demand_capacity
+    (residencyCapacity leftDemand rightDemand : Nat) :
+    ResidencyAlgebra.signature.compiler
+        ⟨leftDemand, residencyCapacity⟩ =
+      ResidencyAlgebra.signature.compiler
+        ⟨rightDemand, residencyCapacity⟩ :=
+  ResidencyAlgebra.signature.noninterference rfl
 
 theorem pairedCompiler_succeeds_iff
     (witness : Witness) (demandPlan : DemandAlgebra.Plan)
     (residencyPlan : ResidencyAlgebra.Plan) :
     pairedCompiler witness = .ok (demandPlan, residencyPlan) ↔
-      DemandAlgebra.algebra.compiler witness = .ok demandPlan ∧
-      ResidencyAlgebra.algebra.compiler witness = .ok residencyPlan :=
+      DemandAlgebra.signature.compiler witness = .ok demandPlan ∧
+      ResidencyAlgebra.signature.compiler witness = .ok residencyPlan :=
   Compiler.pair_succeeds_iff
-    DemandAlgebra.algebra.compiler ResidencyAlgebra.algebra.compiler
+    DemandAlgebra.signature.compiler ResidencyAlgebra.signature.compiler
     witness demandPlan residencyPlan
 
 /-- Demand queries lower to residency queries; a generation answers demand. -/
 def demandToResidency :
-    API.Hom DemandAlgebra.algebra.api ResidencyAlgebra.algebra.api where
+    API.Hom DemandAlgebra.signature.api ResidencyAlgebra.signature.api where
   onQuery := fun request => request
   onResponse := fun (_ : AssetRequest) (generation : Nat) => generation != 0
 
 /-- Residency may in turn query demand and turn presence into a generation token. -/
 def residencyToDemand :
-    API.Hom ResidencyAlgebra.algebra.api DemandAlgebra.algebra.api where
+    API.Hom ResidencyAlgebra.signature.api DemandAlgebra.signature.api where
   onQuery := fun request => request
   onResponse := fun (_ : AssetRequest) (demanded : Bool) =>
     (if demanded = true then 1 else 0 : Nat)
 
+/-- This shape morphism also satisfies the semantic commuting square. -/
+def demandToResidencyAlgebra : Semantic.Algebra.Hom
+    DemandAlgebra.module.algebra ResidencyAlgebra.module.algebra where
+  shape := demandToResidency
+  effect := Semantic.Effect.Hom.identity Semantic.Effect.identity
+  carrier := id
+  commutes := by
+    rintro ⟨request, continueWith⟩
+    rfl
+
+def residencyProbe : ResidencyAlgebra.signature.api.Extension Nat :=
+  ⟨⟨2⟩, id⟩
+
+/--
+The reverse shape adaptor is not automatically a homomorphism of the selected
+semantics: it collapses every nonzero generation to one.
+-/
+theorem shape_morphism_is_not_automatically_algebraic :
+    ResidencyAlgebra.semantics.interpret residencyProbe ≠
+      DemandAlgebra.semantics.interpret
+        (Semantic.translate residencyToDemand id residencyProbe) := by
+  change (2 : Nat) ≠ 1
+  decide
+
 def serialMorphism :
-    API.Hom DemandAlgebra.algebra.api DemandAlgebra.algebra.api :=
+    API.Hom DemandAlgebra.signature.api DemandAlgebra.signature.api :=
   API.Hom.trans demandToResidency residencyToDemand
 
 def tensorMorphism :
-    API.Hom (API.tensor DemandAlgebra.algebra.api ResidencyAlgebra.algebra.api)
-      (API.tensor ResidencyAlgebra.algebra.api DemandAlgebra.algebra.api) :=
+    API.Hom (API.tensor DemandAlgebra.signature.api ResidencyAlgebra.signature.api)
+      (API.tensor ResidencyAlgebra.signature.api DemandAlgebra.signature.api) :=
   API.Hom.tensorMap demandToResidency residencyToDemand
 
 def choiceMorphism :
-    API.Hom (API.choice DemandAlgebra.algebra.api ResidencyAlgebra.algebra.api)
-      (API.choice ResidencyAlgebra.algebra.api DemandAlgebra.algebra.api) :=
+    API.Hom (API.choice DemandAlgebra.signature.api ResidencyAlgebra.signature.api)
+      (API.choice ResidencyAlgebra.signature.api DemandAlgebra.signature.api) :=
   API.Hom.choiceMap demandToResidency residencyToDemand
 
 theorem public_serial_path_associates :

@@ -22,6 +22,7 @@ open Cxx26
 inductive Algebra where
   | compiler
   | polynomial
+  | semantic
   | pure
   | fallible
   | stateful
@@ -43,6 +44,19 @@ def SupportsComposition : Algebra → Prop
         (second : API.Hom B C) (third : API.Hom C D),
         API.Hom.trans (API.Hom.trans first second) third =
           API.Hom.trans first (API.Hom.trans second third)
+  | .semantic =>
+      ∀ (A B C D : API.{0})
+        (firstAlgebra : Semantic.Algebra A)
+        (secondAlgebra : Semantic.Algebra B)
+        (thirdAlgebra : Semantic.Algebra C)
+        (fourthAlgebra : Semantic.Algebra D)
+        (first : Semantic.Algebra.Hom firstAlgebra secondAlgebra)
+        (second : Semantic.Algebra.Hom secondAlgebra thirdAlgebra)
+        (third : Semantic.Algebra.Hom thirdAlgebra fourthAlgebra),
+        Semantic.Algebra.Hom.compose
+            (Semantic.Algebra.Hom.compose first second) third =
+          Semantic.Algebra.Hom.compose first
+            (Semantic.Algebra.Hom.compose second third)
   | .pure =>
       ∀ (A B C D : Type) (first : Runtime.Pure A B)
         (second : Runtime.Pure B C) (third : Runtime.Pure C D),
@@ -98,6 +112,11 @@ theorem everyAlgebraComposes : ∀ algebra, SupportsComposition algebra := by
       simp only [SupportsComposition]
       intro A B C D first second third
       exact API.Hom.trans_assoc first second third
+  | semantic =>
+      simp only [SupportsComposition]
+      intro A B C D firstAlgebra secondAlgebra thirdAlgebra fourthAlgebra
+        first second third
+      exact Semantic.Algebra.Hom.compose_assoc first second third
   | pure =>
       simp only [SupportsComposition]
       intro A B C D first second third
@@ -137,6 +156,18 @@ def PreservesLowering : Algebra → Prop
         (lowerApiHom "composed" (API.Hom.trans first second)).run value =
           (Runtime.Pure.compose (lowerApiHom "first" first)
             (lowerApiHom "second" second)).run value
+  | .semantic =>
+      ∀ (A B C : API.{0})
+        (firstAlgebra : Semantic.Algebra A)
+        (secondAlgebra : Semantic.Algebra B)
+        (thirdAlgebra : Semantic.Algebra C)
+        (first : Semantic.Algebra.Hom firstAlgebra secondAlgebra)
+        (second : Semantic.Algebra.Hom secondAlgebra thirdAlgebra)
+        (request : A.Extension firstAlgebra.Carrier),
+        (Runtime.Pure.compose (lowerSemanticHom "first" first)
+          (lowerSemanticHom "second" second)).run request =
+          (lowerSemanticHom "composed"
+            (Semantic.Algebra.Hom.compose first second)).run request
   | .pure =>
       ∀ (A B C : Type) (first : Composition.Pure A B)
         (second : Composition.Pure B C) (input : A),
@@ -194,6 +225,10 @@ theorem everyAlgebraLoweringPreservesComposition :
       simp only [PreservesLowering]
       intro source middle target Value first second value
       exact lowerApiHom_trans_preserves first second value
+  | semantic =>
+      simp only [PreservesLowering]
+      intro A B C firstAlgebra secondAlgebra thirdAlgebra first second request
+      exact lowerSemanticHom_compose_preserves first second request
   | pure =>
       simp only [PreservesLowering]
       intro A B C first second input

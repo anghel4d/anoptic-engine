@@ -154,27 +154,6 @@ theorem Epoch.map_comp (first : A → B) (second : B → C)
   cases epoch
   rfl
 
-/-- Down may bifurcate; every returned focus carries proof of its unique up cell. -/
-structure Route (Upper : Type u) (Lower : Type v) where
-  down : Upper → List Lower
-  up : Lower → Upper
-  coherent : ∀ upper lower, lower ∈ down upper → up lower = upper
-
-structure LowerFocus (route : Route Upper Lower) (upper : Upper) where
-  value : Lower
-  selected : value ∈ route.down upper
-
-def LowerFocus.up {Upper : Type u} {Lower : Type v}
-    {route : Route Upper Lower} {upper : Upper}
-    (focus : LowerFocus route upper) : Upper :=
-  route.up focus.value
-
-@[simp] theorem LowerFocus.up_eq {Upper : Type u} {Lower : Type v}
-    {route : Route Upper Lower} {upper : Upper}
-    (focus : LowerFocus route upper) :
-    focus.up = upper :=
-  route.coherent upper focus.value focus.selected
-
 abbrev Demand (Cell : Type u) := Cell → Prop
 
 def Demand.union (left right : Demand Cell) : Demand Cell :=

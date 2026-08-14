@@ -10,6 +10,7 @@ import Anoptic.Composition
 import Anoptic.Polynomial
 import Anoptic.Refinement
 import Anoptic.ResourceRoute
+import Anoptic.Semantic
 
 namespace Anoptic
 
@@ -510,6 +511,16 @@ def lowerApiHom (name : String) (hom : API.Hom source target) :
     Runtime.Pure (source.Extension Value) (target.Extension Value) :=
   ⟨[.inspectChoice, .directCall name], API.Hom.induced hom⟩
 
+/-- Lower a proved algebra homomorphism to its direct request translation. -/
+def lowerSemanticHom {sourceShape targetShape : API.{u}}
+    {source : Semantic.Algebra sourceShape}
+    {target : Semantic.Algebra targetShape}
+    (name : String) (hom : Semantic.Algebra.Hom source target) :
+    Runtime.Pure (sourceShape.Extension source.Carrier)
+      (targetShape.Extension target.Carrier) :=
+  ⟨[.inspectChoice, .directCall name],
+    Semantic.translate hom.shape hom.carrier⟩
+
 def lowerRoute (name : String)
     (route : ResourceRoute.Morphism Value source target) :
     Runtime.Pure (source.Values Value) (target.Values Value) :=
@@ -562,6 +573,21 @@ theorem lowerApiHom_trans_preserves (first : API.Hom source middle)
       (Runtime.Pure.compose (lowerApiHom "first" first)
         (lowerApiHom "second" second)).run value := by
   exact API.Hom.induced_trans first second value
+
+theorem lowerSemanticHom_compose_preserves
+    {firstShape secondShape thirdShape : API.{u}}
+    {firstAlgebra : Semantic.Algebra firstShape}
+    {secondAlgebra : Semantic.Algebra secondShape}
+    {thirdAlgebra : Semantic.Algebra thirdShape}
+    (first : Semantic.Algebra.Hom firstAlgebra secondAlgebra)
+    (second : Semantic.Algebra.Hom secondAlgebra thirdAlgebra)
+    (request : firstShape.Extension firstAlgebra.Carrier) :
+    (Runtime.Pure.compose (lowerSemanticHom "first" first)
+      (lowerSemanticHom "second" second)).run request =
+    (lowerSemanticHom "composed"
+      (Semantic.Algebra.Hom.compose first second)).run request :=
+  (Semantic.translate_compose first.shape second.shape
+    first.carrier second.carrier request).symm
 
 theorem lowerRoute_compose_preserves
     (first : ResourceRoute.Morphism Value A B)

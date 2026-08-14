@@ -16,6 +16,8 @@ No engine module currently reaches the third claim in full.
 |---|---|
 | Does the Lean kernel compile without `sorry`, `admit`, or project-defined axioms? | Yes |
 | Are the selected abstract algebras and their compositions machine-checked? | Yes |
+| Does an API-shape morphism automatically preserve a chosen semantics? | No; the kernel exhibits a shape morphism with no homomorphic lift for its selected interpretations |
+| Does each modeled `CompiledSignature` ignore witness data outside its projection? | Yes |
 | Is the selected 24-constructor abstraction an exhaustive public-interface inventory? | No |
 | Are all cross-module edges derived from production declarations? | No |
 | Is the resource artifact/transform/importer inventory derived from real reflected headers? | Yes |
@@ -78,12 +80,17 @@ runtime implementations of cooking, packing, residency, rendering, or reload.
 The reusable Lean nucleus models:
 
 - polynomial APIs and dependent request/response families;
+- functorial effects and semantic algebras distinct from API shapes;
+- identity, result, state, and `StateT(State, Result)` effect codomains;
+- algebra homomorphisms carrying shape, carrier, and effect maps plus a
+  commuting proof;
 - pure, fallible, stateful, transactional, relational, and many-port route
   composition;
 - compiler projection, pullback, refined products, and compositional
   refinement;
 - dependency reachability and closure;
 - typed many-input/many-output resource signatures and output-port provenance;
+- producer polynomials and typed one-hole derivative navigation;
 - revision-indexed residency values and generation-indexed world pairs;
 - demand deltas and failure-preserving publication;
 - a staged target language for reflection, `consteval`, `constexpr`, type-only
@@ -105,6 +112,16 @@ extraction for one real declaration universe.
 
 The abstract kernel rejects several previously admissible broken models:
 
+- An `API.Hom` is only a shape translation. A semantic homomorphism must also
+  map carriers and effects and prove that interpretation commutes. The suite
+  contains a shape morphism for which no such homomorphic lift exists under the
+  selected source and target interpretations.
+- A `CompiledSignature` can observe only its projected witness. Equal
+  projections imply equal compilation results. Independent compiler pairing is
+  specified as fail-fast, including which error wins when both sides fail.
+- Resource provenance is isomorphic to the producer polynomial. A selected
+  `down()` branch carries the typed one-hole context and its concrete parent,
+  so branches may bifurcate while `up()` is unique for that selected instance.
 - `Resource.Codec` is a partial isomorphism between values and a canonical byte
   language. It requires both `decode(encode(value)) = value` and
   `encode(decode(bytes)) = bytes` for canonical bytes, connects successful

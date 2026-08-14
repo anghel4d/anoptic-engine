@@ -4,8 +4,12 @@
 connected certificate for the reflected resource universe. The engine links no
 Lean runtime.
 
-- `Polynomial`, `Compiler`, `Composition`, `Refinement`, and `Transaction`
-  define the reusable abstract algebras.
+- `Polynomial`, `Semantic`, `Compiler`, `Module`, `Composition`, `Refinement`,
+  and `Transaction` define the reusable abstract algebras.
+- `Semantic` distinguishes API-shape morphisms from algebra homomorphisms. The
+  latter additionally map carriers and effects and satisfy a commuting law.
+- `Module` keeps a projection-local `CompiledSignature` separate from the
+  semantic algebra over the same public API shape.
 - The domain files define selected reference carriers and prove their local
   laws. They do not by themselves certify corresponding C++ implementations.
 - `Coverage` and `CompositionCoverage` are exhaustive over a handwritten
@@ -16,6 +20,9 @@ Lean runtime.
   type-only templates, expansion, splicing, and direct execution.
 - `Cxx26Mapping` proves candidate images and preservation inside that model; it
   is not a production-header inventory.
+- `ResourceRoute` presents transforms as typed many-port morphisms, identifies
+  provenance with a producer polynomial, and models `down()` as selection of a
+  typed one-hole derivative whose `up()` is unique.
 - `cpp/resource_schema_certificate.cpp` includes the real resource headers,
   reflects `ano::asset_schema`, and emits
   `Anoptic/Generated/ResourceSchema.lean`.

@@ -6,7 +6,9 @@ Anoptic targets ISO C++26.
 -/
 
 import Anoptic.Polynomial
+import Anoptic.Semantic
 import Anoptic.Compiler
+import Anoptic.Module
 import Anoptic.Composition
 import Anoptic.Outcome
 import Anoptic.Structural

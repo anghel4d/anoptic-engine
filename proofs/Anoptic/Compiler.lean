@@ -31,7 +31,18 @@ theorem projected_compose (first : Shared → Middle)
       projected first (projected second compile) :=
   rfl
 
-/-- Independent compilers pair their successful plans and retain either local error. -/
+/-- A module compiler cannot observe parts of the shared witness outside its projection. -/
+theorem projected_noninterference (projection : Shared → Local)
+    (compile : Partial Local Error Plan) {left right : Shared}
+    (same : projection left = projection right) :
+    projected projection compile left = projected projection compile right := by
+  simp only [projected_apply]
+  rw [same]
+
+/--
+Fail-fast applicative pairing over one witness.  This combines two compiler
+results; it is neither sequential plan composition nor a categorical product.
+-/
 def pair (left : Partial Witness LeftError LeftPlan)
     (right : Partial Witness RightError RightPlan) :
     Partial Witness (Sum LeftError RightError) (LeftPlan × RightPlan) :=
@@ -42,6 +53,32 @@ def pair (left : Partial Witness LeftError LeftPlan)
         match right witness with
         | .error error => .error (.inr error)
         | .ok rightPlan => .ok (leftPlan, rightPlan)
+
+@[simp] theorem pair_left_error
+    (left : Partial Witness LeftError LeftPlan)
+    (right : Partial Witness RightError RightPlan)
+    (witness : Witness) (error : LeftError)
+    (failed : left witness = .error error) :
+    pair left right witness = .error (.inl error) := by
+  simp [pair, failed]
+
+@[simp] theorem pair_right_error
+    (left : Partial Witness LeftError LeftPlan)
+    (right : Partial Witness RightError RightPlan)
+    (witness : Witness) (leftPlan : LeftPlan) (error : RightError)
+    (leftSucceeded : left witness = .ok leftPlan)
+    (rightFailed : right witness = .error error) :
+    pair left right witness = .error (.inr error) := by
+  simp [pair, leftSucceeded, rightFailed]
+
+@[simp] theorem pair_both_error_selects_left
+    (left : Partial Witness LeftError LeftPlan)
+    (right : Partial Witness RightError RightPlan)
+    (witness : Witness) (leftError : LeftError) (rightError : RightError)
+    (leftFailed : left witness = .error leftError)
+    (_rightFailed : right witness = .error rightError) :
+    pair left right witness = .error (.inl leftError) :=
+  pair_left_error left right witness leftError leftFailed
 
 @[simp] theorem pair_succeeds_iff
     (left : Partial Witness LeftError LeftPlan)

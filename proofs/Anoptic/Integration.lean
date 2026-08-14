@@ -16,32 +16,54 @@ namespace Anoptic
 
 namespace Integration
 
-inductive EditorCell where
+inductive RoomCell where
   | vikingRoom
-  deriving DecidableEq
-
-inductive SourceCell where
   | gltf
   | texture
   deriving DecidableEq
 
-def roomRoute : Resource.Route EditorCell SourceCell where
-  down
-    | .vikingRoom => [.gltf, .texture]
-  up
-    | .gltf => .vikingRoom
-    | .texture => .vikingRoom
-  coherent := by
-    intro upper lower selected
-    cases upper
-    cases lower <;> rfl
+inductive RoomInput where
+  | gltf
+  | texture
+  deriving DecidableEq
 
-def gltfFocus : Resource.LowerFocus roomRoute .vikingRoom :=
-  ⟨.gltf, by simp [roomRoute]⟩
+def roomSignature : ResourceRoute.Signature RoomCell where
+  InputPort := RoomInput
+  OutputPort := Unit
+  inputType
+    | .gltf => .gltf
+    | .texture => .texture
+  outputType _ := .vikingRoom
 
-/-- One selected branch navigates back to its editor-visible asset. -/
-example : gltfFocus.up = .vikingRoom :=
-  Resource.LowerFocus.up_eq gltfFocus
+inductive RoomTransform where
+  | assemble
+  deriving DecidableEq
+
+def roomTransformSignature : RoomTransform → ResourceRoute.Signature RoomCell
+  | .assemble => roomSignature
+
+abbrev RoomRef : RoomCell → Type := Resource.Ref RoomCell
+
+def roomInstance : ResourceRoute.Instance RoomTransform
+    roomTransformSignature RoomRef .vikingRoom where
+  transform := .assemble
+  outputPort := ()
+  produces := rfl
+  inputs
+    | .gltf => ⟨11⟩
+    | .texture => ⟨12⟩
+  parent := ⟨10⟩
+
+def gltfFocus := roomInstance.down .gltf
+def textureFocus := roomInstance.down .texture
+
+/-- `down` bifurcates by typed input port; either focus returns to one instance. -/
+example : gltfFocus.up = roomInstance.parent ∧
+    textureFocus.up = roomInstance.parent :=
+  ⟨rfl, rfl⟩
+
+example : gltfFocus.reference.identity = 11 :=
+  rfl
 
 def revision : Resource.Revision := ⟨4, 91⟩
 

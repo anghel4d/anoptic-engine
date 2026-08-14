@@ -19,12 +19,12 @@ The module has one structural authority: public reflected declarations and typed
 annotations. It has no parallel typelist, traits registry, X-macro inventory,
 artifact-kind switch forest, schema mirror, or external source generator.
 
-The closed declaration universe is normalized once as compile-time witness `S`.
-Each module compiler consumes a projection `S_M` and may reject it at the
+The closed declaration universe is normalized once as compile-time witness `W`.
+Each module compiler consumes a projection `W_M` and may reject it at the
 `consteval` boundary:
 
 ```text
-D --reify--> S --rho_M--> S_M --C_M--> CompileError_M + Plan_M
+D --reify--> W --rho_M--> W_M --C_M--> CompileError_M + Plan_M
 ```
 
 Independent plans pair; plans sharing an equality boundary use a pullback; an
@@ -310,9 +310,9 @@ GCC 16.1+
 -std=gnu++26 -freflection -fno-exceptions -fno-rtti -nostdlib++
 ```
 
-Reflection first normalizes the visible declaration universe into `S`.
+Reflection first normalizes the visible declaration universe into `W`.
 Domain compilers receive projected witnesses rather than independently walking
-the declarations. A compiler is partial—`S_M -> CompileError_M + Plan_M`—with
+the declarations. A compiler is partial—`W_M -> CompileError_M + Plan_M`—with
 the error branch reported as a translation-time diagnostic. Product pairing is
 used only for independent plans; shared constraints compile as pullbacks or
 proof-carrying compatibility products.
