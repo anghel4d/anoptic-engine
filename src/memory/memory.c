@@ -8,11 +8,32 @@
 
 namespace std {
 
-// Weak terminate: no-runtime, no-exception containers require this path.
-[[gnu::weak, noreturn]] void terminate() noexcept
+// No-runtime stubs: -nostdlib++ is unconditional, so the engine supplies the
+// few libstdc++ entry points that no-exception containers and hardened
+// headers still reference. Weak on ELF; PE-COFF weak externals in an archive
+// do not satisfy strong references from other objects, and no libstdc++ can
+// ever be linked on Windows, so the definitions are strong there.
+#if defined(_WIN32)
+#define ANO_CXX_RUNTIME_STUB
+#else
+#define ANO_CXX_RUNTIME_STUB [[gnu::weak]]
+#endif
+
+ANO_CXX_RUNTIME_STUB [[noreturn]] void terminate() noexcept
 {
     __builtin_trap();
 }
+
+// MinGW libstdc++ is configured verbose (_GLIBCXX_VERBOSE_ASSERT), so the
+// -O0-default hardening assertions call this out-of-line handler instead of
+// __builtin_abort(). Trapping keeps Debug hardening without the C++ runtime.
+ANO_CXX_RUNTIME_STUB [[noreturn]] void
+__glibcxx_assert_fail(const char *, int, const char *, const char *) noexcept
+{
+    __builtin_trap();
+}
+
+#undef ANO_CXX_RUNTIME_STUB
 
 } // namespace std
 
