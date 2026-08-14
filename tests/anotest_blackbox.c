@@ -133,8 +133,8 @@ static void *segv_thread(void *arg) { (void)arg; *(volatile int *)0 = 1; return 
 static void sc_thread_segv(void)
 {
     anothread_t t;
-    if (ano_thread_create(&t, NULL, segv_thread, NULL) != 0) exit(41);
-    ano_thread_join(t, NULL);   // never returns: the process dies under the join
+    if (!ano_thread_create(&t, NULL, segv_thread, NULL)) exit(41);
+    (void)ano_thread_join(t, NULL);   // never returns: the process dies under the join
 }
 
 // 32 buffered lines then crash: all must survive hail mary.
@@ -198,8 +198,8 @@ static void storm_then_crash(bool huge)
     atomic_store(&g_spamHuge, huge);
     anothread_t t[6];
     for (intptr_t i = 0; i < 6; i++)
-        if (ano_thread_create(&t[i], NULL, spammer, (void *)i) != 0) exit(41);
-    ano_sleep(100000);      // 100 ms of storm
+        if (!ano_thread_create(&t[i], NULL, spammer, (void *)i)) exit(41);
+    (void)ano_sleep(100000);      // 100 ms of storm
     *(volatile int *)0 = 1;
 }
 static void sc_contention(void) { storm_then_crash(false); }
@@ -218,7 +218,7 @@ static void sc_deadman(void)
     if (page == MAP_FAILED) exit(41);
 #endif
     memcpy(page, "poison %d", 10);
-    ano_sleep(5000);        // 5 ms idle: let the drainer park
+    (void)ano_sleep(5000);        // 5 ms idle: let the drainer park
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
     ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, (const char *)page, 7);
@@ -228,7 +228,7 @@ static void sc_deadman(void)
 #else
     munmap(page, 4096);
 #endif
-    ano_sleep(7u * 1000u * 1000u);      // the deadman (5 s) fires first
+    (void)ano_sleep(7u * 1000u * 1000u);      // the deadman (5 s) fires first
     exit(42);               // race lost: the drainer rendered before the free. Parent retries.
 }
 
@@ -247,8 +247,8 @@ static void *overflow_thread(void *arg) { (void)arg; (void)overflow_rec(1); retu
 static void sc_thread_overflow(void)
 {
     anothread_t t;
-    if (ano_thread_create(&t, NULL, overflow_thread, NULL) != 0) exit(41);
-    ano_thread_join(t, NULL);   // never returns: the process dies under the join
+    if (!ano_thread_create(&t, NULL, overflow_thread, NULL)) exit(41);
+    (void)ano_thread_join(t, NULL);   // never returns: the process dies under the join
 }
 
 #if defined(_WIN32)
@@ -266,10 +266,10 @@ static void *race_thread(void *arg)
 static void sc_double(void)
 {
     anothread_t a, b;
-    if (ano_thread_create(&a, NULL, race_thread, NULL) != 0) exit(41);
-    if (ano_thread_create(&b, NULL, race_thread, NULL) != 0) exit(41);
-    ano_thread_join(a, NULL);
-    ano_thread_join(b, NULL);
+    if (!ano_thread_create(&a, NULL, race_thread, NULL)) exit(41);
+    if (!ano_thread_create(&b, NULL, race_thread, NULL)) exit(41);
+    (void)ano_thread_join(a, NULL);
+    (void)ano_thread_join(b, NULL);
 }
 #endif
 
@@ -314,14 +314,14 @@ static const child_t CHILDREN[] = {
 static int child_main(const char *name)
 {
     if (strcmp(name, "nolog") == 0) {
-        if (ano_log_crash_init() != 0) return 41;
+        if (!ano_log_crash_init()) return 41;
         *(volatile int *)0 = 1;
         return 0;
     }
-    if (ano_log_init() != 0) return 40;
+    if (!ano_log_init()) return 40;
     scratch_make_dir(LOG_DIR);
-    if (ano_log_output_dir(LOG_DIR) != 0) return 43;
-    if (ano_log_crash_init() != 0) return 41;
+    if (!ano_log_output_dir(LOG_DIR)) return 43;
+    if (!ano_log_crash_init()) return 41;
     for (size_t i = 0; i < NCHILDREN; i++) {
         if (strcmp(CHILDREN[i].name, name) == 0) {
             CHILDREN[i].fn();
@@ -592,7 +592,7 @@ static void test_fmt_helpers(void)
 static void test_init_shape(void)
 {
     remove_all_suffix(CRASH_DIR, CRASH_SUFFIX);
-    CHECK(ano_log_crash_init() == 0, "ano_log_crash_init failed");
+    CHECK(ano_log_crash_init(), "ano_log_crash_init failed");
     char name[MAXPATH];
     CHECK(bb_scan_suffix(CRASH_DIR, CRASH_SUFFIX, name) == 0,
           "init created a crash record on a clean boot");
@@ -602,7 +602,7 @@ static void test_init_shape(void)
     CHECK(strstr(bb_crashPath, ano_fs_session_stamp()) != NULL,
           "bb_crashPath \"%s\" does not carry the session stamp %s",
           bb_crashPath, ano_fs_session_stamp());
-    ano_fspath gp = ano_fs_gamepath();
+    const ano_fspath gp = ano_fs_gamepath().value_or(ano_fspath{});
     if (gp.length > 0)
         CHECK(strncmp(bb_crashPath, gp.str, gp.length) == 0,
               "bb_crashPath \"%s\" not rooted in the exe dir \"%s\"", bb_crashPath, gp.str);
@@ -734,7 +734,7 @@ int main(int argc, char **argv)
     test_fmt_helpers();
     test_init_shape();
 
-    ano_fspath gp = ano_fs_gamepath();
+    const ano_fspath gp = ano_fs_gamepath().value_or(ano_fspath{});
     if (gp.length == 0) {
         printf("FAIL: cannot resolve the exe path for self-spawning\n");
         return 1;

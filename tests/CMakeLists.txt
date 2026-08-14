@@ -67,7 +67,7 @@ ano_add_resource_compile_failure(anoptic_resources_reject_incomplete
 ano_add_resource_compile_failure(anoptic_resources_reject_non_artifact_ref
         compile_fail/resources_non_artifact_ref.c "exactly one Artifact annotation")
 ano_add_resource_compile_failure(anoptic_resources_reject_transform_values
-        compile_fail/resources_bad_transform_signature.c "must be lvalue references")
+        compile_fail/resources_bad_transform_signature.c "resource transforms return ano::Result")
 
 add_executable(anotest_results anotest_results.c)
 target_link_libraries(anotest_results PRIVATE anoptic_core)

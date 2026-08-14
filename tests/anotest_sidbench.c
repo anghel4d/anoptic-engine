@@ -26,6 +26,13 @@ using namespace ano;
 // Volatile sink against elision.
 static volatile uint64_t g_sink;
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    if (!result) { fputs("string setup failed\n", stderr); exit(1); }
+    return *result;
+}
+
 // 16 event types; several past the 12-byte inline cap.
 #define EVENT_LIST(X) \
     X(0,  "tick")             X(1,  "player_spawn")    \
@@ -204,14 +211,14 @@ static int bulkreads_run(mi_heap_t *heap, uint32_t lookups)
         if (nm == NULL) { printf("alloc failed\n"); return 1; }
         memcpy(nm, nameBuf, (size_t)n + 1);
         records[i].name  = nm;
-        records[i].str   = anostr_from(heap, nameBuf, (size_t)n);  // record owns its arena bytes
+        records[i].str   = must(anostr_from(heap, nameBuf, (size_t)n));
         // Precompute sid off the timed path (stand-in for baked ANOSTR_SID).
         records[i].sid   = anostr_hash(records[i].str);
         records[i].index = i;
     }
 
     // Strategy 1: intern table, sym i == record i.
-    anostr_intern_t *itab = anostr_intern_make(heap);
+    anostr_intern_t *itab = must(anostr_intern_make(heap));
     if (itab == NULL) { printf("intern table failed\n"); return 1; }
     for (uint32_t i = 0; i < RECORDS; i++)
         if (anostr_intern(itab, records[i].str) != i) { printf("intern order broke\n"); return 1; }
@@ -325,8 +332,8 @@ int main(int argc, char **argv)
     // Shared fixtures: names + intern table (sym i == type i).
     anostr_t names[NTYPES];
     for (uint32_t i = 0; i < NTYPES; i++)
-        names[i] = anostr_from_cstr(heap, g_names[i]);
-    anostr_intern_t *table = anostr_intern_make(heap);
+        names[i] = must(anostr_from_cstr(heap, g_names[i]));
+    anostr_intern_t *table = must(anostr_intern_make(heap));
     if (table == NULL) { printf("intern table failed\n"); return 1; }
     for (uint32_t i = 0; i < NTYPES; i++)
         if (anostr_intern(table, names[i]) != i) { printf("intern order broke\n"); return 1; }
@@ -376,9 +383,9 @@ int main(int argc, char **argv)
     if (bulk == NULL) { printf("alloc failed\n"); return 1; }
     for (uint32_t i = 0; i < BULK_KEYS; i++) {
         int n = snprintf(nameBuf, sizeof nameBuf, "assets/props/entity_%05u.gltf", i);
-        bulk[i] = anostr_from(heap, nameBuf, (size_t)n);
+        bulk[i] = must(anostr_from(heap, nameBuf, (size_t)n));
     }
-    anostr_intern_t *bulkTable = anostr_intern_make(heap);
+    anostr_intern_t *bulkTable = must(anostr_intern_make(heap));
     if (bulkTable == NULL) { printf("intern table failed\n"); return 1; }
 
     uint64_t t0 = bench_begin();

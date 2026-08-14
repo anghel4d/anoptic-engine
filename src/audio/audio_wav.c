@@ -29,15 +29,16 @@ static void put_u32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24);
 }
 
-bool ano::ano_audio_wav_write(const char *path, const float *interleaved,
-                         uint64_t frames, uint32_t channels, uint32_t sampleRate)
+AudioResult<> ano::ano_audio_wav_write(
+    const char *path, const float *interleaved,
+    uint64_t frames, uint32_t channels, uint32_t sampleRate)
 {
     if (!path || !interleaved || channels == 0u || sampleRate == 0u)
-        return false;
+        return failure(AudioError::invalid_argument);
     // Divide before multiply (u64 wrap slips RIFF guard)
     const uint64_t stride = (uint64_t)channels * sizeof(float);
     if (frames > (0xFFFFFFFFull - 58u) / stride) // RIFF sizes are 32-bit
-        return false;
+        return failure(AudioError::invalid_argument);
     const uint32_t dataBytes = (uint32_t)(frames * stride);
     const uint32_t byteRate  = sampleRate * channels * (uint32_t)sizeof(float);
     const uint16_t align     = (uint16_t)(channels * sizeof(float));
@@ -64,13 +65,13 @@ bool ano::ano_audio_wav_write(const char *path, const float *interleaved,
 
     FILE *f = fopen(path, "wb");
     if (!f)
-        return false;
+        return failure(AudioError::io);
     bool ok = fwrite(h, 1, sizeof h, f) == sizeof h;
     if (ok && dataBytes > 0u)
         ok = fwrite(interleaved, 1, dataBytes, f) == dataBytes;
     if (fclose(f) != 0)
         ok = false;
-    return ok;
+    return result_if(ok, AudioError::io);
 }
 
 /* Loader */
@@ -122,26 +123,26 @@ static uint64_t wav_resample(const float *src, uint64_t srcFrames, uint32_t chan
     return dstFrames;
 }
 
-float *ano::ano_audio_wav_load(const char *path, uint32_t targetRate,
-                          uint64_t *outFrames, uint32_t *outChannels)
+AudioResult<AnoAudioSamples> ano::ano_audio_wav_load(
+    const char *path, uint32_t targetRate)
 {
-    if (!path || !outFrames || !outChannels)
-        return NULL;
+    if (!path)
+        return failure(AudioError::invalid_argument);
     FILE *f = fopen(path, "rb");
     if (!f)
-        return NULL;
+        return failure(AudioError::io);
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (fsize < 44) { fclose(f); return NULL; }
+    if (fsize < 44) { fclose(f); return failure(AudioError::unsupported); }
     uint8_t *raw = static_cast<uint8_t *>(mi_malloc((size_t)fsize));
-    if (!raw) { fclose(f); return NULL; }
+    if (!raw) { fclose(f); return failure(AudioError::out_of_memory); }
     bool readOk = fread(raw, 1, (size_t)fsize, f) == (size_t)fsize;
     fclose(f);
-    if (!readOk) { mi_free(raw); return NULL; }
+    if (!readOk) { mi_free(raw); return failure(AudioError::io); }
     if (memcmp(raw, "RIFF", 4) != 0 || memcmp(raw + 8, "WAVE", 4) != 0) {
         mi_free(raw);
-        return NULL;
+        return failure(AudioError::unsupported);
     }
 
     // word-aligned chunk walk
@@ -171,15 +172,15 @@ float *ano::ano_audio_wav_load(const char *path, uint32_t targetRate,
                      || (tag == 3u && bits == 32u));
     if (!fmtOk) {
         mi_free(raw);
-        return NULL;
+        return failure(AudioError::unsupported);
     }
 
     const uint32_t frameBytes = channels * bits / 8u;
     uint64_t frames = dataBytes / frameBytes;
-    if (frames == 0u) { mi_free(raw); return NULL; }
+    if (frames == 0u) { mi_free(raw); return failure(AudioError::unsupported); }
     float *pcm = static_cast<float *>(
         mi_mallocn((size_t)frames, (size_t)channels * sizeof(float)));
-    if (!pcm) { mi_free(raw); return NULL; }
+    if (!pcm) { mi_free(raw); return failure(AudioError::out_of_memory); }
     const uint64_t samples = frames * channels;
     if (tag == 3u) {
         memcpy(pcm, data, (size_t)samples * sizeof(float));
@@ -203,16 +204,12 @@ float *ano::ano_audio_wav_load(const char *path, uint32_t targetRate,
     mi_free(raw);
 
     if (targetRate == 0u || targetRate == rate) {
-        *outFrames = frames;
-        *outChannels = channels;
-        return pcm;
+        return AnoAudioSamples{pcm, frames, channels};
     }
     float *res = NULL;
     uint64_t resFrames = wav_resample(pcm, frames, channels, rate, targetRate, &res);
     mi_free(pcm);
     if (!res)
-        return NULL;
-    *outFrames = resFrames;
-    *outChannels = channels;
-    return res;
+        return failure(AudioError::out_of_memory);
+    return AnoAudioSamples{res, resFrames, channels};
 }

@@ -98,13 +98,12 @@ const char *ano::ano_resource_error_string(AnoResourceError error)
     return name == nullptr ? "unknown_resource_error" : *name;
 }
 
-AnoResourceError ano::ano_resource_content_id(AnoResourceBytes bytes,
-                                                     AnoContentId *contentId)
+ano::ResourceResult<AnoContentId> ano::ano_resource_content_id(
+    AnoResourceBytes bytes)
 {
-    if (contentId == nullptr || (bytes.data == nullptr && bytes.size != 0))
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+    if (bytes.data == nullptr && bytes.size != 0)
+        return ano::failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (bytes.size > UINT64_MAX / 8)
-        return ANO_RESOURCE_OVERFLOW;
-    *contentId = ano::detail::sha256(bytes.data, bytes.size);
-    return ANO_RESOURCE_OK;
+        return ano::failure(ANO_RESOURCE_OVERFLOW);
+    return ano::detail::sha256(bytes.data, bytes.size);
 }

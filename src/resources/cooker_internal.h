@@ -92,21 +92,22 @@ AnoResourceError validate_dependency_graph(
                         &dependency) >= 0))
                 return ANO_RESOURCE_BAD_MANIFEST;
         }
-        if (!ano::checked_add(
-                dependencyCursor, item.dependencyCount, &dependencyCursor))
+        const auto next = ano::checked_add(
+            dependencyCursor, item.dependencyCount);
+        if (!next)
             return ANO_RESOURCE_BAD_MANIFEST;
+        dependencyCursor = *next;
     }
     if (dependencyCursor != dependencyCount)
         return ANO_RESOURCE_BAD_MANIFEST;
 
-    uint64_t stackCount = 0;
-    if (!ano::checked_multiply(itemCount, UINT64_C(2), &stackCount)
-        || stackCount > SIZE_MAX / sizeof(uint64_t))
+    const auto stackCount = ano::checked_multiply(itemCount, UINT64_C(2));
+    if (!stackCount || *stackCount > SIZE_MAX / sizeof(uint64_t))
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *state = itemCount == 0 ? nullptr
         : mi_calloc_tp(uint8_t, static_cast<size_t>(itemCount));
-    uint64_t *stack = stackCount == 0 ? nullptr
-        : mi_mallocn_tp(uint64_t, static_cast<size_t>(stackCount));
+    uint64_t *stack = *stackCount == 0 ? nullptr
+        : mi_mallocn_tp(uint64_t, static_cast<size_t>(*stackCount));
     if (itemCount != 0 && (state == nullptr || stack == nullptr)) {
         mi_free(stack);
         mi_free(state);

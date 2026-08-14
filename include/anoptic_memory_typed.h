@@ -20,14 +20,16 @@ namespace ano {
 
 namespace detail {
 
+struct ArrayGrowth final { uint64_t capacity; size_t bytes; };
+
 template<Data T>
-[[nodiscard]] bool array_growth(
-    uint64_t capacity, uint64_t required, uint64_t initialCapacity,
-    uint64_t& grown, size_t& bytes) noexcept
+[[nodiscard]] constexpr MemoryResult<ArrayGrowth> array_growth(
+    uint64_t capacity, uint64_t required,
+    uint64_t initialCapacity) noexcept
 {
     if (required > SIZE_MAX / sizeof(T))
-        return false;
-    grown = capacity == 0
+        return failure(MemoryError::overflow);
+    uint64_t grown = capacity == 0
         ? (initialCapacity == 0 ? 1 : initialCapacity) : capacity;
     while (grown < required) {
         if (grown > (SIZE_MAX / sizeof(T)) / 2) {
@@ -36,69 +38,79 @@ template<Data T>
         }
         grown *= UINT64_C(2);
     }
-    return checked_allocation_size(grown, uint64_t{sizeof(T)}, &bytes);
+    const auto allocation = checked_allocation_size(
+        grown, uint64_t{sizeof(T)});
+    if (!allocation)
+        return failure(MemoryError::overflow);
+    return ArrayGrowth{grown, *allocation};
 }
 
 } // namespace detail
 
 template<Data T>
-[[nodiscard]] bool reserve_array(
+[[nodiscard]] MemoryResult<> reserve_array(
     T *&values, uint64_t& capacity, uint64_t required,
     uint64_t initialCapacity = 8) noexcept
 {
     if (required <= capacity)
-        return values != nullptr || capacity == 0;
-    uint64_t grown = 0;
-    size_t bytes = 0;
-    if ((capacity != 0 && values == nullptr)
-        || !detail::array_growth<T>(
-            capacity, required, initialCapacity, grown, bytes))
-        return false;
-    void *allocation = mi_realloc(values, bytes);
+        return result_if(values != nullptr || capacity == 0,
+                         MemoryError::invalid_argument);
+    if (capacity != 0 && values == nullptr)
+        return failure(MemoryError::invalid_argument);
+    const auto growth = detail::array_growth<T>(
+        capacity, required, initialCapacity);
+    if (!growth)
+        return failure(growth.error());
+    void *allocation = mi_realloc(values, growth->bytes);
     if (allocation == nullptr)
-        return false;
+        return failure(MemoryError::out_of_memory);
     values = static_cast<T *>(allocation);
-    capacity = grown;
-    return true;
+    capacity = growth->capacity;
+    return {};
 }
 
 template<Data T>
-[[nodiscard]] bool reserve_zeroed_array(
+[[nodiscard]] MemoryResult<> reserve_zeroed_array(
     T *&values, uint64_t& capacity, uint64_t required,
     uint64_t initialCapacity = 8) noexcept
 {
     const uint64_t previous = capacity;
-    if (!reserve_array(values, capacity, required, initialCapacity))
-        return false;
+    const auto reserved = reserve_array(
+        values, capacity, required, initialCapacity);
+    if (!reserved)
+        return failure(reserved.error());
     if (capacity != previous)
         memset(values + previous, 0,
                static_cast<size_t>(capacity - previous) * sizeof(T));
-    return true;
+    return {};
 }
 
 template<Data T>
-[[nodiscard]] bool reserve_region_array(
+[[nodiscard]] MemoryResult<> reserve_region_array(
     MemoryRegion *region, T *&values, uint64_t count,
     uint64_t& capacity, uint64_t required,
     uint64_t initialCapacity = 8) noexcept
 {
     if (required <= capacity)
-        return count <= capacity && (values != nullptr || capacity == 0);
-    uint64_t grown = 0;
-    size_t bytes = 0;
-    if (count > capacity || (capacity != 0 && values == nullptr)
-        || !detail::array_growth<T>(
-            capacity, required, initialCapacity, grown, bytes))
-        return false;
-    T *replacement = static_cast<T *>(
-        memory_region_allocate_zero(region, bytes, alignof(T)));
-    if (replacement == nullptr)
-        return false;
+        return result_if(count <= capacity
+                         && (values != nullptr || capacity == 0),
+                         MemoryError::invalid_argument);
+    if (count > capacity || (capacity != 0 && values == nullptr))
+        return failure(MemoryError::invalid_argument);
+    const auto growth = detail::array_growth<T>(
+        capacity, required, initialCapacity);
+    if (!growth)
+        return failure(growth.error());
+    const auto allocation = memory_region_allocate_zero(
+        region, growth->bytes, alignof(T));
+    if (!allocation)
+        return failure(allocation.error());
+    T *replacement = static_cast<T *>(*allocation);
     if (count != 0)
         memcpy(replacement, values, static_cast<size_t>(count) * sizeof(T));
     values = replacement;
-    capacity = grown;
-    return true;
+    capacity = growth->capacity;
+    return {};
 }
 
 // mimalloc-backed allocator. Independent of the C++ runtime.
@@ -181,7 +193,8 @@ consteval bool reflect_memory_plan()
 // field order, size, and alignment.
 template<class Plan>
     requires (reflect_memory_plan<Plan>())
-[[nodiscard]] constexpr MemoryLayoutCursor memory_layout(Plan& plan) noexcept
+[[nodiscard]] constexpr ArithmeticResult<MemoryLayoutCursor> memory_layout(
+    Plan& plan) noexcept
 {
     MemoryLayoutCursor cursor{};
     static constexpr auto members = std::define_static_array(
@@ -191,67 +204,69 @@ template<class Plan>
         using Segment = [:std::meta::type_of(member):];
         using Value = typename Segment::Value;
         auto& segment = plan.[:member:];
-        size_t bytes = 0;
-        if (!ano_size_multiply(segment.count, sizeof(Value), &bytes)) {
-            cursor.valid = false;
-            break;
-        }
-        if (!cursor.reserve(bytes, Segment::alignment,
-                            segment.reservation))
-            break;
+        const auto bytes = checked_multiply(segment.count, sizeof(Value));
+        if (!bytes)
+            return failure(bytes.error());
+        const auto reservation = cursor.reserve(*bytes, Segment::alignment);
+        if (!reservation)
+            return failure(reservation.error());
+        segment.reservation = *reservation;
     }
     return cursor;
 }
 
 template<Data T, size_t Alignment>
-[[nodiscard]] std::span<T> memory_volume_write(
+[[nodiscard]] MemoryResult<std::span<T>> memory_volume_write(
     MemoryVolume *volume, MemorySegment<T, Alignment> segment) noexcept
 {
     if ((segment.reservation.offset & (alignof(T) - 1)) != 0
         || segment.reservation.size % sizeof(T) != 0
         || segment.reservation.size / sizeof(T) != segment.count)
-        return {};
-    const std::span<uint8_t> view = memory_volume_write(
+        return failure(MemoryError::invalid_layout);
+    const auto view = memory_volume_write(
         volume, segment.reservation);
-    if (view.size() != segment.reservation.size)
-        return {};
-    return {reinterpret_cast<T *>(view.data()), segment.count};
+    if (!view)
+        return failure(view.error());
+    return std::span<T>{
+        reinterpret_cast<T *>(view->data()), segment.count};
 }
 
 template<Data T, size_t Alignment>
-[[nodiscard]] std::span<const T> memory_volume_view(
+[[nodiscard]] MemoryResult<std::span<const T>> memory_volume_view(
     const MemoryVolume *volume, MemorySegment<T, Alignment> segment) noexcept
 {
     if ((segment.reservation.offset & (alignof(T) - 1)) != 0
         || segment.reservation.size % sizeof(T) != 0
         || segment.reservation.size / sizeof(T) != segment.count)
-        return {};
-    const std::span<const uint8_t> view = memory_volume_view(
+        return failure(MemoryError::invalid_layout);
+    const auto view = memory_volume_view(
         volume, segment.reservation);
-    if (view.size() != segment.reservation.size)
-        return {};
-    return {reinterpret_cast<const T *>(view.data()), segment.count};
+    if (!view)
+        return failure(view.error());
+    return std::span<const T>{
+        reinterpret_cast<const T *>(view->data()), segment.count};
 }
 
 template<Data T>
-[[nodiscard]] T *memory_region_allocate(
+[[nodiscard]] MemoryResult<T *> memory_region_allocate(
     MemoryRegion *region, size_t count) noexcept
 {
-    size_t bytes = 0;
-    if (!ano_size_multiply(count, sizeof(T), &bytes))
-        return nullptr;
-    return static_cast<T *>(memory_region_allocate(region, bytes, alignof(T)));
+    const auto bytes = checked_multiply(count, sizeof(T));
+    if (!bytes)
+        return failure(MemoryError::overflow);
+    return memory_region_allocate(region, *bytes, alignof(T))
+        .transform([](void *value) { return static_cast<T *>(value); });
 }
 
 template<Data T>
-[[nodiscard]] T *memory_region_allocate_zero(
+[[nodiscard]] MemoryResult<T *> memory_region_allocate_zero(
     MemoryRegion *region, size_t count) noexcept
 {
-    size_t bytes = 0;
-    if (!ano_size_multiply(count, sizeof(T), &bytes))
-        return nullptr;
-    return static_cast<T *>(
-        memory_region_allocate_zero(region, bytes, alignof(T)));
+    const auto bytes = checked_multiply(count, sizeof(T));
+    if (!bytes)
+        return failure(MemoryError::overflow);
+    return memory_region_allocate_zero(region, *bytes, alignof(T))
+        .transform([](void *value) { return static_cast<T *>(value); });
 }
 
 template<Data T>

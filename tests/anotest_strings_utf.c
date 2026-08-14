@@ -22,6 +22,13 @@ static int failures = 0;
     if (!(cond)) { printf("FAIL: %s (%s:%d)\n", (msg), __FILE__, __LINE__); failures++; } \
 } while (0)
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    CHECK(result, "string operation succeeds");
+    return result.value_or(Value{});
+}
+
 static bool rune_is_scalar(anorune_t r)
 {
     return r <= ANORUNE_MAX && !(r >= 0xD800u && r <= 0xDFFFu);
@@ -163,7 +170,7 @@ static void test_iteration(mi_heap_t *heap)
     static const anorune_t expect[] = { 'a', 0xE9, 0x416, 0x20AC, 0x1D568, 0x1F600, '!', ' ' };
     const char *text = "a\xC3\xA9\xD0\x96\xE2\x82\xAC\xF0\x9D\x95\xA8\xF0\x9F\x98\x80! ";
 
-    anostr_t s = anostr_from(heap, text, strlen(text));
+    anostr_t s = must(anostr_from(heap, text, strlen(text)));
     CHECK(!anostr_is_inline(s), "mixed-width sample is heap-backed");
     CHECK(anostr_utf8_valid(s), "mixed-width sample is valid UTF-8");
     check_iteration_agreement(s, expect, sizeof expect / sizeof expect[0], "heap-backed mixed-width");
@@ -260,13 +267,13 @@ static void test_classification(void)
 
 static void test_builder_append_rune(mi_heap_t *heap)
 {
-    anostr_builder_t b = anostr_builder_make(heap, 0);
-    CHECK(anostr_builder_append_rune(&b, 'a') == 0, "append ASCII rune");
-    CHECK(anostr_builder_append_rune(&b, 0xE9) == 0, "append 2-byte rune");
-    CHECK(anostr_builder_append_rune(&b, 0x20AC) == 0, "append 3-byte rune");
-    CHECK(anostr_builder_append_rune(&b, 0x1F600) == 0, "append 4-byte rune");
-    CHECK(anostr_builder_append_rune(&b, 0xD800) == 0, "append invalid rune (becomes U+FFFD)");
-    anostr_t s = anostr_freeze(&b);
+    anostr_builder_t b = must(anostr_builder_make(heap, 0));
+    CHECK(anostr_builder_append_rune(&b, 'a'), "append ASCII rune");
+    CHECK(anostr_builder_append_rune(&b, 0xE9), "append 2-byte rune");
+    CHECK(anostr_builder_append_rune(&b, 0x20AC), "append 3-byte rune");
+    CHECK(anostr_builder_append_rune(&b, 0x1F600), "append 4-byte rune");
+    CHECK(anostr_builder_append_rune(&b, 0xD800), "append invalid rune (becomes U+FFFD)");
+    anostr_t s = must(anostr_freeze(&b));
 
     const char *expect = "a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80\xEF\xBF\xBD";
     CHECK(anostr_len(s) == strlen(expect) && memcmp(anostr_bytes(&s), expect, strlen(expect)) == 0,
@@ -349,7 +356,7 @@ static void test_sort(void)
     size_t n = sizeof cities / sizeof cities[0];
     anostr_sort(cities, n);
     for (size_t k = 0; k < n; k++) {
-        if (!anostr_eq(cities[k], anostr_from_cstr(NULL, expect[k]))) {
+        if (!anostr_eq(cities[k], must(anostr_from_cstr(NULL, expect[k])))) {
             printf("FAIL: sorted city %zu is \"%.*s\"\n", k, anostr_fmt(cities[k]));
             failures++;
         }
@@ -361,24 +368,24 @@ static void test_encoding_conversion(mi_heap_t *heap)
     // Surrogate pair round-trip.
     anostr_t s = anostr_lit("a \xE2\x82\xAC\xF0\x9D\x95\xA8");
     size_t n = 0;
-    char16_t *w = anostr_to_utf16(heap, s, &n);
+    char16_t *w = must(anostr_to_utf16(heap, s, &n));
     static const char16_t expect16[] = { 0x61, 0x20, 0x20AC, 0xD835, 0xDD68, 0 };
     CHECK(w != NULL && n == 5, "to_utf16 unit count");
     CHECK(w != NULL && memcmp(w, expect16, sizeof expect16) == 0, "to_utf16 exact units + NUL");
 
-    anorune_t *u = anostr_to_utf32(heap, s, &n);
+    anorune_t *u = must(anostr_to_utf32(heap, s, &n));
     static const anorune_t expect32[] = { 0x61, 0x20, 0x20AC, 0x1D568, 0 };
     CHECK(u != NULL && n == 4, "to_utf32 rune count");
     CHECK(u != NULL && memcmp(u, expect32, sizeof expect32) == 0, "to_utf32 exact runes + NUL");
 
     // Round-trips land on equal values.
-    CHECK(anostr_eq(anostr_from_utf16(heap, w, 5), s), "utf16 round-trip");
-    CHECK(anostr_eq(anostr_from_utf16_cstr(heap, w), s), "utf16 cstr round-trip");
-    CHECK(anostr_eq(anostr_from_utf32(heap, u, 4), s), "utf32 round-trip");
+    CHECK(anostr_eq(must(anostr_from_utf16(heap, w, 5)), s), "utf16 round-trip");
+    CHECK(anostr_eq(must(anostr_from_utf16_cstr(heap, w)), s), "utf16 cstr round-trip");
+    CHECK(anostr_eq(must(anostr_from_utf32(heap, u, 4)), s), "utf32 round-trip");
 
     // Unpaired surrogates -> U+FFFD.
     static const char16_t bad16[] = { 0xD800, 'a', 0xDC00, 0xDBFF };
-    anostr_t fixed = anostr_from_utf16(heap, bad16, 4);
+    anostr_t fixed = must(anostr_from_utf16(heap, bad16, 4));
     static const anorune_t expect_fixed[] = { 0xFFFD, 'a', 0xFFFD, 0xFFFD };
     size_t i = 0, k = 0;
     while (i < anostr_len(fixed)) {
@@ -394,15 +401,19 @@ static void test_encoding_conversion(mi_heap_t *heap)
 
     // Invalid UTF-32 -> U+FFFD.
     static const anorune_t bad32[] = { 0xD800, 0x110000, 'x' };
-    anostr_t fixed32 = anostr_from_utf32(heap, bad32, 3);
+    anostr_t fixed32 = must(anostr_from_utf32(heap, bad32, 3));
     CHECK(anostr_eq(fixed32, anostr_lit("\xEF\xBF\xBD\xEF\xBF\xBD" "x")), "utf32 sanitizes to U+FFFD");
 
     // Totality corners.
-    CHECK(anostr_is_empty(anostr_from_utf16(heap, NULL, 9)), "NULL utf16 src yields empty");
-    CHECK(anostr_is_empty(anostr_from_utf32(heap, NULL, 9)), "NULL utf32 src yields empty");
-    CHECK(anostr_is_empty(anostr_from_utf16(heap, expect16, 0)), "zero units yield empty");
+    CHECK(has_error(anostr_from_utf16(heap, NULL, 9), StringError::invalid_argument),
+          "NULL utf16 src reports invalid argument");
+    CHECK(has_error(anostr_from_utf32(heap, NULL, 9), StringError::invalid_argument),
+          "NULL utf32 src reports invalid argument");
+    CHECK(anostr_is_empty(must(anostr_from_utf16(heap, expect16, 0))),
+          "zero units yield empty");
     n = 77;
-    CHECK(anostr_to_utf16(NULL, s, &n) == NULL && n == 0, "NULL heap fails with count 0");
+    CHECK(has_error(anostr_to_utf16(NULL, s, &n), StringError::invalid_argument) && n == 0,
+          "NULL heap fails with count 0");
 }
 
 // Random scalars: encode, iterate forward/backward vs source. argv[1] scales.
@@ -414,21 +425,21 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 
     for (uint32_t it = 0; it < iterations; it++) {
         uint32_t count = 1 + rng_below(&rng, MAX_RUNES);
-        anostr_builder_t b = anostr_builder_make(heap, 0);
+        anostr_builder_t b = must(anostr_builder_make(heap, 0));
         for (uint32_t k = 0; k < count; k++) {
             anorune_t r;
             do {
                 r = rng_below(&rng, ANORUNE_MAX + 1);
             } while (!rune_is_scalar(r));
             src[k] = r;
-            if (anostr_builder_append_rune(&b, r) != 0) {
+            if (!anostr_builder_append_rune(&b, r)) {
                 printf("FAIL: soak append (it=%u)\n", it);
                 failures++;
                 anostr_builder_discard(&b);
                 return;
             }
         }
-        anostr_t s = anostr_freeze(&b);
+        anostr_t s = must(anostr_freeze(&b));
 
         if (!anostr_utf8_valid(s) || anostr_rune_count(s) != count) {
             printf("FAIL: soak valid/count (it=%u)\n", it);
@@ -454,11 +465,11 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 
         // Both conversions round-trip.
         size_t units = 0, runes = 0;
-        char16_t  *w = anostr_to_utf16(heap, s, &units);
-        anorune_t *u = anostr_to_utf32(heap, s, &runes);
+        char16_t  *w = must(anostr_to_utf16(heap, s, &units));
+        anorune_t *u = must(anostr_to_utf32(heap, s, &runes));
         if (w == NULL || u == NULL || runes != count ||
-            !anostr_eq(anostr_from_utf16(heap, w, units), s) ||
-            !anostr_eq(anostr_from_utf32(heap, u, runes), s)) {
+            !anostr_eq(must(anostr_from_utf16(heap, w, units)), s) ||
+            !anostr_eq(must(anostr_from_utf32(heap, u, runes)), s)) {
             printf("FAIL: soak conversion round-trip (it=%u)\n", it);
             failures++;
             return;

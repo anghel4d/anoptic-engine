@@ -77,20 +77,17 @@ static bool append_json_whitespace(const char *path)
 static bool revision_payloads_equal(const AnoCookedRevision *left,
                                     const AnoCookedRevision *right)
 {
-    AnoResourceMutableBytes leftBytes{};
-    AnoResourceMutableBytes rightBytes{};
-    AnoResourcePack *leftPack = nullptr;
-    AnoResourcePack *rightPack = nullptr;
-    bool equal = ano_resource_revision_export_pack(left, &leftBytes)
-            == ANO_RESOURCE_OK
-        && ano_resource_revision_export_pack(right, &rightBytes)
-            == ANO_RESOURCE_OK
-        && ano_resource_pack_open(
-               {leftBytes.data, leftBytes.size}, &leftPack)
-            == ANO_RESOURCE_OK
-        && ano_resource_pack_open(
-               {rightBytes.data, rightBytes.size}, &rightPack)
-            == ANO_RESOURCE_OK;
+    const auto leftBytes = ano_resource_revision_export_pack(left);
+    const auto rightBytes = ano_resource_revision_export_pack(right);
+    auto leftOpened = leftBytes
+        ? ano_resource_pack_open({leftBytes->data, leftBytes->size})
+        : ResourceResult<AnoResourcePack *>(failure(leftBytes.error()));
+    auto rightOpened = rightBytes
+        ? ano_resource_pack_open({rightBytes->data, rightBytes->size})
+        : ResourceResult<AnoResourcePack *>(failure(rightBytes.error()));
+    AnoResourcePack *leftPack = leftOpened.value_or(nullptr);
+    AnoResourcePack *rightPack = rightOpened.value_or(nullptr);
+    bool equal = leftPack && rightPack;
     const AnoResourceManifest *leftManifest = equal
         ? ano_resource_pack_manifest(leftPack) : nullptr;
     const AnoResourceManifest *rightManifest = equal
@@ -100,20 +97,18 @@ static bool revision_payloads_equal(const AnoCookedRevision *left,
     equal = equal
         && count == ano_resource_manifest_entry_count(rightManifest);
     for (uint64_t asset = 1; asset <= count && equal; ++asset) {
-        AnoResourceManifestEntry lhs{};
-        AnoResourceManifestEntry rhs{};
-        equal = ano_resource_manifest_find(leftManifest, {asset}, &lhs)
-                == ANO_RESOURCE_OK
-            && ano_resource_manifest_find(rightManifest, {asset}, &rhs)
-                == ANO_RESOURCE_OK
-            && lhs.type.value == rhs.type.value
-            && lhs.byteSize == rhs.byteSize
-            && ano_resource_content_id_equal(lhs.content, rhs.content);
+        const auto lhs = ano_resource_manifest_find(leftManifest, {asset});
+        const auto rhs = ano_resource_manifest_find(rightManifest, {asset});
+        equal = lhs && rhs && lhs->type.value == rhs->type.value
+            && lhs->byteSize == rhs->byteSize
+            && ano_resource_content_id_equal(lhs->content, rhs->content);
     }
     ano_resource_pack_close(rightPack);
     ano_resource_pack_close(leftPack);
-    ano_resource_exported_pack_release(rightBytes);
-    ano_resource_exported_pack_release(leftBytes);
+    if (rightBytes)
+        ano_resource_exported_pack_release(*rightBytes);
+    if (leftBytes)
+        ano_resource_exported_pack_release(*leftBytes);
     return equal;
 }
 
@@ -142,54 +137,60 @@ static void test_incremental_external_image(void)
     if (!staged)
         return;
 
-    AnoResourceCooker *cooker = nullptr;
-    AnoResourceError result = ano_resource_cooker_create(
-        {.firstDerivedAsset = {2}}, &cooker);
+    const auto created = ano_resource_cooker_create(
+        {.firstDerivedAsset = {2}});
+    AnoResourceCooker *cooker = created.value_or(nullptr);
+    ResourceResult<> result = created
+        ? ResourceResult<>{} : ResourceResult<>(failure(created.error()));
+    const auto publish = [&](const AnoCookedRevision *&revision) {
+        const auto cooked = ano_resource_cook(cooker);
+        if (!cooked)
+            return ResourceResult<>(failure(cooked.error()));
+        revision = *cooked;
+        return ResourceResult<>{};
+    };
     const AnoResourceImportRequest request = {{1}, {1}, {1}};
-    if (result == ANO_RESOURCE_OK)
+    if (result)
         result = ano_resource_source_bind(cooker, {1}, gltf);
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_import(cooker, &request);
+    if (result)
+        result = ano_resource_import(cooker, request);
     const AnoCookedRevision *first = nullptr;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &first);
+    if (result)
+        result = publish(first);
 
-    if (result == ANO_RESOURCE_OK)
+    if (result)
         result = ano_resource_cooker_begin(cooker);
-    if (result == ANO_RESOURCE_OK
+    if (result
         && !copy_file(ANO_TEST_SOURCE_DIR "/assets/cursed.png", image))
-        result = ANO_RESOURCE_IO_ERROR;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_import(cooker, &request);
+        result = failure(ANO_RESOURCE_IO_ERROR);
+    if (result)
+        result = ano_resource_import(cooker, request);
     const AnoCookedRevision *second = nullptr;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &second);
-    CHECK(result == ANO_RESOURCE_OK
-              && !revision_payloads_equal(first, second),
+    if (result)
+        result = publish(second);
+    CHECK(result && !revision_payloads_equal(first, second),
           "an external image edit changes the cooked public artifacts");
 
-    if (result == ANO_RESOURCE_OK)
+    if (result)
         result = ano_resource_cooker_begin(cooker);
-    if (result == ANO_RESOURCE_OK && !append_json_whitespace(gltf))
-        result = ANO_RESOURCE_IO_ERROR;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_import(cooker, &request);
+    if (result && !append_json_whitespace(gltf))
+        result = failure(ANO_RESOURCE_IO_ERROR);
+    if (result)
+        result = ano_resource_import(cooker, request);
     const AnoCookedRevision *equivalent = nullptr;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &equivalent);
-    CHECK(result == ANO_RESOURCE_OK
-              && revision_payloads_equal(second, equivalent),
+    if (result)
+        result = publish(equivalent);
+    CHECK(result && revision_payloads_equal(second, equivalent),
           "source-only JSON changes preserve equivalent artifact payloads");
 
-    if (result == ANO_RESOURCE_OK)
+    if (result)
         result = ano_resource_cooker_begin(cooker);
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_import(cooker, &request);
+    if (result)
+        result = ano_resource_import(cooker, request);
     const AnoCookedRevision *unchanged = nullptr;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &unchanged);
-    CHECK(result == ANO_RESOURCE_OK
-              && revision_payloads_equal(equivalent, unchanged),
+    if (result)
+        result = publish(unchanged);
+    CHECK(result && revision_payloads_equal(equivalent, unchanged),
           "an unchanged source graph preserves every public artifact");
 
     const char *relocatedDirectory = ANO_TEST_BINARY_DIR
@@ -207,23 +208,22 @@ static void test_incremental_external_image(void)
         "/resource-incremental-relocated/viking_room.png";
     const char *relocatedCursed = ANO_TEST_BINARY_DIR
         "/resource-incremental-relocated/cursed.png";
-    if (result == ANO_RESOURCE_OK
+    if (result
         && (!copy_file(gltf, relocatedGltf)
             || !copy_file(binary, relocatedBinary)
             || !copy_file(image, relocatedImage)
             || !copy_file(cursed, relocatedCursed)))
-        result = ANO_RESOURCE_IO_ERROR;
-    if (result == ANO_RESOURCE_OK)
+        result = failure(ANO_RESOURCE_IO_ERROR);
+    if (result)
         result = ano_resource_cooker_begin(cooker);
-    if (result == ANO_RESOURCE_OK)
+    if (result)
         result = ano_resource_source_bind(cooker, {1}, relocatedGltf);
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_import(cooker, &request);
+    if (result)
+        result = ano_resource_import(cooker, request);
     const AnoCookedRevision *relocated = nullptr;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &relocated);
-    CHECK(result == ANO_RESOURCE_OK
-              && revision_payloads_equal(unchanged, relocated),
+    if (result)
+        result = publish(relocated);
+    CHECK(result && revision_payloads_equal(unchanged, relocated),
           "source-handle relocation preserves equal public artifacts");
 
     ano_resource_revision_release(relocated);
@@ -257,11 +257,12 @@ static bool import_sources(const char *const *relativePaths,
         return false;
     char paths[8][1024] = {};
 
-    AnoResourceCooker *cooker = nullptr;
-    AnoResourceError result = ano_resource_cooker_create(
-        {.firstDerivedAsset = {sourceCount + 1}}, &cooker);
-    if (result != ANO_RESOURCE_OK)
+    const auto created = ano_resource_cooker_create(
+        {.firstDerivedAsset = {sourceCount + 1}});
+    if (!created)
         return false;
+    AnoResourceCooker *cooker = *created;
+    ResourceResult<> result{};
     for (uint32_t source = 0; source < sourceCount; ++source) {
         const int written = snprintf(
             paths[source], sizeof(paths[source]), "%s/%s",
@@ -273,10 +274,10 @@ static bool import_sources(const char *const *relativePaths,
         result = ano_resource_source_bind(
             cooker, {source + 1},
             ANO_TEST_SOURCE_DIR "/assets/viking_room.glb");
-        if (result == ANO_RESOURCE_OK)
+        if (result)
             result = ano_resource_source_bind(
                 cooker, {source + 1}, paths[source]);
-        if (result != ANO_RESOURCE_OK) {
+        if (!result) {
             ano_resource_cooker_destroy(cooker);
             return false;
         }
@@ -285,96 +286,83 @@ static bool import_sources(const char *const *relativePaths,
             .rootAsset = {source + 1},
             .commitGroup = {source + 1},
         };
-        result = ano_resource_import(cooker, &request);
-        if (result != ANO_RESOURCE_OK) {
+        result = ano_resource_import(cooker, request);
+        if (!result) {
             fprintf(stderr, "import %s: %s\n", relativePaths[source],
-                    ano_resource_error_string(result));
+                    ano_resource_error_string(result.error()));
             ano_resource_cooker_destroy(cooker);
             return false;
         }
     }
 
-    const AnoCookedRevision *revision = nullptr;
-    result = ano_resource_cook(cooker, &revision);
-    AnoResourceMutableBytes cooked = {};
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_revision_export_pack(revision, &cooked);
+    const auto revisionResult = ano_resource_cook(cooker);
+    const AnoCookedRevision *revision = revisionResult.value_or(nullptr);
+    const auto cooked = revision
+        ? ano_resource_revision_export_pack(revision)
+        : ResourceResult<AnoResourceMutableBytes>(
+              failure(revisionResult.error()));
     ano_resource_revision_release(revision);
     ano_resource_cooker_destroy(cooker);
-    if (result != ANO_RESOURCE_OK) {
-        ano_resource_exported_pack_release(cooked);
+    if (!cooked) {
         return false;
     }
 
-    AnoResourcePack *pack = nullptr;
-    result = ano_resource_pack_open({cooked.data, cooked.size}, &pack);
-    ano_resource_exported_pack_release(cooked);
-    if (result != ANO_RESOURCE_OK)
+    const auto opened = ano_resource_pack_open(
+        {cooked->data, cooked->size});
+    ano_resource_exported_pack_release(*cooked);
+    if (!opened)
         return false;
+    AnoResourcePack *pack = *opened;
 
     const AnoResourceManifest *manifest = ano_resource_pack_manifest(pack);
     const uint64_t entryCount = ano_resource_manifest_entry_count(manifest);
     for (uint64_t asset = 1; asset <= entryCount; ++asset) {
-        AnoResourceManifestEntry entry = {};
-        if (ano_resource_manifest_find(manifest, {asset}, &entry)
-            != ANO_RESOURCE_OK) {
+        const auto entry = ano_resource_manifest_find(manifest, {asset});
+        if (!entry) {
             ano_resource_pack_close(pack);
             return false;
         }
-        if (entry.type.value == ano::resource_type_id<Texture>().value)
+        if (entry->type.value == ano::resource_type_id<Texture>().value)
             ++counts->textures;
-        else if (entry.type.value == ano::resource_type_id<Material>().value)
+        else if (entry->type.value == ano::resource_type_id<Material>().value)
             ++counts->materials;
-        else if (entry.type.value == ano::resource_type_id<Mesh>().value)
+        else if (entry->type.value == ano::resource_type_id<Mesh>().value)
             ++counts->meshes;
-        else if (entry.type.value == ano::resource_type_id<Scene>().value)
+        else if (entry->type.value == ano::resource_type_id<Scene>().value)
             ++counts->scenes;
     }
 
-    for (uint32_t source = 0; source < sourceCount
-                              && result == ANO_RESOURCE_OK; ++source) {
-        uint64_t sceneSize = 0;
-        result = ano_resource_pack_read(
-            pack, {source + 1}, {nullptr, 0}, &sceneSize);
-        if (result != ANO_RESOURCE_BUFFER_TOO_SMALL || sceneSize == 0)
-            break;
-        uint8_t *sceneBytes = static_cast<uint8_t *>(malloc((size_t)sceneSize));
-        if (sceneBytes == nullptr) {
-            result = ANO_RESOURCE_OUT_OF_MEMORY;
+    for (uint32_t source = 0; source < sourceCount && result; ++source) {
+        const auto sceneBytes = ano_resource_pack_view(pack, {source + 1});
+        if (!sceneBytes || sceneBytes->size == 0) {
+            result = sceneBytes
+                ? ResourceResult<>(failure(ANO_RESOURCE_NON_CANONICAL))
+                : ResourceResult<>(failure(sceneBytes.error()));
             break;
         }
-        result = ano_resource_pack_read(
-            pack, {source + 1}, {sceneBytes, sceneSize}, &sceneSize);
-        if (result == ANO_RESOURCE_OK) {
-            const ano::DecodeResult<Scene> decoded =
-                ano::decode<Scene>({sceneBytes, sceneSize});
-            if (decoded.error == ANO_RESOURCE_OK) {
-                scenes[source].renderables =
-                    decoded.view.value.renderables.count;
-                scenes[source].lights = decoded.view.value.lights.count;
-                SceneRenderable *renderables = static_cast<SceneRenderable *>(
-                    calloc((size_t)scenes[source].renderables,
-                           sizeof(SceneRenderable)));
-                if (scenes[source].renderables != 0 && renderables == nullptr)
-                    result = ANO_RESOURCE_OUT_OF_MEMORY;
-                else if (ano::resolve_span(
-                             decoded.view, decoded.view.value.renderables,
-                             renderables, scenes[source].renderables)
-                         != ANO_RESOURCE_OK)
-                    result = ANO_RESOURCE_NON_CANONICAL;
-                for (uint64_t i = 0; i < scenes[source].renderables
-                                     && result == ANO_RESOURCE_OK; ++i)
-                    if (renderables[i].mesh.id.value == 0)
-                        result = ANO_RESOURCE_NON_CANONICAL;
-                free(renderables);
-            } else {
-                result = decoded.error;
-            }
+        const auto decoded = ano::decode<Scene>(*sceneBytes);
+        if (!decoded) {
+            result = failure(decoded.error());
+            break;
         }
-        free(sceneBytes);
+        scenes[source].renderables = decoded->value.renderables.count;
+        scenes[source].lights = decoded->value.lights.count;
+        SceneRenderable *renderables = static_cast<SceneRenderable *>(
+            calloc((size_t)scenes[source].renderables,
+                   sizeof(SceneRenderable)));
+        if (scenes[source].renderables != 0 && renderables == nullptr)
+            result = failure(ANO_RESOURCE_OUT_OF_MEMORY);
+        else if (!ano::resolve_span(
+                     *decoded, decoded->value.renderables, renderables,
+                     scenes[source].renderables))
+            result = failure(ANO_RESOURCE_NON_CANONICAL);
+        for (uint64_t i = 0; i < scenes[source].renderables && result; ++i)
+            if (renderables[i].mesh.id.value == 0)
+                result = failure(ANO_RESOURCE_NON_CANONICAL);
+        free(renderables);
     }
     ano_resource_pack_close(pack);
-    return result == ANO_RESOURCE_OK;
+    return result.has_value();
 }
 
 static void test_viking_glb(void)

@@ -11,25 +11,29 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-anostr_t ano::anostr_from(mi_heap_t *heap, const void *bytes, size_t len)
+StringResult<anostr_t> ano::anostr_from(
+    mi_heap_t *heap, const void *bytes, size_t len)
 {
-    if (bytes == NULL || len > UINT32_MAX)
-        return anostr_empty();
+    if (bytes == NULL)
+        return failure(StringError::invalid_argument);
+    if (len > UINT32_MAX)
+        return failure(StringError::overflow);
     if (len <= ANOSTR_INLINE_CAP)
         return anostr_make_inline_(bytes, len);
     if (heap == NULL)
-        return anostr_empty();
+        return failure(StringError::invalid_argument);
     char *copy = static_cast<char *>(mi_heap_malloc(heap, len));
     if (copy == NULL)
-        return anostr_empty();
+        return failure(StringError::out_of_memory);
     memcpy(copy, bytes, len);
     return anostr_make_long_(copy, len);
 }
 
-anostr_t ano::anostr_from_cstr(mi_heap_t *heap, const char *cstr)
+StringResult<anostr_t> ano::anostr_from_cstr(
+    mi_heap_t *heap, const char *cstr)
 {
     if (cstr == NULL)
-        return anostr_empty();
+        return failure(StringError::invalid_argument);
     return anostr_from(heap, cstr, strlen(cstr));
 }
 
@@ -83,20 +87,20 @@ anostr_t ano::anostr_slice(anostr_t s, size_t start, size_t end)
     return anostr_make_long_(s.ptr + start, n);
 }
 
-anostr_t ano::anostr_keep(mi_heap_t *heap, anostr_t s)
+StringResult<anostr_t> ano::anostr_keep(mi_heap_t *heap, anostr_t s)
 {
     if (s.len <= ANOSTR_INLINE_CAP)
         return s;
     return anostr_from(heap, s.ptr, s.len);
 }
 
-char *ano::anostr_to_cstr(mi_heap_t *heap, anostr_t s)
+StringResult<char *> ano::anostr_to_cstr(mi_heap_t *heap, anostr_t s)
 {
     if (heap == NULL)
-        return NULL;
+        return failure(StringError::invalid_argument);
     char *out = static_cast<char *>(mi_heap_malloc(heap, (size_t)s.len + 1));
     if (out == NULL)
-        return NULL;
+        return failure(StringError::out_of_memory);
     memcpy(out, anostr_bytes(&s), s.len);
     out[s.len] = '\0';
     return out;
@@ -104,22 +108,26 @@ char *ano::anostr_to_cstr(mi_heap_t *heap, anostr_t s)
 
 /* Builder */
 
-anostr_builder_t ano::anostr_builder_make(mi_heap_t *heap, uint32_t reserve)
+StringResult<anostr_builder_t> ano::anostr_builder_make(
+    mi_heap_t *heap, uint32_t reserve)
 {
+    if (heap == NULL)
+        return failure(StringError::invalid_argument);
     anostr_builder_t b = { .ptr = NULL, .len = 0, .cap = 0, .heap = heap };
-    if (heap != NULL && reserve > 0) {
+    if (reserve > 0) {
         b.ptr = static_cast<char *>(mi_heap_malloc(heap, reserve));
-        if (b.ptr != NULL)
-            b.cap = reserve;
+        if (b.ptr == NULL)
+            return failure(StringError::out_of_memory);
+        b.cap = reserve;
     }
     return b;
 }
 
 // Grow so cap >= need. Geometric doubling from 16, clamped to UINT32_MAX. Untouched on fail.
-static int builder_reserve(anostr_builder_t *b, uint64_t need)
+static StringResult<> builder_reserve(anostr_builder_t *b, uint64_t need)
 {
     if (need <= b->cap)
-        return 0;
+        return {};
     uint64_t cap = b->cap ? (uint64_t)b->cap * 2 : 16;
     while (cap < need)
         cap *= 2;
@@ -127,42 +135,52 @@ static int builder_reserve(anostr_builder_t *b, uint64_t need)
         cap = UINT32_MAX;
     char *grown = static_cast<char *>(mi_heap_realloc(b->heap, b->ptr, cap));
     if (grown == NULL)
-        return -1;
+        return failure(StringError::out_of_memory);
     b->ptr = grown;
     b->cap = (uint32_t)cap;
-    return 0;
+    return {};
 }
 
-int ano::anostr_builder_append(anostr_builder_t *b, const void *bytes, size_t n)
+StringResult<> ano::anostr_builder_append(
+    anostr_builder_t *b, const void *bytes, size_t n)
 {
-    if (b->heap == NULL || bytes == NULL)
-        return -1;
+    if (b == NULL || bytes == NULL)
+        return failure(StringError::invalid_argument);
+    if (b->heap == NULL)
+        return failure(StringError::consumed);
     if (n == 0)
-        return 0;
+        return {};
     uint64_t need = (uint64_t)b->len + n;
-    if (need > UINT32_MAX || builder_reserve(b, need) != 0)
-        return -1;
+    if (need > UINT32_MAX)
+        return failure(StringError::overflow);
+    if (auto reserve = builder_reserve(b, need); !reserve)
+        return reserve;
     memcpy(b->ptr + b->len, bytes, n);
     b->len = (uint32_t)need;
-    return 0;
+    return {};
 }
 
-int ano::anostr_builder_append_str(anostr_builder_t *b, anostr_t s)
+StringResult<> ano::anostr_builder_append_str(
+    anostr_builder_t *b, anostr_t s)
 {
     return anostr_builder_append(b, anostr_bytes(&s), s.len);
 }
 
-int ano::anostr_builder_append_cstr(anostr_builder_t *b, const char *cstr)
+StringResult<> ano::anostr_builder_append_cstr(
+    anostr_builder_t *b, const char *cstr)
 {
     if (cstr == NULL)
-        return -1;
+        return failure(StringError::invalid_argument);
     return anostr_builder_append(b, cstr, strlen(cstr));
 }
 
-int ano::anostr_builder_appendf(anostr_builder_t *b, const char *fmt, ...)
+StringResult<> ano::anostr_builder_appendf(
+    anostr_builder_t *b, const char *fmt, ...)
 {
-    if (b->heap == NULL || fmt == NULL)
-        return -1;
+    if (b == NULL || fmt == NULL)
+        return failure(StringError::invalid_argument);
+    if (b->heap == NULL)
+        return failure(StringError::consumed);
 
     va_list args, measure;
     va_start(args, fmt);
@@ -171,25 +189,31 @@ int ano::anostr_builder_appendf(anostr_builder_t *b, const char *fmt, ...)
     va_end(measure);
     if (need < 0) {
         va_end(args);
-        return -1;
+        return failure(StringError::invalid_argument);
     }
 
     // +1: vsnprintf writes a NUL into spare capacity, not counted in len.
     uint64_t total = (uint64_t)b->len + (uint64_t)need + 1;
-    if (total > UINT32_MAX || builder_reserve(b, total) != 0) {
+    if (total > UINT32_MAX) {
         va_end(args);
-        return -1;
+        return failure(StringError::overflow);
+    }
+    if (auto reserve = builder_reserve(b, total); !reserve) {
+        va_end(args);
+        return reserve;
     }
     vsnprintf(b->ptr + b->len, (size_t)need + 1, fmt, args);
     va_end(args);
     b->len += (uint32_t)need;
-    return 0;
+    return {};
 }
 
-anostr_t ano::anostr_freeze(anostr_builder_t *b)
+StringResult<anostr_t> ano::anostr_freeze(anostr_builder_t *b)
 {
+    if (b == NULL)
+        return failure(StringError::invalid_argument);
     if (b->heap == NULL)
-        return anostr_empty();
+        return failure(StringError::consumed);
 
     anostr_t s;
     if (b->len <= ANOSTR_INLINE_CAP) {

@@ -187,25 +187,25 @@ AnoResourceError extract_dependencies(
 {
     *dependencies = nullptr;
     *dependencyCount = 0;
-    uint64_t required = 0;
-    const AnoResourceError measured = ano_resource_artifact_dependencies(
-        type, artifact, nullptr, 0, &required);
+    const auto measured = ano_resource_artifact_dependencies(
+        type, artifact, nullptr, 0);
+    if (!measured)
+        return measured.error();
+    const uint64_t required = *measured;
     if (required == 0)
-        return measured;
-    if (measured != ANO_RESOURCE_DEPENDENCY_CAPACITY
-        || required > SIZE_MAX / sizeof(AnoResourceDependency))
-        return measured == ANO_RESOURCE_DEPENDENCY_CAPACITY
-            ? ANO_RESOURCE_OVERFLOW : measured;
-    auto *values = ano::memory_region_allocate<AnoResourceDependency>(
+        return ANO_RESOURCE_OK;
+    if (required > SIZE_MAX / sizeof(AnoResourceDependency))
+        return ANO_RESOURCE_OVERFLOW;
+    auto allocation = ano::memory_region_allocate<AnoResourceDependency>(
         region, static_cast<size_t>(required));
-    if (values == nullptr)
+    if (!allocation)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    uint64_t actual = 0;
-    const AnoResourceError extracted = ano_resource_artifact_dependencies(
-        type, artifact, values, required, &actual);
-    if (extracted != ANO_RESOURCE_OK || actual != required)
-        return extracted == ANO_RESOURCE_OK ? ANO_RESOURCE_BAD_MANIFEST
-                                            : extracted;
+    auto *values = *allocation;
+    const auto extracted = ano_resource_artifact_dependencies(
+        type, artifact, values, required);
+    if (!extracted || *extracted != required)
+        return extracted ? ANO_RESOURCE_BAD_MANIFEST : extracted.error();
+    const uint64_t actual = *extracted;
     qsort(values, static_cast<size_t>(actual), sizeof(*values),
           ano::resource_detail::compare_dependency);
     uint64_t unique = 0;
@@ -222,43 +222,56 @@ AnoResourceError extract_dependencies(
 void encode_artifact(void *context, uint64_t index, ano::MemoryRegion *)
 {
     EncodeWork& work = static_cast<EncodeWork *>(context)[index];
-    const std::span<uint8_t> view = ano::memory_volume_write(
+    const auto written = ano::memory_volume_write(
         work.volume, work.reservation);
-    if (view.size() != work.reservation.size) {
+    if (!written || written->size() != work.reservation.size) {
         work.result = ANO_RESOURCE_BAD_MANIFEST;
         return;
     }
+    const std::span<uint8_t> view = *written;
     work.bytes = {
         .data = view.data(),
         .size = view.size(),
     };
-    work.result = work.artifact->encode(
+    const auto encoded = work.artifact->encode(
         work.artifact->context,
         {.data = view.data(), .size = view.size()});
-    if (work.result == ANO_RESOURCE_OK)
-        work.result = ano_resource_validate_artifact(
+    work.result = encoded ? ANO_RESOURCE_OK : encoded.error();
+    if (work.result == ANO_RESOURCE_OK) {
+        const auto valid = ano_resource_validate_artifact(
             work.artifact->type, work.bytes);
-    if (work.result == ANO_RESOURCE_OK)
-        work.result = ano_resource_artifact_schema(
-            work.artifact->type, &work.schema);
-    if (work.result == ANO_RESOURCE_OK)
-        work.result = ano_resource_content_id(work.bytes, &work.content);
+        work.result = valid ? ANO_RESOURCE_OK : valid.error();
+    }
+    if (work.result == ANO_RESOURCE_OK) {
+        const auto schema = ano_resource_artifact_schema(work.artifact->type);
+        if (schema)
+            work.schema = *schema;
+        else
+            work.result = schema.error();
+    }
+    if (work.result == ANO_RESOURCE_OK) {
+        const auto content = ano_resource_content_id(work.bytes);
+        if (content)
+            work.content = *content;
+        else
+            work.result = content.error();
+    }
     if (work.result == ANO_RESOURCE_OK)
         work.result = extract_dependencies(
             work.artifact->type, work.bytes, work.metadata,
             &work.dependencies, &work.dependencyCount);
 }
 
-AnoResourceError copy_encode(void *context,
+ResourceResult<> copy_encode(void *context,
                              AnoResourceMutableBytes destination)
 {
     const auto& copy = *static_cast<const CopyEncodeContext *>(context);
     if (copy.source.data == nullptr
         || copy.source.size != destination.size)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     memcpy(destination.data, copy.source.data,
            static_cast<size_t>(destination.size));
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
 } // namespace
@@ -375,19 +388,21 @@ AnoResourceError read_file(AnoResourceCooker& cooker, AcquiredFile& acquired)
     if (!file_stamp(path, &before) || before.size > SIZE_MAX)
         return ANO_RESOURCE_IO_ERROR;
     ano::MemoryLayoutCursor layout{};
-    ano::MemoryReservation reservation{};
-    if (!layout.reserve(static_cast<size_t>(before.size), ANO_CACHE_LINE,
-                        reservation))
+    const auto reserved = layout.reserve(
+        static_cast<size_t>(before.size), ANO_CACHE_LINE);
+    if (!reserved)
         return ANO_RESOURCE_OVERFLOW;
-    ano::MemoryVolume *volume = ano::memory_volume_create(layout);
-    if (volume == nullptr)
+    const ano::MemoryReservation reservation = *reserved;
+    const auto created = ano::memory_volume_create(layout);
+    if (!created)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    const std::span<uint8_t> destination = ano::memory_volume_write(
-        volume, reservation);
-    if (destination.size() != reservation.size) {
+    ano::MemoryVolume *volume = *created;
+    const auto writable = ano::memory_volume_write(volume, reservation);
+    if (!writable || writable->size() != reservation.size) {
         ano::memory_volume_release(volume);
         return ANO_RESOURCE_OUT_OF_MEMORY;
     }
+    const std::span<uint8_t> destination = *writable;
     FILE *file = fopen(path, "rb");
     if (file == nullptr) {
         ano::memory_volume_release(volume);
@@ -412,8 +427,8 @@ AnoResourceError read_file(AnoResourceCooker& cooker, AcquiredFile& acquired)
     if (result == ANO_RESOURCE_OK
         && (!file_stamp(path, &after) || !stamp_equal(before, after)))
         result = ANO_RESOURCE_CANCELLED;
-    if (result == ANO_RESOURCE_OK)
-        ano::memory_volume_seal(volume);
+    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(volume))
+        result = ANO_RESOURCE_BAD_MANIFEST;
     if (result != ANO_RESOURCE_OK) {
         ano::memory_volume_release(volume);
         return result;
@@ -454,18 +469,19 @@ AnoResourceError acquire_file(AnoResourceCooker& cooker, const char *path,
         return ANO_RESOURCE_OK;
     }
     *output = nullptr;
-    uint64_t required = 0;
-    AnoResourceError result = !ano::checked_add(
-            cooker.activeFileCount, UINT64_C(1), &required)
-            || required > SIZE_MAX / sizeof(AcquiredFile)
+    const auto required = ano::checked_add(
+        cooker.activeFileCount, UINT64_C(1));
+    AnoResourceError result = !required
+            || *required > SIZE_MAX / sizeof(AcquiredFile)
         ? ANO_RESOURCE_OVERFLOW
         : ano::reserve_region_array(
               cooker.activeRegion, cooker.activeFiles,
-              cooker.activeFileCount, cooker.activeFileCapacity, required)
+              cooker.activeFileCount, cooker.activeFileCapacity, *required)
             ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
     const size_t pathSize = strlen(path) + 1;
     char *pathCopy = result == ANO_RESOURCE_OK
-        ? ano::memory_region_allocate<char>(cooker.activeRegion, pathSize)
+        ? ano::memory_region_allocate<char>(
+              cooker.activeRegion, pathSize).value_or(nullptr)
         : nullptr;
     if (result == ANO_RESOURCE_OK && pathCopy == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
@@ -546,26 +562,24 @@ AnoResourceError reserve_pending_index(AnoResourceCooker& cooker,
 AnoResourceError reserve_pending_items(AnoResourceCooker& cooker,
                                        uint64_t additional)
 {
-    uint64_t required = 0;
-    if (!ano::checked_add(cooker.itemCount, additional, &required)
-        || required > SIZE_MAX / sizeof(AnoResourcePackItem))
+    const auto required = ano::checked_add(cooker.itemCount, additional);
+    if (!required || *required > SIZE_MAX / sizeof(AnoResourcePackItem))
         return ANO_RESOURCE_OVERFLOW;
     return ano::reserve_array(
-               cooker.items, cooker.itemCapacity, required, 16)
+               cooker.items, cooker.itemCapacity, *required, 16)
         ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
 }
 
 AnoResourceError reserve_pending_volumes(AnoResourceCooker& cooker,
                                          uint64_t additional)
 {
-    uint64_t required = 0;
-    if (!ano::checked_add(
-            cooker.pendingVolumeCount, additional, &required)
-        || required > SIZE_MAX / sizeof(ano::MemoryVolume *))
+    const auto required = ano::checked_add(
+        cooker.pendingVolumeCount, additional);
+    if (!required || *required > SIZE_MAX / sizeof(ano::MemoryVolume *))
         return ANO_RESOURCE_OVERFLOW;
     return ano::reserve_array(
                cooker.pendingVolumes, cooker.pendingVolumeCapacity,
-               required)
+               *required)
         ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
 }
 
@@ -621,13 +635,11 @@ AnoResourceError requires_action(
     AnoResourceCommitGroupId commitGroup, uint64_t producer,
     AnoContentId inputIdentity, bool& required)
 {
-    AnoResourceSchema schema{};
-    const AnoResourceError described = ano_resource_artifact_schema(
-        type, &schema);
-    if (described != ANO_RESOURCE_OK)
-        return described;
+    const auto schema = ano_resource_artifact_schema(type);
+    if (!schema)
+        return schema.error();
     const AnoContentId expected = action_key(
-        producer, type, commitGroup, schema.fingerprint, inputIdentity);
+        producer, type, commitGroup, schema->fingerprint, inputIdentity);
     const CookNode *node = find_node(cooker, asset);
     required = node == nullptr || !node->present
         || node->source.value != source.value
@@ -682,20 +694,19 @@ void finish_transaction(AnoResourceCooker& cooker, bool publishSources = false)
 
 } // namespace
 
-AnoResourceError ano::ano_resource_cooker_create(
-    AnoResourceCookerConfig config, AnoResourceCooker **output)
+ResourceResult<AnoResourceCooker *> ano::ano_resource_cooker_create(
+    AnoResourceCookerConfig config)
 {
-    if (output == nullptr || config.firstDerivedAsset.value < 2)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *output = nullptr;
+    if (config.firstDerivedAsset.value < 2)
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     void *storage = mi_zalloc(sizeof(AnoResourceCooker));
     if (storage == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     AnoResourceCooker *cooker = ::new (storage) AnoResourceCooker{};
     cooker->firstDerivedAsset = config.firstDerivedAsset;
     cooker->nextDerivedAsset = config.firstDerivedAsset;
     atomic_init(&cooker->cancelled, false);
-    cooker->pendingMetadata = ano::memory_region_create();
+    cooker->pendingMetadata = ano::memory_region_create().value_or(nullptr);
     const AnoResourceError executor = cooker->pendingMetadata == nullptr
         ? ANO_RESOURCE_OUT_OF_MEMORY
         : ano::resource_detail::executor_create(
@@ -704,10 +715,9 @@ AnoResourceError ano::ano_resource_cooker_create(
         ano::memory_region_destroy(cooker->pendingMetadata);
         cooker->~AnoResourceCooker();
         mi_free(cooker);
-        return executor;
+        return failure(executor);
     }
-    *output = cooker;
-    return ANO_RESOURCE_OK;
+    return cooker;
 }
 
 void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
@@ -731,57 +741,56 @@ void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
     mi_free(cooker);
 }
 
-AnoResourceError ano::ano_resource_cooker_begin(
+ResourceResult<> ano::ano_resource_cooker_begin(
     AnoResourceCooker *cooker)
 {
     if (cooker == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     finish_transaction(*cooker);
     if (!ano::memory_region_reset(cooker->pendingMetadata))
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     cooker->nextDerivedAsset = cooker->firstDerivedAsset;
     cooker->rebuildTail = false;
     atomic_store_explicit(&cooker->cancelled, false, memory_order_release);
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
-AnoResourceError ano::ano_resource_source_bind(
+ResourceResult<> ano::ano_resource_source_bind(
     AnoResourceCooker *cooker, AnoResourceSourceId source, const char *path)
 {
     if (cooker == nullptr || source.value == 0 || path == nullptr
         || path[0] == '\0')
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (ano_resource_cooker_cancelled(cooker))
-        return ANO_RESOURCE_CANCELLED;
+        return failure(ANO_RESOURCE_CANCELLED);
     char *copy = copy_string(path);
     if (copy == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     if (SourceBinding *existing = find_source(cooker, source)) {
         if (strcmp(existing->path, path) == 0) {
             mi_free(copy);
-            return ANO_RESOURCE_OK;
+            return {};
         }
         discard_source_candidate(*existing);
         mi_free(existing->path);
         existing->path = copy;
         existing->pathChanged = true;
-        return ANO_RESOURCE_OK;
+        return {};
     }
     cooker->sources.insert(SourceBinding{
         .source = source,
         .path = copy,
     });
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
-AnoResourceError ano::ano_resource_cook(
-    AnoResourceCooker *cooker, const AnoCookedRevision **output)
+ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
+    AnoResourceCooker *cooker)
 {
-    if (cooker == nullptr || output == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *output = nullptr;
+    if (cooker == nullptr)
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (ano_resource_cooker_cancelled(cooker))
-        return ANO_RESOURCE_CANCELLED;
+        return failure(ANO_RESOURCE_CANCELLED);
 
     uint64_t baseCount = cooker->current == nullptr
         ? 0 : cooker->current->itemCount;
@@ -794,20 +803,20 @@ AnoResourceError ano::ano_resource_cook(
             && !pending_asset(*cooker, entry.asset))
             ++carryCount;
     }
-    uint64_t workCount = 0;
-    if (!ano::checked_add(
-            carryCount, cooker->itemCount, &workCount)
-        || workCount > SIZE_MAX / sizeof(WorkItem))
-        return ANO_RESOURCE_OVERFLOW;
-    ano::MemoryRegion *transaction = ano::memory_region_create();
+    const auto checkedWorkCount = ano::checked_add(carryCount, cooker->itemCount);
+    if (!checkedWorkCount || *checkedWorkCount > SIZE_MAX / sizeof(WorkItem))
+        return failure(ANO_RESOURCE_OVERFLOW);
+    const uint64_t workCount = *checkedWorkCount;
+    ano::MemoryRegion *transaction =
+        ano::memory_region_create().value_or(nullptr);
     if (transaction == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     WorkItem *work = workCount == 0 ? nullptr
         : ano::memory_region_allocate_zero<WorkItem>(
-            transaction, static_cast<size_t>(workCount));
+              transaction, static_cast<size_t>(workCount)).value_or(nullptr);
     if (workCount != 0 && work == nullptr) {
         ano::memory_region_destroy(transaction);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     }
 
     uint64_t cursor = 0;
@@ -818,12 +827,11 @@ AnoResourceError ano::ano_resource_cook(
         if (source_replaced(*cooker, storage.source)
             || pending_asset(*cooker, entry.asset))
             continue;
-        AnoResourceBytes bytes{};
-        if (ano_resource_revision_resolve(
-                cooker->current, entry.asset, entry.type, &bytes)
-            != ANO_RESOURCE_OK) {
+        const auto bytes = ano_resource_revision_resolve(
+            cooker->current, entry.asset, entry.type);
+        if (!bytes) {
             ano::memory_region_destroy(transaction);
-            return ANO_RESOURCE_BAD_MANIFEST;
+            return failure(ANO_RESOURCE_BAD_MANIFEST);
         }
         work[cursor++] = {
             .source = {
@@ -833,7 +841,7 @@ AnoResourceError ano::ano_resource_cook(
                 .producer = entry.producer,
                 .inputIdentity = entry.inputIdentity,
                 .commitGroup = entry.commitGroup,
-                .artifact = bytes,
+                .artifact = *bytes,
                 .schema = {.type = entry.type,
                            .fingerprint = entry.schema},
                 .content = entry.content,
@@ -865,22 +873,24 @@ AnoResourceError ano::ano_resource_cook(
                         == work[i - 1].source.asset.value
                 ? ANO_RESOURCE_DUPLICATE_ASSET : ANO_RESOURCE_BAD_MANIFEST;
             ano::memory_region_destroy(transaction);
-            return error;
+            return failure(error);
         }
 
     AnoResourceError result = reserve_node_index(*cooker, workCount);
     uint64_t dependencyCount = 0;
     for (uint64_t i = 0; i < workCount && result == ANO_RESOURCE_OK; ++i) {
-        if (!ano::checked_add(
-                dependencyCount, work[i].source.dependencyCount,
-                &dependencyCount))
+        const auto next = ano::checked_add(
+            dependencyCount, work[i].source.dependencyCount);
+        if (!next)
             result = ANO_RESOURCE_OVERFLOW;
+        else
+            dependencyCount = *next;
     }
     if (result == ANO_RESOURCE_OK && ano_resource_cooker_cancelled(cooker))
         result = ANO_RESOURCE_CANCELLED;
     if (result != ANO_RESOURCE_OK) {
         ano::memory_region_destroy(transaction);
-        return result;
+        return failure(result);
     }
 
     bool anyChanged = workCount != baseCount;
@@ -916,17 +926,17 @@ AnoResourceError ano::ano_resource_cook(
                 node->action = work[i].action;
             }
         }
-        result = ano_resource_revision_retain(cooker->current);
-        if (result == ANO_RESOURCE_OK)
-            *output = cooker->current;
+        const auto retained = ano_resource_revision_retain(cooker->current);
         finish_transaction(*cooker, true);
         ano::memory_region_destroy(transaction);
-        return result;
+        if (!retained)
+            return failure(retained.error());
+        return cooker->current;
     }
 
     ano::MemoryVolume **artifactVolumes = workCount == 0 ? nullptr
         : ano::memory_region_allocate_zero<ano::MemoryVolume *>(
-            transaction, static_cast<size_t>(workCount));
+              transaction, static_cast<size_t>(workCount)).value_or(nullptr);
     if (workCount != 0 && artifactVolumes == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
     uint64_t artifactVolumeCount = 0;
@@ -949,22 +959,28 @@ AnoResourceError ano::ano_resource_cook(
         .dependencies = {.count = static_cast<size_t>(dependencyCount)},
         .volumes = {.count = static_cast<size_t>(artifactVolumeCount + 1)},
     };
-    const ano::MemoryLayoutCursor layout = ano::memory_layout(plan);
+    const auto layout = ano::memory_layout(plan);
+    if (result == ANO_RESOURCE_OK && !layout)
+        result = ANO_RESOURCE_OVERFLOW;
     ano::MemoryVolume *metadata = result == ANO_RESOURCE_OK
-        ? ano::memory_volume_create(layout) : nullptr;
+        ? ano::memory_volume_create(*layout).value_or(nullptr) : nullptr;
     if (result == ANO_RESOURCE_OK && metadata == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
     auto entries = result == ANO_RESOURCE_OK
-        ? ano::memory_volume_write(metadata, plan.entries)
+        ? ano::memory_volume_write(metadata, plan.entries).value_or(
+              std::span<AnoResourceManifestEntry>{})
         : std::span<AnoResourceManifestEntry>{};
     auto storage = result == ANO_RESOURCE_OK
-        ? ano::memory_volume_write(metadata, plan.storage)
+        ? ano::memory_volume_write(metadata, plan.storage).value_or(
+              std::span<AnoResourceRevisionStorage>{})
         : std::span<AnoResourceRevisionStorage>{};
     auto dependencies = result == ANO_RESOURCE_OK
-        ? ano::memory_volume_write(metadata, plan.dependencies)
+        ? ano::memory_volume_write(metadata, plan.dependencies).value_or(
+              std::span<AnoResourceDependency>{})
         : std::span<AnoResourceDependency>{};
     auto volumes = result == ANO_RESOURCE_OK
-        ? ano::memory_volume_write(metadata, plan.volumes)
+        ? ano::memory_volume_write(metadata, plan.volumes).value_or(
+              std::span<ano::MemoryVolume *>{})
         : std::span<ano::MemoryVolume *>{};
     uint64_t retainedVolumeCount = 0;
     if (result == ANO_RESOURCE_OK) {
@@ -1008,8 +1024,8 @@ AnoResourceError ano::ano_resource_cook(
     }
     if (result == ANO_RESOURCE_OK && ano_resource_cooker_cancelled(cooker))
         result = ANO_RESOURCE_CANCELLED;
-    if (result == ANO_RESOURCE_OK)
-        ano::memory_volume_seal(metadata);
+    if (result == ANO_RESOURCE_OK && !ano::memory_volume_seal(metadata))
+        result = ANO_RESOURCE_BAD_MANIFEST;
 
     AnoCookedRevision *revision = nullptr;
     if (result == ANO_RESOURCE_OK) {
@@ -1037,7 +1053,7 @@ AnoResourceError ano::ano_resource_cook(
         ano::memory_volume_release(metadata);
         mi_free(revision);
         ano::memory_region_destroy(transaction);
-        return result;
+        return failure(result);
     }
 
     for (CookNode& node : cooker->nodes)
@@ -1058,29 +1074,29 @@ AnoResourceError ano::ano_resource_cook(
     }
     ano_resource_revision_release(cooker->current);
     cooker->current = revision;
-    result = ano_resource_revision_retain(revision);
-    if (result == ANO_RESOURCE_OK)
-        *output = revision;
+    const auto retained = ano_resource_revision_retain(revision);
     finish_transaction(*cooker, true);
     ano::memory_region_destroy(transaction);
-    return result;
+    if (!retained)
+        return failure(retained.error());
+    return revision;
 }
 
-AnoResourceError ano::ano_resource_revision_retain(
+ResourceResult<> ano::ano_resource_revision_retain(
     const AnoCookedRevision *revision)
 {
     if (revision == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     size_t references = __atomic_load_n(
         &revision->references, __ATOMIC_RELAXED);
     do {
         if (references == 0 || references == SIZE_MAX)
-            return ANO_RESOURCE_OVERFLOW;
+            return failure(ANO_RESOURCE_OVERFLOW);
     } while (!__atomic_compare_exchange_n(
         &const_cast<AnoCookedRevision *>(revision)->references,
         &references, references + 1, true,
         __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
 void ano::ano_resource_revision_release(
@@ -1128,31 +1144,28 @@ AnoResourceError ano_resource_revision_dependencies(
     return ANO_RESOURCE_OK;
 }
 
-AnoResourceError ano::ano_resource_revision_resolve(
+ResourceResult<AnoResourceBytes> ano::ano_resource_revision_resolve(
     const AnoCookedRevision *revision, AnoAssetId asset,
-    AnoResourceTypeId requiredType, AnoResourceBytes *bytes)
+    AnoResourceTypeId requiredType)
 {
-    if (bytes == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *bytes = {};
     const AnoResourceManifestEntry *entry = ano_resource_revision_entry(
         revision, asset);
     if (entry == nullptr)
-        return revision == nullptr
-            ? ANO_RESOURCE_INVALID_ARGUMENT : ANO_RESOURCE_NOT_FOUND;
+        return failure(revision == nullptr
+            ? ANO_RESOURCE_INVALID_ARGUMENT : ANO_RESOURCE_NOT_FOUND);
     const AnoResourceRevisionStorage& storage =
         revision->storage[asset.value - 1];
     if (entry->type.value != requiredType.value)
-        return ANO_RESOURCE_TYPE_MISMATCH;
-    const std::span<const uint8_t> view = ano::memory_volume_view(
+        return failure(ANO_RESOURCE_TYPE_MISMATCH);
+    const auto viewed = ano::memory_volume_view(
         storage.volume, storage.artifact);
-    if (view.size() != storage.artifact.size)
-        return ANO_RESOURCE_BAD_MANIFEST;
-    *bytes = {
+    if (!viewed || viewed->size() != storage.artifact.size)
+        return failure(ANO_RESOURCE_BAD_MANIFEST);
+    const std::span<const uint8_t> view = *viewed;
+    return AnoResourceBytes{
         .data = view.data(),
         .size = view.size(),
     };
-    return ANO_RESOURCE_OK;
 }
 
 AnoResourceError ano_resource_revision_validate(
@@ -1162,10 +1175,14 @@ AnoResourceError ano_resource_revision_validate(
         ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_MANIFEST;
 }
 
-AnoResourceError ano::ano_resource_revision_export_pack(
-    const AnoCookedRevision *revision, AnoResourceMutableBytes *pack)
+ResourceResult<AnoResourceMutableBytes> ano::ano_resource_revision_export_pack(
+    const AnoCookedRevision *revision)
 {
-    return ano_resource_pack_build(revision, pack);
+    AnoResourceMutableBytes pack{};
+    const AnoResourceError error = ano_resource_pack_build(revision, &pack);
+    if (error != ANO_RESOURCE_OK)
+        return failure(error);
+    return pack;
 }
 
 void ano::ano_resource_exported_pack_release(
@@ -1275,40 +1292,41 @@ AnoResourceError ano_resource_cooker_allocate_derived(
     return ANO_RESOURCE_OK;
 }
 
-AnoResourceError ano::ano_resource_cooker_encode_batch(
+ResourceResult<> ano::ano_resource_cooker_encode_batch(
     AnoResourceCooker *cooker, AnoResourceCookArtifact *artifacts,
     uint64_t count)
 {
     if (cooker == nullptr || (count != 0 && artifacts == nullptr))
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (count == 0)
-        return ANO_RESOURCE_OK;
+        return {};
     if (ano_resource_cooker_cancelled(cooker))
-        return ANO_RESOURCE_CANCELLED;
+        return failure(ANO_RESOURCE_CANCELLED);
     if (count > SIZE_MAX / sizeof(EncodeWork))
-        return ANO_RESOURCE_OVERFLOW;
+        return failure(ANO_RESOURCE_OVERFLOW);
     AnoAssetId maximumAsset{};
     for (uint64_t i = 0; i < count; ++i) {
         const AnoResourceCookArtifact& artifact = artifacts[i];
         if (artifact.asset.value == 0 || artifact.type.value == 0
             || artifact.commitGroup.value == 0 || artifact.encodedSize == 0
             || artifact.encodedSize > SIZE_MAX || artifact.encode == nullptr)
-            return ANO_RESOURCE_INVALID_ARGUMENT;
+            return failure(ANO_RESOURCE_INVALID_ARGUMENT);
         if (pending_asset(*cooker, artifact.asset))
-            return ANO_RESOURCE_DUPLICATE_ASSET;
+            return failure(ANO_RESOURCE_DUPLICATE_ASSET);
         for (uint64_t previous = 0; previous < i; ++previous)
             if (artifacts[previous].asset.value == artifact.asset.value)
-                return ANO_RESOURCE_DUPLICATE_ASSET;
+                return failure(ANO_RESOURCE_DUPLICATE_ASSET);
         if (artifact.asset.value > maximumAsset.value)
             maximumAsset = artifact.asset;
     }
-    ano::MemoryRegion *transaction = ano::memory_region_create();
+    ano::MemoryRegion *transaction =
+        ano::memory_region_create().value_or(nullptr);
     if (transaction == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     EncodeWork *work = ano::memory_region_allocate_zero<EncodeWork>(
-        transaction, static_cast<size_t>(count));
+        transaction, static_cast<size_t>(count)).value_or(nullptr);
     EncodeVolume *volumes = ano::memory_region_allocate_zero<EncodeVolume>(
-        transaction, static_cast<size_t>(count));
+        transaction, static_cast<size_t>(count)).value_or(nullptr);
     AnoResourceError result = work == nullptr || volumes == nullptr
         ? ANO_RESOURCE_OUT_OF_MEMORY : ANO_RESOURCE_OK;
     uint64_t volumeCount = 0;
@@ -1324,9 +1342,7 @@ AnoResourceError ano::ano_resource_cooker_encode_batch(
                     != artifacts[i].commitGroup.value;
             if (!beginVolume) {
                 ano::MemoryLayoutCursor candidate = current.layout;
-                ano::MemoryReservation reservation{};
-                beginVolume = !candidate.reserve(
-                                  bytes, ANO_CACHE_LINE, reservation)
+                beginVolume = !candidate.reserve(bytes, ANO_CACHE_LINE)
                     || (current.layout.size != 0
                         && candidate.size > artifactVolumeTarget);
             }
@@ -1338,9 +1354,11 @@ AnoResourceError ano::ano_resource_cooker_encode_batch(
             next.commitGroup = artifacts[i].commitGroup;
         }
         EncodeVolume& selected = volumes[volumeCount - 1];
-        if (!selected.layout.reserve(
-                bytes, ANO_CACHE_LINE, work[i].reservation))
+        const auto reserved = selected.layout.reserve(bytes, ANO_CACHE_LINE);
+        if (!reserved)
             result = ANO_RESOURCE_OVERFLOW;
+        else
+            work[i].reservation = *reserved;
         work[i].volumeIndex = volumeCount - 1;
     }
     if (result == ANO_RESOURCE_OK)
@@ -1350,7 +1368,8 @@ AnoResourceError ano::ano_resource_cooker_encode_batch(
     if (result == ANO_RESOURCE_OK)
         result = reserve_pending_index(*cooker, maximumAsset);
     for (uint64_t i = 0; i < volumeCount && result == ANO_RESOURCE_OK; ++i) {
-        volumes[i].volume = ano::memory_volume_create(volumes[i].layout);
+        volumes[i].volume = ano::memory_volume_create(
+            volumes[i].layout).value_or(nullptr);
         if (volumes[i].volume == nullptr)
             result = ANO_RESOURCE_OUT_OF_MEMORY;
     }
@@ -1368,7 +1387,8 @@ AnoResourceError ano::ano_resource_cooker_encode_batch(
     if (result == ANO_RESOURCE_OK && ano_resource_cooker_cancelled(cooker))
         result = ANO_RESOURCE_CANCELLED;
     for (uint64_t i = 0; i < volumeCount && result == ANO_RESOURCE_OK; ++i)
-        ano::memory_volume_seal(volumes[i].volume);
+        if (!ano::memory_volume_seal(volumes[i].volume))
+            result = ANO_RESOURCE_BAD_MANIFEST;
     if (result == ANO_RESOURCE_OK) {
         for (uint64_t i = 0; i < volumeCount; ++i) {
             cooker->pendingVolumes[cooker->pendingVolumeCount++] =
@@ -1400,36 +1420,36 @@ AnoResourceError ano::ano_resource_cooker_encode_batch(
     for (uint64_t i = 0; i < volumeCount; ++i)
         ano::memory_volume_release(volumes[i].volume);
     ano::memory_region_destroy(transaction);
-    return result;
+    return resource_status(result);
 }
 
-AnoResourceError ano::ano_resource_cooker_add(
+ResourceResult<> ano::ano_resource_cooker_add(
     AnoResourceCooker *cooker, AnoAssetId asset, AnoResourceTypeId type,
     AnoResourceCommitGroupId commitGroup, AnoResourceBytes artifact)
 {
     if (artifact.data == nullptr || artifact.size == 0
         || artifact.size > SIZE_MAX)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    const AnoResourceError canonical = ano_resource_validate_artifact(
-        type, artifact);
-    if (canonical != ANO_RESOURCE_OK)
-        return ANO_RESOURCE_NON_CANONICAL;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
+    if (!ano_resource_validate_artifact(type, artifact))
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     if (cooker == nullptr || asset.value == 0 || type.value == 0
         || commitGroup.value == 0)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (pending_asset(*cooker, asset))
-        return ANO_RESOURCE_DUPLICATE_ASSET;
-    AnoContentId content{};
-    AnoResourceError result = ano_resource_content_id(artifact, &content);
+        return failure(ANO_RESOURCE_DUPLICATE_ASSET);
+    const auto content = ano_resource_content_id(artifact);
+    if (!content)
+        return failure(content.error());
+    AnoResourceError result = ANO_RESOURCE_OK;
     bool required = true;
     if (result == ANO_RESOURCE_OK)
         result = requires_action(
             *cooker, asset, {}, type, commitGroup,
             cooker->activeProducer != 0
                 ? cooker->activeProducer : type.value,
-            content, required);
+            *content, required);
     if (result != ANO_RESOURCE_OK || !required)
-        return result;
+        return resource_status(result);
     CopyEncodeContext copy{artifact};
     AnoResourceCookArtifact input{
         .asset = asset,
@@ -1441,10 +1461,10 @@ AnoResourceError ano::ano_resource_cooker_add(
     };
     const AnoResourceSourceId active = cooker->activeSource;
     cooker->activeSource = {};
-    result = ano_resource_cooker_encode_batch(
+    const auto encoded = ano_resource_cooker_encode_batch(
         cooker, &input, 1);
     cooker->activeSource = active;
-    return result;
+    return encoded;
 }
 
 bool ano_resource_cooker_cancelled(const AnoResourceCooker *cooker)
@@ -1473,7 +1493,7 @@ AnoResourceError ano_resource_cooker_import_begin(
     SourceBinding *binding = find_source(cooker, source);
     if (binding == nullptr)
         return ANO_RESOURCE_NOT_FOUND;
-    cooker->activeRegion = ano::memory_region_create();
+    cooker->activeRegion = ano::memory_region_create().value_or(nullptr);
     if (cooker->activeRegion == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     cooker->activeSource = source;
@@ -1625,18 +1645,19 @@ AnoResourceError ano_resource_cooker_source_dependencies(
     }
     if (uniqueCount == 0)
         return ANO_RESOURCE_OK;
-    uint64_t required = 0;
-    AnoResourceError result = !ano::checked_add(
-            cooker->activeFileCount, uniqueCount, &required)
-            || required > SIZE_MAX / sizeof(AcquiredFile)
+    const auto required = ano::checked_add(
+        cooker->activeFileCount, uniqueCount);
+    AnoResourceError result = !required
+            || *required > SIZE_MAX / sizeof(AcquiredFile)
         ? ANO_RESOURCE_OVERFLOW
         : ano::reserve_region_array(
               cooker->activeRegion, cooker->activeFiles,
-              cooker->activeFileCount, cooker->activeFileCapacity, required)
+              cooker->activeFileCount, cooker->activeFileCapacity, *required)
             ? ANO_RESOURCE_OK : ANO_RESOURCE_OUT_OF_MEMORY;
     AnoResourceError *results = result == ANO_RESOURCE_OK
         ? ano::memory_region_allocate_zero<AnoResourceError>(
-              cooker->activeRegion, static_cast<size_t>(uniqueCount))
+              cooker->activeRegion,
+              static_cast<size_t>(uniqueCount)).value_or(nullptr)
         : nullptr;
     if (result == ANO_RESOURCE_OK && results == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
@@ -1650,7 +1671,7 @@ AnoResourceError ano_resource_cooker_source_dependencies(
             continue;
         const size_t pathSize = strlen(paths[i]) + 1;
         char *path = ano::memory_region_allocate<char>(
-            cooker->activeRegion, pathSize);
+            cooker->activeRegion, pathSize).value_or(nullptr);
         if (path == nullptr) {
             result = ANO_RESOURCE_OUT_OF_MEMORY;
             break;

@@ -12,17 +12,17 @@
 
 #define INTERN_INITIAL_SLOTS 64u    // power of two; grows at 70% load
 
-anostr_intern_t *ano::anostr_intern_make(mi_heap_t *heap)
+StringResult<anostr_intern_t *> ano::anostr_intern_make(mi_heap_t *heap)
 {
     if (heap == NULL)
-        return NULL;
+        return failure(StringError::invalid_argument);
     anostr_intern_t *t = mi_heap_zalloc_tp(anostr_intern_t, heap);
     if (t == NULL)
-        return NULL;
+        return failure(StringError::out_of_memory);
     t->slots = mi_heap_calloc_tp(uint32_t, heap, INTERN_INITIAL_SLOTS);
     if (t->slots == NULL) {
         mi_free(t);
-        return NULL;
+        return failure(StringError::out_of_memory);
     }
     t->heap = heap;
     t->slotMask = INTERN_INITIAL_SLOTS - 1;
@@ -51,46 +51,46 @@ static void slot_insert(uint32_t *slots, uint32_t mask, uint64_t hash, anostr_sy
 }
 
 // Double the slot table and reinsert from cached hashes 〜 no string bytes touched.
-static int grow_slots(anostr_intern_t *t)
+static StringResult<> grow_slots(anostr_intern_t *t)
 {
     uint64_t newCap = ((uint64_t)t->slotMask + 1) * 2;
     if (newCap > UINT32_MAX)
-        return -1;
+        return failure(StringError::overflow);
     uint32_t *fresh = mi_heap_calloc_tp(uint32_t, t->heap, (size_t)newCap);
     if (fresh == NULL)
-        return -1;
+        return failure(StringError::out_of_memory);
     uint32_t newMask = (uint32_t)newCap - 1;
     for (anostr_sym sym = 0; sym < t->count; sym++)
         slot_insert(fresh, newMask, t->hashes[sym], sym);
     mi_free(t->slots);
     t->slots = fresh;
     t->slotMask = newMask;
-    return 0;
+    return {};
 }
 
-static int grow_arrays(anostr_intern_t *t)
+static StringResult<> grow_arrays(anostr_intern_t *t)
 {
     uint64_t newCap = t->arrCap ? (uint64_t)t->arrCap * 2 : 32;
     if (newCap > UINT32_MAX)
-        return -1;
+        return failure(StringError::overflow);
     uint64_t *hashes = mi_heap_reallocn_tp(
         uint64_t, t->heap, t->hashes, (size_t)newCap);
     if (hashes == NULL)
-        return -1;
+        return failure(StringError::out_of_memory);
     t->hashes = hashes;    // committed independently
     anostr_t *strs = mi_heap_reallocn_tp(
         anostr_t, t->heap, t->strs, (size_t)newCap);
     if (strs == NULL)
-        return -1;         // arrCap unchanged; larger hashes block is slack
+        return failure(StringError::out_of_memory); // larger hashes block is slack
     t->strs = strs;
     t->arrCap = (uint32_t)newCap;
-    return 0;
+    return {};
 }
 
-anostr_sym ano::anostr_intern(anostr_intern_t *t, anostr_t s)
+StringResult<anostr_sym> ano::anostr_intern(anostr_intern_t *t, anostr_t s)
 {
     if (t == NULL)
-        return ANOSTR_SYM_NONE;
+        return failure(StringError::invalid_argument);
 
     uint64_t hash = anostr_hash(s);
     anostr_sym found = probe_find(t, hash, s);
@@ -99,19 +99,21 @@ anostr_sym ano::anostr_intern(anostr_intern_t *t, anostr_t s)
 
     // Grow first so failure leaves the table as it was.
     if (t->count >= UINT32_MAX - 1)     // sym + 1 must fit a slot; NONE stays reserved
-        return ANOSTR_SYM_NONE;
-    if ((uint64_t)(t->count + 1) * 10 > ((uint64_t)t->slotMask + 1) * 7 && grow_slots(t) != 0)
-        return ANOSTR_SYM_NONE;
-    if (t->count == t->arrCap && grow_arrays(t) != 0)
-        return ANOSTR_SYM_NONE;
+        return failure(StringError::overflow);
+    if ((uint64_t)(t->count + 1) * 10 > ((uint64_t)t->slotMask + 1) * 7)
+        if (auto grown = grow_slots(t); !grown)
+            return failure(grown.error());
+    if (t->count == t->arrCap)
+        if (auto grown = grow_arrays(t); !grown)
+            return failure(grown.error());
 
-    anostr_t canonical = anostr_keep(t->heap, s);
-    if (canonical.len != s.len)         // keep fail: long copy failed
-        return ANOSTR_SYM_NONE;
+    auto canonical = anostr_keep(t->heap, s);
+    if (!canonical)
+        return failure(canonical.error());
 
     anostr_sym sym = t->count++;
     t->hashes[sym] = hash;
-    t->strs[sym] = canonical;
+    t->strs[sym] = *canonical;
     slot_insert(t->slots, t->slotMask, hash, sym);
     return sym;
 }
@@ -130,12 +132,10 @@ anostr_t ano::anostr_sym_str(const anostr_intern_t *t, anostr_sym sym)
     return t->strs[sym];
 }
 
-anostr_t ano::anostr_dedupe(anostr_intern_t *t, anostr_t s)
+StringResult<anostr_t> ano::anostr_dedupe(anostr_intern_t *t, anostr_t s)
 {
-    anostr_sym sym = anostr_intern(t, s);
-    if (sym == ANOSTR_SYM_NONE)
-        return s;   // table unavailable: caller's value still usable
-    return t->strs[sym];
+    return anostr_intern(t, s).transform(
+        [t](anostr_sym sym) { return t->strs[sym]; });
 }
 
 size_t ano::anostr_intern_count(const anostr_intern_t *t)

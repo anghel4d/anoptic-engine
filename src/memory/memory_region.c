@@ -36,17 +36,48 @@ bool reservation_fits(const MemoryVolume *volume,
         && reservation.size <= volume->size - reservation.offset;
 }
 
+template<bool Zero>
+MemoryResult<void *> region_allocate(
+    MemoryRegion *region, size_t size, size_t alignment)
+{
+    if (region == nullptr || size == 0)
+        return failure(MemoryError::invalid_argument);
+    if (!valid_alignment(alignment))
+        return failure(MemoryError::invalid_layout);
+    void *allocation = Zero
+        ? mi_heap_zalloc_aligned(region->heap, size, alignment)
+        : mi_heap_malloc_aligned(region->heap, size, alignment);
+    return result_if(allocation != nullptr, allocation,
+                     MemoryError::out_of_memory);
+}
+
+template<class Byte, class Volume>
+MemoryResult<std::span<Byte>> volume_span(
+    Volume *volume, MemoryReservation reservation, bool sealed)
+{
+    if (volume == nullptr)
+        return failure(MemoryError::invalid_argument);
+    if ((__atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) != 0) != sealed)
+        return failure(sealed ? MemoryError::unsealed : MemoryError::immutable);
+    if (!reservation_fits(volume, reservation))
+        return failure(MemoryError::out_of_bounds);
+    return std::span<Byte>{
+        reservation.size == 0 ? nullptr
+            : static_cast<Byte *>(volume->data + reservation.offset),
+        reservation.size};
+}
+
 } // namespace
 
-MemoryRegion *memory_region_create() noexcept
+MemoryResult<MemoryRegion *> memory_region_create() noexcept
 {
     MemoryRegion *region = mi_zalloc_tp(MemoryRegion);
     if (region == nullptr)
-        return nullptr;
+        return failure(MemoryError::out_of_memory);
     region->heap = ano_heap_create();
     if (region->heap == nullptr) {
         mi_free(region);
-        return nullptr;
+        return failure(MemoryError::out_of_memory);
     }
     return region;
 }
@@ -59,46 +90,43 @@ void memory_region_destroy(MemoryRegion *region) noexcept
     mi_free(region);
 }
 
-bool memory_region_reset(MemoryRegion *region) noexcept
+MemoryResult<> memory_region_reset(MemoryRegion *region) noexcept
 {
     if (region == nullptr)
-        return false;
+        return failure(MemoryError::invalid_argument);
     mi_heap_t *replacement = ano_heap_create();
     if (replacement == nullptr)
-        return false;
+        return failure(MemoryError::out_of_memory);
     mi_heap_t *retired = region->heap;
     region->heap = replacement;
     ano_heap_destroy(retired);
-    return true;
+    return {};
 }
 
-void *memory_region_allocate(MemoryRegion *region, size_t size,
-                             size_t alignment) noexcept
+MemoryResult<void *> memory_region_allocate(
+    MemoryRegion *region, size_t size, size_t alignment) noexcept
 {
-    if (region == nullptr || size == 0 || !valid_alignment(alignment))
-        return nullptr;
-    return mi_heap_malloc_aligned(region->heap, size, alignment);
+    return region_allocate<false>(region, size, alignment);
 }
 
-void *memory_region_allocate_zero(MemoryRegion *region, size_t size,
-                                  size_t alignment) noexcept
+MemoryResult<void *> memory_region_allocate_zero(
+    MemoryRegion *region, size_t size, size_t alignment) noexcept
 {
-    if (region == nullptr || size == 0 || !valid_alignment(alignment))
-        return nullptr;
-    return mi_heap_zalloc_aligned(region->heap, size, alignment);
+    return region_allocate<true>(region, size, alignment);
 }
 
-MemoryVolume *memory_volume_create(MemoryLayoutCursor layout) noexcept
+MemoryResult<MemoryVolume *> memory_volume_create(
+    MemoryLayoutCursor layout) noexcept
 {
-    if (!layout.valid || !valid_alignment(layout.alignment))
-        return nullptr;
+    if (!valid_alignment(layout.alignment))
+        return failure(MemoryError::invalid_layout);
     MemoryVolume *volume = mi_zalloc_tp(MemoryVolume);
     if (volume == nullptr)
-        return nullptr;
+        return failure(MemoryError::out_of_memory);
     volume->region.heap = ano_heap_create();
     if (volume->region.heap == nullptr) {
         mi_free(volume);
-        return nullptr;
+        return failure(MemoryError::out_of_memory);
     }
     if (layout.size != 0) {
         volume->data = static_cast<unsigned char *>(mi_heap_zalloc_aligned(
@@ -106,7 +134,7 @@ MemoryVolume *memory_volume_create(MemoryLayoutCursor layout) noexcept
         if (volume->data == nullptr) {
             ano_heap_destroy(volume->region.heap);
             mi_free(volume);
-            return nullptr;
+            return failure(MemoryError::out_of_memory);
         }
     }
     volume->size = layout.size;
@@ -115,18 +143,18 @@ MemoryVolume *memory_volume_create(MemoryLayoutCursor layout) noexcept
     return volume;
 }
 
-bool memory_volume_retain(MemoryVolume *volume) noexcept
+MemoryResult<> memory_volume_retain(MemoryVolume *volume) noexcept
 {
     if (volume == nullptr)
-        return false;
+        return failure(MemoryError::invalid_argument);
     size_t references = __atomic_load_n(&volume->references, __ATOMIC_RELAXED);
     do {
         if (references == 0 || references == SIZE_MAX)
-            return false;
+            return failure(MemoryError::overflow);
     } while (!__atomic_compare_exchange_n(
         &volume->references, &references, references + 1, true,
         __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-    return true;
+    return {};
 }
 
 void memory_volume_release(MemoryVolume *volume) noexcept
@@ -140,34 +168,24 @@ void memory_volume_release(MemoryVolume *volume) noexcept
     mi_free(volume);
 }
 
-std::span<uint8_t> memory_volume_write(
+MemoryResult<std::span<uint8_t>> memory_volume_write(
     MemoryVolume *volume, MemoryReservation reservation) noexcept
 {
-    if (volume == nullptr
-        || __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) != 0
-        || !reservation_fits(volume, reservation))
-        return {};
-    return {reservation.size == 0
-                ? nullptr : volume->data + reservation.offset,
-            reservation.size};
+    return volume_span<uint8_t>(volume, reservation, false);
 }
 
-void memory_volume_seal(MemoryVolume *volume) noexcept
+MemoryResult<> memory_volume_seal(MemoryVolume *volume) noexcept
 {
-    if (volume != nullptr)
-        __atomic_store_n(&volume->sealed, 1u, __ATOMIC_RELEASE);
+    if (volume == nullptr)
+        return failure(MemoryError::invalid_argument);
+    __atomic_store_n(&volume->sealed, 1u, __ATOMIC_RELEASE);
+    return {};
 }
 
-std::span<const uint8_t> memory_volume_view(
+MemoryResult<std::span<const uint8_t>> memory_volume_view(
     const MemoryVolume *volume, MemoryReservation reservation) noexcept
 {
-    if (volume == nullptr
-        || __atomic_load_n(&volume->sealed, __ATOMIC_ACQUIRE) == 0
-        || !reservation_fits(volume, reservation))
-        return {};
-    return {reservation.size == 0
-                ? nullptr : volume->data + reservation.offset,
-            reservation.size};
+    return volume_span<const uint8_t>(volume, reservation, true);
 }
 
 } // namespace ano

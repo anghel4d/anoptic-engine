@@ -15,19 +15,19 @@
 
 namespace ano {
 
-typedef struct AnoRenderResourcePublication AnoRenderResourcePublication;
+struct AnoRenderResourcePublication;
 
-typedef enum AnoRenderResourceReloadStatus {
+enum AnoRenderResourceReloadStatus {
     ANO_RENDER_RESOURCE_RELOAD_PENDING,
     ANO_RENDER_RESOURCE_RELOAD_COMMITTED,
     ANO_RENDER_RESOURCE_RELOAD_REJECTED,
-} AnoRenderResourceReloadStatus;
+};
 
 // Takes ownership of reload. Keep preparationHeap live until poll or cancel
 // consumes the publication.
-AnoResourceError ano_render_resources_prepare_reload(
-    AnoResourceReload *reload, mi_heap_t *preparationHeap,
-    AnoRenderResourcePublication **publication);
+[[nodiscard]] ResourceResult<AnoRenderResourcePublication *>
+ano_render_resources_prepare_reload(AnoResourceReload *reload,
+                                    mi_heap_t *preparationHeap);
 // Polls owner work and commits a ready candidate. A terminal result consumes
 // *publication and sets it to null. Rejection preserves the current epoch.
 AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
@@ -272,20 +272,24 @@ struct [[=Artifact{}]] GpuScene final {
 struct RenderResourceContext;
 
 [[=Importer{".gltf"}]][[=Importer{".glb"}]]
-AnoResourceError import_gltf(AnoResourceCooker& cooker,
+ResourceResult<> import_gltf(AnoResourceCooker& cooker,
                              const AnoResourceImportRequest& request) noexcept;
 
 [[=Transform{Executor::render_master, Streaming::whole, true}]]
-bool realize_texture(const Texture&, RenderResourceContext&, GpuTexture&) noexcept;
+ResourceResult<GpuTexture> realize_texture(
+    const Texture&, RenderResourceContext&) noexcept;
 
 [[=Transform{Executor::render_master, Streaming::whole, true}]]
-bool realize_material(const Material&, RenderResourceContext&, GpuMaterial&) noexcept;
+ResourceResult<GpuMaterial> realize_material(
+    const Material&, RenderResourceContext&) noexcept;
 
 [[=Transform{Executor::render_master, Streaming::whole, true}]]
-bool realize_mesh(const Mesh&, RenderResourceContext&, GpuMesh&) noexcept;
+ResourceResult<GpuMesh> realize_mesh(
+    const Mesh&, RenderResourceContext&) noexcept;
 
 [[=Transform{Executor::render_master, Streaming::whole, true}]]
-bool realize_scene(const Scene&, RenderResourceContext&, GpuScene&) noexcept;
+ResourceResult<GpuScene> realize_scene(
+    const Scene&, RenderResourceContext&) noexcept;
 
 } // namespace asset_schema
 

@@ -22,7 +22,7 @@ using namespace ano;
 
 /* Lifecycle */
 
-AnoSynth *ano::ano_synth_create(const AnoSynthDesc *desc)
+SynthResult<AnoSynth *> ano::ano_synth_create(const AnoSynthDesc *desc)
 {
     AnoSynthDesc d = desc ? *desc : (AnoSynthDesc){0};
     uint32_t rate   = d.sampleRate ? d.sampleRate : 48000u;
@@ -30,13 +30,13 @@ AnoSynth *ano::ano_synth_create(const AnoSynthDesc *desc)
 
     mi_heap_t *heap = ano_heap_create();
     if (!heap)
-        return NULL;
+        return failure(SynthError::out_of_memory);
     // zalloc_aligned: honors alignas(ANO_THREAD_LINE) members
     AnoSynth *s = static_cast<AnoSynth *>(
         mi_heap_zalloc_aligned(heap, sizeof *s, alignof(AnoSynth)));
     if (!s) {
         ano_heap_destroy(heap);
-        return NULL;
+        return failure(SynthError::out_of_memory);
     }
     s->magic      = ANO_SYNTH_MAGIC;
     s->heap       = heap;
@@ -62,7 +62,7 @@ AnoSynth *ano::ano_synth_create(const AnoSynthDesc *desc)
 
     if (!s->voices || !s->duckGain || !s->wtBank || !s->bell || !s->grainRing) {
         ano_heap_destroy(heap);
-        return NULL;
+        return failure(SynthError::out_of_memory);
     }
     ano_synth_bake_wavetable(s->wtBank);
     ano_synth_bake_bell(s->bell, s->bellFrames, (float)rate);
@@ -139,13 +139,14 @@ static double clock_time_at(const AnoSynth *s, double beat)
 
 /* Score Loading */
 
-bool ano::ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCount,
-                           uint32_t tempoCount, uint32_t eventCount)
+SynthResult<> ano::ano_synth_score_begin(
+    AnoSynth *s, double barQuarters, uint32_t barCount,
+    uint32_t tempoCount, uint32_t eventCount)
 {
-    if (barQuarters <= 0.0 || barCount == 0u || tempoCount == UINT32_MAX)
-        return false; // UINT32_MAX: the +1 seed anchor would wrap anchorCap to 0
+    if (!s || barQuarters <= 0.0 || barCount == 0u || tempoCount == UINT32_MAX)
+        return failure(SynthError::invalid_argument);
     if (atomic_load_explicit(&s->startFrame, memory_order_acquire) != ANO_SYNTH_IDLE)
-        return false;
+        return failure(SynthError::invalid_state);
     mi_free(s->anchors);
     mi_free(s->bars);
     mi_free(s->raw);
@@ -166,7 +167,7 @@ bool ano::ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCou
         ? mi_heap_calloc_tp(AnoSynthNote, s->heap, s->rawCap)
         : NULL;
     if (!s->anchors || !s->bars || (eventCount && (!s->raw || !s->notes)))
-        return false;
+        return failure(SynthError::out_of_memory);
     s->anchors[0]   = (AnoSynthAnchor){ 0.0, 0.0, 100.0 };
     s->anchorCount  = 1;
     s->barCount     = 0;
@@ -174,37 +175,48 @@ bool ano::ano_synth_score_begin(AnoSynth *s, double barQuarters, uint32_t barCou
     s->noteCount    = 0;
     s->lastNoteEnd  = 0;
     s->scoreReady   = false;
-    return true;
+    return {};
 }
 
-bool ano::ano_synth_score_tempo(AnoSynth *s, double beat, double bpm)
+SynthResult<> ano::ano_synth_score_tempo(AnoSynth *s, double beat, double bpm)
 {
-    if (bpm <= 0.0 || !s->anchors || s->scoreReady)
-        return false; // no clock, or map closed
-    return clock_add(s, beat, bpm);
+    if (!s || bpm <= 0.0)
+        return failure(SynthError::invalid_argument);
+    if (!s->anchors || s->scoreReady)
+        return failure(SynthError::invalid_state);
+    return result_if(clock_add(s, beat, bpm), SynthError::capacity);
 }
 
-bool ano::ano_synth_score_bar(AnoSynth *s, uint32_t bar, const AnoMusicalParams *p,
-                         const AnoMusicAffect *a)
+SynthResult<> ano::ano_synth_score_bar(
+    AnoSynth *s, uint32_t bar, const AnoMusicalParams *p,
+    const AnoMusicAffect *a)
 {
-    if (!p || !a || s->barCount >= s->barCap || bar != s->barCount)
-        return false;
+    if (!s || !p || !a)
+        return failure(SynthError::invalid_argument);
+    if (!s->bars || bar != s->barCount)
+        return failure(SynthError::invalid_state);
+    if (s->barCount >= s->barCap)
+        return failure(SynthError::capacity);
     AnoSynthBar *b = &s->bars[s->barCount++];
     b->params = *p;
     b->affect = *a;
     b->frame = 0; // stamped in score_end, after tempo map complete
     b->barSeconds = 0;
-    return true;
+    return {};
 }
 
-bool ano::ano_synth_score_event(AnoSynth *s, const AnoNoteEvent *ev)
+SynthResult<> ano::ano_synth_score_event(AnoSynth *s, const AnoNoteEvent *ev)
 {
-    if (!ev || s->rawCount >= s->rawCap || ev->dur <= 0.0
+    if (!s || !ev || ev->dur <= 0.0
         || ev->layer >= ANO_MUSIC_LAYER_COUNT
         || ev->velocity == 0u || ev->velocity > 127u || ev->pitch > 127u)
-        return false;
+        return failure(SynthError::invalid_argument);
+    if (!s->raw)
+        return failure(SynthError::invalid_state);
+    if (s->rawCount >= s->rawCap)
+        return failure(SynthError::capacity);
     s->raw[s->rawCount++] = *ev;
-    return true;
+    return {};
 }
 
 // Python round(x, 10): scale, round half-even, unscale.
@@ -250,10 +262,12 @@ static int note_cmp(const void *a, const void *b)
     return x->seq < y->seq ? -1 : x->seq > y->seq ? 1 : 0;
 }
 
-bool ano::ano_synth_score_end(AnoSynth *s)
+SynthResult<> ano::ano_synth_score_end(AnoSynth *s)
 {
+    if (!s)
+        return failure(SynthError::invalid_argument);
     if (s->barCount == 0u)
-        return false;
+        return failure(SynthError::invalid_state);
     double fs = (double)s->sampleRate;
 
     s->noteCount = merge_ties(s);
@@ -276,7 +290,7 @@ bool ano::ano_synth_score_end(AnoSynth *s)
         bar->barSeconds = (float)(s->barQuarters * 60.0 / bar->params.tempoBpm);
     }
     s->scoreReady = true;
-    return true;
+    return {};
 }
 
 uint64_t ano::ano_synth_score_frames(const AnoSynth *s, float tailSeconds)
@@ -298,12 +312,12 @@ double ano::ano_synth_time_at(const AnoSynth *s, double beat)
 #define LIVE_BARS      16u
 #define LIVE_ANCHORS  256u
 
-bool ano::ano_synth_live_begin(AnoSynth *s, double barQuarters)
+SynthResult<> ano::ano_synth_live_begin(AnoSynth *s, double barQuarters)
 {
-    if (barQuarters <= 0.0)
-        return false;
+    if (!s || barQuarters <= 0.0)
+        return failure(SynthError::invalid_argument);
     if (atomic_load_explicit(&s->startFrame, memory_order_acquire) != ANO_SYNTH_IDLE)
-        return false;
+        return failure(SynthError::invalid_state);
     mi_free(s->anchors);
     mi_free(s->bars);
     mi_free(s->raw);
@@ -323,7 +337,7 @@ bool ano::ano_synth_live_begin(AnoSynth *s, double barQuarters)
     s->bars = mi_heap_calloc_tp(AnoSynthBar, s->heap, s->barCap);
     s->notes = mi_heap_calloc_tp(AnoSynthNote, s->heap, s->noteCap);
     if (!s->anchors || !s->bars || !s->notes)
-        return false;
+        return failure(SynthError::out_of_memory);
 
     s->anchors[0]  = (AnoSynthAnchor){ 0.0, 0.0, 100.0 };
     s->anchorCount = 1;
@@ -334,7 +348,7 @@ bool ano::ano_synth_live_begin(AnoSynth *s, double barQuarters)
     s->liveLate = s->liveOverflow = 0;
     memset(s->openChain, 0xFF, sizeof s->openChain); // all -1
     s->scoreReady = true; // live has no separate end
-    return true;
+    return {};
 }
 
 // Onset from clock (tempo already added). Duration may reach unarrived bar; finalized at spawn.
@@ -358,20 +372,22 @@ static void live_order(AnoSynth *s, uint32_t from)
     }
 }
 
-bool ano::ano_synth_live_bar(AnoSynth *s, uint32_t bar,
+SynthResult<> ano::ano_synth_live_bar(AnoSynth *s, uint32_t bar,
                         const AnoTempoPoint *tempo, uint32_t tempoCount,
                         const AnoMusicalParams *p, const AnoMusicAffect *a,
                         const AnoNoteEvent *events, uint32_t eventCount)
 {
-    if (!s->live || !p || !a || bar != s->liveNextBar)
-        return false;
+    if (!s || !p || !a || (tempoCount && !tempo) || (eventCount && !events))
+        return failure(SynthError::invalid_argument);
+    if (!s->live || bar != s->liveNextBar)
+        return failure(SynthError::invalid_state);
     if (s->barCount - s->barCursor >= s->barCap)
-        return false; // bar ring full: driver ran too far ahead
+        return failure(SynthError::capacity);
 
     // tempo first: every frame stamp below reads the clock
     for (uint32_t i = 0; i < tempoCount; ++i)
         if (!clock_add(s, tempo[i].beat, tempo[i].bpm))
-            return false;
+            return failure(SynthError::capacity);
 
     AnoSynthBar *b = bar_at(s, s->barCount);
     b->params     = *p;
@@ -419,7 +435,7 @@ bool ano::ano_synth_live_bar(AnoSynth *s, uint32_t bar,
     }
     live_order(s, from);
     s->liveNextBar = bar + 1u;
-    return true;
+    return {};
 }
 
 uint32_t ano::ano_synth_live_pending(const AnoSynth *s, uint64_t worldFrame)
@@ -501,12 +517,12 @@ static void music_topup(AnoSynth *s, uint64_t worldFrame)
             break;
 }
 
-bool ano::ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music)
+SynthResult<> ano::ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music)
 {
-    if (!music)
-        return false;
-    if (!ano_synth_live_begin(s, ano_music_bar_quarters(music)))
-        return false; // not idle, or bad meter
+    if (!s || !music)
+        return failure(SynthError::invalid_argument);
+    if (auto begun = ano_synth_live_begin(s, ano_music_bar_quarters(music)); !begun)
+        return begun;
 
     s->music = music;
     // musicBarUs/evt queue: mixer-side transport reset only
@@ -514,9 +530,9 @@ bool ano::ano_synth_attach_music(AnoSynth *s, AnoMusicEngine *music)
     while (s->barCount < ANO_SYNTH_LIVE_LOOKAHEAD)
         if (!music_pump(s)) {
             s->music = NULL;
-            return false;
+            return failure(SynthError::invalid_state);
         }
-    return true;
+    return {};
 }
 
 void ano::ano_synth_detach_music(AnoSynth *s)
@@ -633,10 +649,10 @@ static void synth_transport_sync(AnoSynth *s)
     synth_runtime_reset(s);
 }
 
-bool ano::ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
+MusicResult<> ano::ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
 {
     if (!e || !cmd)
-        return false;
+        return failure(MusicError::invalid_argument);
 
     // fixed-field tag: terminate, do not trust
     char tag[ANO_AUDIO_TAG_MAX];
@@ -662,7 +678,7 @@ bool ano::ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
         ano_music_request_motif(e, tag);
         applied = true;
     } else if constexpr (Kind == ACMD_MUSIC_OVERRIDE) {
-        applied = ano_music_set_override(e, tag, (double)cmd->value);
+        applied = ano_music_set_override(e, tag, (double)cmd->value).has_value();
         if (!applied)
             ano_debug_log(ANO_WARN, "music: no parameter named '%s'.", tag);
     } else if constexpr (Kind == ACMD_MUSIC_RELEASE) {
@@ -672,7 +688,7 @@ bool ano::ano_music_apply_command(AnoMusicEngine *e, const AnoAudioCommand *cmd)
         static_assert(ano::dependent_false<Kind>, "unhandled generator command");
     }
     });
-    return known && applied;
+    return result_if(known && applied, MusicError::invalid_argument);
 }
 
 void ano::ano_synth_control(void *user, const AnoAudioCommand *cmd)
@@ -691,7 +707,7 @@ void ano::ano_synth_control(void *user, const AnoAudioCommand *cmd)
                                     "meter the running schedule cannot carry).");
         return;
     }
-    ano_music_apply_command(s->music, cmd);
+    (void)ano_music_apply_command(s->music, cmd);
 }
 
 uint32_t ano::ano_synth_poll(void *user, AnoAudioEvent *out, uint32_t cap)

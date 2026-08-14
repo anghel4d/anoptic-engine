@@ -48,24 +48,24 @@ void *executor_worker(void *opaque)
     mi_thread_set_in_threadpool();
     Worker& worker = *static_cast<Worker *>(opaque);
     Executor& executor = *worker.executor;
-    worker.scratch = memory_region_create();
+    worker.scratch = memory_region_create().value_or(nullptr);
 
-    ano_mutex_lock(&executor.mutex);
+    (void)ano_mutex_lock(&executor.mutex);
     for (;;) {
         while (!executor.stop
                && worker.observedGeneration == executor.generation)
-            ano_thread_cond_wait(&executor.wake, &executor.mutex);
+            (void)ano_thread_cond_wait(&executor.wake, &executor.mutex);
         if (executor.stop)
             break;
         worker.observedGeneration = executor.generation;
         const bool scratchReady = worker.scratch != nullptr
-            && memory_region_reset(worker.scratch);
+            && !!memory_region_reset(worker.scratch);
         if (!scratchReady)
             executor.failed = true;
         ParallelFunction function = executor.function;
         void *context = executor.context;
         const uint64_t count = executor.count;
-        ano_mutex_unlock(&executor.mutex);
+        (void)ano_mutex_unlock(&executor.mutex);
 
         if (scratchReady)
             for (;;) {
@@ -76,13 +76,13 @@ void *executor_worker(void *opaque)
                 function(context, index, worker.scratch);
             }
 
-        ano_mutex_lock(&executor.mutex);
+        (void)ano_mutex_lock(&executor.mutex);
         if (++executor.completed == executor.workerCount) {
             executor.active = false;
-            ano_thread_cond_broadcast(&executor.complete);
+            (void)ano_thread_cond_broadcast(&executor.complete);
         }
     }
-    ano_mutex_unlock(&executor.mutex);
+    (void)ano_mutex_unlock(&executor.mutex);
     memory_region_destroy(worker.scratch);
     return nullptr;
 }
@@ -109,7 +109,7 @@ AnoResourceError executor_create(uint32_t requestedWorkers,
     Executor *executor = mi_zalloc_tp(Executor);
     if (executor == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    executor->callerScratch = memory_region_create();
+    executor->callerScratch = memory_region_create().value_or(nullptr);
     executor->workers = background == 0 ? nullptr
         : mi_calloc_tp(Worker, background);
     if (executor->callerScratch == nullptr
@@ -119,22 +119,22 @@ AnoResourceError executor_create(uint32_t requestedWorkers,
         mi_free(executor);
         return ANO_RESOURCE_OUT_OF_MEMORY;
     }
-    if (ano_mutex_init(&executor->mutex, nullptr) != 0) {
+    if (!ano_mutex_init(&executor->mutex, nullptr)) {
         memory_region_destroy(executor->callerScratch);
         mi_free(executor->workers);
         mi_free(executor);
         return ANO_RESOURCE_IO_ERROR;
     }
-    if (ano_thread_cond_init(&executor->wake, nullptr) != 0) {
-        ano_mutex_destroy(&executor->mutex);
+    if (!ano_thread_cond_init(&executor->wake, nullptr)) {
+        (void)ano_mutex_destroy(&executor->mutex);
         memory_region_destroy(executor->callerScratch);
         mi_free(executor->workers);
         mi_free(executor);
         return ANO_RESOURCE_IO_ERROR;
     }
-    if (ano_thread_cond_init(&executor->complete, nullptr) != 0) {
-        ano_thread_cond_destroy(&executor->wake);
-        ano_mutex_destroy(&executor->mutex);
+    if (!ano_thread_cond_init(&executor->complete, nullptr)) {
+        (void)ano_thread_cond_destroy(&executor->wake);
+        (void)ano_mutex_destroy(&executor->mutex);
         memory_region_destroy(executor->callerScratch);
         mi_free(executor->workers);
         mi_free(executor);
@@ -147,20 +147,20 @@ AnoResourceError executor_create(uint32_t requestedWorkers,
     for (; started < background; ++started) {
         Worker& worker = executor->workers[started];
         worker.executor = executor;
-        if (ano_thread_create(
-                &worker.thread, nullptr, executor_worker, &worker) != 0)
+        if (!ano_thread_create(
+                &worker.thread, nullptr, executor_worker, &worker))
             break;
     }
     if (started != background) {
-        ano_mutex_lock(&executor->mutex);
+        (void)ano_mutex_lock(&executor->mutex);
         executor->stop = true;
-        ano_thread_cond_broadcast(&executor->wake);
-        ano_mutex_unlock(&executor->mutex);
+        (void)ano_thread_cond_broadcast(&executor->wake);
+        (void)ano_mutex_unlock(&executor->mutex);
         for (uint32_t i = 0; i < started; ++i)
             (void)ano_thread_join(executor->workers[i].thread, nullptr);
-        ano_thread_cond_destroy(&executor->complete);
-        ano_thread_cond_destroy(&executor->wake);
-        ano_mutex_destroy(&executor->mutex);
+        (void)ano_thread_cond_destroy(&executor->complete);
+        (void)ano_thread_cond_destroy(&executor->wake);
+        (void)ano_mutex_destroy(&executor->mutex);
         memory_region_destroy(executor->callerScratch);
         mi_free(executor->workers);
         mi_free(executor);
@@ -174,18 +174,18 @@ void executor_destroy(Executor *executor) noexcept
 {
     if (executor == nullptr)
         return;
-    ano_mutex_lock(&executor->mutex);
+    (void)ano_mutex_lock(&executor->mutex);
     while (executor->active)
-        ano_thread_cond_wait(&executor->complete, &executor->mutex);
+        (void)ano_thread_cond_wait(&executor->complete, &executor->mutex);
     executor->stop = true;
     ++executor->generation;
-    ano_thread_cond_broadcast(&executor->wake);
-    ano_mutex_unlock(&executor->mutex);
+    (void)ano_thread_cond_broadcast(&executor->wake);
+    (void)ano_mutex_unlock(&executor->mutex);
     for (uint32_t i = 0; i < executor->workerCount; ++i)
         (void)ano_thread_join(executor->workers[i].thread, nullptr);
-    ano_thread_cond_destroy(&executor->complete);
-    ano_thread_cond_destroy(&executor->wake);
-    ano_mutex_destroy(&executor->mutex);
+    (void)ano_thread_cond_destroy(&executor->complete);
+    (void)ano_thread_cond_destroy(&executor->wake);
+    (void)ano_mutex_destroy(&executor->mutex);
     memory_region_destroy(executor->callerScratch);
     mi_free(executor->workers);
     mi_free(executor);
@@ -200,9 +200,9 @@ AnoResourceError parallel_for(Executor *executor, uint64_t count,
         return ANO_RESOURCE_INVALID_ARGUMENT;
     if (count == 0)
         return ANO_RESOURCE_OK;
-    ano_mutex_lock(&executor->mutex);
+    (void)ano_mutex_lock(&executor->mutex);
     while (executor->active)
-        ano_thread_cond_wait(&executor->complete, &executor->mutex);
+        (void)ano_thread_cond_wait(&executor->complete, &executor->mutex);
     executor->function = function;
     executor->context = context;
     executor->count = count;
@@ -211,12 +211,12 @@ AnoResourceError parallel_for(Executor *executor, uint64_t count,
     executor->active = executor->workerCount != 0;
     atomic_store_explicit(&executor->next, UINT64_C(0), memory_order_relaxed);
     ++executor->generation;
-    ano_thread_cond_broadcast(&executor->wake);
+    (void)ano_thread_cond_broadcast(&executor->wake);
     ParallelFunction batchFunction = executor->function;
     void *batchContext = executor->context;
     MemoryRegion *scratch = executor->callerScratch;
     const bool callerReady = !executor->failed;
-    ano_mutex_unlock(&executor->mutex);
+    (void)ano_mutex_unlock(&executor->mutex);
 
     if (callerReady)
         for (;;) {
@@ -227,11 +227,11 @@ AnoResourceError parallel_for(Executor *executor, uint64_t count,
             batchFunction(batchContext, index, scratch);
         }
 
-    ano_mutex_lock(&executor->mutex);
+    (void)ano_mutex_lock(&executor->mutex);
     while (executor->active)
-        ano_thread_cond_wait(&executor->complete, &executor->mutex);
+        (void)ano_thread_cond_wait(&executor->complete, &executor->mutex);
     const bool failed = executor->failed;
-    ano_mutex_unlock(&executor->mutex);
+    (void)ano_mutex_unlock(&executor->mutex);
     return failed ? ANO_RESOURCE_OUT_OF_MEMORY : ANO_RESOURCE_OK;
 }
 

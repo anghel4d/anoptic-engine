@@ -98,11 +98,11 @@ void ano_audio_bridge_destroy(AnoAudioBridge *bridge)
     bridge->events.destroy([](void* memory) { mi_free(memory); });
 }
 
-bool ano::ano_audio_init(const AnoAudioConfig *cfg)
+AudioResult<> ano::ano_audio_init(const AnoAudioConfig *cfg)
 {
     if (g_mixer) {
         ano_log(ANO_WARN, "audio: init called with the audio world already up; ignored.");
-        return false;
+        return failure(AudioError::already_initialized);
     }
 
     AnoAudioConfig c = cfg ? *cfg : (AnoAudioConfig){0};
@@ -126,7 +126,8 @@ bool ano::ano_audio_init(const AnoAudioConfig *cfg)
 
     mi_heap_t *heap = ano_heap_create();
     if (!heap)
-        return false;
+        return failure(AudioError::out_of_memory);
+    AudioError error = AudioError::out_of_memory;
 
     // ring cursors carry alignas(ANO_THREAD_LINE); heap owner must request it
     mx = static_cast<AnoAudioMixer *>(
@@ -171,6 +172,7 @@ bool ano::ano_audio_init(const AnoAudioConfig *cfg)
         goto fail_heap;
     if (!ano_audio_graph_init(mx, c.busLayout)) {
         ano_log(ANO_ERROR, "audio: bad bus layout (a parent must precede its children).");
+        error = AudioError::invalid_argument;
         goto fail_heap;
     }
 
@@ -198,11 +200,13 @@ bool ano::ano_audio_init(const AnoAudioConfig *cfg)
         const AnoAudioDeviceApi *api = backend_api(want);
         if (!api) {
             ano_log(ANO_ERROR, "audio: backend %u is not available on this platform.", want);
+            error = AudioError::unavailable;
             goto fail_heap;
         }
         if (!ano_audio_backend_supports(api->backend, mixFormat)) {
             ano_log(ANO_ERROR, "audio: backend %s does not support the engine mix contract.",
                     ano_audio_backend_name(api->backend));
+            error = AudioError::unsupported;
             goto fail_heap;
         }
         if (api->start(mx))
@@ -210,12 +214,14 @@ bool ano::ano_audio_init(const AnoAudioConfig *cfg)
     }
     if (!mx->device) {
         ano_log(ANO_ERROR, "audio: no device backend could start.");
+        error = AudioError::unavailable;
         goto fail_heap;
     }
 
     atomic_store_explicit(&mx->mixerRun, true, memory_order_release);
-    if (ano_thread_create(&mx->mixerThread, NULL, ano_audio_mixer_main, mx) != 0) {
+    if (!ano_thread_create(&mx->mixerThread, NULL, ano_audio_mixer_main, mx)) {
         mx->device->stop(mx);
+        error = AudioError::unavailable;
         goto fail_heap;
     }
 
@@ -223,11 +229,11 @@ bool ano::ano_audio_init(const AnoAudioConfig *cfg)
     g_heap  = heap;
     ano_log(ANO_INFO, "audio: up 〜 backend=%s, %u Hz, block %u (%u deep), %u buses.",
             ano_audio_backend_name(mx->device->backend), rate, bf, devBlocks, buses);
-    return true;
+    return {};
 
 fail_heap:
     ano_heap_destroy(heap);
-    return false;
+    return failure(error);
 }
 
 // Free adopted blocks still in rings or owned slots. Join first. Borrowed stays with the producer.
@@ -265,7 +271,7 @@ void ano::ano_audio_shutdown(void)
 
     // Stop mixer (producer) then device (consumer).
     atomic_store_explicit(&mx->mixerRun, false, memory_order_release);
-    ano_thread_join(mx->mixerThread, NULL);
+    (void)ano_thread_join(mx->mixerThread, NULL);
     mx->device->stop(mx);
 
     // Both threads are down: nothing else can reach the rings or the buffer table.
@@ -279,49 +285,65 @@ void ano::ano_audio_shutdown(void)
     ano_log(ANO_INFO, "audio: down.");
 }
 
-AnoAudioBridge *ano::anoAudioBridge(void)
+AudioResult<AnoAudioBridge *> ano::anoAudioBridge(void)
 {
-    return g_mixer ? g_mixer->bridge : NULL;
+    return result_if(g_mixer != nullptr,
+                     g_mixer ? g_mixer->bridge : nullptr,
+                     AudioError::unavailable);
 }
 
 /* Public producer endpoints */
 
-bool ano::ano_audio_submit(AnoAudioBridge *bridge, const AnoAudioCommand *cmd)
+AudioResult<> ano::ano_audio_submit(
+    AnoAudioBridge *bridge, const AnoAudioCommand *cmd)
 {
-    return bridge->commands.push(*cmd);
+    if (!bridge || !cmd)
+        return failure(AudioError::invalid_argument);
+    return result_if(bridge->commands.push(*cmd), AudioError::backpressure);
 }
 
-bool ano::ano_audio_poll_event(AnoAudioBridge *bridge, AnoAudioEvent *out)
+AudioResult<bool> ano::ano_audio_poll_event(
+    AnoAudioBridge *bridge, AnoAudioEvent *out)
 {
+    if (!bridge || !out)
+        return failure(AudioError::invalid_argument);
     return bridge->events.pop(*out);
 }
 
-void ano::ano_audio_publish_listener(AnoAudioBridge *bridge, const AnoAudioListener *l)
+AudioResult<> ano::ano_audio_publish_listener(
+    AnoAudioBridge *bridge, const AnoAudioListener *l)
 {
+    if (!bridge || !l)
+        return failure(AudioError::invalid_argument);
     bridge->listener.publish(*l);
+    return {};
 }
 
-bool ano::ano_audio_acquire_telemetry(AnoAudioBridge *bridge, AnoAudioTelemetry *out)
+AudioResult<bool> ano::ano_audio_acquire_telemetry(
+    AnoAudioBridge *bridge, AnoAudioTelemetry *out)
 {
+    if (!bridge || !out)
+        return failure(AudioError::invalid_argument);
     return bridge->telemetry.acquire(*out);
 }
 
 /* Buffer producer endpoints */
 
-bool ano::ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
-                               const float *interleaved, uint64_t frames, uint32_t channels)
+AudioResult<> ano::ano_audio_buffer_register(
+    AnoAudioBridge *bridge, uint32_t buffer_id,
+    const float *interleaved, uint64_t frames, uint32_t channels)
 {
     if (!bridge || !interleaved || frames == 0u || channels < 1u || channels > 2u)
-        return false;
+        return failure(AudioError::invalid_argument);
     // Overflow guard: divide before multiply.
     const uint64_t stride = (uint64_t)channels * sizeof(float);
     if (frames > (SIZE_MAX - sizeof(AnoAudioBlockHeader)) / stride)
-        return false;
+        return failure(AudioError::invalid_argument);
     uint64_t bytes64 = frames * stride;
     AnoAudioBlockHeader *h = static_cast<AnoAudioBlockHeader *>(
         mi_malloc(sizeof *h + (size_t)bytes64));
     if (!h)
-        return false;
+        return failure(AudioError::out_of_memory);
     h->frames   = frames;
     h->channels = channels;
     h->pad      = 0u;
@@ -329,15 +351,18 @@ bool ano::ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
     AnoAudioCommand c = { .kind = ACMD_BUFFER_REGISTER, .source_id = buffer_id, .block = h };
     if (!bridge->commands.push(c)) {
         mi_free(h);
-        return false;
+        return failure(AudioError::backpressure);
     }
-    return true;
+    return {};
 }
 
-bool ano::ano_audio_buffer_release(AnoAudioBridge *bridge, uint32_t buffer_id)
+AudioResult<> ano::ano_audio_buffer_release(
+    AnoAudioBridge *bridge, uint32_t buffer_id)
 {
+    if (!bridge)
+        return failure(AudioError::invalid_argument);
     AnoAudioCommand c = { .kind = ACMD_BUFFER_RELEASE, .source_id = buffer_id };
-    return bridge->commands.push(c);
+    return result_if(bridge->commands.push(c), AudioError::backpressure);
 }
 
 void ano::ano_audio_block_free(void *block)

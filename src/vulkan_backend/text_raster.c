@@ -185,8 +185,9 @@ void ano_vk_text_set(RendererState* state, anostr_t text, float sizePx,
     if (!state->textOverlay || state->textPending == NULL || g_textPinned)
         return;
     uint32_t cap = ANO_TEXT_WORLD_FIRST; // the world panel owns the region above
-    uint32_t count = ano_text_shape(&state->textBake, text, sizePx, origin, color,
-                                    state->textPending, cap, NULL);
+    uint32_t count = ano_text_shape(
+        &state->textBake, text, sizePx, origin, color,
+        state->textPending, cap, NULL).value_or(0u);
     state->textOsdCount = count < cap ? count : cap;
     text_blocks_append(state);
 }
@@ -197,8 +198,9 @@ void ano_vk_text_set_runs(RendererState* state, anostr_t text, const AnoTextRun*
     if (!state->textOverlay || state->textPending == NULL || g_textPinned)
         return;
     uint32_t cap = ANO_TEXT_WORLD_FIRST;
-    uint32_t count = ano_text_shape_runs(&state->textBake, text, runs, runCount, origin,
-                                         state->textPending, cap, NULL);
+    uint32_t count = ano_text_shape_runs(
+        &state->textBake, text, runs, runCount, origin,
+        state->textPending, cap, NULL).value_or(0u);
     state->textOsdCount = count < cap ? count : cap;
     text_blocks_append(state);
 }
@@ -519,30 +521,36 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
 
     // CPU side: bake blobs live on textHeap.
     state->textHeap = ano_heap_create();
-    ano_fspath game = ano_fs_gamepath();
+    const ano_fspath game = ano_fs_gamepath().value_or(ano_fspath{});
     char fontPath[512];
     snprintf(fontPath, sizeof fontPath, "%s/%s", game.str, ANO_TEXT_FONT_REL);
-    AnoFontId font = 0;
-    if (state->textHeap == NULL || ano_text_init() != 0
-        || (font = ano_text_font_load(anostr_view(fontPath, strlen(fontPath)))) == 0)
+    const auto initialized = ano_text_init();
+    const auto loaded = ano_text_font_load(
+        anostr_view(fontPath, strlen(fontPath)));
+    if (state->textHeap == NULL || !initialized || !loaded)
     {
         ano_log(ANO_WARN, "Text overlay disabled: font load failed ('%s').", fontPath);
         state->textOverlay = false;
         state->asyncText = false;
         return true;
     }
+    const AnoFontId font = *loaded;
 
     // Bake coverage: ASCII, Latin-1, core Cyrillic from Geist, Greek (mono + poly) from
     // Noto Sans, Runic from Noto Sans Runic. Ranges must stay codepoint-sorted and
     // disjoint. A missing auxiliary font degrades to the remaining ranges.
     char runePath[512], greekPath[512];
     snprintf(runePath, sizeof runePath, "%s/%s", game.str, ANO_TEXT_RUNE_FONT_REL);
-    AnoFontId runeFont = ano_text_font_load(anostr_view(runePath, strlen(runePath)));
-    if (runeFont == 0)
+    const auto rune = ano_text_font_load(
+        anostr_view(runePath, strlen(runePath)));
+    const AnoFontId runeFont = rune.value_or(0);
+    if (!rune)
         ano_log(ANO_WARN, "Text overlay: rune font missing ('%s'); Runic will not render.", runePath);
     snprintf(greekPath, sizeof greekPath, "%s/%s", game.str, ANO_TEXT_GREEK_FONT_REL);
-    AnoFontId greekFont = ano_text_font_load(anostr_view(greekPath, strlen(greekPath)));
-    if (greekFont == 0)
+    const auto greek = ano_text_font_load(
+        anostr_view(greekPath, strlen(greekPath)));
+    const AnoFontId greekFont = greek.value_or(0);
+    if (!greek)
         ano_log(ANO_WARN, "Text overlay: greek font missing ('%s'); Greek will not render.", greekPath);
     AnoBakeRange ranges[6];
     uint32_t rangeCount = 0;
@@ -555,13 +563,16 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         ranges[rangeCount++] = (AnoBakeRange){ .font = runeFont, .first = 0x16A0, .last = 0x16F8 }; // Runic (Elder Futhark+)
     if (greekFont != 0)
         ranges[rangeCount++] = (AnoBakeRange){ .font = greekFont, .first = 0x1F00, .last = 0x1FFF }; // Greek Extended (polytonic)
-    if (ano_text_font_bake_ranges(ranges, rangeCount, state->textHeap, &state->textBake) != 0)
+    const auto baked = ano_text_font_bake_ranges(
+        ranges, rangeCount, state->textHeap);
+    if (!baked)
     {
         ano_log(ANO_WARN, "Text overlay disabled: font bake failed.");
         state->textOverlay = false;
         state->asyncText = false;
         return true;
     }
+    state->textBake = *baked;
 
     // Static glyph data: staged upload to device-local, CONCURRENT-shared with compute when async.
     VkDeviceSize curveBytes = (VkDeviceSize)state->textBake.pointCount * sizeof(uint32_t);
@@ -629,9 +640,10 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         {
             AnoGlyphInstance* dst = (AnoGlyphInstance*)state->frames[i].textFrameMapped
                                   + ANO_TEXT_WORLD_FIRST;
-            count = ano_text_shape_runs(&state->textBake, worldText, worldRuns,
-                                        (uint32_t)(sizeof worldRuns / sizeof worldRuns[0]),
-                                        worldOrigin, dst, worldCap, NULL);
+            count = ano_text_shape_runs(
+                &state->textBake, worldText, worldRuns,
+                (uint32_t)(sizeof worldRuns / sizeof worldRuns[0]),
+                worldOrigin, dst, worldCap, NULL).value_or(0u);
         }
         state->textWorldCount = count < worldCap ? count : worldCap;
     }

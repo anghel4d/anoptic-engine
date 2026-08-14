@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "anoptic_results.h"
 
 namespace ano {
 
@@ -20,26 +21,30 @@ namespace ano {
 // Windows: `%APPDATA%\ANO_GAME_NAME`  Linux: `~/.ANO_GAME_NAME`  macOS: `~/Library/Application Support/ANO_GAME_NAME`
 #define ANO_GAME_NAME "anoptic"
 
-// Path value: NUL-terminated str (hand to syscalls/fopen). length is bytes before NUL.
-// length == 0 means unresolved or failed. Borrow: anostr_view(p.str, p.length), valid while p lives.
-typedef struct {
+// NUL-terminated syscall path. length excludes NUL.
+struct ano_fspath {
     uint16_t length;
     char str[MAXPATH];
-} ano_fspath;
+};
+
+enum class FilesystemError : uint8_t {
+    invalid_argument, unavailable, path_too_long,
+    out_of_memory, io,
+};
+
+template<class Value = void>
+using FilesystemResult = Result<Value, FilesystemError>;
 
 // Executable directory: no file name, no trailing separator except drive/FS root.
 // Thread-safe: computed fresh per call, no shared state, no dirname().
-// Output: path by value. length == 0 if unresolved or exceeds MAXPATH - 1.
-ano_fspath ano_fs_gamepath(void);
+[[nodiscard]] FilesystemResult<ano_fspath> ano_fs_gamepath(void);
 
 // User data path (profiles, saves, settings). Creates if absent. Thread-safe.
-// Output: path by value. length == 0 if unresolved or mkdir failed. Non-empty is writable.
-ano_fspath ano_fs_userpath(void);
+[[nodiscard]] FilesystemResult<ano_fspath> ano_fs_userpath(void);
 
 // Log directory: "<gamepath>/logs", home of <stamp>_ano.log / <stamp>_CRASH.log.
 // Creates if absent. Thread-safe.
-// Output: path by value. length == 0 if unresolved or mkdir failed.
-ano_fspath ano_fs_logpath(void);
+[[nodiscard]] FilesystemResult<ano_fspath> ano_fs_logpath(void);
 
 // Session stamp: "YYYY-MM-DD_XXXXXX" = local date + low six digits of raw ticks.
 // Latched at first call; names this session's files. Thread-safe.
@@ -47,34 +52,29 @@ ano_fspath ano_fs_logpath(void);
 const char *ano_fs_session_stamp(void);
 
 // Set CWD to the executable directory so relative asset loads resolve.
-// Output: true on success, false if path or chdir failed.
-bool ano_fs_chdir_gamepath(void);
+[[nodiscard]] FilesystemResult<> ano_fs_chdir_gamepath(void);
 
 
 /* Append-Only File */
 
 // Opaque handle: platform fd/HANDLE stays in the per-OS source.
-typedef struct ano_file ano_file;
+struct ano_file;
 
 // Open `path` for append (OS append mode), create if absent. Concurrent appends do not interleave.
-// Input: NUL-terminated path. Output: handle, or NULL on failure.
-ano_file *ano_fs_open_append(const char *path);
+[[nodiscard]] FilesystemResult<ano_file*> ano_fs_open_append(const char *path);
 
 // Open `path` for append after truncate to zero, create if absent.
 // For a file this session owns from its first byte (the logger's init open).
-// Input: NUL-terminated path. Output: handle, or NULL on failure.
-ano_file *ano_fs_open_trunc(const char *path);
+[[nodiscard]] FilesystemResult<ano_file*> ano_fs_open_trunc(const char *path);
 
 // Write all `length` bytes, looping past short writes.
-// Output: 0 on success, -1 on error.
-int ano_fs_write(ano_file *file, const void *data, size_t length);
+[[nodiscard]] FilesystemResult<> ano_fs_write(
+    ano_file *file, const void *data, size_t length);
 
 // Flush to the device (fsync / FlushFileBuffers).
-// Output: 0 on success, -1 on error.
-int ano_fs_sync(ano_file *file);
+[[nodiscard]] FilesystemResult<> ano_fs_sync(ano_file *file);
 
 // Close and free without sync. Call ano_fs_sync for durability.
-// Output: 0 on success, -1 on error. Handle freed either way.
-int ano_fs_close(ano_file *file);
+[[nodiscard]] FilesystemResult<> ano_fs_close(ano_file *file);
 
 } // namespace ano

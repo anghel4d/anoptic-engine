@@ -101,19 +101,23 @@ static AnoMusicEngine *reconstruct(const AnoMusicConfig *cfg, uint64_t seed,
                                    const Script *s, int toBar)
 {
     static AnoMusicBar sink;
-    AnoMusicEngine *e = ano_music_create(cfg, seed);
+    AnoMusicEngine *e = ano_music_create(cfg, seed).value_or(nullptr);
     if (!e)
         return NULL;
     for (int b = 0; b < toBar; ++b) {
         for (uint32_t i = 0; i < s->n; ++i)
-            if (s->cue[i].bar == b)
-                ano_music_apply_command(e, &s->cue[i].cmd);
+            if (s->cue[i].bar == b && !ano_music_apply_command(e, &s->cue[i].cmd)) {
+                ano_music_destroy(e);
+                return NULL;
+            }
         ano_music_advance_bar(e, &sink);
     }
     // Apply pending toBar cue after the loop.
     for (uint32_t i = 0; i < s->n; ++i)
-        if (s->cue[i].bar == toBar)
-            ano_music_apply_command(e, &s->cue[i].cmd);
+        if (s->cue[i].bar == toBar && !ano_music_apply_command(e, &s->cue[i].cmd)) {
+            ano_music_destroy(e);
+            return NULL;
+        }
     return e;
 }
 
@@ -122,7 +126,7 @@ static AnoMusicEngine *reconstruct(const AnoMusicConfig *cfg, uint64_t seed,
 static void must_submit(AnoAudioBridge *b, const AnoAudioCommand *c)
 {
     while (!ano_audio_submit(b, c))
-        ano_sleep(1000);
+        (void)ano_sleep(1000);
 }
 
 typedef bool (*telem_pred)(const AnoAudioTelemetry *t);
@@ -131,11 +135,11 @@ static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutM
     uint32_t start = ano_timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t) && pred(&t))
+        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
         if (ano_timestamp_ms() - start > timeoutMs)
             return false;
-        ano_sleep(5000);
+        (void)ano_sleep(5000);
     }
 }
 static bool pred_heartbeat(const AnoAudioTelemetry *t) { return t->blockIndex >= 3u; }
@@ -160,8 +164,8 @@ int main(int argc, char **argv)
 
     // Composer + host synth.
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc);
-    AnoMusicEngine *music = ano_music_create(&cfg, seed);
+    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
+    AnoMusicEngine *music = ano_music_create(&cfg, seed).value_or(nullptr);
     CHECK(syn && music, "synth + composer");
     if (!syn || !music)
         return 1;
@@ -181,7 +185,7 @@ int main(int argc, char **argv)
         .generatorCommands = ano_synth_commands,
     };
     CHECK(ano_audio_init(&acfg), "audio world up");
-    AnoAudioBridge *b = anoAudioBridge();
+    AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b)
         return 1;
@@ -194,7 +198,7 @@ int main(int argc, char **argv)
         must_submit(b, &setup[i].cmd);
 
     AnoAudioTelemetry t;
-    CHECK(ano_audio_acquire_telemetry(b, &t), "telemetry frame");
+    CHECK(ano_audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
     ano_synth_transport_start(syn, (t.blockIndex + 8u) * t.blockFrames);
     CHECK(wait_telemetry(b, pred_audible, 5000), "the music comes up");
 
@@ -219,7 +223,7 @@ int main(int argc, char **argv)
 
         // Audio-thread events.
         AnoAudioEvent e;
-        while (ano_audio_poll_event(b, &e)) {
+        while (ano_audio_poll_event(b, &e).value_or(false)) {
             if (e.kind == AEVT_MUSIC_SEEKED) {
                 seekAcked = true;
                 seekedTo = e.u.seekedBar;
@@ -240,7 +244,7 @@ int main(int argc, char **argv)
                 printf("      · bar %-4d the theme is stated\n", e.u.music.bar);
         }
         if (lastBar < 0) { // nothing sounded yet
-            ano_sleep(20000);
+            (void)ano_sleep(20000);
             continue;
         }
 
@@ -316,12 +320,12 @@ int main(int argc, char **argv)
             uint32_t waited = 0;
             while (!seekAcked && waited < 2000u) {
                 AnoAudioEvent ev;
-                while (ano_audio_poll_event(b, &ev))
+                while (ano_audio_poll_event(b, &ev).value_or(false))
                     if (ev.kind == AEVT_MUSIC_SEEKED) {
                         seekAcked = true;
                         seekedTo = ev.u.seekedBar;
                     }
-                ano_sleep(5000);
+                (void)ano_sleep(5000);
                 waited += 5;
             }
             CHECK(seekAcked, "the audio thread consumed the save");
@@ -334,7 +338,7 @@ int main(int argc, char **argv)
         }
 
         // Telemetry.
-        if (ano_audio_acquire_telemetry(b, &t)) {
+        if (ano_audio_acquire_telemetry(b, &t).value_or(false)) {
             if (t.masterPeak < 0.001f && bars > 2u)
                 everSilent = true; // endless piece must stay audible
             if (t.blockIndex % 512u == 0u)
@@ -344,7 +348,7 @@ int main(int argc, char **argv)
                        (uint32_t)((uint64_t)t.blockFrames * 1000000u / t.sampleRate),
                        t.underruns);
         }
-        ano_sleep(20000);
+        (void)ano_sleep(20000);
     }
 
     /* Assertions */
@@ -365,9 +369,9 @@ int main(int argc, char **argv)
         CHECK(loaded && seekAcked, "the save was written and loaded back");
 
     ano_synth_transport_stop(syn);
-    ano_sleep(50000); // stop + tails
+    (void)ano_sleep(50000); // stop + tails
 
-    if (ano_audio_acquire_telemetry(b, &t)) {
+    if (ano_audio_acquire_telemetry(b, &t).value_or(false)) {
         uint32_t blockUs = (uint32_t)((uint64_t)t.blockFrames * 1000000u / t.sampleRate);
         printf("info: %u s │ %llu blocks │ bars %u │ cadences %u │ motifs %u │ "
                "keys %u │ cues %u\n",

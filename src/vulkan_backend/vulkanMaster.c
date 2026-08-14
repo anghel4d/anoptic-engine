@@ -375,7 +375,7 @@ void ano::drawFrame()
 }
 
 
-bool ano::initVulkan(AnoResourceManager *resources)
+RenderResult<> ano::initVulkan(AnoResourceManager *resources)
 {
 	renderUnrecoverable = false; // a fresh renderer, whatever the previous one latched
 
@@ -407,7 +407,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Window initialization failed.");
 		unInitVulkan();
-		return 0;
+		return failure(RenderError::unavailable);
 	}
 
 	// Post-initWindow: enumerate monitors (glfwInit owned by initWindow).
@@ -422,7 +422,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Failed to create Vulkan instance!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	vulkanGarbage.ctx = &ctx;
 
@@ -430,7 +430,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Failed to create window surface!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	DeviceCapabilities capabilities;
@@ -442,7 +442,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 		g_AnoVkNoSuitableGpu = true;
 		ano_log(ANO_FATAL, "Quitting init: physical device failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	
 
@@ -450,7 +450,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: logical device failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	// Async Hi-Z gate needs dedicated compute queue, timeline semaphores, depth-max-resolve.
@@ -497,7 +497,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
         if (!pfnVkCmdDrawMeshTasksEXT || !pfnVkCmdDrawMeshTasksIndirectEXT || !pfnVkCmdDrawMeshTasksIndirectCountEXT) {
             ano_log(ANO_FATAL, "Failed to load mesh shader extension function pointers!");
             unInitVulkan();
-            return false;
+            return failure(RenderError::unavailable);
         }
     }
     ano_select_view_draw_profile();
@@ -529,7 +529,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	                               MAX_FRAMES_IN_FLIGHT)) {
 		ano_log(ANO_FATAL, "Quitting init: geometry pool creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	initSwapChain(&ctx, window, getChosenPresentMode(), VK_NULL_HANDLE, &rendererState);
@@ -537,14 +537,14 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: swap chain failure.");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	
 	if (!createImageViews(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: image view failure.");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if (!createCommandPool(ctx.device, ctx.physicalDevice,
@@ -552,7 +552,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: command pool failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	// Async Hi-Z build CBs from their own compute-family pool.
@@ -565,7 +565,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 		{
 			ano_log(ANO_FATAL, "Quitting init: compute command pool failure!");
 			unInitVulkan();
-			return false;
+			return failure(RenderError::unavailable);
 		}
 		VkCommandBufferAllocateInfo cai = { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 			.commandPool = rendererState.computeCommandPool,
@@ -578,7 +578,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 			{
 				ano_log(ANO_FATAL, "Quitting init: compute command buffer allocation failure!");
 				unInitVulkan();
-				return false;
+				return failure(RenderError::unavailable);
 			}
 		}
 	}
@@ -587,21 +587,21 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: colour target creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if(!createDepthResources(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: depth resource creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if(!createHiZResources(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: Hi-Z resource creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 
@@ -610,39 +610,39 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: global layout failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	if (!ano_vk_init_cull_layout(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: cull layout failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	if (!ano_vk_init_material_layouts(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: material layouts failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if (!createBindlessTextureArray(&ctx, &rendererState))
 	{
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if (!ano_vk_init_pipelines(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: pipeline failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if (!ano_vk_init_tonemap(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: tonemap pipeline failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	// Text overlay font bake, glyph buffers, raster/blend pipelines, non-fatal.
@@ -655,21 +655,21 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: shadow pipeline failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if(!createTextureSampler(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: texture sampler failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if (!createFallbackResources(&ctx, &rendererState))
 	{
 		ano_log(ANO_FATAL, "Quitting init: fallback resources failure.");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	// Slot-indexed buffers start at INITIAL_ENTITY_CAPACITY and grow on demand.
@@ -678,11 +678,11 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: buffer creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	if (resources != nullptr && !ano_render_load_scene_assets(resources))
-		return false;
+		return failure(RenderError::unavailable);
 
 	// Render-owned slot authority plus command/event rings.
 	rendererState.renderHeap = ano_heap_create();
@@ -692,7 +692,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: render bridge / slot authority failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	// Runtime light registry, static rows [0, ANO_STATIC_LIGHT_COUNT), dynamic remainder to capacity.
@@ -708,7 +708,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: stream id ring allocation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	rendererState.globalFrame = 0;
 	rendererState.completedFrameSerial = 0;
@@ -719,7 +719,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 		{ // Refused mint: nothing was allocated and nothing may be recorded into it
 			ano_log(ANO_FATAL, "Quitting init: transient command buffer failure!");
 			unInitVulkan();
-			return false;
+			return failure(RenderError::unavailable);
 		}
 		vkCmdFillBuffer(up, rendererState.lightBuffer.device, 0,
 		                (VkDeviceSize)sizeof(LightData) * rendererState.lightBuffer.capacity, 0u);
@@ -731,7 +731,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 		{ // Unsubmitted fill: the palette and shadow rows below would read undefined device memory
 			ano_log(ANO_FATAL, "Quitting init: light/shadow buffer zero-fill failure!");
 			unInitVulkan();
-			return false;
+			return failure(RenderError::unavailable);
 		}
 	}
 
@@ -739,7 +739,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: uniform buffer creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 
@@ -748,7 +748,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: UBO descriptor pool creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 
@@ -756,7 +756,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: UBO descriptor sets creation failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 
@@ -772,7 +772,7 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: command buffer failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 	
 
@@ -780,10 +780,10 @@ bool ano::initVulkan(AnoResourceManager *resources)
 	{
 		ano_log(ANO_FATAL, "Quitting init: sync failure!");
 		unInitVulkan();
-		return false;
+		return failure(RenderError::unavailable);
 	}
 
 	ano_log(ANO_INFO, "Instance creation complete!");
 
-	return true;
+	return {};
 }

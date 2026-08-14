@@ -17,8 +17,13 @@ struct [[=Artifact{}]] InputB final { uint32_t value; };
 struct [[=Artifact{}]] OutputA final { uint32_t value; };
 struct [[=Artifact{}]] OutputB final { uint32_t value; };
 
+struct Outputs final {
+    OutputA first;
+    OutputB second;
+};
+
 [[=Transform{Executor::worker, Streaming::whole, true}]]
-bool bifurcate(const InputA&, const InputB&, OutputA&, OutputB&) noexcept;
+ResourceResult<Outputs> bifurcate(const InputA&, const InputB&) noexcept;
 
 } // namespace ano::proof_schema
 
@@ -74,6 +79,23 @@ consteval NameSet transform_artifacts(std::meta::info declaration,
                                       bool outputs)
 {
     NameSet result{};
+    if (outputs) {
+        const auto arguments = std::meta::template_arguments_of(
+            std::meta::dealias(std::meta::return_type_of(declaration)));
+        auto collect = [&result](this auto& self, std::meta::info type) -> void {
+            type = std::meta::dealias(type);
+            if (detail::has_artifact_marker(type)) {
+                add_unique(result, std::meta::identifier_of(type));
+                return;
+            }
+            for (const std::meta::info field :
+                 std::meta::nonstatic_data_members_of(
+                     type, std::meta::access_context::unchecked()))
+                self(std::meta::type_of(field));
+        };
+        collect(arguments[0]);
+        return result;
+    }
     for (const std::meta::info parameter :
          std::meta::parameters_of(declaration)) {
         const std::meta::info parameterType = std::meta::type_of(parameter);
@@ -81,11 +103,7 @@ consteval NameSet transform_artifacts(std::meta::info declaration,
             std::meta::remove_cvref(parameterType);
         if (!detail::has_artifact_marker(valueType))
             continue;
-        const std::meta::info referred =
-            std::meta::remove_reference(parameterType);
-        const bool isOutput = !std::meta::is_const_type(referred);
-        if (isOutput == outputs)
-            add_unique(result, std::meta::identifier_of(valueType));
+        add_unique(result, std::meta::identifier_of(valueType));
     }
     return result;
 }
@@ -184,20 +202,20 @@ consteval bool texture_codec_round_trip()
     const EncodeResult encoded = encode(
         ArtifactSource<Texture>{&source, {nullptr, 0}},
         {bytes, byteCount});
-    if (encoded.error != ANO_RESOURCE_OK || encoded.size != byteCount)
+    if (!encoded || *encoded != byteCount)
         return false;
     const DecodeResult<Texture> decoded = decode<Texture>({bytes, byteCount});
-    if (decoded.error != ANO_RESOURCE_OK
-        || decoded.view.value.width != source.width
-        || decoded.view.value.height != source.height
-        || decoded.view.value.mipCount != source.mipCount
-        || decoded.view.value.format != source.format
-        || decoded.view.value.usage != source.usage
-        || decoded.view.value.bytes.offset != 0
-        || decoded.view.value.bytes.count != 0)
+    if (!decoded || decoded->value.width != source.width
+        || decoded->value.height != source.height
+        || decoded->value.mipCount != source.mipCount
+        || decoded->value.format != source.format
+        || decoded->value.usage != source.usage
+        || decoded->value.bytes.offset != 0
+        || decoded->value.bytes.count != 0)
         return false;
     bytes[0] = 0;
-    return validate<Texture>({bytes, byteCount}) == ANO_RESOURCE_BAD_MAGIC;
+    return has_error(validate<Texture>({bytes, byteCount}),
+                     ANO_RESOURCE_BAD_MAGIC);
 }
 
 static_assert(compile_resource_language(^^ano::asset_schema));

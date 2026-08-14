@@ -25,7 +25,7 @@ using namespace ano;
 
 // chdir to the executable's directory. Call once at top of main().
 // Returns false if unresolved (scratch stays at launch CWD).
-static inline bool scratch_anchor_to_exe(void) { return ano_fs_chdir_gamepath(); }
+static inline bool scratch_anchor_to_exe(void) { return !!ano_fs_chdir_gamepath(); }
 
 #if defined(_WIN32)
 #include <direct.h>

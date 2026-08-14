@@ -144,51 +144,53 @@ static bool runs_valid(const AnoTextRun *runs, uint32_t runCount, anostr_t text)
     return sum == anostr_len(text);
 }
 
-uint32_t ano::ano_text_shape(const AnoFontBake *bake, anostr_t text,
-                        float sizePx, const float origin[2], const float color[4],
-                        AnoGlyphInstance *out, uint32_t cap, float *penOut)
+TextResult<uint32_t> ano::ano_text_shape(
+    const AnoFontBake *bake, anostr_t text, float sizePx,
+    const float origin[2], const float color[4], AnoGlyphInstance *out,
+    uint32_t cap, float *penOut)
 {
     if (bake == NULL || origin == NULL || color == NULL || sizePx <= 0.0f)
-        return 0;
+        return failure(TextError::invalid_argument);
     AnoTextRun run = { .byteCount = (uint32_t)anostr_len(text), .sizePx = sizePx,
                        .color = { color[0], color[1], color[2], color[3] } };
     return shape_core(bake, text, &run, 1, origin, out, cap, penOut, NULL, NULL, NULL);
 }
 
-uint32_t ano::ano_text_shape_runs(const AnoFontBake *bake, anostr_t text,
-                             const AnoTextRun *runs, uint32_t runCount,
-                             const float origin[2],
-                             AnoGlyphInstance *out, uint32_t cap, float *penOut)
+TextResult<uint32_t> ano::ano_text_shape_runs(
+    const AnoFontBake *bake, anostr_t text, const AnoTextRun *runs,
+    uint32_t runCount, const float origin[2], AnoGlyphInstance *out,
+    uint32_t cap, float *penOut)
 {
     if (bake == NULL || origin == NULL || !runs_valid(runs, runCount, text))
-        return 0;
+        return failure(TextError::invalid_argument);
     return shape_core(bake, text, runs, runCount, origin, out, cap, penOut,
                       NULL, NULL, NULL);
 }
 
-void ano::ano_text_measure(const AnoFontBake *bake, anostr_t text,
-                      float sizePx, float *width, float *height)
+TextResult<AnoTextMeasure> ano::ano_text_measure(
+    const AnoFontBake *bake, anostr_t text, float sizePx)
 {
+    if (bake == NULL || sizePx <= 0.0f)
+        return failure(TextError::invalid_argument);
     float maxW = 0.0f;
     uint32_t lines = 0;
-    if (bake != NULL && sizePx > 0.0f && anostr_len(text) > 0)
+    if (anostr_len(text) > 0)
     {
         AnoTextRun run = { .byteCount = (uint32_t)anostr_len(text), .sizePx = sizePx };
         const float zero[2] = { 0.0f, 0.0f };
         shape_core(bake, text, &run, 1, zero, NULL, 0, NULL, &maxW, &lines, NULL);
     }
-    if (width != NULL)
-        *width = maxW;
-    if (height != NULL)
-        *height = (float)lines * (bake != NULL ? bake->lineHeight : 0.0f) * sizePx;
+    return AnoTextMeasure{maxW, (float)lines * bake->lineHeight * sizePx};
 }
 
-void ano::ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
-                           const AnoTextRun *runs, uint32_t runCount,
-                           float *width, float *height)
+TextResult<AnoTextMeasure> ano::ano_text_measure_runs(
+    const AnoFontBake *bake, anostr_t text, const AnoTextRun *runs,
+    uint32_t runCount)
 {
+    if (bake == NULL || !runs_valid(runs, runCount, text))
+        return failure(TextError::invalid_argument);
     float maxW = 0.0f, h = 0.0f;
-    if (bake != NULL && runs_valid(runs, runCount, text) && anostr_len(text) > 0)
+    if (anostr_len(text) > 0)
     {
         const float zero[2] = { 0.0f, 0.0f };
         float pen[2], endStep;
@@ -196,8 +198,5 @@ void ano::ano_text_measure_runs(const AnoFontBake *bake, anostr_t text,
                    &endStep);
         h = pen[1] + endStep;
     }
-    if (width != NULL)
-        *width = maxW;
-    if (height != NULL)
-        *height = h;
+    return AnoTextMeasure{maxW, h};
 }

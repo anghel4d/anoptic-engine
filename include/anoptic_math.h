@@ -21,22 +21,19 @@ namespace ano {
 // Align the array type itself so every value carries the required SIMD alignment.
 typedef float mat4[4][4] __attribute__((aligned(16)));
 
-typedef struct Vector2
-{
+struct Vector2 {
     alignas(8) float v[2];
-} Vector2;
+};
 
 // Packed vertex-stream vec3 (Vertex, vertex.h). Not a std430 member: GLSL vec3 aligns to 16.
 // No GLSL block declares a vec3 member; use Vector4.
-typedef struct Vector3
-{
+struct Vector3 {
     float v[3];
-} Vector3;
+};
 
-typedef struct Vector4
-{
+struct Vector4 {
     alignas(16) float v[4];
-} Vector4;
+};
 
 // A size or alignment breach silently shifts mirrored GLSL blocks and the Vertex stream.
 static_assert(sizeof(mat4) == 64 && alignof(mat4) == 16, "mat4 is not std430 (16-aligned, 64 bytes)");

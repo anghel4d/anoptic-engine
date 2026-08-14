@@ -65,12 +65,14 @@ static bool emit_quad(uint32_t *curves, uint32_t *w, uint32_t cap, uint32_t *seg
 
 /* Path Fill */
 
-uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
+UiResult<uint32_t> ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
                           const float color[4], uint32_t paintRef, uint32_t clipRef,
                           uint32_t flags)
 {
-    if (b->curves == NULL || segCount == 0 || b->primCount >= b->primCap)
-        return ANO_UI_REF_NONE;
+    if (!b || !segs || !color || !b->curves || segCount == 0)
+        return failure(UiError::invalid_argument);
+    if (b->primCount >= b->primCap)
+        return failure(UiError::capacity);
 
     // Pass A: quads in builder space, contour bounds, bbox. Lines become straight quads (control at midpoint).
     AnoQuad q[UI_PATH_MAX_QUADS];
@@ -88,11 +90,11 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
             if (open && (cx != sx || cy != sy))
             {
                 if (qn >= UI_PATH_MAX_QUADS)
-                    return ANO_UI_REF_NONE;
+                    return failure(UiError::capacity);
                 q[qn++] = (AnoQuad){ { cx, 0.5 * (cx + sx), sx }, { cy, 0.5 * (cy + sy), sy } };
             }
             if (cn >= UI_PATH_MAX_QUADS) // leave room for the seal write below
-                return ANO_UI_REF_NONE;
+                return failure(UiError::capacity);
             cstart[cn++] = qn;
             cx = sx = sg->p[0];
             cy = sy = sg->p[1];
@@ -103,7 +105,7 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
             if (!open) // segment before MOVE opens a contour at current origin
             {
                 if (cn >= UI_PATH_MAX_QUADS)
-                    return ANO_UI_REF_NONE;
+                    return failure(UiError::capacity);
                 cstart[cn++] = qn;
                 open = true;
             }
@@ -119,7 +121,7 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
                 ctrlx = 0.5 * (cx + nx); ctrly = 0.5 * (cy + ny);
             }
             if (qn >= UI_PATH_MAX_QUADS)
-                return ANO_UI_REF_NONE;
+                return failure(UiError::capacity);
             q[qn++] = (AnoQuad){ { cx, ctrlx, nx }, { cy, ctrly, ny } };
             cx = nx; cy = ny;
         }
@@ -136,7 +138,7 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
     if (open && (cx != sx || cy != sy))
     {
         if (qn >= UI_PATH_MAX_QUADS)
-            return ANO_UI_REF_NONE;
+            return failure(UiError::capacity);
         q[qn] = (AnoQuad){ { cx, 0.5 * (cx + sx), sx }, { cy, 0.5 * (cy + sy), sy } };
         for (int j = 0; j < 3; j++)
         {
@@ -149,7 +151,7 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
     }
     cstart[cn] = qn;
     if (qn == 0 || maxx <= minx || maxy <= miny)
-        return ANO_UI_REF_NONE;
+        return failure(UiError::invalid_argument);
 
     // Pass B: shift to prim-local (bbox center), accumulate endpoint shoelace.
     double ccx = 0.5 * (minx + maxx), ccy = 0.5 * (miny + maxy);
@@ -176,18 +178,18 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
         if (c != 0)
         {
             if (w + 1 > cap)
-                return ANO_UI_REF_NONE;
+                return failure(UiError::capacity);
             curves[w++] = ANO_UI_CURVE_SENTINEL;
         }
         // Contour start (p0), then each quad's monotone pieces in traversal order.
         if (w + 1 > cap)
-            return ANO_UI_REF_NONE;
+            return failure(UiError::capacity);
         if (!reverse)
         {
             curves[w++] = pack_pt(q[lo].x[0], q[lo].y[0]);
             for (uint32_t k = lo; k < hi; k++)
                 if (!emit_quad(curves, &w, cap, &curveSegs, &q[k]))
-                    return ANO_UI_REF_NONE;
+                    return failure(UiError::capacity);
         }
         else
         {
@@ -197,12 +199,12 @@ uint32_t ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32
             {
                 AnoQuad r = quad_rev(&q[k]);
                 if (!emit_quad(curves, &w, cap, &curveSegs, &r))
-                    return ANO_UI_REF_NONE;
+                    return failure(UiError::capacity);
             }
         }
     }
     if (curveSegs == 0)
-        return ANO_UI_REF_NONE;
+        return failure(UiError::invalid_argument);
 
     b->curveCount = w;
     float mn[2] = { (float)minx, (float)miny }, mx[2] = { (float)maxx, (float)maxy };

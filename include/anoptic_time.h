@@ -9,8 +9,16 @@
 #pragma once
 
 #include <stdint.h>
+#include "anoptic_results.h"
 
 namespace ano {
+
+enum class TimeError : uint8_t {
+    invalid_argument, overflow, unavailable, platform,
+};
+
+template<class Value = void>
+using TimeResult = Result<Value, TimeError>;
 
 
 /* Timestamps */
@@ -35,31 +43,31 @@ uint64_t ano_timestamp_us();
 uint32_t ano_timestamp_ms();
 
 // Unix UTC timestamp (seconds). Not guaranteed monotonic.
-int64_t ano_timestamp_unix();
+[[nodiscard]] TimeResult<int64_t> ano_timestamp_unix();
 
 
 /* Civil Time */
 
 // Local civil time. The platform layer wraps localtime_r / localtime_s.
-typedef struct {
+struct ano_datetime {
     int year;    // full year, e.g. 2026
     int month;   // 1-12
     int day;     // 1-31
     int hour;    // 0-23
     int minute;  // 0-59
     int second;  // 0-60 (60 on a leap second)
-} ano_datetime;
+};
 
-// Unix seconds to local civil time. All-zero on failure.
-ano_datetime ano_localtime(int64_t unix_seconds);
+// Unix seconds to local civil time.
+[[nodiscard]] TimeResult<ano_datetime> ano_localtime(int64_t unix_seconds);
 
 
 /* Sleep */
 
 // Spin the calling thread for ns nanoseconds. Cap is MAX_BUSYWAIT_NS.
-int ano_busywait(uint64_t ns);
+[[nodiscard]] TimeResult<> ano_busywait(uint64_t ns);
 
 // Sleep for us microseconds. Yields to the scheduler.
-int ano_sleep(uint64_t us);
+[[nodiscard]] TimeResult<> ano_sleep(uint64_t us);
 
 } // namespace ano

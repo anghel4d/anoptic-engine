@@ -88,21 +88,12 @@ struct ArtifactView final {
     AnoResourceBytes bytes;
 };
 
-struct EncodeResult final {
-    AnoResourceError error;
-    uint64_t size;
-};
+using EncodeResult = ResourceResult<uint64_t>;
 
 template<class ArtifactType>
-struct DecodeResult final {
-    AnoResourceError error;
-    ArtifactView<ArtifactType> view;
-};
+using DecodeResult = ResourceResult<ArtifactView<ArtifactType>>;
 
-struct DependencyResult final {
-    AnoResourceError error;
-    uint64_t count;
-};
+using DependencyResult = ResourceResult<uint64_t>;
 
 namespace detail {
 
@@ -719,6 +710,26 @@ inline constexpr AnoSchemaFingerprint compiledFingerprint = fingerprint(^^Type);
 template<class Type>
 inline constexpr uint64_t compiledWireSize = wire_size(^^Type);
 
+consteval size_t validate_transform_outputs(std::meta::info type,
+                                            std::meta::info origin)
+{
+    type = std::meta::dealias(type);
+    if (has_artifact_marker(type)) {
+        validate_artifact(type);
+        return 1;
+    }
+    if (!std::meta::is_class_type(type))
+        reject("transform output products contain only artifacts", origin);
+    const auto fields = std::meta::nonstatic_data_members_of(
+        type, std::meta::access_context::unchecked());
+    if (fields.empty())
+        reject("transform output products are nonempty", origin);
+    size_t count = 0;
+    for (const std::meta::info field : fields)
+        count += validate_transform_outputs(std::meta::type_of(field), origin);
+    return count;
+}
+
 consteval void validate_transform(std::meta::info declaration)
 {
     const auto annotations =
@@ -727,11 +738,20 @@ consteval void validate_transform(std::meta::info declaration)
         reject("a transform requires exactly one Transform annotation", declaration);
     if (!std::meta::is_function(declaration) || !std::meta::is_noexcept(declaration))
         reject("resource transforms must be noexcept functions", declaration);
-    if (std::meta::return_type_of(declaration) != ^^bool)
-        reject("resource transforms return bool", declaration);
+    const std::meta::info result = std::meta::dealias(
+        std::meta::return_type_of(declaration));
+    if (!detail::result_type(result))
+        reject("resource transforms return ano::Result<Artifact, Error>",
+               declaration);
+    const auto resultArguments = std::meta::template_arguments_of(result);
+    const std::meta::info output = std::meta::dealias(resultArguments[0]);
+    if (validate_transform_outputs(output, declaration) == 0)
+        reject("resource transform results carry artifacts", declaration);
+    if (std::meta::dealias(resultArguments[1])
+        != std::meta::dealias(^^AnoResourceError))
+        reject("resource transform results carry AnoResourceError", declaration);
     const auto parameters = std::meta::parameters_of(declaration);
     bool hasInput = false;
-    bool hasOutput = false;
     for (const std::meta::info parameter : parameters) {
         const std::meta::info parameterType = std::meta::type_of(parameter);
         const std::meta::info valueType = std::meta::remove_cvref(parameterType);
@@ -742,14 +762,13 @@ consteval void validate_transform(std::meta::info declaration)
             reject("artifact transform parameters must be lvalue references",
                    parameter);
         const std::meta::info referred = std::meta::remove_reference(parameterType);
-        if (std::meta::is_const_type(referred)) {
+        if (std::meta::is_const_type(referred))
             hasInput = true;
-        } else {
-            hasOutput = true;
-        }
+        else
+            reject("artifact transform inputs are immutable", parameter);
     }
-    if (!hasInput || !hasOutput)
-        reject("resource transforms require artifact input and output ports",
+    if (!hasInput)
+        reject("resource transforms require an artifact input port",
                declaration);
 }
 
@@ -772,10 +791,13 @@ consteval void validate_importer(std::meta::info declaration)
         reject("an importer requires at least one Importer annotation",
                declaration);
     if (!std::meta::is_function(declaration)
-        || !std::meta::is_noexcept(declaration)
-        || std::meta::return_type_of(declaration) != ^^AnoResourceError)
-        reject("resource importers must be noexcept functions returning AnoResourceError",
+        || !std::meta::is_noexcept(declaration))
+        reject("resource importers must be noexcept functions returning ResourceResult<>",
                declaration);
+    const std::meta::info result = std::meta::return_type_of(declaration);
+    if (std::meta::dealias(result)
+        != std::meta::dealias(^^ResourceResult<>))
+        reject("resource importers return ResourceResult<>", declaration);
     const auto parameters = std::meta::parameters_of(declaration);
     if (parameters.size() != 2)
         reject("resource importers require a context and const request",
@@ -894,32 +916,22 @@ struct PlanContext final {
 };
 
 template<class Type>
-constexpr const Type *source_elements(AnoResourceBytes source,
-                                      RelativeSpan<Type> span,
-                                      AnoResourceError *error)
+constexpr ResourceResult<std::span<const Type>> source_elements(
+    AnoResourceBytes source, RelativeSpan<Type> span)
 {
-    if (error == nullptr || *error != ANO_RESOURCE_OK)
-        return nullptr;
-    if (span.count == 0) {
-        if (span.offset != 0)
-            *error = ANO_RESOURCE_NON_CANONICAL;
-        return nullptr;
-    }
-    uint64_t byteCount = 0;
-    if (!checked_multiply(span.count, sizeof(Type), &byteCount)) {
-        *error = ANO_RESOURCE_OVERFLOW;
-        return nullptr;
-    }
-    if (source.data == nullptr || !byte_range(source.size, span.offset, byteCount)) {
-        *error = ANO_RESOURCE_OUT_OF_BOUNDS;
-        return nullptr;
-    }
+    if (span.count == 0)
+        return result_if(span.offset == 0, std::span<const Type>{},
+                         ANO_RESOURCE_NON_CANONICAL);
+    const auto byteCount = checked_multiply(span.count, uint64_t{sizeof(Type)});
+    if (!byteCount)
+        return failure(ANO_RESOURCE_OVERFLOW);
+    if (source.data == nullptr || !byte_range(source.size, span.offset, *byteCount))
+        return failure(ANO_RESOURCE_OUT_OF_BOUNDS);
     const uint8_t *address = source.data + span.offset;
-    if (reinterpret_cast<uintptr_t>(address) % alignof(Type) != 0) {
-        *error = ANO_RESOURCE_MISALIGNED_SOURCE;
-        return nullptr;
-    }
-    return reinterpret_cast<const Type *>(address);
+    if (reinterpret_cast<uintptr_t>(address) % alignof(Type) != 0)
+        return failure(ANO_RESOURCE_MISALIGNED_SOURCE);
+    return std::span<const Type>(
+        reinterpret_cast<const Type *>(address), span.count);
 }
 
 template<class Type>
@@ -943,20 +955,25 @@ constexpr void plan_value(const Type& value, PlanContext& context)
     if constexpr (compiledWireShape<Type> == WireShape::relativeSpan) {
         constexpr std::meta::info elementInfo = template_element(^^Type);
         using Element = [:elementInfo:];
-        const Element *elements = source_elements(context.source, value,
-                                                  &context.error);
-        if (context.error != ANO_RESOURCE_OK || value.count == 0)
+        const auto elements = source_elements(context.source, value);
+        if (!elements) {
+            context.error = elements.error();
             return;
-        uint64_t fixedBytes = 0;
-        if (!checked_multiply(value.count, wire_size(^^Element), &fixedBytes)
-            || !checked_add(context.payloadCursor, fixedBytes,
-                            &context.payloadCursor)) {
+        }
+        if (elements->empty())
+            return;
+        const auto payloadEnd = checked_multiply(value.count, wire_size(^^Element))
+            .and_then([&](uint64_t bytes) {
+                return checked_add(context.payloadCursor, bytes);
+            });
+        if (!payloadEnd) {
             context.error = ANO_RESOURCE_OVERFLOW;
             return;
         }
+        context.payloadCursor = *payloadEnd;
         if constexpr (wire_contains(^^Element, WireShape::relativeSpan))
             for (uint64_t i = 0; i < value.count; ++i)
-                plan_value(elements[i], context);
+                plan_value((*elements)[i], context);
     } else if constexpr (compiledWireShape<Type> == WireShape::array) {
         for (size_t i = 0; i < std::extent_v<Type>; ++i)
             plan_value(value[i], context);
@@ -1006,37 +1023,41 @@ constexpr void encode_value(const Type& value, uint64_t offset,
             write_unsigned(context.output.data + offset + 8, 0, 8);
             return;
         }
-        const Element *elements = source_elements(context.source, value,
-                                                  &context.error);
-        if (context.error != ANO_RESOURCE_OK)
+        const auto elements = source_elements(context.source, value);
+        if (!elements) {
+            context.error = elements.error();
             return;
+        }
         const uint64_t payloadOffset = context.payloadCursor;
-        uint64_t fixedBytes = 0;
-        if (!checked_multiply(value.count, wire_size(^^Element), &fixedBytes)
-            || !checked_add(context.payloadCursor, fixedBytes,
-                            &context.payloadCursor)) {
+        const auto payloadEnd = checked_multiply(value.count, wire_size(^^Element))
+            .and_then([&](uint64_t bytes) {
+                return checked_add(context.payloadCursor, bytes);
+            });
+        if (!payloadEnd) {
             context.error = ANO_RESOURCE_OVERFLOW;
             return;
         }
+        const uint64_t fixedBytes = *payloadEnd - payloadOffset;
+        context.payloadCursor = *payloadEnd;
         write_unsigned(context.output.data + offset, payloadOffset, 8);
         write_unsigned(context.output.data + offset + 8, value.count, 8);
         if constexpr (wire_bulk_copyable(^^Element)) {
             if consteval {
                 for (uint64_t i = 0; i < value.count; ++i)
                     encode_value(
-                        elements[i],
+                        (*elements)[i],
                         payloadOffset + i * wire_size(^^Element), context);
             } else {
                 if (fixedBytes > SIZE_MAX) {
                     context.error = ANO_RESOURCE_OVERFLOW;
                     return;
                 }
-                memcpy(context.output.data + payloadOffset, elements,
-                       static_cast<size_t>(fixedBytes));
+                    memcpy(context.output.data + payloadOffset, elements->data(),
+                           static_cast<size_t>(fixedBytes));
             }
         } else {
             for (uint64_t i = 0; i < value.count; ++i)
-                encode_value(elements[i],
+                encode_value((*elements)[i],
                              payloadOffset + i * wire_size(^^Element), context);
         }
     } else if constexpr (compiledWireShape<Type> == WireShape::array) {
@@ -1149,14 +1170,17 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
             context.error = ANO_RESOURCE_NON_CANONICAL;
             return;
         }
-        uint64_t fixedBytes = 0;
-        if (!checked_multiply(count, wire_size(^^Element), &fixedBytes)
-            || !byte_range(context.bytes.size, spanOffset, fixedBytes)
-            || !checked_add(context.payloadCursor, fixedBytes,
-                            &context.payloadCursor)) {
+        const auto fixedBytes = checked_multiply(
+            count, wire_size(^^Element));
+        const auto payloadEnd = fixedBytes
+            ? checked_add(context.payloadCursor, *fixedBytes)
+            : ArithmeticResult<uint64_t>(failure(fixedBytes.error()));
+        if (!payloadEnd
+            || !byte_range(context.bytes.size, spanOffset, *fixedBytes)) {
             context.error = ANO_RESOURCE_OUT_OF_BOUNDS;
             return;
         }
+        context.payloadCursor = *payloadEnd;
         if (output != nullptr)
             *output = {spanOffset, count};
         if constexpr (wire_requires_structural_visit(^^Element)) {
@@ -1219,43 +1243,41 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
 }
 
 template<class Type>
-constexpr AnoResourceError decode_artifact(AnoResourceBytes bytes, Type *output,
-                                           AnoResourceDependency *dependencies,
-                                           uint64_t dependencyCapacity,
-                                           uint64_t *dependencyCount,
-                                           bool collectDependencies)
+constexpr ResourceResult<uint64_t> decode_artifact(
+    AnoResourceBytes bytes, Type *output,
+    AnoResourceDependency *dependencies, uint64_t dependencyCapacity,
+    bool collectDependencies)
 {
     static_assert(require_artifact<Type>());
-    if ((bytes.data == nullptr && bytes.size != 0) || dependencyCount == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+    if (bytes.data == nullptr && bytes.size != 0)
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (bytes.size < canonicalHeaderSize)
-        return ANO_RESOURCE_TRUNCATED;
+        return failure(ANO_RESOURCE_TRUNCATED);
     for (size_t i = 0; i < sizeof(canonicalMagic); ++i)
         if (bytes.data[i] != canonicalMagic[i])
-            return ANO_RESOURCE_BAD_MAGIC;
+            return failure(ANO_RESOURCE_BAD_MAGIC);
 
     constexpr AnoResourceTypeId type = reflected_type_id(^^Type);
     if (read_unsigned(bytes.data + 8, 8) != type.value)
-        return ANO_RESOURCE_TYPE_MISMATCH;
+        return failure(ANO_RESOURCE_TYPE_MISMATCH);
     constexpr AnoSchemaFingerprint expected = compiledFingerprint<Type>;
     AnoSchemaFingerprint encoded = {};
     for (size_t i = 0; i < sizeof(encoded.bytes); ++i)
         encoded.bytes[i] = bytes.data[16 + i];
     if (!fingerprint_equal(expected, encoded))
-        return ANO_RESOURCE_SCHEMA_MISMATCH;
+        return failure(ANO_RESOURCE_SCHEMA_MISMATCH);
 
     const uint64_t rootSize = read_unsigned(bytes.data + 48, 8);
     const uint64_t totalSize = read_unsigned(bytes.data + 56, 8);
     if (rootSize != compiledWireSize<Type> || totalSize != bytes.size)
-        return ANO_RESOURCE_NON_CANONICAL;
-    uint64_t payloadStart = 0;
-    if (!checked_add(canonicalHeaderSize, rootSize, &payloadStart)
-        || payloadStart > bytes.size)
-        return ANO_RESOURCE_TRUNCATED;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    const auto payloadStart = checked_add(canonicalHeaderSize, rootSize);
+    if (!payloadStart || *payloadStart > bytes.size)
+        return failure(ANO_RESOURCE_TRUNCATED);
 
     DecodeContext context = {
         .bytes = bytes,
-        .payloadCursor = payloadStart,
+        .payloadCursor = *payloadStart,
         .dependencies = dependencies,
         .dependencyCapacity = dependencyCapacity,
         .dependencyCount = 0,
@@ -1263,14 +1285,11 @@ constexpr AnoResourceError decode_artifact(AnoResourceBytes bytes, Type *output,
         .error = ANO_RESOURCE_OK,
     };
     decode_value(canonicalHeaderSize, context, output);
-    *dependencyCount = context.dependencyCount;
     if (context.error != ANO_RESOURCE_OK)
-        return context.error;
+        return failure(context.error);
     if (context.payloadCursor != bytes.size)
-        return ANO_RESOURCE_NON_CANONICAL;
-    if (collectDependencies && context.dependencyCount > dependencyCapacity)
-        return ANO_RESOURCE_DEPENDENCY_CAPACITY;
-    return ANO_RESOURCE_OK;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    return context.dependencyCount;
 }
 
 } // namespace detail
@@ -1363,18 +1382,20 @@ constexpr EncodeResult encoded_size(ArtifactSource<Type> source)
     static_assert(detail::require_artifact<Type>());
     if (source.value == nullptr
         || (source.extent.data == nullptr && source.extent.size != 0))
-        return {ANO_RESOURCE_INVALID_ARGUMENT, 0};
-    uint64_t initial = 0;
-    if (!checked_add(detail::canonicalHeaderSize,
-                             detail::compiledWireSize<Type>, &initial))
-        return {ANO_RESOURCE_OVERFLOW, 0};
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
+    const auto initial = checked_add(
+        detail::canonicalHeaderSize, detail::compiledWireSize<Type>);
+    if (!initial)
+        return failure(ANO_RESOURCE_OVERFLOW);
     detail::PlanContext context = {
         .source = source.extent,
-        .payloadCursor = initial,
+        .payloadCursor = *initial,
         .error = ANO_RESOURCE_OK,
     };
     detail::plan_value(*source.value, context);
-    return {context.error, context.payloadCursor};
+    if (context.error != ANO_RESOURCE_OK)
+        return failure(context.error);
+    return context.payloadCursor;
 }
 
 template<class Type>
@@ -1382,10 +1403,10 @@ constexpr EncodeResult encode(ArtifactSource<Type> source,
                               AnoResourceMutableBytes output)
 {
     const EncodeResult measured = encoded_size(source);
-    if (measured.error != ANO_RESOURCE_OK)
+    if (!measured)
         return measured;
-    if (output.data == nullptr || output.size < measured.size)
-        return {ANO_RESOURCE_BUFFER_TOO_SMALL, measured.size};
+    if (output.data == nullptr || output.size < *measured)
+        return failure(ANO_RESOURCE_BUFFER_TOO_SMALL);
 
     for (size_t i = 0; i < sizeof(detail::canonicalMagic); ++i)
         output.data[i] = detail::canonicalMagic[i];
@@ -1395,11 +1416,10 @@ constexpr EncodeResult encode(ArtifactSource<Type> source,
     for (size_t i = 0; i < sizeof(schema.bytes); ++i)
         output.data[16 + i] = schema.bytes[i];
     detail::write_unsigned(output.data + 48, detail::compiledWireSize<Type>, 8);
-    detail::write_unsigned(output.data + 56, measured.size, 8);
+    detail::write_unsigned(output.data + 56, *measured, 8);
 
-    uint64_t payloadStart = 0;
-    (void)checked_add(detail::canonicalHeaderSize,
-                              detail::compiledWireSize<Type>, &payloadStart);
+    const uint64_t payloadStart = *checked_add(
+        detail::canonicalHeaderSize, detail::compiledWireSize<Type>);
     detail::EncodeContext context = {
         .source = source.extent,
         .output = output,
@@ -1408,31 +1428,28 @@ constexpr EncodeResult encode(ArtifactSource<Type> source,
     };
     detail::encode_value(*source.value, detail::canonicalHeaderSize, context);
     if (context.error != ANO_RESOURCE_OK)
-        return {context.error, measured.size};
-    if (context.payloadCursor != measured.size)
-        return {ANO_RESOURCE_NON_CANONICAL, measured.size};
-    return {ANO_RESOURCE_OK, measured.size};
+        return failure(context.error);
+    if (context.payloadCursor != *measured)
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    return *measured;
 }
 
 template<class Type>
-constexpr AnoResourceError validate(AnoResourceBytes bytes)
+constexpr ResourceResult<> validate(AnoResourceBytes bytes)
 {
-    uint64_t dependencyCount = 0;
-    return detail::decode_artifact<Type>(bytes, nullptr, nullptr, 0,
-                                         &dependencyCount, false);
+    return detail::decode_artifact<Type>(bytes, nullptr, nullptr, 0, false)
+        .transform([](uint64_t) {});
 }
 
 template<class Type>
 constexpr DecodeResult<Type> decode(AnoResourceBytes bytes)
 {
-    DecodeResult<Type> result = {
-        .error = ANO_RESOURCE_OK,
-        .view = {.value = {}, .bytes = bytes},
-    };
-    uint64_t dependencyCount = 0;
-    result.error = detail::decode_artifact<Type>(
-        bytes, &result.view.value, nullptr, 0, &dependencyCount, false);
-    return result;
+    ArtifactView<Type> view{.value = {}, .bytes = bytes};
+    const auto decoded = detail::decode_artifact<Type>(
+        bytes, &view.value, nullptr, 0, false);
+    if (!decoded)
+        return failure(decoded.error());
+    return view;
 }
 
 template<class Type>
@@ -1441,34 +1458,32 @@ constexpr DependencyResult dependencies(AnoResourceBytes bytes,
                                         uint64_t capacity)
 {
     if (output == nullptr && capacity != 0)
-        return {ANO_RESOURCE_INVALID_ARGUMENT, 0};
-    uint64_t count = 0;
-    const AnoResourceError error = detail::decode_artifact<Type>(
-        bytes, nullptr, output, capacity, &count, true);
-    return {error, count};
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
+    return detail::decode_artifact<Type>(
+        bytes, nullptr, output, capacity, true);
 }
 
 template<class Root, class Element>
-constexpr AnoResourceError resolve_span(const ArtifactView<Root>& view,
+constexpr ResourceResult<> resolve_span(const ArtifactView<Root>& view,
                                         RelativeSpan<Element> span,
                                         Element *output, uint64_t capacity)
 {
     static_assert(!detail::wire_contains(^^Element, detail::WireShape::relativeSpan),
                   "resolve_span returns fixed elements; nested spans remain views");
-    const AnoResourceError valid = validate<Root>(view.bytes);
-    if (valid != ANO_RESOURCE_OK)
-        return valid;
+    const auto valid = validate<Root>(view.bytes);
+    if (!valid)
+        return failure(valid.error());
     if (span.count > capacity)
-        return ANO_RESOURCE_BUFFER_TOO_SMALL;
+        return failure(ANO_RESOURCE_BUFFER_TOO_SMALL);
     if (span.count == 0)
-        return ANO_RESOURCE_OK;
+        return {};
     if (output == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    uint64_t byteCount = 0;
-    if (!checked_multiply(span.count,
-                                  detail::wire_size(^^Element), &byteCount)
-        || !detail::byte_range(view.bytes.size, span.offset, byteCount))
-        return ANO_RESOURCE_OUT_OF_BOUNDS;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
+    const auto byteCount = checked_multiply(
+        span.count, detail::wire_size(^^Element));
+    if (!byteCount
+        || !detail::byte_range(view.bytes.size, span.offset, *byteCount))
+        return failure(ANO_RESOURCE_OUT_OF_BOUNDS);
     detail::DecodeContext context = {
         .bytes = view.bytes,
         .payloadCursor = view.bytes.size,
@@ -1483,59 +1498,51 @@ constexpr AnoResourceError resolve_span(const ArtifactView<Root>& view,
             span.offset + i * detail::wire_size(^^Element), context,
             &output[i]);
         if (context.error != ANO_RESOURCE_OK)
-            return context.error;
+            return failure(context.error);
     }
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
 template<class Root>
-constexpr AnoResourceError borrow_bytes(const ArtifactView<Root>& view,
-                                        RelativeSpan<uint8_t> span,
-                                        AnoResourceBytes *output)
+constexpr ResourceResult<AnoResourceBytes> borrow_bytes(
+    const ArtifactView<Root>& view, RelativeSpan<uint8_t> span)
 {
-    if (output == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *output = {};
     if (!detail::byte_range(view.bytes.size, span.offset, span.count))
-        return ANO_RESOURCE_OUT_OF_BOUNDS;
-    *output = {
+        return failure(ANO_RESOURCE_OUT_OF_BOUNDS);
+    return AnoResourceBytes{
         .data = span.count == 0 ? nullptr : view.bytes.data + span.offset,
         .size = span.count,
     };
-    return ANO_RESOURCE_OK;
 }
 
 template<class Root>
-constexpr AnoResourceError resolve_bytes(const ArtifactView<Root>& view,
-                                         RelativeSpan<uint8_t> span,
-                                         AnoResourceBytes *output)
+constexpr ResourceResult<AnoResourceBytes> resolve_bytes(
+    const ArtifactView<Root>& view, RelativeSpan<uint8_t> span)
 {
-    const AnoResourceError valid = validate<Root>(view.bytes);
-    return valid == ANO_RESOURCE_OK
-        ? borrow_bytes(view, span, output) : valid;
+    return validate<Root>(view.bytes).and_then(
+        [&] { return borrow_bytes(view, span); });
 }
 
 template<class Root, class Element>
-constexpr AnoResourceError resolve(const ArtifactView<Root>& view,
-                                   RelativeSpan<Element> span, uint64_t index,
-                                   Element *output)
+constexpr ResourceResult<Element> resolve(const ArtifactView<Root>& view,
+                                          RelativeSpan<Element> span,
+                                          uint64_t index)
 {
     static_assert(!detail::wire_contains(^^Element, detail::WireShape::relativeSpan),
                   "resolve returns fixed elements; nested spans remain views");
-    if (output == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    const AnoResourceError valid = validate<Root>(view.bytes);
-    if (valid != ANO_RESOURCE_OK)
-        return valid;
+    const auto valid = validate<Root>(view.bytes);
+    if (!valid)
+        return failure(valid.error());
     if (index >= span.count)
-        return ANO_RESOURCE_OUT_OF_BOUNDS;
-    uint64_t relative = 0;
-    uint64_t offset = 0;
-    if (!checked_multiply(index, detail::wire_size(^^Element), &relative)
-        || !checked_add(span.offset, relative, &offset)
-        || !detail::byte_range(view.bytes.size, offset,
+        return failure(ANO_RESOURCE_OUT_OF_BOUNDS);
+    const auto offset = checked_multiply(index, detail::wire_size(^^Element))
+        .and_then([&](uint64_t relative) {
+            return checked_add(span.offset, relative);
+        });
+    if (!offset
+        || !detail::byte_range(view.bytes.size, *offset,
                                detail::wire_size(^^Element)))
-        return ANO_RESOURCE_OUT_OF_BOUNDS;
+        return failure(ANO_RESOURCE_OUT_OF_BOUNDS);
     detail::DecodeContext context = {
         .bytes = view.bytes,
         .payloadCursor = view.bytes.size,
@@ -1545,26 +1552,29 @@ constexpr AnoResourceError resolve(const ArtifactView<Root>& view,
         .collectDependencies = false,
         .error = ANO_RESOURCE_OK,
     };
-    detail::decode_value(offset, context, output);
-    return context.error;
+    Element output{};
+    detail::decode_value(*offset, context, &output);
+    if (context.error != ANO_RESOURCE_OK)
+        return failure(context.error);
+    return output;
 }
 
 template<class Root, class Element, class Visitor>
-constexpr AnoResourceError visit_span(
+constexpr ResourceResult<> visit_span(
     const ArtifactView<Root>& view, RelativeSpan<Element> span,
     Visitor& visitor)
 {
     static_assert(!detail::wire_contains(
                       ^^Element, detail::WireShape::relativeSpan),
                   "span visitors require fixed elements");
-    const AnoResourceError valid = validate<Root>(view.bytes);
-    uint64_t bytes = 0;
-    if (valid != ANO_RESOURCE_OK)
-        return valid;
-    if (!checked_multiply(
-            span.count, detail::wire_size(^^Element), &bytes)
-        || !detail::byte_range(view.bytes.size, span.offset, bytes))
-        return ANO_RESOURCE_OUT_OF_BOUNDS;
+    const auto valid = validate<Root>(view.bytes);
+    if (!valid)
+        return failure(valid.error());
+    const auto bytes = checked_multiply(
+        span.count, detail::wire_size(^^Element));
+    if (!bytes
+        || !detail::byte_range(view.bytes.size, span.offset, *bytes))
+        return failure(ANO_RESOURCE_OUT_OF_BOUNDS);
     detail::DecodeContext context = {
         .bytes = view.bytes,
         .payloadCursor = view.bytes.size,
@@ -1580,24 +1590,23 @@ constexpr AnoResourceError visit_span(
             span.offset + index * detail::wire_size(^^Element),
             context, &element);
         if (context.error != ANO_RESOURCE_OK)
-            return context.error;
-        const AnoResourceError visited = visitor(element, index);
-        if (visited != ANO_RESOURCE_OK)
-            return visited;
+            return failure(context.error);
+        const auto visited = visitor(element, index);
+        if (!visited)
+            return failure(visited.error());
     }
-    return ANO_RESOURCE_OK;
+    return {};
 }
 
 static_assert([] {
-    uint64_t value = 0;
-    return checked_add(UINT64_C(4), UINT64_C(5), &value) && value == 9
-        && !checked_add(UINT64_MAX, UINT64_C(1), &value);
+    const auto value = checked_add(UINT64_C(4), UINT64_C(5));
+    return value && *value == 9
+        && !checked_add(UINT64_MAX, UINT64_C(1));
 }());
 static_assert([] {
-    uint64_t value = 0;
-    return checked_multiply(UINT64_C(7), UINT64_C(9), &value)
-        && value == 63
-        && !checked_multiply(UINT64_MAX, UINT64_C(2), &value);
+    const auto value = checked_multiply(UINT64_C(7), UINT64_C(9));
+    return value && *value == 63
+        && !checked_multiply(UINT64_MAX, UINT64_C(2));
 }());
 
 } // namespace ano

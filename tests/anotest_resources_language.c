@@ -69,7 +69,8 @@ struct [[=ano::Artifact{}]] Output final {
 };
 
 [[=ano::Transform{ano::Executor::worker, ano::Streaming::whole, true}]]
-bool transform(const Source&, uint32_t scratchSize, Output&) noexcept;
+ano::ResourceResult<Output> transform(
+    const Source&, uint32_t scratchSize) noexcept;
 
 } // namespace reflected_transform_probe
 
@@ -153,20 +154,19 @@ consteval bool material_constexpr_round_trip(void)
     const ano::EncodeResult encoded = ano::encode(
         ano::ArtifactSource<Material>{&material, {nullptr, 0}},
         {bytes, sizeof(bytes)});
-    if (encoded.error != ANO_RESOURCE_OK || encoded.size != sizeof(bytes))
+    if (!encoded || *encoded != sizeof(bytes))
         return false;
     const ano::DecodeResult<Material> decoded =
         ano::decode<Material>({bytes, sizeof(bytes)});
-    if (decoded.error != ANO_RESOURCE_OK
-        || decoded.view.value.baseColorFactor[1] != 0.5f
-        || decoded.view.value.textures[
+    if (!decoded || decoded->value.baseColorFactor[1] != 0.5f
+        || decoded->value.textures[
                static_cast<size_t>(MaterialTextureSlot::normal)]
                .texture.id.value != 12)
         return false;
     AnoResourceDependency dependencies[2] = {};
     const ano::DependencyResult extracted = ano::dependencies<Material>(
         {bytes, sizeof(bytes)}, dependencies, 2);
-    return extracted.error == ANO_RESOURCE_OK && extracted.count == 2
+    return extracted && *extracted == 2
         && dependencies[0].asset.value == 11
         && dependencies[1].asset.value == 12
         && dependencies[0].type.value == ano::resource_type_id<Texture>().value
@@ -212,65 +212,69 @@ static void test_mesh_canonical_artifact(void)
     const ano::ArtifactSource<Mesh> source = {&mesh, sourceBytes};
 
     const ano::EncodeResult measured = ano::encoded_size(source);
-    CHECK(measured.error == ANO_RESOURCE_OK && measured.size != 0,
+    CHECK(measured && *measured != 0,
           "mesh canonical size is measurable");
 
-    CHECK(ano::encode(source, {nullptr, 0}).error
-              == ANO_RESOURCE_BUFFER_TOO_SMALL,
+    CHECK(ano::has_error(ano::encode(source, {nullptr, 0}),
+                         ANO_RESOURCE_BUFFER_TOO_SMALL),
           "mesh encoder reports required output capacity");
 
     Mesh invalidSource = mesh;
     invalidSource.vertices.offset = sizeof(extent);
-    CHECK(ano::encoded_size(ano::ArtifactSource<Mesh>{&invalidSource, sourceBytes}).error
-              == ANO_RESOURCE_OUT_OF_BOUNDS,
+    CHECK(ano::has_error(ano::encoded_size(
+              ano::ArtifactSource<Mesh>{&invalidSource, sourceBytes}),
+              ANO_RESOURCE_OUT_OF_BOUNDS),
           "typed source extents are bounds checked");
     invalidSource = mesh;
     invalidSource.vertices.count = UINT64_MAX;
-    CHECK(ano::encoded_size(ano::ArtifactSource<Mesh>{&invalidSource, sourceBytes}).error
-              == ANO_RESOURCE_OVERFLOW,
+    CHECK(ano::has_error(ano::encoded_size(
+              ano::ArtifactSource<Mesh>{&invalidSource, sourceBytes}),
+              ANO_RESOURCE_OVERFLOW),
           "typed source extent multiplication is checked");
     invalidSource = mesh;
     invalidSource.vertices.offset = 0;
     const AnoResourceBytes misaligned = {sourceBytes.data + 1,
                                          sourceBytes.size - 1};
-    CHECK(ano::encoded_size(ano::ArtifactSource<Mesh>{&invalidSource, misaligned}).error
-              == ANO_RESOURCE_MISALIGNED_SOURCE,
+    CHECK(ano::has_error(ano::encoded_size(
+              ano::ArtifactSource<Mesh>{&invalidSource, misaligned}),
+              ANO_RESOURCE_MISALIGNED_SOURCE),
           "typed source objects require their declared alignment");
 
     uint8_t encoded[256] = {};
     const ano::EncodeResult encodedResult =
         ano::encode(source, {encoded, sizeof(encoded)});
-    CHECK(encodedResult.error == ANO_RESOURCE_OK
-          && encodedResult.size == measured.size,
+    CHECK(encodedResult && measured && *encodedResult == *measured,
           "mesh encodes into canonical bytes");
-    if (encodedResult.error != ANO_RESOURCE_OK)
+    if (!encodedResult)
         return;
 
-    const AnoResourceBytes artifact = {encoded, encodedResult.size};
-    CHECK(ano::validate<Mesh>(artifact) == ANO_RESOURCE_OK,
+    const AnoResourceBytes artifact = {encoded, *encodedResult};
+    CHECK(ano::validate<Mesh>(artifact).has_value(),
           "canonical mesh validates");
     const ano::DecodeResult<Mesh> decoded = ano::decode<Mesh>(artifact);
-    CHECK(decoded.error == ANO_RESOURCE_OK, "canonical mesh decodes");
-    CHECK(decoded.view.value.vertices.count == 3
-          && decoded.view.value.indices.count == 3,
+    CHECK(decoded.has_value(), "canonical mesh decodes");
+    if (!decoded)
+        return;
+    CHECK(decoded->value.vertices.count == 3
+          && decoded->value.indices.count == 3,
           "decoded mesh exposes both canonical spans");
-    CHECK(decoded.view.value.material.id.value == mesh.material.id.value,
+    CHECK(decoded->value.material.id.value == mesh.material.id.value,
           "decoded mesh preserves its stable material reference");
 
-    Vertex middle = {};
-    CHECK(ano::resolve(decoded.view, decoded.view.value.vertices, 1, &middle)
-              == ANO_RESOURCE_OK,
+    const auto middle = ano::resolve(*decoded, decoded->value.vertices, 1);
+    CHECK(middle.has_value(),
           "typed view resolves a canonical vertex");
-    CHECK(middle.position[0] == 1.0f && middle.texCoord[0] == 1.0f,
+    CHECK(middle && middle->position[0] == 1.0f
+          && middle->texCoord[0] == 1.0f,
           "resolved vertex values match the source");
 
     ano::DependencyResult missing = ano::dependencies<Mesh>(artifact, nullptr, 0);
-    CHECK(missing.error == ANO_RESOURCE_DEPENDENCY_CAPACITY && missing.count == 1,
+    CHECK(missing && *missing == 1,
           "dependency extraction reports required capacity");
     AnoResourceDependency dependency = {};
     const ano::DependencyResult extracted =
         ano::dependencies<Mesh>(artifact, &dependency, 1);
-    CHECK(extracted.error == ANO_RESOURCE_OK && extracted.count == 1
+    CHECK(extracted && *extracted == 1
           && dependency.asset.value == mesh.material.id.value
           && dependency.type.value == ano::resource_type_id<Material>().value,
           "dependency extraction emits the typed material reference");
@@ -279,52 +283,51 @@ static void test_mesh_canonical_artifact(void)
     memset(repeated, 0xa5, sizeof(repeated));
     const ano::EncodeResult repeatedResult =
         ano::encode(source, {repeated, sizeof(repeated)});
-    CHECK(repeatedResult.error == ANO_RESOURCE_OK
-          && memcmp(encoded, repeated, encodedResult.size) == 0,
+    CHECK(repeatedResult
+          && memcmp(encoded, repeated, *encodedResult) == 0,
           "canonical encoding ignores destination history and native padding");
 
-    AnoContentId firstContent = {};
-    AnoContentId secondContent = {};
-    CHECK(ano_resource_content_id(artifact, &firstContent) == ANO_RESOURCE_OK
-          && ano_resource_content_id({repeated, repeatedResult.size}, &secondContent)
-              == ANO_RESOURCE_OK
-          && memcmp(firstContent.bytes, secondContent.bytes,
-                    sizeof(firstContent.bytes)) == 0,
+    const auto firstContent = ano_resource_content_id(artifact);
+    const auto secondContent = ano_resource_content_id(
+        {repeated, repeatedResult ? *repeatedResult : 0});
+    CHECK(firstContent && secondContent
+          && memcmp(firstContent->bytes, secondContent->bytes,
+                    sizeof(firstContent->bytes)) == 0,
           "identical canonical artifacts have identical content identities");
 
     uint8_t hostile[256];
-    memcpy(hostile, encoded, encodedResult.size);
+    memcpy(hostile, encoded, *encodedResult);
     hostile[0] ^= 1;
-    CHECK(ano::validate<Mesh>({hostile, encodedResult.size})
-              == ANO_RESOURCE_BAD_MAGIC,
+    CHECK(ano::has_error(ano::validate<Mesh>({hostile, *encodedResult}),
+                         ANO_RESOURCE_BAD_MAGIC),
           "bad artifact magic is rejected");
 
-    memcpy(hostile, encoded, encodedResult.size);
+    memcpy(hostile, encoded, *encodedResult);
     hostile[8] ^= 1;
-    CHECK(ano::validate<Mesh>({hostile, encodedResult.size})
-              == ANO_RESOURCE_TYPE_MISMATCH,
+    CHECK(ano::has_error(ano::validate<Mesh>({hostile, *encodedResult}),
+                         ANO_RESOURCE_TYPE_MISMATCH),
           "wrong semantic type is rejected");
 
-    memcpy(hostile, encoded, encodedResult.size);
+    memcpy(hostile, encoded, *encodedResult);
     hostile[16] ^= 1;
-    CHECK(ano::validate<Mesh>({hostile, encodedResult.size})
-              == ANO_RESOURCE_SCHEMA_MISMATCH,
+    CHECK(ano::has_error(ano::validate<Mesh>({hostile, *encodedResult}),
+                         ANO_RESOURCE_SCHEMA_MISMATCH),
           "wrong schema fingerprint is rejected");
 
-    memcpy(hostile, encoded, encodedResult.size);
+    memcpy(hostile, encoded, *encodedResult);
     hostile[64] = 129;
-    CHECK(ano::validate<Mesh>({hostile, encodedResult.size})
-              == ANO_RESOURCE_NON_CANONICAL,
+    CHECK(ano::has_error(ano::validate<Mesh>({hostile, *encodedResult}),
+                         ANO_RESOURCE_NON_CANONICAL),
           "non-canonical relative extent is rejected");
 
-    CHECK(ano::validate<Mesh>({encoded, encodedResult.size - 1})
-              == ANO_RESOURCE_NON_CANONICAL,
+    CHECK(ano::has_error(ano::validate<Mesh>(
+              {encoded, *encodedResult - 1}), ANO_RESOURCE_NON_CANONICAL),
           "truncated payload is rejected before exposure");
 
     bool rejectedEveryTruncation = true;
-    for (uint64_t size = 0; size < encodedResult.size; ++size)
+    for (uint64_t size = 0; size < *encodedResult; ++size)
         rejectedEveryTruncation = rejectedEveryTruncation
-            && ano::validate<Mesh>({encoded, size}) != ANO_RESOURCE_OK;
+            && !ano::validate<Mesh>({encoded, size});
     CHECK(rejectedEveryTruncation,
           "every truncated canonical mesh is rejected");
 }
@@ -336,20 +339,20 @@ static void test_material_canonical_artifact(void)
     const ano::EncodeResult result = ano::encode(
         ano::ArtifactSource<Material>{&material, {nullptr, 0}},
         {encoded, sizeof(encoded)});
-    CHECK(result.error == ANO_RESOURCE_OK && result.size != 0,
+    CHECK(result && *result != 0,
           "material has a canonical representation");
     const ano::DecodeResult<Material> decoded =
-        ano::decode<Material>({encoded, result.size});
-    CHECK(decoded.error == ANO_RESOURCE_OK
-          && decoded.view.value.metallicFactor == material.metallicFactor
-          && decoded.view.value.textures[
+        ano::decode<Material>({encoded, result ? *result : 0});
+    CHECK(decoded
+          && decoded->value.metallicFactor == material.metallicFactor
+          && decoded->value.textures[
                static_cast<size_t>(MaterialTextureSlot::baseColor)]
                .texture.id.value == 11,
           "material canonical values decode directly");
     AnoResourceDependency dependencies[2] = {};
     const ano::DependencyResult extracted = ano::dependencies<Material>(
-        {encoded, result.size}, dependencies, 2);
-    CHECK(extracted.error == ANO_RESOURCE_OK && extracted.count == 2
+        {encoded, result ? *result : 0}, dependencies, 2);
+    CHECK(extracted && *extracted == 2
           && dependencies[0].asset.value == 11
           && dependencies[1].asset.value == 12
           && dependencies[0].type.value == ano::resource_type_id<Texture>().value
@@ -358,14 +361,15 @@ static void test_material_canonical_artifact(void)
 
     Material invalid = material;
     invalid.alphaMode = static_cast<MaterialAlphaMode>(UINT8_MAX);
-    CHECK(ano::encode(ano::ArtifactSource<Material>{&invalid, {nullptr, 0}},
-                      {encoded, sizeof(encoded)}).error
-              == ANO_RESOURCE_NON_CANONICAL,
+    CHECK(ano::has_error(ano::encode(
+              ano::ArtifactSource<Material>{&invalid, {nullptr, 0}},
+              {encoded, sizeof(encoded)}), ANO_RESOURCE_NON_CANONICAL),
           "encoder rejects values outside a reflected enum");
 
     encoded[104] = UINT8_MAX;
-    CHECK(ano::validate<Material>({encoded, result.size})
-              == ANO_RESOURCE_NON_CANONICAL,
+    CHECK(ano::has_error(ano::validate<Material>(
+              {encoded, result ? *result : 0}),
+              ANO_RESOURCE_NON_CANONICAL),
           "decoder rejects values outside a reflected enum");
 }
 
@@ -376,52 +380,41 @@ static void test_generated_artifact_dispatch(void)
     const ano::EncodeResult result = ano::encode(
         ano::ArtifactSource<Material>{&material, {nullptr, 0}},
         {encoded, sizeof(encoded)});
-    CHECK(result.error == ANO_RESOURCE_OK,
+    CHECK(result.has_value(),
           "dispatch fixture encodes");
 
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    AnoResourceSchema schema = {};
-    CHECK(ano_resource_artifact_schema(materialType, &schema) == ANO_RESOURCE_OK
-          && schema.type.value == materialType.value
-          && schema.fixedSize == ano::fixed_wire_size<Material>()
-          && fingerprint_equal(schema.fingerprint,
+    const auto schema = ano_resource_artifact_schema(materialType);
+    CHECK(schema && schema->type.value == materialType.value
+          && schema->fixedSize == ano::fixed_wire_size<Material>()
+          && fingerprint_equal(schema->fingerprint,
                                ano::schema_fingerprint<Material>()),
           "reflected universe generates schema dispatch");
-    CHECK(ano_resource_artifact_schema(materialType, nullptr)
-              == ANO_RESOURCE_INVALID_ARGUMENT,
-          "schema dispatch rejects a null output");
-    CHECK(ano_resource_artifact_schema({UINT64_MAX}, &schema)
-              == ANO_RESOURCE_TYPE_MISMATCH,
+    CHECK(ano::has_error(ano_resource_artifact_schema({UINT64_MAX}),
+                         ANO_RESOURCE_TYPE_MISMATCH),
           "schema dispatch rejects an unknown reflected type");
 
-    const AnoResourceBytes bytes = {encoded, result.size};
-    CHECK(ano_resource_validate_artifact(materialType, bytes)
-              == ANO_RESOURCE_OK,
+    const AnoResourceBytes bytes = {encoded, result ? *result : 0};
+    CHECK(ano_resource_validate_artifact(materialType, bytes).has_value(),
           "reflected universe generates validation dispatch");
-    CHECK(ano_resource_validate_artifact({UINT64_MAX}, bytes)
-              == ANO_RESOURCE_TYPE_MISMATCH,
+    CHECK(ano::has_error(
+              ano_resource_validate_artifact({UINT64_MAX}, bytes),
+              ANO_RESOURCE_TYPE_MISMATCH),
           "validation dispatch rejects an unknown reflected type");
 
     AnoResourceDependency dependencies[2] = {};
-    uint64_t dependencyCount = 0;
-    CHECK(ano_resource_artifact_dependencies(
-              materialType, bytes, dependencies, 2, &dependencyCount)
-              == ANO_RESOURCE_OK
-          && dependencyCount == 2
+    const auto dependencyCount = ano_resource_artifact_dependencies(
+        materialType, bytes, dependencies, 2);
+    CHECK(dependencyCount && *dependencyCount == 2
           && dependencies[0].asset.value == 11
           && dependencies[1].asset.value == 12
           && dependencies[0].type.value == ano::resource_type_id<Texture>().value
           && dependencies[1].type.value == ano::resource_type_id<Texture>().value,
           "reflected universe generates dependency dispatch");
-    CHECK(ano_resource_artifact_dependencies(
-              materialType, bytes, nullptr, 0, &dependencyCount)
-              == ANO_RESOURCE_DEPENDENCY_CAPACITY
-          && dependencyCount == 2,
+    const auto measured = ano_resource_artifact_dependencies(
+        materialType, bytes, nullptr, 0);
+    CHECK(measured && *measured == 2,
           "dependency dispatch reports required capacity");
-    CHECK(ano_resource_artifact_dependencies(
-              materialType, bytes, dependencies, 2, nullptr)
-              == ANO_RESOURCE_INVALID_ARGUMENT,
-          "dependency dispatch rejects a null count output");
 }
 
 static void test_sha256(void)
@@ -432,19 +425,17 @@ static void test_sha256(void)
         0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
         0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
     };
-    AnoContentId content = {};
-    CHECK(ano_resource_content_id({abcBytes, sizeof(abcBytes)}, &content)
-              == ANO_RESOURCE_OK
-          && memcmp(content.bytes, expected, sizeof(expected)) == 0,
+    auto content = ano_resource_content_id({abcBytes, sizeof(abcBytes)});
+    CHECK(content
+          && memcmp(content->bytes, expected, sizeof(expected)) == 0,
           "content identity matches the published SHA-256 abc vector");
     bool runtimeMatchesConstexpr = true;
     for (uint32_t i = 0; i < 10; ++i) {
-        runtimeMatchesConstexpr = runtimeMatchesConstexpr
-            && ano_resource_content_id(
-                   {shaPattern.bytes, shaLengths[i]}, &content)
-                == ANO_RESOURCE_OK
-            && memcmp(content.bytes, shaCases.values[i].bytes,
-                      sizeof(content.bytes)) == 0;
+        content = ano_resource_content_id(
+            {shaPattern.bytes, shaLengths[i]});
+        runtimeMatchesConstexpr = runtimeMatchesConstexpr && content
+            && memcmp(content->bytes, shaCases.values[i].bytes,
+                      sizeof(content->bytes)) == 0;
     }
     CHECK(runtimeMatchesConstexpr,
           "runtime SHA-256 matches constexpr across block boundaries");

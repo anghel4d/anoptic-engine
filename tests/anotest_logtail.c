@@ -83,10 +83,10 @@ static bench_stats run_point(int producers, uint64_t *buf)
     for (int i = 0; i < producers; i++) {
         arg[i] = (prod_arg){ .id = i, .count = g_msgs };
         bench_lat_init(&arg[i].lat, buf + (size_t)i * (size_t)g_msgs, (size_t)g_msgs);
-        ano_thread_create(&th[i], NULL, producer, &arg[i]);
+        (void)ano_thread_create(&th[i], NULL, producer, &arg[i]);
     }
     for (int i = 0; i < producers; i++)
-        ano_thread_join(th[i], NULL);
+        (void)ano_thread_join(th[i], NULL);
     ano_log_flush();    // drain the tail so the next point starts empty
 
     bench_lat merged;   // adjacent slices, all full: one contiguous sample set
@@ -132,8 +132,8 @@ int main(int argc, char **argv)
     }
 
     scratch_make_dir(TAIL_DIR);
-    ano_log_init();
-    ano_log_output_dir(TAIL_DIR);
+    (void)ano_log_init();
+    (void)ano_log_output_dir(TAIL_DIR);
 
     for (int i = 0; i < 256; i++)   // warm caches + branch predictors
         ano_log(ANO_INFO, "warm %d", i);

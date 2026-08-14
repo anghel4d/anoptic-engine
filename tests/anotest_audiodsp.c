@@ -191,7 +191,7 @@ static bool render_case(const AnoAudioBusDesc *layout, uint32_t busCount,
         .buffers = buffers,
         .bufferCount = 3,
     };
-    return ano_audio_render_offline(&desc, out, frames);
+    return !!ano_audio_render_offline(&desc, out, frames);
 }
 
 static void test_effects(void)
@@ -413,7 +413,7 @@ static bool render_console(float *out, uint64_t frames)
         .buffers = buffers,
         .bufferCount = 1,
     };
-    return ano_audio_render_offline(&desc, out, frames);
+    return !!ano_audio_render_offline(&desc, out, frames);
 }
 
 static void test_console_golden(uint32_t soak)

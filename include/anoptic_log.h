@@ -15,6 +15,8 @@
 #pragma once
 
 #include <stdarg.h>
+#include <stdint.h>
+#include "anoptic_results.h"
 
 namespace ano {
 
@@ -29,30 +31,37 @@ namespace ano {
 /* Types */
 
 // Severity ascending.
-typedef enum {
+enum ano_loglevel_t {
     ANO_INFO = 0,
     ANO_WARN,
     ANO_ERROR,
     ANO_FATAL
-} ano_loglevel_t;
+};
 
-typedef enum {
+enum ano_logroute_t {
     ANO_ROUTE_DEFAULT = 0,           // use the level's configured route
     ANO_FILE = 1 << 0,              // output file (terminal when none open)
     ANO_TERM = 1 << 1,              // stdout, ERROR+ to stderr, ANSI on tty
     ANO_BOTH = ANO_FILE | ANO_TERM,
     ANO_NOW  = 1 << 2,              // sync: drain, write-through, fsync if file open
-} ano_logroute_t;
+};
+
+enum class LogError : uint8_t {
+    invalid_argument, not_initialized, out_of_memory,
+    io, platform,
+};
+
+template<class Value = void>
+using LogResult = Result<Value, LogError>;
 
 
 /* Lifecycle Functions */
 
-// 0 on success.
-int ano_log_init(void);
-int ano_log_cleanup(void);
+[[nodiscard]] LogResult<> ano_log_init(void);
+void ano_log_cleanup(void);
 
 // Scope-bound teardown, ANO_SCOPED_HEAP-style (anoptic_memory.h).
-void ano_log_scope_release(const int *initStatus);
+void ano_log_scope_release(const LogResult<> *initStatus);
 #define ANO_LOG_SCOPE_ATTR __attribute__((__cleanup__(ano_log_scope_release)))
 
 /* Entry Points */
@@ -69,8 +78,8 @@ int ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
 
 /* Configuration Functions */
 
-// Open dir/<session-stamp>_ano.log (stamp: ano_fs_session_stamp). 0 ok, -1 keeps previous.
-int ano_log_output_dir(const char* directoryPath);
+// Open dir/<session-stamp>_ano.log (stamp: ano_fs_session_stamp). Failure keeps previous.
+[[nodiscard]] LogResult<> ano_log_output_dir(const char* directoryPath);
 
 // Runtime severity gate.
 void ano_log_set_level(ano_loglevel_t min);

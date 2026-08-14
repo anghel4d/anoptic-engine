@@ -25,14 +25,15 @@ using namespace ano;
 
 // GetModuleFileNameA (not TCHAR). -A mangles paths outside the active codepage.
 // Debt: GetModuleFileNameW + UTF-8.
-ano_fspath ano::ano_fs_gamepath(void) {
+FilesystemResult<ano_fspath> ano::ano_fs_gamepath(void) {
 
     ano_fspath result = {0};
 
     char pathBuffer[MAX_PATH];
     DWORD len = GetModuleFileNameA(NULL, pathBuffer, MAX_PATH);
     if (len == 0 || len >= MAX_PATH)
-        return result; // failed or truncated
+        return failure(len == 0 ? FilesystemError::unavailable
+                                : FilesystemError::path_too_long);
 
     while (len > 0 && pathBuffer[len - 1] != '\\' && pathBuffer[len - 1] != '/')
         len--;
@@ -41,35 +42,37 @@ ano_fspath ano::ano_fs_gamepath(void) {
         len--;
 
     if (len >= MAXPATH)
-        return result;
+        return failure(FilesystemError::path_too_long);
     memcpy(result.str, pathBuffer, len);
     result.str[len] = '\0';
     result.length = (uint16_t)len;
     return result;
 }
 
-ano_fspath ano::ano_fs_userpath(void) {
+FilesystemResult<ano_fspath> ano::ano_fs_userpath(void) {
     ano_fspath result = {0};
 
     const char *appdata = getenv("APPDATA");
     if (appdata == NULL || appdata[0] == '\0')
-        return result;
+        return failure(FilesystemError::unavailable);
 
     int len = snprintf(result.str, MAXPATH, "%s\\" ANO_GAME_NAME, appdata);
     if (len < 0 || len >= MAXPATH)
-        return (ano_fspath){0};
+        return failure(FilesystemError::path_too_long);
 
     if (fs_mkdir(result.str) != 0)
-        return (ano_fspath){0};
+        return failure(FilesystemError::io);
 
     result.length = (uint16_t)len;
     return result;
 }
 
-bool ano::ano_fs_chdir_gamepath(void)
+FilesystemResult<> ano::ano_fs_chdir_gamepath(void)
 {
-    ano_fspath dir = ano_fs_gamepath();
-    return dir.length > 0 && _chdir(dir.str) == 0;
+    const auto dir = ano_fs_gamepath();
+    if (!dir)
+        return failure(dir.error());
+    return result_if(_chdir(dir->str) == 0, FilesystemError::io);
 }
 
 // 0 when path is a directory afterwards. EEXIST succeeds only if it is a real directory.
@@ -92,46 +95,47 @@ struct ano::ano_file {
 };
 
 // FILE_SHARE_DELETE: POSIX unlink parity while open.
-ano_file *ano::ano_fs_open_append(const char *path)
+FilesystemResult<ano_file*> ano::ano_fs_open_append(const char *path)
 {
     if (path == NULL)
-        return NULL;
+        return failure(FilesystemError::invalid_argument);
 
     HANDLE handle = CreateFileA(path, FILE_APPEND_DATA,
                                 FILE_SHARE_READ | FILE_SHARE_DELETE, NULL,
                                 OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (handle == INVALID_HANDLE_VALUE)
-        return NULL;
+        return failure(FilesystemError::io);
 
     ano_file *file = mi_malloc_tp(ano_file);
     if (file == NULL) {
         CloseHandle(handle);
-        return NULL;
+        return failure(FilesystemError::out_of_memory);
     }
     file->handle = handle;
     return file;
 }
 
 // Truncate with a throwaway CREATE_ALWAYS (needs GENERIC_WRITE), then reopen FILE_APPEND_DATA.
-ano_file *ano::ano_fs_open_trunc(const char *path)
+FilesystemResult<ano_file*> ano::ano_fs_open_trunc(const char *path)
 {
     if (path == NULL)
-        return NULL;
+        return failure(FilesystemError::invalid_argument);
 
     HANDLE trunc = CreateFileA(path, GENERIC_WRITE,
                                FILE_SHARE_READ | FILE_SHARE_DELETE, NULL,
                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (trunc == INVALID_HANDLE_VALUE)
-        return NULL;
+        return failure(FilesystemError::io);
     CloseHandle(trunc);
     return ano_fs_open_append(path);
 }
 
 // written == 0 on TRUE is error (not retry).
-int ano::ano_fs_write(ano_file *file, const void *data, size_t length)
+FilesystemResult<> ano::ano_fs_write(
+    ano_file *file, const void *data, size_t length)
 {
     if (file == NULL || (data == NULL && length != 0))
-        return -1;
+        return failure(FilesystemError::invalid_argument);
 
     const char *cursor = static_cast<const char *>(data);
     size_t remaining = length;
@@ -139,28 +143,28 @@ int ano::ano_fs_write(ano_file *file, const void *data, size_t length)
         DWORD chunk = remaining > 0x7fffffff ? 0x7fffffff : (DWORD)remaining; // DWORD cap; 2 GiB-1 per call
         DWORD written = 0;
         if (!WriteFile(file->handle, cursor, chunk, &written, NULL) || written == 0)
-            return -1;
+            return failure(FilesystemError::io);
         cursor += written;
         remaining -= written;
     }
-    return 0;
+    return {};
 }
 
-int ano::ano_fs_sync(ano_file *file)
+FilesystemResult<> ano::ano_fs_sync(ano_file *file)
 {
     if (file == NULL)
-        return -1;
-    return FlushFileBuffers(file->handle) ? 0 : -1;
+        return failure(FilesystemError::invalid_argument);
+    return result_if(FlushFileBuffers(file->handle), FilesystemError::io);
 }
 
 // Handle freed either way.
-int ano::ano_fs_close(ano_file *file)
+FilesystemResult<> ano::ano_fs_close(ano_file *file)
 {
     if (file == NULL)
-        return -1;
-    int rc = CloseHandle(file->handle) ? 0 : -1;
+        return failure(FilesystemError::invalid_argument);
+    const bool closed = CloseHandle(file->handle);
     mi_free(file);
-    return rc;
+    return result_if(closed, FilesystemError::io);
 }
 
 #endif // _WIN32

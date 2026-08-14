@@ -123,7 +123,7 @@ static size_t longest_line(const char *s)
 static void reset_output(void)
 {
     remove(LOG_PATH);
-    ano_log_output_dir(LOG_DIR);
+    (void)ano_log_output_dir(LOG_DIR);
 }
 
 
@@ -353,9 +353,9 @@ static int test_full_ring(void)
 
     anothread_t t[FULL_THREADS];
     for (intptr_t i = 0; i < FULL_THREADS; i++)
-        ano_thread_create(&t[i], NULL, full_flooder, (void *)i);
+        (void)ano_thread_create(&t[i], NULL, full_flooder, (void *)i);
     for (int i = 0; i < FULL_THREADS; i++)
-        ano_thread_join(t[i], NULL);
+        (void)ano_thread_join(t[i], NULL);
     ano_log_flush();
 
     // Saturation is observation (TSan may keep up). Invariant: no loss.
@@ -479,9 +479,9 @@ static int test_concurrent(void)
 
     anothread_t workers[THREAD_COUNT];
     for (intptr_t i = 0; i < THREAD_COUNT; i++)
-        CHECK(ano_thread_create(&workers[i], NULL, worker, (void *)i) == 0, "concurrent: thread create");
+        CHECK(ano_thread_create(&workers[i], NULL, worker, (void *)i), "concurrent: thread create");
     for (int i = 0; i < THREAD_COUNT; i++)
-        ano_thread_join(workers[i], NULL);
+        (void)ano_thread_join(workers[i], NULL);
     ano_log_flush();
 
     CHECK(atomic_load(&g_worker_fail) == 0, "concurrent: every enqueue accepted");
@@ -517,7 +517,7 @@ static void *c1_flusher(void *arg)
     (void)arg;
     while (!atomic_load(&g_stop)) {
         ano_log_flush();
-        ano_sleep(100);   // 0.1 ms between flushes
+        (void)ano_sleep(100);   // 0.1 ms between flushes
     }
     return NULL;
 }
@@ -530,15 +530,15 @@ static int test_contention_1_flush_vs_write(void)
 
     anothread_t prod[C1_PRODUCERS], flush[C1_FLUSHERS];
     for (int i = 0; i < C1_FLUSHERS; i++)
-        ano_thread_create(&flush[i], NULL, c1_flusher, NULL);
+        (void)ano_thread_create(&flush[i], NULL, c1_flusher, NULL);
     for (intptr_t i = 0; i < C1_PRODUCERS; i++)
-        ano_thread_create(&prod[i], NULL, c1_producer, (void *)i);
+        (void)ano_thread_create(&prod[i], NULL, c1_producer, (void *)i);
 
     for (int i = 0; i < C1_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
     atomic_store(&g_stop, true);
     for (int i = 0; i < C1_FLUSHERS; i++)
-        ano_thread_join(flush[i], NULL);
+        (void)ano_thread_join(flush[i], NULL);
     ano_log_flush();
 
     // IMMEDIATE never drops: every record survives flush interleaving.
@@ -580,9 +580,9 @@ static int test_contention_2_aba_bait(void)
 
     anothread_t t[C2_THREADS];
     for (intptr_t i = 0; i < C2_THREADS; i++)
-        ano_thread_create(&t[i], NULL, c2_worker, (void *)i);
+        (void)ano_thread_create(&t[i], NULL, c2_worker, (void *)i);
     for (int i = 0; i < C2_THREADS; i++)
-        ano_thread_join(t[i], NULL);
+        (void)ano_thread_join(t[i], NULL);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -619,7 +619,7 @@ static void *c3_thrasher(void *arg)
     for (int n = 0; n < C3_OPS; n++) {
         ano_log_set_level((n & 1) ? ANO_INFO : ANO_WARN);
         if (n % 50 == 0)
-            ano_log_output_dir((n % 100 == 0) ? LOG_DIR : LOG_DIR_ALT);   // swap the output file mid-write
+            (void)ano_log_output_dir((n % 100 == 0) ? LOG_DIR : LOG_DIR_ALT);   // swap the output file mid-write
     }
     return NULL;
 }
@@ -631,16 +631,16 @@ static int test_contention_3_config_thrash(void)
     make_dir(LOG_DIR_ALT);
 
     anothread_t prod[C3_PRODUCERS], thr;
-    ano_thread_create(&thr, NULL, c3_thrasher, NULL);
+    (void)ano_thread_create(&thr, NULL, c3_thrasher, NULL);
     for (intptr_t i = 0; i < C3_PRODUCERS; i++)
-        ano_thread_create(&prod[i], NULL, c3_producer, (void *)i);
+        (void)ano_thread_create(&prod[i], NULL, c3_producer, (void *)i);
     for (int i = 0; i < C3_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);
-    ano_thread_join(thr, NULL);
+        (void)ano_thread_join(prod[i], NULL);
+    (void)ano_thread_join(thr, NULL);
 
     // Restore config, confirm end-to-end.
     ano_log_set_level(ANO_INFO);
-    ano_log_output_dir(LOG_DIR);
+    (void)ano_log_output_dir(LOG_DIR);
     ano_log(ANO_INFO, "c3 survived: %s", "yes");
     ano_log_flush();
 
@@ -721,14 +721,14 @@ static int test_abuse_output_dir(void)
     ano_log(ANO_INFO, "before bad output_dir");
     ano_log_flush();
 
-    CHECK(ano_log_output_dir(NULL) == -1, "abuse-dir: NULL rejected");
-    CHECK(ano_log_output_dir("") == -1, "abuse-dir: empty rejected");
-    CHECK(ano_log_output_dir("no_such_dir_zzz/deeper/deepest") == -1, "abuse-dir: nonexistent rejected");
+    CHECK(!ano_log_output_dir(NULL), "abuse-dir: NULL rejected");
+    CHECK(!ano_log_output_dir(""), "abuse-dir: empty rejected");
+    CHECK(!ano_log_output_dir("no_such_dir_zzz/deeper/deepest"), "abuse-dir: nonexistent rejected");
 
     char longp[512];
     memset(longp, 'a', sizeof longp - 1);
     longp[sizeof longp - 1] = '\0';
-    CHECK(ano_log_output_dir(longp) == -1, "abuse-dir: overlong path rejected");
+    CHECK(!ano_log_output_dir(longp), "abuse-dir: overlong path rejected");
 
     // Rejected switches leave working output intact.
     ano_log(ANO_INFO, "after bad output_dir");
@@ -749,9 +749,9 @@ static int test_lifecycle_guard(const char *when)
     ano_log_write(ANO_WARN, ANO_NOW, __FILE_NAME__, __LINE__, "%s immediate (expected on stderr)", when);
     ano_log_set_level(ANO_WARN);
     ano_log_flush();
-    int dr = ano_log_output_dir("anywhere");
+    const auto dr = ano_log_output_dir("anywhere");
     CHECK(r == 0, "lifecycle: enqueue is a no-op (returns 0) when not live");
-    CHECK(dr == -1, "lifecycle: output_dir refused when not live");
+    CHECK(!dr, "lifecycle: output_dir refused when not live");
     return g_fail;
 }
 
@@ -849,7 +849,7 @@ static int test_visible_output(void)
     g_fail = 0;
     make_dir(VIS_DIR);
     remove(VIS_PATH);
-    ano_log_output_dir(VIS_DIR);
+    (void)ano_log_output_dir(VIS_DIR);
 
     ano_log(ANO_INFO, "=== Anoptic logger showcase: this file is left on disk for you to read ===");
     ano_debug_log(ANO_INFO, "a debug line (present only in a DEBUG build)");
@@ -864,7 +864,7 @@ static int test_visible_output(void)
         ano_log(ANO_INFO, "counted line %d of 5", i);
     ano_log_flush();
 
-    ano_log_output_dir(LOG_DIR);   // rebind off showcase file
+    (void)ano_log_output_dir(LOG_DIR);   // rebind off showcase file
 
     char *c = slurp(VIS_PATH, NULL);
     CHECK(c != NULL && strstr(c, "showcase"), "visible: showcase file written");
@@ -978,14 +978,14 @@ static int test_edge_output_dir_switch(void)
     remove(LOG_PATH_ALT);   // start both targets empty
 
     for (int round = 0; round < 4; round++) {
-        ano_log_output_dir(LOG_DIR);
+        (void)ano_log_output_dir(LOG_DIR);
         ano_log(ANO_INFO, "switch primary r%d", round);
         ano_log_flush();
-        ano_log_output_dir(LOG_DIR_ALT);
+        (void)ano_log_output_dir(LOG_DIR_ALT);
         ano_log(ANO_INFO, "switch alt r%d", round);
         ano_log_flush();
     }
-    ano_log_output_dir(LOG_DIR);
+    (void)ano_log_output_dir(LOG_DIR);
 
     char *p = slurp(LOG_PATH, NULL);
     char *a = slurp(LOG_PATH_ALT, NULL);
@@ -1050,7 +1050,7 @@ static void *heavy_flusher(void *arg)
     (void)arg;
     while (!atomic_load(&g_stop)) {
         ano_log_flush();
-        ano_sleep(50);
+        (void)ano_sleep(50);
     }
     return NULL;
 }
@@ -1065,14 +1065,14 @@ static int test_contention_heavy_mixed(void)
 
     anothread_t prod[HEAVY_PRODUCERS], flush[HEAVY_FLUSHERS];
     for (int i = 0; i < HEAVY_FLUSHERS; i++)
-        ano_thread_create(&flush[i], NULL, heavy_flusher, NULL);
+        (void)ano_thread_create(&flush[i], NULL, heavy_flusher, NULL);
     for (intptr_t i = 0; i < HEAVY_PRODUCERS; i++)
-        ano_thread_create(&prod[i], NULL, heavy_producer, (void *)i);
+        (void)ano_thread_create(&prod[i], NULL, heavy_producer, (void *)i);
     for (int i = 0; i < HEAVY_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
     atomic_store(&g_stop, true);
     for (int i = 0; i < HEAVY_FLUSHERS; i++)
-        ano_thread_join(flush[i], NULL);
+        (void)ano_thread_join(flush[i], NULL);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -1104,13 +1104,13 @@ static int test_contention_soak(void)
     atomic_store(&g_stop, false);
 
     anothread_t prod[SOAK_PRODUCERS], flush;
-    ano_thread_create(&flush, NULL, heavy_flusher, NULL);
+    (void)ano_thread_create(&flush, NULL, heavy_flusher, NULL);
     for (intptr_t i = 0; i < SOAK_PRODUCERS; i++)
-        ano_thread_create(&prod[i], NULL, soak_producer, (void *)i);
+        (void)ano_thread_create(&prod[i], NULL, soak_producer, (void *)i);
     for (int i = 0; i < SOAK_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
     atomic_store(&g_stop, true);
-    ano_thread_join(flush, NULL);
+    (void)ano_thread_join(flush, NULL);
     ano_log_flush();
 
     char *c = slurp(LOG_PATH, NULL);
@@ -1147,9 +1147,9 @@ static int test_premature_join_all(void)
 
     anothread_t prod[PJ_PRODUCERS];
     for (intptr_t i = 0; i < PJ_PRODUCERS; i++)
-        ano_thread_create(&prod[i], NULL, pj_producer, (void *)i);
+        (void)ano_thread_create(&prod[i], NULL, pj_producer, (void *)i);
     for (int i = 0; i < PJ_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);   // all producers dead before the first flush
+        (void)ano_thread_join(prod[i], NULL);   // all producers dead before the first flush
 
     ano_log_flush();   // first and only flush, on main, after every producer exited
 
@@ -1176,13 +1176,13 @@ static int test_premature_join_half(void)
 
     anothread_t prod[PJ_PRODUCERS];
     for (intptr_t i = 0; i < PJ_PRODUCERS; i++)
-        ano_thread_create(&prod[i], NULL, pj_producer, (void *)i);
+        (void)ano_thread_create(&prod[i], NULL, pj_producer, (void *)i);
 
     int half = PJ_PRODUCERS / 2;
     for (int i = 0; i < half; i++)
-        ano_thread_join(prod[i], NULL);   // first wave exits while the rest still produce
+        (void)ano_thread_join(prod[i], NULL);   // first wave exits while the rest still produce
     for (int i = half; i < PJ_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);   // second wave joined
+        (void)ano_thread_join(prod[i], NULL);   // second wave joined
 
     ano_log_flush();   // single drain after all producers exited
 
@@ -1215,7 +1215,7 @@ int main(void)
         failures += rc;
     }
 
-    if (ano_log_init() != 0) {
+    if (!ano_log_init()) {
         fprintf(stderr, "ano_log_init failed\n");
         return 1;
     }

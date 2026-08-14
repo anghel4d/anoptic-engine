@@ -508,23 +508,23 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
 // Module thread. Scratch for temps. Result blobs on caller heap.
 // Failures leave *out zeroed with no caller-heap block live.
 
-int ano::ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCount,
-                              mi_heap_t *heap, AnoFontBake *out)
+TextResult<AnoFontBake> ano::ano_text_font_bake_ranges(
+    const AnoBakeRange *ranges, uint32_t rangeCount, mi_heap_t *heap)
 {
-    if (ranges == NULL || rangeCount == 0 || heap == NULL || out == NULL)
-        return EINVAL;
-    memset(out, 0, sizeof *out);
+    if (ranges == NULL || rangeCount == 0 || heap == NULL)
+        return failure(TextError::invalid_argument);
+    AnoFontBake output{};
     uint64_t glyphCount = 0;
     for (uint32_t r = 0; r < rangeCount; r++)
     {
         if (ano_text_face(ranges[r].font) == NULL || ranges[r].first > ranges[r].last)
-            return EINVAL;
+            return failure(TextError::invalid_argument);
         if (r > 0 && ranges[r].first <= ranges[r - 1u].last)
-            return EINVAL; // sorted ascending + disjoint
+            return failure(TextError::invalid_argument);
         glyphCount += (uint64_t)ranges[r].last - ranges[r].first + 1u;
     }
     if (glyphCount > 4096u)
-        return EINVAL;
+        return failure(TextError::invalid_argument);
 
     // Caller-heap blobs inert until publish. Fail discharges them.
     AnoGlyphEntry *glyphs = NULL;
@@ -533,7 +533,7 @@ int ano::ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCou
     AnoKernPair   *kerns = NULL;
     uint32_t       kernCount = 0;
     StreamVec      stream = { 0 }; // scratch-backed
-    int            rc = ENOMEM;
+    TextError      error = TextError::out_of_memory;
     FT_Face       *slotFace = NULL;
     uint32_t      *slotCp = NULL;
     double        *slotInvUpem = NULL;
@@ -609,7 +609,7 @@ int ano::ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCou
             goto fail;
         if (err != FT_Err_Ok)
         {
-            rc = EIO;
+            error = TextError::io;
             goto fail;
         }
 
@@ -653,7 +653,7 @@ int ano::ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCou
                       slotInvUpem, &kerns, &kernCount);
     if (kerr != 0)
     {
-        rc = kerr;
+        error = kerr == ENOMEM ? TextError::out_of_memory : TextError::io;
         goto fail;
     }
 
@@ -668,19 +668,19 @@ int ano::ano_text_font_bake_ranges(const AnoBakeRange *ranges, uint32_t rangeCou
 
     metricsFace = static_cast<FT_Face>(ano_text_face(ranges[0].font));
     metricsInv = 1.0 / (double)metricsFace->units_per_EM;
-    out->points     = points;
-    out->pointCount = stream.count;
-    out->glyphs     = glyphs;
-    out->glyphCount = (uint32_t)glyphCount;
-    out->ranges     = map;
-    out->rangeCount = rangeCount;
-    out->kerns      = kerns;
-    out->kernCount  = kernCount;
-    out->ascender   = (float)((double)metricsFace->ascender * metricsInv);
-    out->descender  = (float)((double)metricsFace->descender * metricsInv);
-    out->lineHeight = (float)((double)metricsFace->height * metricsInv);
-    out->upem       = (uint32_t)metricsFace->units_per_EM;
-    return 0;
+    output.points     = points;
+    output.pointCount = stream.count;
+    output.glyphs     = glyphs;
+    output.glyphCount = (uint32_t)glyphCount;
+    output.ranges     = map;
+    output.rangeCount = rangeCount;
+    output.kerns      = kerns;
+    output.kernCount  = kernCount;
+    output.ascender   = (float)((double)metricsFace->ascender * metricsInv);
+    output.descender  = (float)((double)metricsFace->descender * metricsInv);
+    output.lineHeight = (float)((double)metricsFace->height * metricsInv);
+    output.upem       = (uint32_t)metricsFace->units_per_EM;
+    return output;
 
 // Unpublished caller-heap blobs. mi_free is null-safe. *out stays zeroed.
 fail:
@@ -688,12 +688,13 @@ fail:
     mi_free(map);
     mi_free(points);
     mi_free(kerns);
-    return rc;
+    return failure(error);
 }
 
-int ano::ano_text_font_bake(AnoFontId font, uint32_t firstCodepoint, uint32_t lastCodepoint,
-                       mi_heap_t *heap, AnoFontBake *out)
+TextResult<AnoFontBake> ano::ano_text_font_bake(
+    AnoFontId font, uint32_t firstCodepoint, uint32_t lastCodepoint,
+    mi_heap_t *heap)
 {
     AnoBakeRange range = { .font = font, .first = firstCodepoint, .last = lastCodepoint };
-    return ano_text_font_bake_ranges(&range, 1, heap, out);
+    return ano_text_font_bake_ranges(&range, 1, heap);
 }

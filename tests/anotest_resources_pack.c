@@ -35,25 +35,33 @@ struct TestArtifact final {
     AnoResourceBytes bytes;
 };
 
-static AnoResourceError cook_artifacts(const TestArtifact *items,
-                                       uint64_t count,
-                                       AnoResourceMutableBytes *pack)
+static ResourceResult<AnoResourceMutableBytes> cook_artifacts(
+    const TestArtifact *items, uint64_t count)
 {
-    AnoResourceCooker *cooker = nullptr;
-    AnoResourceError result = ano_resource_cooker_create(
-        {.firstDerivedAsset = {count + 2}}, &cooker);
-    for (uint64_t i = 0; i < count && result == ANO_RESOURCE_OK; ++i)
+    const auto created = ano_resource_cooker_create(
+        {.firstDerivedAsset = {count + 2}});
+    if (!created)
+        return failure(created.error());
+    AnoResourceCooker *cooker = *created;
+    ResourceResult<> result{};
+    for (uint64_t i = 0; i < count && result; ++i)
         result = ano_resource_cooker_add(
             cooker, items[i].asset, items[i].type, items[i].commitGroup,
             items[i].bytes);
     const AnoCookedRevision *revision = nullptr;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cook(cooker, &revision);
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_revision_export_pack(revision, pack);
+    if (result) {
+        const auto cooked = ano_resource_cook(cooker);
+        if (cooked)
+            revision = *cooked;
+        else
+            result = failure(cooked.error());
+    }
+    auto pack = result ? ano_resource_revision_export_pack(revision)
+                       : ResourceResult<AnoResourceMutableBytes>(
+                             failure(result.error()));
     ano_resource_revision_release(revision);
     ano_resource_cooker_destroy(cooker);
-    return result;
+    return pack;
 }
 
 static uint64_t read_u64(const uint8_t *bytes)
@@ -111,42 +119,41 @@ static void test_pack_round_trip(void)
         encode_texture(textureBytes, sizeof(textureBytes));
     const ano::EncodeResult material =
         encode_material(materialBytes, sizeof(materialBytes), {1});
-    CHECK(texture.error == ANO_RESOURCE_OK
-          && material.error == ANO_RESOURCE_OK,
+    CHECK(texture && material,
           "pack fixtures encode as canonical artifacts");
-    if (texture.error != ANO_RESOURCE_OK || material.error != ANO_RESOURCE_OK)
+    if (!texture || !material)
         return;
 
     constexpr AnoResourceTypeId textureType = ano::resource_type_id<Texture>();
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
     const TestArtifact scrambled[3] = {
-        {{3}, materialType, {2}, {materialBytes, material.size}},
-        {{1}, textureType, {1}, {textureBytes, texture.size}},
-        {{2}, textureType, {1}, {textureBytes, texture.size}},
+        {{3}, materialType, {2}, {materialBytes, *material}},
+        {{1}, textureType, {1}, {textureBytes, *texture}},
+        {{2}, textureType, {1}, {textureBytes, *texture}},
     };
-    AnoResourceMutableBytes first = {};
-    CHECK(cook_artifacts(scrambled, 3, &first) == ANO_RESOURCE_OK
-          && first.size > material.size + texture.size,
+    const auto firstResult = cook_artifacts(scrambled, 3);
+    CHECK(firstResult && firstResult->size > *material + *texture,
           "pack construction succeeds");
-    if (first.data == nullptr)
+    if (!firstResult)
         return;
+    AnoResourceMutableBytes first = *firstResult;
 
     const TestArtifact ordered[3] = {
-        {{1}, textureType, {1}, {textureBytes, texture.size}},
-        {{2}, textureType, {1}, {textureBytes, texture.size}},
-        {{3}, materialType, {2}, {materialBytes, material.size}},
+        {{1}, textureType, {1}, {textureBytes, *texture}},
+        {{2}, textureType, {1}, {textureBytes, *texture}},
+        {{3}, materialType, {2}, {materialBytes, *material}},
     };
-    AnoResourceMutableBytes second = {};
-    CHECK(cook_artifacts(ordered, 3, &second) == ANO_RESOURCE_OK
-          && second.size == first.size
+    const auto secondResult = cook_artifacts(ordered, 3);
+    AnoResourceMutableBytes second = secondResult.value_or(
+        AnoResourceMutableBytes{});
+    CHECK(second.size == first.size
           && memcmp(first.data, second.data, static_cast<size_t>(first.size))
               == 0,
           "pack bytes ignore input order and destination history");
 
-    AnoResourcePack *opened = nullptr;
-    CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
-              == ANO_RESOURCE_OK
-          && opened != nullptr,
+    auto openedResult = ano_resource_pack_open({first.data, first.size});
+    AnoResourcePack *opened = openedResult.value_or(nullptr);
+    CHECK(opened != nullptr,
           "authenticated pack opens");
     if (opened == nullptr) {
         ano_resource_exported_pack_release(second);
@@ -157,83 +164,57 @@ static void test_pack_round_trip(void)
     CHECK(ano_resource_manifest_entry_count(manifest) == 3,
           "pack exposes its completely validated manifest");
 
-    AnoManifestId manifestId = {};
-    CHECK(ano_resource_manifest_id(manifest, &manifestId) == ANO_RESOURCE_OK,
+    const auto manifestId = ano_resource_manifest_id(manifest);
+    CHECK(manifestId.has_value(),
           "manifest has a content identity");
     bool nonzeroId = false;
-    for (uint8_t byte : manifestId.bytes)
+    for (uint8_t byte : manifestId->bytes)
         nonzeroId = nonzeroId || byte != 0;
     CHECK(nonzeroId, "manifest identity is nonzero");
 
-    AnoResourceManifestEntry firstTexture = {};
-    AnoResourceManifestEntry secondTexture = {};
-    AnoResourceManifestEntry materialEntry = {};
-    CHECK(ano_resource_manifest_find(manifest, {1}, &firstTexture)
-              == ANO_RESOURCE_OK
-          && ano_resource_manifest_find(manifest, {2}, &secondTexture)
-              == ANO_RESOURCE_OK
-          && ano_resource_manifest_find(manifest, {3}, &materialEntry)
-              == ANO_RESOURCE_OK,
+    const auto firstTexture = ano_resource_manifest_find(manifest, {1});
+    const auto secondTexture = ano_resource_manifest_find(manifest, {2});
+    const auto materialEntry = ano_resource_manifest_find(manifest, {3});
+    CHECK(firstTexture && secondTexture && materialEntry,
           "dense asset IDs resolve directly");
-    AnoResourceBytes firstView = {};
-    AnoResourceBytes secondView = {};
-    CHECK(ano_resource_pack_view(opened, {1}, &firstView) == ANO_RESOURCE_OK
-          && ano_resource_pack_view(opened, {2}, &secondView)
-              == ANO_RESOURCE_OK
-          && firstView.size == secondView.size,
+    const auto firstView = ano_resource_pack_view(opened, {1});
+    const auto secondView = ano_resource_pack_view(opened, {2});
+    CHECK(firstView && secondView && firstView->size == secondView->size,
           "identical artifacts expose equal public ranges");
-    CHECK(firstView.size == texture.size
-          && memcmp(firstView.data, secondView.data,
-                    static_cast<size_t>(firstView.size)) == 0,
+    CHECK(firstView->size == *texture
+          && memcmp(firstView->data, secondView->data,
+                    static_cast<size_t>(firstView->size)) == 0,
           "equal public ranges retain identical canonical bytes");
-    CHECK(materialEntry.type.value == materialType.value
-          && materialEntry.dependencyCount == 1,
+    CHECK(materialEntry->type.value == materialType.value
+          && materialEntry->dependencyCount == 1,
           "material manifest entry retains its reflected type and dependency");
 
-    AnoResourceDependency dependency = {};
-    CHECK(ano_resource_manifest_dependency(manifest, {3}, 0, &dependency)
-              == ANO_RESOURCE_OK
-          && dependency.asset.value == 1
-          && dependency.type.value == textureType.value,
+    const auto dependency = ano_resource_manifest_dependency(manifest, {3}, 0);
+    CHECK(dependency && dependency->asset.value == 1
+          && dependency->type.value == textureType.value,
           "manifest retains the reflected AssetRef target type");
-    CHECK(ano_resource_manifest_find(manifest, {4}, &materialEntry)
-              == ANO_RESOURCE_NOT_FOUND,
+    CHECK(ano::has_error(ano_resource_manifest_find(manifest, {4}),
+                         ANO_RESOURCE_NOT_FOUND),
           "manifest rejects an absent stable ID");
 
-    uint64_t readSize = 0;
-    CHECK(ano_resource_pack_read(opened, {3}, {nullptr, 0}, &readSize)
-              == ANO_RESOURCE_BUFFER_TOO_SMALL
-          && readSize == material.size,
-          "range read reports the exact unpacked size");
-    uint8_t readback[1200] = {};
-    CHECK(ano_resource_pack_read(opened, {3},
-                                 {readback, sizeof(readback)}, &readSize)
-              == ANO_RESOURCE_OK
-          && readSize == material.size
-          && memcmp(readback, materialBytes,
-                    static_cast<size_t>(material.size)) == 0,
-          "range read authenticates and copies canonical artifact bytes");
-    const AnoCookedRevision *openedRevision = nullptr;
-    AnoResourceBytes revisionView{};
-    CHECK(ano_resource_pack_revision(opened, &openedRevision)
-              == ANO_RESOURCE_OK
-          && ano_resource_revision_resolve(
-                 openedRevision, {3}, materialType, &revisionView)
-              == ANO_RESOURCE_OK
-          && revisionView.size == material.size
-          && memcmp(revisionView.data, materialBytes,
-                    static_cast<size_t>(material.size)) == 0,
+    const auto openedRevisionResult = ano_resource_pack_revision(opened);
+    const AnoCookedRevision *openedRevision =
+        openedRevisionResult.value_or(nullptr);
+    auto revisionView = ano_resource_revision_resolve(
+        openedRevision, {3}, materialType);
+    CHECK(revisionView && revisionView->size == *material
+          && memcmp(revisionView->data, materialBytes,
+                    static_cast<size_t>(*material)) == 0,
           "pack opening constructs the runtime cooked revision");
     ano_resource_pack_close(opened);
     CHECK(ano_resource_revision_resolve(
-              openedRevision, {3}, materialType, &revisionView)
-              == ANO_RESOURCE_OK,
+              openedRevision, {3}, materialType).has_value(),
           "retained pack revision owns its authenticated backing volume");
     ano_resource_revision_release(openedRevision);
 
     first.data[64] ^= 1;
-    CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
-              == ANO_RESOURCE_BAD_MANIFEST,
+    CHECK(ano::has_error(ano_resource_pack_open({first.data, first.size}),
+                         ANO_RESOURCE_BAD_MANIFEST),
           "manifest authentication rejects modified bytes");
     first.data[64] ^= 1;
 
@@ -241,8 +222,8 @@ static void test_pack_round_trip(void)
     const uint64_t manifestSize = read_u64(first.data + 8);
     const uint64_t firstOffset = read_u64(first.data + 64 + manifestSize);
     first.data[payloadOffset + firstOffset] ^= 1;
-    CHECK(ano_resource_pack_open({first.data, first.size}, &opened)
-              == ANO_RESOURCE_BAD_PACK,
+    CHECK(ano::has_error(ano_resource_pack_open({first.data, first.size}),
+                         ANO_RESOURCE_BAD_PACK),
           "artifact authentication rejects modified payload bytes");
     first.data[payloadOffset + firstOffset] ^= 1;
     ano_resource_exported_pack_release(second);
@@ -259,29 +240,27 @@ static void test_pack_rejects_bad_closure(void)
         encode_material(materialBytes, sizeof(materialBytes), {1});
     constexpr AnoResourceTypeId textureType = ano::resource_type_id<Texture>();
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    AnoResourceMutableBytes pack = {};
     const TestArtifact wrongType = {
-        {1}, materialType, {1}, {textureBytes, texture.size},
+        {1}, materialType, {1}, {textureBytes, texture.value_or(0)},
     };
-    CHECK(cook_artifacts(&wrongType, 1, &pack)
-              == ANO_RESOURCE_NON_CANONICAL,
+    CHECK(ano::has_error(cook_artifacts(&wrongType, 1),
+                         ANO_RESOURCE_NON_CANONICAL),
           "builder rejects bytes presented as the wrong reflected type");
 
     const TestArtifact missingTypedTarget = {
-        {1}, materialType, {1}, {materialBytes, material.size},
+        {1}, materialType, {1}, {materialBytes, material.value_or(0)},
     };
-    CHECK(cook_artifacts(&missingTypedTarget, 1, &pack)
-              == ANO_RESOURCE_BAD_MANIFEST,
+    CHECK(ano::has_error(cook_artifacts(&missingTypedTarget, 1),
+                         ANO_RESOURCE_BAD_MANIFEST),
           "builder rejects a dependency bound to the wrong manifest type");
 
     const TestArtifact duplicate[2] = {
-        {{1}, textureType, {1}, {textureBytes, texture.size}},
-        {{1}, textureType, {1}, {textureBytes, texture.size}},
+        {{1}, textureType, {1}, {textureBytes, texture.value_or(0)}},
+        {{1}, textureType, {1}, {textureBytes, texture.value_or(0)}},
     };
-    CHECK(cook_artifacts(duplicate, 2, &pack)
-              == ANO_RESOURCE_DUPLICATE_ASSET,
+    CHECK(ano::has_error(cook_artifacts(duplicate, 2),
+                         ANO_RESOURCE_DUPLICATE_ASSET),
           "builder rejects duplicate stable asset IDs");
-    ano_resource_exported_pack_release(pack);
 }
 
 int main(void)

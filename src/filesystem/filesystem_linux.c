@@ -25,14 +25,14 @@ using namespace ano;
 /* Paths */
 
 // readlink("/proc/self/exe"). Hand-rolled split: dirname() is not portably reentrant.
-ano_fspath ano::ano_fs_gamepath(void)
+FilesystemResult<ano_fspath> ano::ano_fs_gamepath(void)
 {
     ano_fspath result = {0};
 
     char raw[PATH_MAX];
     ssize_t n = readlink("/proc/self/exe", raw, sizeof(raw) - 1);
     if (n <= 0)
-        return result;
+        return failure(FilesystemError::unavailable);
     raw[n] = '\0'; // readlink does not NUL-terminate
 
     size_t len = (size_t)n;
@@ -42,36 +42,38 @@ ano_fspath ano::ano_fs_gamepath(void)
         len--; // drop trailing slash, keep "/" for root
 
     if (len >= MAXPATH)
-        return result;
+        return failure(FilesystemError::path_too_long);
     memcpy(result.str, raw, len);
     result.str[len] = '\0';
     result.length = (uint16_t)len;
     return result;
 }
 
-ano_fspath ano::ano_fs_userpath(void)
+FilesystemResult<ano_fspath> ano::ano_fs_userpath(void)
 {
     ano_fspath result = {0};
 
     const char *home = getenv("HOME");
     if (home == NULL || home[0] == '\0')
-        return result;
+        return failure(FilesystemError::unavailable);
 
     int len = snprintf(result.str, MAXPATH, "%s/." ANO_GAME_NAME, home);
     if (len < 0 || len >= MAXPATH)
-        return (ano_fspath){0};
+        return failure(FilesystemError::path_too_long);
 
     if (fs_mkdir(result.str) != 0)
-        return (ano_fspath){0};
+        return failure(FilesystemError::io);
 
     result.length = (uint16_t)len;
     return result;
 }
 
-bool ano::ano_fs_chdir_gamepath(void)
+FilesystemResult<> ano::ano_fs_chdir_gamepath(void)
 {
-    ano_fspath dir = ano_fs_gamepath();
-    return dir.length > 0 && chdir(dir.str) == 0;
+    const auto dir = ano_fs_gamepath();
+    if (!dir)
+        return failure(dir.error());
+    return result_if(chdir(dir->str) == 0, FilesystemError::io);
 }
 
 // 0 when path is a directory afterwards. EEXIST succeeds only if it is a real directory.
@@ -93,47 +95,40 @@ struct ano::ano_file {
     int fd;
 };
 
-ano_file *ano::ano_fs_open_append(const char *path)
+static FilesystemResult<ano_file*> open_file(const char *path, int flags)
 {
     if (path == NULL)
-        return NULL;
+        return failure(FilesystemError::invalid_argument);
 
-    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    const int fd = open(path, flags, 0644);
     if (fd < 0)
-        return NULL;
+        return failure(FilesystemError::io);
 
     ano_file *file = mi_malloc_tp(ano_file);
     if (file == NULL) {
         close(fd);
-        return NULL;
+        return failure(FilesystemError::out_of_memory);
     }
     file->fd = fd;
     return file;
 }
 
-ano_file *ano::ano_fs_open_trunc(const char *path)
+FilesystemResult<ano_file*> ano::ano_fs_open_append(const char *path)
 {
-    if (path == NULL)
-        return NULL;
+    return open_file(path, O_WRONLY | O_CREAT | O_APPEND);
+}
 
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
-    if (fd < 0)
-        return NULL;
-
-    ano_file *file = mi_malloc_tp(ano_file);
-    if (file == NULL) {
-        close(fd);
-        return NULL;
-    }
-    file->fd = fd;
-    return file;
+FilesystemResult<ano_file*> ano::ano_fs_open_trunc(const char *path)
+{
+    return open_file(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND);
 }
 
 // 0 once all bytes are written. Loops past short writes and EINTR.
-int ano::ano_fs_write(ano_file *file, const void *data, size_t length)
+FilesystemResult<> ano::ano_fs_write(
+    ano_file *file, const void *data, size_t length)
 {
     if (file == NULL || (data == NULL && length != 0))
-        return -1;
+        return failure(FilesystemError::invalid_argument);
 
     const char *cursor = static_cast<const char *>(data);
     size_t remaining = length;
@@ -142,29 +137,29 @@ int ano::ano_fs_write(ano_file *file, const void *data, size_t length)
         if (written < 0) {
             if (errno == EINTR)
                 continue;
-            return -1;
+            return failure(FilesystemError::io);
         }
         cursor += written;
         remaining -= (size_t)written;
     }
-    return 0;
+    return {};
 }
 
-int ano::ano_fs_sync(ano_file *file)
+FilesystemResult<> ano::ano_fs_sync(ano_file *file)
 {
     if (file == NULL)
-        return -1;
-    return fsync(file->fd) == 0 ? 0 : -1;
+        return failure(FilesystemError::invalid_argument);
+    return result_if(fsync(file->fd) == 0, FilesystemError::io);
 }
 
 // Handle freed either way.
-int ano::ano_fs_close(ano_file *file)
+FilesystemResult<> ano::ano_fs_close(ano_file *file)
 {
     if (file == NULL)
-        return -1;
-    int rc = close(file->fd) == 0 ? 0 : -1;
+        return failure(FilesystemError::invalid_argument);
+    const bool closed = close(file->fd) == 0;
     mi_free(file);
-    return rc;
+    return result_if(closed, FilesystemError::io);
 }
 
 #endif // __linux__

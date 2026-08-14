@@ -105,12 +105,15 @@ static void radii_clamp(float radii[4], const float half[2])
         radii[i] *= f;
 }
 
-// Identity inv. Box from min/max. ANO_UI_REF_NONE when full.
-static uint32_t prim_push(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
-                          uint32_t kind, uint32_t flags, uint32_t paintRef, uint32_t clipRef)
+// Identity inv. Box from min/max.
+static UiResult<uint32_t> prim_push(
+    AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+    uint32_t kind, uint32_t flags, uint32_t paintRef, uint32_t clipRef)
 {
+    if (!b || !rectMin || !rectMax || !b->prims)
+        return failure(UiError::invalid_argument);
     if (b->primCount >= b->primCap)
-        return ANO_UI_REF_NONE;
+        return failure(UiError::capacity);
     uint32_t idx = b->primCount++;
     AnoUiPrim *p = &b->prims[idx];
     p->inv[0] = 1.0f; p->inv[1] = 0.0f; p->inv[2] = 0.0f; p->inv[3] = 1.0f;
@@ -132,14 +135,16 @@ static uint32_t prim_push(AnoUiBuilder *b, const float rectMin[2], const float r
     return idx;
 }
 
-uint32_t ano::ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], const float color[4], float borderWidth,
                       uint32_t paintRef, uint32_t clipRef, uint32_t flags)
 {
-    uint32_t idx = prim_push(b, rectMin, rectMax, ANO_UI_RRECT, flags, paintRef, clipRef);
-    if (idx == ANO_UI_REF_NONE)
+    if (!color)
+        return failure(UiError::invalid_argument);
+    auto idx = prim_push(b, rectMin, rectMax, ANO_UI_RRECT, flags, paintRef, clipRef);
+    if (!idx)
         return idx;
-    AnoUiPrim *p = &b->prims[idx];
+    AnoUiPrim *p = &b->prims[*idx];
     for (int i = 0; i < 4; i++) {
         p->radii[i] = radii ? radii[i] : 0.0f;
         p->color[i] = color[i];
@@ -149,14 +154,16 @@ uint32_t ano::ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float 
     return idx;
 }
 
-uint32_t ano::ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                        float cornerRadius, float sigma, const float color[4],
                        uint32_t clipRef, uint32_t flags)
 {
-    uint32_t idx = prim_push(b, rectMin, rectMax, ANO_UI_SHADOW, flags, ANO_UI_REF_NONE, clipRef);
-    if (idx == ANO_UI_REF_NONE)
+    if (!color)
+        return failure(UiError::invalid_argument);
+    auto idx = prim_push(b, rectMin, rectMax, ANO_UI_SHADOW, flags, ANO_UI_REF_NONE, clipRef);
+    if (!idx)
         return idx;
-    AnoUiPrim *p = &b->prims[idx];
+    AnoUiPrim *p = &b->prims[*idx];
     float r[4] = { cornerRadius, cornerRadius, cornerRadius, cornerRadius };
     radii_clamp(r, p->halfExt);
     for (int i = 0; i < 4; i++) {
@@ -167,14 +174,16 @@ uint32_t ano::ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float
     return idx;
 }
 
-uint32_t ano::ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], uint32_t texIndex, float lod,
                       const float tint[4], uint32_t clipRef, uint32_t flags)
 {
-    uint32_t idx = prim_push(b, rectMin, rectMax, ANO_UI_IMAGE, flags, ANO_UI_REF_NONE, clipRef);
-    if (idx == ANO_UI_REF_NONE)
+    if (!tint)
+        return failure(UiError::invalid_argument);
+    auto idx = prim_push(b, rectMin, rectMax, ANO_UI_IMAGE, flags, ANO_UI_REF_NONE, clipRef);
+    if (!idx)
         return idx;
-    AnoUiPrim *p = &b->prims[idx];
+    AnoUiPrim *p = &b->prims[*idx];
     for (int i = 0; i < 4; i++) {
         p->radii[i] = radii ? radii[i] : 0.0f;
         p->color[i] = tint[i];
@@ -185,14 +194,16 @@ uint32_t ano::ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float 
     return idx;
 }
 
-uint32_t ano::ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
+UiResult<uint32_t> ano::ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                      uint32_t curveOffset, uint32_t curveCount, const float color[4],
                      uint32_t paintRef, uint32_t clipRef, uint32_t flags)
 {
-    uint32_t idx = prim_push(b, bboxMin, bboxMax, ANO_UI_PATH, flags, paintRef, clipRef);
-    if (idx == ANO_UI_REF_NONE)
+    if (!color)
+        return failure(UiError::invalid_argument);
+    auto idx = prim_push(b, bboxMin, bboxMax, ANO_UI_PATH, flags, paintRef, clipRef);
+    if (!idx)
         return idx;
-    AnoUiPrim *p = &b->prims[idx];
+    AnoUiPrim *p = &b->prims[*idx];
     for (int i = 0; i < 4; i++)
         p->color[i] = color[i];
     p->aux0 = curveOffset;
@@ -200,14 +211,16 @@ uint32_t ano::ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float b
     return idx;
 }
 
-uint32_t ano::ano_ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
+UiResult<uint32_t> ano::ano_ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                        uint32_t first, uint32_t count, const float tint[4],
                        uint32_t clipRef, uint32_t flags)
 {
-    uint32_t idx = prim_push(b, bboxMin, bboxMax, ANO_UI_GLYPHS, flags, ANO_UI_REF_NONE, clipRef);
-    if (idx == ANO_UI_REF_NONE)
+    if (!tint)
+        return failure(UiError::invalid_argument);
+    auto idx = prim_push(b, bboxMin, bboxMax, ANO_UI_GLYPHS, flags, ANO_UI_REF_NONE, clipRef);
+    if (!idx)
         return idx;
-    AnoUiPrim *p = &b->prims[idx];
+    AnoUiPrim *p = &b->prims[*idx];
     for (int i = 0; i < 4; i++)
         p->color[i] = tint[i];
     p->aux0 = first;
@@ -220,12 +233,15 @@ uint32_t ano::ano_ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float
 
 // Copy stops, optionally sort by t, write paint header. NONE if full or stopCount 0.
 template<bool SortStops>
-static uint32_t paint_push(AnoUiBuilder *b, uint32_t kind, const float xform[6],
-                           const AnoUiStop *stops, uint32_t stopCount)
+static UiResult<uint32_t> paint_push(
+    AnoUiBuilder *b, uint32_t kind, const float xform[6],
+    const AnoUiStop *stops, uint32_t stopCount)
 {
+    if (!b || !xform || !stops || !b->paints || !b->stops || stopCount == 0)
+        return failure(UiError::invalid_argument);
     // Free-slot subtraction, never a sum: b->stopCount + stopCount wraps for huge stopCount.
-    if (stopCount == 0 || b->paintCount >= b->paintCap || stopCount > b->stopCap - b->stopCount)
-        return ANO_UI_REF_NONE;
+    if (b->paintCount >= b->paintCap || stopCount > b->stopCap - b->stopCount)
+        return failure(UiError::capacity);
     uint32_t stopFirst = b->stopCount;
     for (uint32_t i = 0; i < stopCount; i++)
         b->stops[stopFirst + i] = stops[i];
@@ -254,9 +270,12 @@ static uint32_t paint_push(AnoUiBuilder *b, uint32_t kind, const float xform[6],
 }
 
 template<bool SortStops>
-static uint32_t paint_linear_push(AnoUiBuilder *b, const float p0[2], const float p1[2],
-                                  const AnoUiStop *stops, uint32_t stopCount)
+static UiResult<uint32_t> paint_linear_push(
+    AnoUiBuilder *b, const float p0[2], const float p1[2],
+    const AnoUiStop *stops, uint32_t stopCount)
 {
+    if (!p0 || !p1)
+        return failure(UiError::invalid_argument);
     float dx = p1[0] - p0[0], dy = p1[1] - p0[1];
     float l2 = dx * dx + dy * dy;
     float inv = l2 > 0.0f ? 1.0f / l2 : 0.0f;
@@ -265,31 +284,35 @@ static uint32_t paint_linear_push(AnoUiBuilder *b, const float p0[2], const floa
 }
 
 // t = dot(p-p0,d)/|d|^2. Zero-length axis -> t = 0.
-uint32_t ano::ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
+UiResult<uint32_t> ano::ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
                              const AnoUiStop *stops, uint32_t stopCount)
 {
     return paint_linear_push<true>(b, p0, p1, stops, stopCount);
 }
 
-uint32_t ano::ano_ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
+UiResult<uint32_t> ano::ano_ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
                                     const AnoUiStop *stops, uint32_t stopCount)
 {
     return paint_linear_push<false>(b, p0, p1, stops, stopCount);
 }
 
 // t = |p-center|/radius. radius <= 0 -> t = 0.
-uint32_t ano::ano_ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
+UiResult<uint32_t> ano::ano_ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
                              const AnoUiStop *stops, uint32_t stopCount)
 {
+    if (!center)
+        return failure(UiError::invalid_argument);
     float inv = radius > 0.0f ? 1.0f / radius : 0.0f;
     float xform[6] = { inv, 0.0f, -center[0] * inv, 0.0f, inv, -center[1] * inv };
     return paint_push<true>(b, ANO_UI_GRAD_RADIAL, xform, stops, stopCount);
 }
 
 // xform rotates startAngle onto g.x.
-uint32_t ano::ano_ui_paint_conic(AnoUiBuilder *b, const float center[2], float startAngle,
+UiResult<uint32_t> ano::ano_ui_paint_conic(AnoUiBuilder *b, const float center[2], float startAngle,
                             const AnoUiStop *stops, uint32_t stopCount)
 {
+    if (!center)
+        return failure(UiError::invalid_argument);
     float c = cosf(startAngle), s = sinf(startAngle);
     float xform[6] = { c, s, -(c * center[0] + s * center[1]),
                        -s, c, -(-s * center[0] + c * center[1]) };
@@ -299,11 +322,13 @@ uint32_t ano::ano_ui_paint_conic(AnoUiBuilder *b, const float center[2], float s
 
 /* Clips */
 
-uint32_t ano::ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                      const float rrMin[2], const float rrMax[2], const float rrRadii[4])
 {
+    if (!b || !rectMin || !rectMax || !b->clips)
+        return failure(UiError::invalid_argument);
     if (b->clipCount >= b->clipCap)
-        return ANO_UI_REF_NONE;
+        return failure(UiError::capacity);
     uint32_t idx = b->clipCount++;
     AnoUiClip *c = &b->clips[idx];
     c->rect[0] = rectMin[0]; c->rect[1] = rectMin[1];

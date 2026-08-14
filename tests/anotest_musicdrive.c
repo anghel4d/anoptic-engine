@@ -97,8 +97,8 @@ static void render_driven_from(const AnoMusicConfig *cfg, const AnoAudioOfflineD
 {
     AnoSynthDesc sd = { .sampleRate = RATE, .maxVoices = 64 };
     memset(d, 0, sizeof *d);
-    d->synth = ano_synth_create(&sd);
-    d->music = ano_music_create(cfg, 42);
+    d->synth = ano_synth_create(&sd).value_or(nullptr);
+    d->music = ano_music_create(cfg, 42).value_or(nullptr);
     for (uint32_t b = 0; b < startBar; ++b) { // off-thread seek half
         static AnoMusicBar skip;
         ano_music_advance_bar(d->music, &skip);
@@ -141,7 +141,7 @@ int main(void)
     // --- batch reference capture ---
     static AnoMusicBar feed[SCORE_BARS];
     uint32_t totalEvents = 0, totalTempo = 0;
-    AnoMusicEngine *capture = ano_music_create(&cfg, 42);
+    AnoMusicEngine *capture = ano_music_create(&cfg, 42).value_or(nullptr);
     CHECK(capture != NULL, "music engine");
     for (uint32_t b = 0; b < SCORE_BARS; ++b) {
         ano_music_advance_bar(capture, &feed[b]);
@@ -152,7 +152,7 @@ int main(void)
     CHECK(totalEvents > 200u, "the piece has substance");
 
     // --- A: batch path (whole score idle) ---
-    AnoSynth *batch = ano_synth_create(&sd);
+    AnoSynth *batch = ano_synth_create(&sd).value_or(nullptr);
     CHECK(ano_synth_score_begin(batch, BQ, SCORE_BARS, totalTempo, totalEvents),
           "score_begin");
     for (uint32_t b = 0; b < SCORE_BARS; ++b)
@@ -338,7 +338,7 @@ int main(void)
         // Producer: fast-forward + snapshot.
         static AnoMusicBar skip;
         void *snap = malloc(ano_music_snapshot_size());
-        AnoMusicEngine *off = ano_music_create(&cfg, 42);
+        AnoMusicEngine *off = ano_music_create(&cfg, 42).value_or(nullptr);
         for (uint32_t b = 0; b < SEEK_TO; ++b)
             ano_music_advance_bar(off, &skip);
         CHECK(ano_music_snapshot(off, snap, ano_music_snapshot_size()), "snapshot");
@@ -408,7 +408,7 @@ int main(void)
             calloc((size_t)frames * ANO_AUDIO_CHANNELS, sizeof *bufH));
         AnoMusicConfig waltz = cfg;
         waltz.meter = (AnoMeter){ 3, 4 };
-        AnoMusicEngine *w = ano_music_create(&waltz, 42);
+        AnoMusicEngine *w = ano_music_create(&waltz, 42).value_or(nullptr);
         void *snapW = malloc(ano_music_snapshot_size());
         CHECK(ano_music_snapshot(w, snapW, ano_music_snapshot_size()), "waltz snapshot");
         AnoAudioOfflineEvent seekWaltz[] = {

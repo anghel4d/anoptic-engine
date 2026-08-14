@@ -12,6 +12,8 @@
 
 #include <meta>
 
+#include "anoptic_results.h"
+
 #if !defined(__cpp_impl_reflection) || __cpp_impl_reflection < 202506L
 #error "anogltf.h requires standardized C++26 reflection (P2996R13 or newer)"
 #endif
@@ -60,6 +62,14 @@ enum class AnoGltfResult : uint8_t {
     limit_exceeded,
     unsupported_required_extension,
 };
+
+template<class Value = void>
+using GltfResult = Result<Value, AnoGltfResult>;
+
+constexpr GltfResult<> gltf_status(AnoGltfResult status) noexcept
+{
+    return result_if(status == AnoGltfResult::success, status);
+}
 
 enum class AnoGltfFileType : uint8_t {
     invalid,
@@ -755,8 +765,9 @@ struct AnoGltfRootExtensionsKnown final {
 
 using AnoGltfAllocateFn = void* (*)(void* user, size_t bytes);
 using AnoGltfFreeFn = void (*)(void* user, void* allocation);
-using AnoGltfFileSizeFn = AnoGltfResult (*)(void* user, const char* path, size_t* bytes);
-using AnoGltfFileReadFn = AnoGltfResult (*)(void* user, const char* path, void* destination, size_t bytes);
+using AnoGltfFileSizeFn = GltfResult<size_t> (*)(void* user, const char* path);
+using AnoGltfFileReadFn = GltfResult<> (*)(
+    void* user, const char* path, void* destination, size_t bytes);
 
 struct AnoGltfOptions final {
     AnoGltfAllocateFn allocate = nullptr;
@@ -867,52 +878,52 @@ static_assert(std::is_same_v<
     decltype(ano_gltf_index_of<AnoGltfAnimationChannel>(nullptr, 0, nullptr)),
     AnoGltfAnimationChannelIndex>);
 
-[[nodiscard]] AnoGltfResult ano_gltf_parse_memory(
-    const void* bytes, size_t byteCount, const AnoGltfOptions* options, AnoGltfData** outData);
-[[nodiscard]] AnoGltfResult ano_gltf_parse_file(
-    const char* path, const AnoGltfOptions* options, AnoGltfData** outData);
-[[nodiscard]] AnoGltfResult ano_gltf_load_buffers(
+[[nodiscard]] GltfResult<AnoGltfData*> ano_gltf_parse_memory(
+    const void* bytes, size_t byteCount, const AnoGltfOptions* options);
+[[nodiscard]] GltfResult<AnoGltfData*> ano_gltf_parse_file(
+    const char* path, const AnoGltfOptions* options);
+[[nodiscard]] GltfResult<> ano_gltf_load_buffers(
     AnoGltfData* data, const char* gltfPath, const AnoGltfOptions* options);
-[[nodiscard]] AnoGltfResult ano_gltf_load_buffer_base64(
-    const AnoGltfOptions* options, size_t byteCount, const char* base64, void** outData);
-[[nodiscard]] AnoGltfResult ano_gltf_bind_buffer(
+[[nodiscard]] GltfResult<void*> ano_gltf_load_buffer_base64(
+    const AnoGltfOptions* options, size_t byteCount, const char* base64);
+[[nodiscard]] GltfResult<> ano_gltf_bind_buffer(
     AnoGltfData* data, AnoGltfBufferIndex buffer, const void* bytes, size_t byteCount);
-[[nodiscard]] AnoGltfResult ano_gltf_bind_buffer_view(
+[[nodiscard]] GltfResult<> ano_gltf_bind_buffer_view(
     AnoGltfData* data, AnoGltfBufferViewIndex view, const void* bytes, size_t byteCount);
-[[nodiscard]] AnoGltfResult ano_gltf_validate_loaded_data(const AnoGltfData* data);
+[[nodiscard]] GltfResult<> ano_gltf_validate_loaded_data(const AnoGltfData* data);
 void ano_gltf_free(AnoGltfData* data);
 [[nodiscard]] const char* ano_gltf_result_string(AnoGltfResult result);
 
 [[nodiscard]] size_t ano_gltf_decode_string(char* string);
 [[nodiscard]] size_t ano_gltf_decode_uri(char* uri);
-[[nodiscard]] AnoGltfResult ano_gltf_copy_extras_json(
-    const AnoGltfExtras* extras, char* destination, size_t* destinationSize);
+[[nodiscard]] GltfResult<size_t> ano_gltf_copy_extras_json(
+    const AnoGltfExtras* extras, char* destination, size_t capacity);
 [[nodiscard]] uint32_t ano_gltf_component_count(AnoGltfAccessorType type);
 [[nodiscard]] uint32_t ano_gltf_component_size(AnoGltfComponentType type);
 [[nodiscard]] uint32_t ano_gltf_element_size(
     AnoGltfAccessorType type, AnoGltfComponentType componentType);
-[[nodiscard]] const uint8_t* ano_gltf_buffer_view_data(
+[[nodiscard]] GltfResult<const uint8_t*> ano_gltf_buffer_view_data(
     const AnoGltfData* data, AnoGltfBufferViewIndex view);
 [[nodiscard]] const AnoGltfAccessor* ano_gltf_find_accessor(
     const AnoGltfData* data, const AnoGltfPrimitive* primitive,
     AnoGltfAttributeType type, int32_t set);
-[[nodiscard]] bool ano_gltf_accessor_read_float(
+[[nodiscard]] GltfResult<> ano_gltf_accessor_read_float(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, float* output, size_t outputCount);
-[[nodiscard]] bool ano_gltf_accessor_read_uint(
+[[nodiscard]] GltfResult<> ano_gltf_accessor_read_uint(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, uint32_t* output, size_t outputCount);
-[[nodiscard]] bool ano_gltf_accessor_read_index(
+[[nodiscard]] GltfResult<uint32_t> ano_gltf_accessor_read_index(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
-    uint64_t index, uint32_t* output);
-[[nodiscard]] uint64_t ano_gltf_accessor_unpack_floats(
+    uint64_t index);
+[[nodiscard]] GltfResult<uint64_t> ano_gltf_accessor_unpack_floats(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     float* output, uint64_t outputCount);
-[[nodiscard]] uint64_t ano_gltf_accessor_unpack_indices(
+[[nodiscard]] GltfResult<uint64_t> ano_gltf_accessor_unpack_indices(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     void* output, size_t outputComponentSize, uint64_t outputCount);
 void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16]);
-[[nodiscard]] bool ano_gltf_node_transform_world(
+[[nodiscard]] GltfResult<> ano_gltf_node_transform_world(
     const AnoGltfData* data, AnoGltfNodeIndex node, float output[16]);
 
 } // namespace ano
@@ -1102,32 +1113,32 @@ static void default_free(void*, void* allocation)
     free(allocation);
 }
 
-static AnoGltfResult default_file_size(void*, const char* path, size_t* bytes)
+static GltfResult<size_t> default_file_size(void*, const char* path)
 {
-    if (!path || !bytes)
-        return AnoGltfResult::invalid_options;
+    if (!path)
+        return failure(AnoGltfResult::invalid_options);
     FILE* file = fopen(path, "rb");
     if (!file)
-        return AnoGltfResult::file_not_found;
+        return failure(AnoGltfResult::file_not_found);
     const bool sought = fseek(file, 0, SEEK_END) == 0;
     const long length = sought ? ftell(file) : -1;
     const bool closed = fclose(file) == 0;
     if (length < 0 || !closed)
-        return AnoGltfResult::io_error;
-    *bytes = static_cast<size_t>(length);
-    return AnoGltfResult::success;
+        return failure(AnoGltfResult::io_error);
+    return static_cast<size_t>(length);
 }
 
-static AnoGltfResult default_file_read(void*, const char* path, void* destination, size_t bytes)
+static GltfResult<> default_file_read(
+    void*, const char* path, void* destination, size_t bytes)
 {
     if (!path || (!destination && bytes != 0))
-        return AnoGltfResult::invalid_options;
+        return failure(AnoGltfResult::invalid_options);
     FILE* file = fopen(path, "rb");
     if (!file)
-        return AnoGltfResult::file_not_found;
+        return failure(AnoGltfResult::file_not_found);
     const bool read = bytes == 0 || fread(destination, 1, bytes, file) == bytes;
     const bool closed = fclose(file) == 0;
-    return read && closed ? AnoGltfResult::success : AnoGltfResult::io_error;
+    return result_if(read && closed, AnoGltfResult::io_error);
 }
 
 static AnoGltfResult resolve_options(const AnoGltfOptions* source, AnoGltfOptions* output)
@@ -3899,17 +3910,18 @@ static AnoGltfResult parse_file(
         return optionsResult;
     if (!path || !options.fileSize || !options.fileRead)
         return AnoGltfResult::invalid_options;
-    size_t byteCount = 0;
-    AnoGltfResult result = options.fileSize(options.fileUser, path, &byteCount);
-    if (result != AnoGltfResult::success)
-        return result;
+    const auto measured = options.fileSize(options.fileUser, path);
+    if (!measured)
+        return measured.error();
+    const size_t byteCount = *measured;
     if (byteCount == 0)
         return AnoGltfResult::data_too_short;
     void* bytes = options.allocate(options.user, byteCount);
     if (!bytes)
         return AnoGltfResult::out_of_memory;
-    result = options.fileRead(options.fileUser, path, bytes, byteCount);
-    if (result == AnoGltfResult::success)
+    const auto read = options.fileRead(options.fileUser, path, bytes, byteCount);
+    AnoGltfResult result = read ? AnoGltfResult::success : read.error();
+    if (read)
         result = parse(bytes, byteCount, &options, outData);
     if (result != AnoGltfResult::success) {
         options.free(options.user, bytes);
@@ -4007,9 +4019,11 @@ static AnoGltfResult load_buffers(
             const size_t decodedLength = decode_uri(pathScratch + prefixLength);
             if (memchr(pathScratch + prefixLength, '\0', decodedLength))
                 result = AnoGltfResult::invalid_gltf;
-            else
-                result = options.fileRead(
+            else {
+                const auto read = options.fileRead(
                     options.fileUser, pathScratch, destination, byteLength);
+                result = read ? AnoGltfResult::success : read.error();
+            }
         }
         if (result == AnoGltfResult::success) {
             buffer.data = destination;
@@ -4538,75 +4552,81 @@ static bool node_transform_world(
 
 } // namespace anogltf_detail
 
-AnoGltfResult ano_gltf_parse_memory(
-    const void* bytes, size_t byteCount, const AnoGltfOptions* options, AnoGltfData** outData)
+GltfResult<AnoGltfData*> ano_gltf_parse_memory(
+    const void* bytes, size_t byteCount, const AnoGltfOptions* options)
 {
-    return anogltf_detail::parse(bytes, byteCount, options, outData);
+    AnoGltfData* data = nullptr;
+    const AnoGltfResult status =
+        anogltf_detail::parse(bytes, byteCount, options, &data);
+    return result_if(status == AnoGltfResult::success, data, status);
 }
 
-AnoGltfResult ano_gltf_parse_file(
-    const char* path, const AnoGltfOptions* options, AnoGltfData** outData)
+GltfResult<AnoGltfData*> ano_gltf_parse_file(
+    const char* path, const AnoGltfOptions* options)
 {
-    return anogltf_detail::parse_file(path, options, outData);
+    AnoGltfData* data = nullptr;
+    const AnoGltfResult status =
+        anogltf_detail::parse_file(path, options, &data);
+    return result_if(status == AnoGltfResult::success, data, status);
 }
 
-AnoGltfResult ano_gltf_load_buffers(
+GltfResult<> ano_gltf_load_buffers(
     AnoGltfData* data, const char* gltfPath, const AnoGltfOptions* options)
 {
-    return anogltf_detail::load_buffers(data, gltfPath, options);
+    return gltf_status(anogltf_detail::load_buffers(data, gltfPath, options));
 }
 
-AnoGltfResult ano_gltf_load_buffer_base64(
-    const AnoGltfOptions* sourceOptions, size_t byteCount, const char* base64, void** outData)
+GltfResult<void*> ano_gltf_load_buffer_base64(
+    const AnoGltfOptions* sourceOptions, size_t byteCount, const char* base64)
 {
-    if (!outData || (!base64 && byteCount != 0))
-        return AnoGltfResult::invalid_options;
-    *outData = nullptr;
+    if (!base64 && byteCount != 0)
+        return failure(AnoGltfResult::invalid_options);
     AnoGltfOptions options{};
     const AnoGltfResult optionsResult = anogltf_detail::resolve_options(sourceOptions, &options);
     if (optionsResult != AnoGltfResult::success)
-        return optionsResult;
+        return failure(optionsResult);
     size_t roundedBytes = 0;
     size_t encodedLimit = 0;
     if (!anogltf_detail::checked_add(byteCount, 2, &roundedBytes)
         || !anogltf_detail::checked_mul(roundedBytes / 3, 4, &encodedLimit))
-        return AnoGltfResult::limit_exceeded;
+        return failure(AnoGltfResult::limit_exceeded);
     size_t encodedLength = 0;
     if (base64) {
         while (encodedLength <= encodedLimit && base64[encodedLength] != '\0')
             ++encodedLength;
         if (encodedLength > encodedLimit)
-            return AnoGltfResult::io_error;
+            return failure(AnoGltfResult::io_error);
     }
     const size_t allocationSize = byteCount ? byteCount : 1;
     void* allocation = options.allocate(options.user, allocationSize);
     if (!allocation)
-        return AnoGltfResult::out_of_memory;
+        return failure(AnoGltfResult::out_of_memory);
     const AnoGltfResult result = anogltf_detail::decode_base64(
         base64, encodedLength, static_cast<uint8_t*>(allocation), byteCount);
     if (result != AnoGltfResult::success) {
         options.free(options.user, allocation);
-        return result;
+        return failure(result);
     }
-    *outData = allocation;
-    return AnoGltfResult::success;
+    return allocation;
 }
 
-AnoGltfResult ano_gltf_bind_buffer(
+GltfResult<> ano_gltf_bind_buffer(
     AnoGltfData* data, AnoGltfBufferIndex buffer, const void* bytes, size_t byteCount)
 {
-    return anogltf_detail::bind_buffer(data, buffer, bytes, byteCount);
+    return gltf_status(anogltf_detail::bind_buffer(
+        data, buffer, bytes, byteCount));
 }
 
-AnoGltfResult ano_gltf_bind_buffer_view(
+GltfResult<> ano_gltf_bind_buffer_view(
     AnoGltfData* data, AnoGltfBufferViewIndex view, const void* bytes, size_t byteCount)
 {
-    return anogltf_detail::bind_buffer_view(data, view, bytes, byteCount);
+    return gltf_status(anogltf_detail::bind_buffer_view(
+        data, view, bytes, byteCount));
 }
 
-AnoGltfResult ano_gltf_validate_loaded_data(const AnoGltfData* data)
+GltfResult<> ano_gltf_validate_loaded_data(const AnoGltfData* data)
 {
-    return anogltf_detail::validate_loaded_data(data);
+    return gltf_status(anogltf_detail::validate_loaded_data(data));
 }
 
 void ano_gltf_free(AnoGltfData* data)
@@ -4631,27 +4651,20 @@ size_t ano_gltf_decode_uri(char* uri)
     return anogltf_detail::decode_uri(uri);
 }
 
-AnoGltfResult ano_gltf_copy_extras_json(
-    const AnoGltfExtras* extras, char* destination, size_t* destinationSize)
+GltfResult<size_t> ano_gltf_copy_extras_json(
+    const AnoGltfExtras* extras, char* destination, size_t capacity)
 {
-    if (!extras || !destinationSize || (extras->json.length != 0 && !extras->json.data))
-        return AnoGltfResult::invalid_options;
+    if (!extras || (extras->json.length != 0 && !extras->json.data))
+        return failure(AnoGltfResult::invalid_options);
     const size_t required = static_cast<size_t>(extras->json.length) + 1;
-    if (!destination) {
-        *destinationSize = required;
-        return AnoGltfResult::success;
-    }
-    const size_t capacity = *destinationSize;
-    *destinationSize = required;
-    if (capacity == 0)
-        return AnoGltfResult::data_too_short;
-    const size_t copied = extras->json.length < capacity - 1
-        ? extras->json.length : capacity - 1;
-    if (copied != 0)
-        memcpy(destination, extras->json.data, copied);
-    destination[copied] = '\0';
-    return copied == extras->json.length
-        ? AnoGltfResult::success : AnoGltfResult::data_too_short;
+    if (!destination)
+        return required;
+    if (capacity < required)
+        return failure(AnoGltfResult::data_too_short);
+    if (extras->json.length != 0)
+        memcpy(destination, extras->json.data, extras->json.length);
+    destination[extras->json.length] = '\0';
+    return required;
 }
 
 uint32_t ano_gltf_component_count(AnoGltfAccessorType type)
@@ -4669,10 +4682,13 @@ uint32_t ano_gltf_element_size(AnoGltfAccessorType type, AnoGltfComponentType co
     return anogltf_detail::element_size(componentType, type);
 }
 
-const uint8_t* ano_gltf_buffer_view_data(
+GltfResult<const uint8_t*> ano_gltf_buffer_view_data(
     const AnoGltfData* data, AnoGltfBufferViewIndex view)
 {
-    return anogltf_detail::buffer_view_data(data, view);
+    const uint8_t* bytes = anogltf_detail::buffer_view_data(data, view);
+    return result_if(bytes != nullptr, bytes,
+                     data ? AnoGltfResult::invalid_gltf
+                          : AnoGltfResult::invalid_options);
 }
 
 const AnoGltfAccessor* ano_gltf_find_accessor(
@@ -4691,40 +4707,74 @@ const AnoGltfAccessor* ano_gltf_find_accessor(
     return nullptr;
 }
 
-bool ano_gltf_accessor_read_float(
+GltfResult<> ano_gltf_accessor_read_float(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, float* output, size_t outputCount)
 {
-    return anogltf_detail::accessor_read_float(data, accessor, index, output, outputCount);
+    return result_if(anogltf_detail::accessor_read_float(
+        data, accessor, index, output, outputCount),
+        AnoGltfResult::invalid_gltf);
 }
 
-bool ano_gltf_accessor_read_uint(
+GltfResult<> ano_gltf_accessor_read_uint(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, uint32_t* output, size_t outputCount)
 {
-    return anogltf_detail::accessor_read_uint(data, accessor, index, output, outputCount);
+    return result_if(anogltf_detail::accessor_read_uint(
+        data, accessor, index, output, outputCount),
+        AnoGltfResult::invalid_gltf);
 }
 
-bool ano_gltf_accessor_read_index(
+GltfResult<uint32_t> ano_gltf_accessor_read_index(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
-    uint64_t index, uint32_t* output)
+    uint64_t index)
 {
-    return anogltf_detail::accessor_read_index(data, accessor, index, output);
+    uint32_t output = 0;
+    return result_if(anogltf_detail::accessor_read_index(
+        data, accessor, index, &output), output,
+        AnoGltfResult::invalid_gltf);
 }
 
-uint64_t ano_gltf_accessor_unpack_floats(
+GltfResult<uint64_t> ano_gltf_accessor_unpack_floats(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     float* output, uint64_t outputCount)
 {
-    return anogltf_detail::accessor_unpack_floats(data, accessor, output, outputCount);
+    if (!accessor)
+        return failure(AnoGltfResult::invalid_gltf);
+    const uint32_t components = anogltf_detail::component_count(accessor->type);
+    uint64_t available = 0;
+    if (components == 0 || !anogltf_detail::checked_mul_u64(
+            accessor->count, components, &available))
+        return failure(AnoGltfResult::invalid_gltf);
+    if (!output)
+        return available;
+    const uint64_t requested = outputCount < available ? outputCount : available;
+    const uint64_t expected = requested - requested % components;
+    const uint64_t unpacked = anogltf_detail::accessor_unpack_floats(
+        data, accessor, output, outputCount);
+    return result_if(unpacked == expected, unpacked,
+                     AnoGltfResult::invalid_gltf);
 }
 
-uint64_t ano_gltf_accessor_unpack_indices(
+GltfResult<uint64_t> ano_gltf_accessor_unpack_indices(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     void* output, size_t outputComponentSize, uint64_t outputCount)
 {
-    return anogltf_detail::accessor_unpack_indices(
+    if (!accessor || accessor->type != AnoGltfAccessorType::scalar)
+        return failure(AnoGltfResult::invalid_gltf);
+    if (!output)
+        return accessor->count;
+    if ((outputComponentSize != 1 && outputComponentSize != 2
+         && outputComponentSize != 4)
+        || anogltf_detail::component_size(accessor->componentType)
+               > outputComponentSize)
+        return failure(AnoGltfResult::invalid_gltf);
+    const uint64_t expected = outputCount < accessor->count
+        ? outputCount : accessor->count;
+    const uint64_t unpacked = anogltf_detail::accessor_unpack_indices(
         data, accessor, output, outputComponentSize, outputCount);
+    return result_if(unpacked == expected, unpacked,
+                     AnoGltfResult::invalid_gltf);
 }
 
 void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16])
@@ -4732,10 +4782,11 @@ void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16])
     anogltf_detail::node_transform_local(node, output);
 }
 
-bool ano_gltf_node_transform_world(
+GltfResult<> ano_gltf_node_transform_world(
     const AnoGltfData* data, AnoGltfNodeIndex node, float output[16])
 {
-    return anogltf_detail::node_transform_world(data, node, output);
+    return result_if(anogltf_detail::node_transform_world(data, node, output),
+                     AnoGltfResult::invalid_gltf);
 }
 
 const char* ano_gltf_result_string(AnoGltfResult result)

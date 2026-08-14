@@ -25,6 +25,13 @@ static int g_wrong = 0;
 
 #define WRONG(msg) do { printf("WRONG RESULT: %s\n", (msg)); g_wrong++; } while (0)
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    if (!result) { WRONG("string operation failed"); return {}; }
+    return *result;
+}
+
 // Mixed-UTF-8 document of varied sentences.
 static anostr_t make_doc(mi_heap_t *heap, size_t bytes, test_rng *rng)
 {
@@ -35,10 +42,12 @@ static anostr_t make_doc(mi_heap_t *heap, size_t bytes, test_rng *rng)
         "\xE3\x81\x82\xE3\x81\xAE Bj\xC3\xB8rn buys another Agda Gun! ",
         "sphinx of black quartz judge my vow: ",
     };
-    anostr_builder_t b = anostr_builder_make(heap, (uint32_t)bytes + 64);
+    anostr_builder_t b = must(anostr_builder_make(heap, (uint32_t)bytes + 64));
     while (b.len < bytes)
-        anostr_builder_append_cstr(&b, frags[rng_below(rng, sizeof frags / sizeof frags[0])]);
-    return anostr_freeze(&b);
+        if (!anostr_builder_append_cstr(
+                &b, frags[rng_below(rng, sizeof frags / sizeof frags[0])]))
+            WRONG("document append failed");
+    return must(anostr_freeze(&b));
 }
 
 // Timed series: op() x g_reps, print row, return p50 GB/s.
@@ -106,7 +115,8 @@ static size_t op_find_long_needle(mi_heap_t *h, const void *ctx)
 static size_t op_repl_same_sparse(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;   // "sphinx" ~ 1 per 200 bytes
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit("sphinx"), anostr_lit("SPHINX"));
+    anostr_t out = must(anostr_replace_all(
+        h, g_docRepl, anostr_lit("sphinx"), anostr_lit("SPHINX")));
     if (out.len != g_docRepl.len) WRONG("replace same-size changed length");
     return out.len;
 }
@@ -114,7 +124,7 @@ static size_t op_repl_same_sparse(mi_heap_t *h, const void *ctx)
 static size_t op_repl_same_dense(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;   // 'e' is everywhere
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit("e"), anostr_lit("3"));
+    anostr_t out = must(anostr_replace_all(h, g_docRepl, anostr_lit("e"), anostr_lit("3")));
     if (out.len != g_docRepl.len) WRONG("replace dense changed length");
     return out.len;
 }
@@ -122,7 +132,8 @@ static size_t op_repl_same_dense(mi_heap_t *h, const void *ctx)
 static size_t op_repl_grow(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit("dog"), anostr_lit("direwolf"));
+    anostr_t out = must(anostr_replace_all(
+        h, g_docRepl, anostr_lit("dog"), anostr_lit("direwolf")));
     if (out.len <= g_docRepl.len) WRONG("replace grow did not grow");
     return out.len;
 }
@@ -130,7 +141,8 @@ static size_t op_repl_grow(mi_heap_t *h, const void *ctx)
 static size_t op_repl_shrink(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit("the "), anostr_lit("a "));
+    anostr_t out = must(anostr_replace_all(
+        h, g_docRepl, anostr_lit("the "), anostr_lit("a ")));
     if (out.len >= g_docRepl.len) WRONG("replace shrink did not shrink");
     return out.len;
 }
@@ -138,7 +150,7 @@ static size_t op_repl_shrink(mi_heap_t *h, const void *ctx)
 static size_t op_repl_delete_spaces(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit(" "), anostr_empty());
+    anostr_t out = must(anostr_replace_all(h, g_docRepl, anostr_lit(" "), anostr_empty()));
     if (out.len >= g_docRepl.len) WRONG("delete spaces did not shrink");
     return out.len;
 }
@@ -146,7 +158,8 @@ static size_t op_repl_delete_spaces(mi_heap_t *h, const void *ctx)
 static size_t op_repl_utf8(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit("\xC3\xA9"), anostr_lit("e"));
+    anostr_t out = must(anostr_replace_all(
+        h, g_docRepl, anostr_lit("\xC3\xA9"), anostr_lit("e")));
     if (!anostr_utf8_valid(out)) WRONG("UTF-8 needle replace produced invalid UTF-8");
     return out.len;
 }
@@ -154,7 +167,8 @@ static size_t op_repl_utf8(mi_heap_t *h, const void *ctx)
 static size_t op_repl_nomatch(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_replace_all(h, g_docRepl, anostr_lit("QQWWZZYY"), anostr_lit("!"));
+    anostr_t out = must(anostr_replace_all(
+        h, g_docRepl, anostr_lit("QQWWZZYY"), anostr_lit("!")));
     if (anostr_bytes(&out) != anostr_bytes(&g_docRepl)) WRONG("no-match did not return the same backing");
     return out.len;
 }
@@ -164,7 +178,8 @@ static size_t op_repl_nomatch(mi_heap_t *h, const void *ctx)
 static size_t op_cull_ws_punct(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_cull(h, g_docRepl, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT);
+    anostr_t out = must(anostr_cull(
+        h, g_docRepl, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
     if (out.len >= g_docRepl.len) WRONG("cull removed nothing from a spaced document");
     return out.len;
 }
@@ -174,7 +189,8 @@ static anostr_t g_docClean;     // no whitespace/punct at all: the scan-only pat
 static size_t op_cull_noop(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_cull(h, g_docClean, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT);
+    anostr_t out = must(anostr_cull(
+        h, g_docClean, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
     if (anostr_bytes(&out) != anostr_bytes(&g_docClean)) WRONG("no-op cull did not return the same backing");
     return out.len;
 }
@@ -184,7 +200,7 @@ static anostr_t g_page4k;
 static size_t op_rune_sort_4k(mi_heap_t *h, const void *ctx)
 {
     (void)ctx;
-    anostr_t out = anostr_rune_sort(h, g_page4k);
+    anostr_t out = must(anostr_rune_sort(h, g_page4k));
     if (out.len < g_page4k.len) WRONG("rune_sort lost bytes");
     return out.len;
 }
@@ -205,20 +221,23 @@ int main(int argc, char **argv)
 
     // 4 MiB find haystack; unique needle in last fragment.
     {
-        anostr_builder_t b = anostr_builder_make(heap, DOC_FIND + 128);
+        anostr_builder_t b = must(anostr_builder_make(heap, DOC_FIND + 128));
         anostr_t body = make_doc(heap, DOC_FIND, &rng);
-        anostr_builder_append_str(&b, body);
-        anostr_builder_append_cstr(&b, " the lazy dog. XMARKSTHESPOT");
-        g_docFind = anostr_freeze(&b);
+        if (!anostr_builder_append_str(&b, body) ||
+            !anostr_builder_append_cstr(&b, " the lazy dog. XMARKSTHESPOT"))
+            WRONG("find document append failed");
+        g_docFind = must(anostr_freeze(&b));
     }
     g_docRepl = make_doc(heap, DOC_REPL, &rng);
 
     // Clean doc + 4 KiB mixed page for rune_sort.
     {
-        anostr_builder_t b = anostr_builder_make(heap, DOC_REPL + 64);
+        anostr_builder_t b = must(anostr_builder_make(heap, DOC_REPL + 64));
         while (b.len < DOC_REPL)
-            anostr_builder_append_cstr(&b, "NothingCullableHereJustLettersAndM\xC3\xBCnchen");
-        g_docClean = anostr_freeze(&b);
+            if (!anostr_builder_append_cstr(
+                    &b, "NothingCullableHereJustLettersAndM\xC3\xBCnchen"))
+                WRONG("clean document append failed");
+        g_docClean = must(anostr_freeze(&b));
         anostr_t page = make_doc(heap, 4096, &rng);
         g_page4k = anostr_slice(page, 0, 4096);
     }

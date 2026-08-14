@@ -71,7 +71,7 @@ static void *alsa_main(void *arg)
                 if (st->pcm_recover(st->pcm, (int)n, 1) < 0) {
                     ano_log(ANO_ERROR, "audio/alsa: unrecoverable write error: %s",
                             st->strerr((int)n));
-                    ano_sleep(10000);
+                    (void)ano_sleep(10000);
                     break;
                 }
                 continue;
@@ -145,7 +145,7 @@ static bool alsa_start(AnoAudioMixer *mx)
 
     mx->deviceState = st;
     atomic_store_explicit(&mx->deviceRun, true, memory_order_release);
-    if (ano_thread_create(&mx->deviceThread, NULL, alsa_main, mx) != 0) {
+    if (!ano_thread_create(&mx->deviceThread, NULL, alsa_main, mx)) {
         atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
         mx->deviceState = NULL;
         goto fail_pcm;
@@ -170,7 +170,7 @@ static void alsa_stop(AnoAudioMixer *mx)
     if (!st)
         return; // start() failed and already joined/freed
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
-    ano_thread_join(mx->deviceThread, NULL);
+    (void)ano_thread_join(mx->deviceThread, NULL);
     st->pcm_drain(st->pcm);
     st->pcm_close(st->pcm);
     dlclose(st->lib);
@@ -474,7 +474,7 @@ static bool pw_start(AnoAudioMixer *mx)
             ano_log(ANO_WARN, "audio/pipewire: stream stuck connecting; falling back.");
             goto fail_started;
         }
-        ano_sleep(50000);
+        (void)ano_sleep(50000);
     }
 
     mx->deviceState = st;

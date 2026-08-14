@@ -76,13 +76,13 @@ static CadenceWalk cadence_walk(const AnoMusicConfig *cfg, bool hasOverride, dou
     static AnoMusicBar bar; // ~9 KB: keep it off the walk's frame
     CadenceWalk w = { .firstBad = 0 };
 
-    AnoMusicEngine *e = ano_music_create(cfg, 42);
+    AnoMusicEngine *e = ano_music_create(cfg, 42).value_or(nullptr);
     if (!e) {
         CHECK(false, "cadence walk: engine creation");
         return w;
     }
     if (hasOverride)
-        ano_music_set_override(e, "cadence_policy", ov);
+        CHECK(ano_music_set_override(e, "cadence_policy", ov), "cadence override");
 
     for (int b = 0; b < bars; ++b) {
         ano_music_advance_bar(e, &bar);
@@ -215,7 +215,7 @@ static ModeWalk mode_walk(int cfgMode, bool useMapper, bool hasOverride, double 
         cfg.hasMapper = true;
         cfg.mapper = ano_mapping_table_default();
     }
-    AnoMusicEngine *e = ano_music_create(&cfg, 42);
+    AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
     if (!e) {
         CHECK(false, "mode walk: engine creation");
         return w;
@@ -312,7 +312,7 @@ static MotifWalk motif_walk(uint32_t poisonN, int bars)
     cfg.motifLibrary[0] = (AnoSignatureMotif){ "hero", hero, 0.9 };
     cfg.motifLibraryCount = 1;
 
-    AnoMusicEngine *e = ano_music_create(&cfg, 42);
+    AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
     if (!e)
         return w;
     w.created = true;
@@ -372,23 +372,25 @@ static void seam_drive(uint32_t bars, bool hot, SeamTally *out)
     cfg.hasMapper = true;
     cfg.mapper = ano_mapping_table_default();
     cfg.energy = 0.95f;
-    AnoMusicEngine *eng = ano_music_create(&cfg, 42);
+    AnoMusicEngine *eng = ano_music_create(&cfg, 42).value_or(nullptr);
     if (hot)
-        ano_music_set_override(eng, "velocity_center", 150.0);
+        out->plumbingOk &= ano_music_set_override(
+            eng, "velocity_center", 150.0).has_value();
 
-    AnoSynth *syn = ano_synth_create(NULL);
+    AnoSynth *syn = ano_synth_create(NULL).value_or(nullptr);
     double barQ = ano_music_bar_quarters(eng);
-    out->plumbingOk &= ano_synth_score_begin(syn, barQ, bars,
-                                             bars * ANO_MUSIC_MAX_TEMPO,
-                                             bars * ANO_MUSIC_MAX_BAR_EVENTS);
+    out->plumbingOk &= ano_synth_score_begin(
+        syn, barQ, bars, bars * ANO_MUSIC_MAX_TEMPO,
+        bars * ANO_MUSIC_MAX_BAR_EVENTS).has_value();
 
     AnoMusicBar *bar = static_cast<AnoMusicBar *>(malloc(sizeof *bar));
     for (uint32_t b = 0; b < bars; ++b) {
         ano_music_advance_bar(eng, bar);
         for (uint32_t t = 0; t < bar->tempoCount; ++t)
-            out->plumbingOk &= ano_synth_score_tempo(syn, bar->tempo[t].beat,
-                                                     bar->tempo[t].bpm);
-        out->plumbingOk &= ano_synth_score_bar(syn, b, &bar->params, &bar->affect);
+            out->plumbingOk &= ano_synth_score_tempo(
+                syn, bar->tempo[t].beat, bar->tempo[t].bpm).has_value();
+        out->plumbingOk &= ano_synth_score_bar(
+            syn, b, &bar->params, &bar->affect).has_value();
         for (uint32_t i = 0; i < bar->eventCount; ++i) {
             const AnoNoteEvent *ev = &bar->events[i];
             if (ev->layer == ANO_MUSIC_ARP)
@@ -397,7 +399,7 @@ static void seam_drive(uint32_t bars, bool hot, SeamTally *out)
                 out->maxVelocity = ev->velocity;
             if (ev->pitch > out->maxPitch)
                 out->maxPitch = ev->pitch;
-            bool staged = ano_synth_score_event(syn, ev);
+            bool staged = ano_synth_score_event(syn, ev).has_value();
             bool legal = ev->start >= 0.0 && ev->dur > 0.0 && ev->pitch <= 127u
                       && ev->velocity >= 1u && ev->velocity <= 127u
                       && ev->layer < ANO_MUSIC_LAYER_COUNT;
@@ -405,7 +407,7 @@ static void seam_drive(uint32_t bars, bool hot, SeamTally *out)
                 out->hotStaged++;
         }
     }
-    out->plumbingOk &= ano_synth_score_end(syn);
+    out->plumbingOk &= ano_synth_score_end(syn).has_value();
 
     free(bar);
     ano_synth_destroy(syn);
@@ -481,14 +483,14 @@ static uint64_t det_bar_fold(uint64_t h, const AnoMusicBar *b)
 // Default config (pad + bass): every bar routes through the chord voicer.
 static uint64_t det_run_span(uint64_t seed, uint32_t bars, void *snap)
 {
-    AnoMusicEngine *e = ano_music_create(NULL, seed);
+    AnoMusicEngine *e = ano_music_create(NULL, seed).value_or(nullptr);
     AnoMusicBar *bar = static_cast<AnoMusicBar *>(malloc(sizeof *bar));
     uint64_t h = 1469598103934665603ull;
     for (uint32_t i = 0; i < bars; ++i) {
         ano_music_advance_bar(e, bar);
         h = det_bar_fold(h, bar);
     }
-    ano_music_snapshot(e, snap, ano_music_snapshot_size());
+    CHECK(ano_music_snapshot(e, snap, ano_music_snapshot_size()), "determinism snapshot");
     ano_music_destroy(e);
     free(bar);
     return h;
@@ -520,7 +522,7 @@ typedef struct DetDisturber
 static void *det_disturb(void *arg)
 {
     DetDisturber *d = static_cast<DetDisturber *>(arg);
-    AnoMusicEngine *e = ano_music_create(NULL, d->seed);
+    AnoMusicEngine *e = ano_music_create(NULL, d->seed).value_or(nullptr);
     AnoMusicBar *bar = static_cast<AnoMusicBar *>(malloc(sizeof *bar));
     while (!atomic_load_explicit(&d->stop, memory_order_relaxed))
         ano_music_advance_bar(e, bar);
@@ -548,10 +550,10 @@ static void test_engine_instance_independence(void)
 
     DetSpanJob job = { DET_SEED, DET_BARS, ctl, 0 };
     anothread_t st;
-    bool spanStarted = ano_thread_create(&st, NULL, det_span_thread, &job) == 0;
+    bool spanStarted = ano_thread_create(&st, NULL, det_span_thread, &job).has_value();
     CHECK(spanStarted, "foreign-thread span starts");
     if (spanStarted) {
-        ano_thread_join(st, NULL);
+        (void)ano_thread_join(st, NULL);
         CHECK(job.h == hRef, "foreign-thread solo replay reproduces the event stream");
         if (memcmp(ctl, ref, ss) != 0) {
             const unsigned char *x = static_cast<const unsigned char *>(ctl);
@@ -582,10 +584,10 @@ static void test_engine_instance_independence(void)
         atomic_init(&d.stop, false);
         d.seed = 0x9E3779B97F4A7C15ull + (uint64_t)round;
         anothread_t t;
-        CHECK(ano_thread_create(&t, NULL, det_disturb, &d) == 0, "disturber thread starts");
+        CHECK(ano_thread_create(&t, NULL, det_disturb, &d), "disturber thread starts");
         uint64_t hTrial = det_run_span(DET_SEED, DET_BARS, trial);
         atomic_store(&d.stop, true);
-        ano_thread_join(t, NULL);
+        (void)ano_thread_join(t, NULL);
 
         bool streamOk = hTrial == hRef;
         bool snapOk = memcmp(trial, ref, ss) == 0;

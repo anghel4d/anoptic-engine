@@ -174,7 +174,7 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
 	forward_input(&ie);
 	if (key == GLFW_KEY_L && action == GLFW_PRESS) {
 		AnoLightingMode next = (AnoLightingMode)(((uint32_t)ano_render_get_lighting_mode() + 1u) % (uint32_t)ANO_LIGHTING_MODE_COUNT);
-		ano_render_set_lighting_mode(next);
+		(void)ano_render_set_lighting_mode(next);
 		ano_log(ANO_INFO, "Lighting mode: %s", ano_render_lighting_mode_name(next));
 	}
 	// LOD bias: [ finer, ] coarser.
@@ -193,8 +193,8 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
 	}
 	// Hi-Z occlusion toggle: H flips view 0 GPU occlusion cull.
 	if (key == GLFW_KEY_H && action == GLFW_PRESS) {
-		bool on = !ano_render_get_view_hiz_enable(0u);
-		ano_render_set_view_hiz_enable(0u, on);
+		bool on = !ano_render_get_view_hiz_enable(0u).value_or(false);
+		(void)ano_render_set_view_hiz_enable(0u, on);
 		ano_log(ANO_INFO, "Hi-Z occlusion (view 0): %s", on ? "ON" : "OFF");
 	}
 }

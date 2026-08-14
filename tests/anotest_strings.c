@@ -23,6 +23,13 @@ static int failures = 0;
     if (!(cond)) { printf("FAIL: %s (%s:%d)\n", (msg), __FILE__, __LINE__); failures++; } \
 } while (0)
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    CHECK(result, "string operation succeeds");
+    return result.value_or(Value{});
+}
+
 // Contents match at the advertised length.
 static bool str_equals_mem(anostr_t s, const void *bytes, size_t len)
 {
@@ -36,24 +43,26 @@ static void test_construction_roundtrip(mi_heap_t *heap)
     src[64] = '\0';
 
     for (size_t len = 0; len <= 64; len++) {
-        anostr_t s = anostr_from(heap, src, len);
+        anostr_t s = must(anostr_from(heap, src, len));
         CHECK(str_equals_mem(s, src, len), "anostr_from round-trips contents");
         CHECK(anostr_is_inline(s) == (len <= ANOSTR_INLINE_CAP),
               "canonical form: inline iff len <= 12 (I2)");
     }
 
-    anostr_t empty = anostr_from(heap, src, 0);
+    anostr_t empty = must(anostr_from(heap, src, 0));
     CHECK(anostr_is_empty(empty), "zero-length string is empty");
     CHECK(anostr_eq(empty, anostr_empty()), "empty equals anostr_empty()");
 
-    CHECK(anostr_is_empty(anostr_from(heap, NULL, 5)), "NULL bytes yield the empty string");
-    CHECK(anostr_is_empty(anostr_from(NULL, src, 32)), "NULL heap on a long string yields empty");
-    CHECK(str_equals_mem(anostr_from(NULL, src, 8), src, 8),
+    CHECK(has_error(anostr_from(heap, NULL, 5), StringError::invalid_argument),
+          "NULL bytes report invalid argument");
+    CHECK(has_error(anostr_from(NULL, src, 32), StringError::invalid_argument),
+          "NULL heap on a long string reports invalid argument");
+    CHECK(str_equals_mem(must(anostr_from(NULL, src, 8)), src, 8),
           "NULL heap is fine for an inline string (no allocation)");
 
     anostr_t lit = anostr_lit("hello");
     CHECK(str_equals_mem(lit, "hello", 5), "anostr_lit round-trips");
-    anostr_t cs = anostr_from_cstr(heap, "categorically");     // 13 bytes -> long
+    anostr_t cs = must(anostr_from_cstr(heap, "categorically")); // 13 bytes -> long
     CHECK(str_equals_mem(cs, "categorically", 13), "anostr_from_cstr round-trips long");
 }
 
@@ -61,7 +70,7 @@ static void test_padding_makes_equals_bitwise(mi_heap_t *heap)
 {
     // I3: same short string three ways must be bit-identical.
     anostr_t a = anostr_lit("tick");
-    anostr_t b = anostr_from(heap, "tick", 4);
+    anostr_t b = must(anostr_from(heap, "tick", 4));
     anostr_t c = anostr_slice(anostr_lit("[tick]"), 1, 5);
     CHECK(memcmp(&a, &b, sizeof(anostr_t)) == 0, "inline equal strings bit-identical (lit vs from)");
     CHECK(memcmp(&a, &c, sizeof(anostr_t)) == 0, "inline equal strings bit-identical (vs slice)");
@@ -78,8 +87,8 @@ static void test_eq_compare_hash(mi_heap_t *heap)
     CHECK(anostr_compare(anostr_lit("abc"), anostr_lit("abc")) == 0, "compare: equal is 0");
 
     // Embedded 0x00: order/compare like memcmp.
-    anostr_t n1 = anostr_from(heap, "a\0b", 3);
-    anostr_t n2 = anostr_from(heap, "a\0c", 3);
+    anostr_t n1 = must(anostr_from(heap, "a\0b", 3));
+    anostr_t n2 = must(anostr_from(heap, "a\0c", 3));
     CHECK(!anostr_eq(n1, n2), "eq sees past an embedded NUL");
     CHECK(anostr_compare(n1, n2) < 0, "compare orders past an embedded NUL");
 
@@ -87,9 +96,9 @@ static void test_eq_compare_hash(mi_heap_t *heap)
     const char *base = "shared-prefix-long-string-A";
     const char *diff = "shared-prefix-long-string-B";
     size_t n = strlen(base);
-    anostr_t l1 = anostr_from(heap, base, n);
-    anostr_t l2 = anostr_from(heap, base, n);
-    anostr_t l3 = anostr_from(heap, diff, n);
+    anostr_t l1 = must(anostr_from(heap, base, n));
+    anostr_t l2 = must(anostr_from(heap, base, n));
+    anostr_t l3 = must(anostr_from(heap, diff, n));
     CHECK(anostr_bytes(&l1) != anostr_bytes(&l2), "distinct allocations for the eq test");
     CHECK(anostr_eq(l1, l2), "eq: equal long strings across allocations");
     CHECK(!anostr_eq(l1, l3), "eq: long strings differing at the last byte");
@@ -101,7 +110,7 @@ static void test_eq_compare_hash(mi_heap_t *heap)
 
     // Hash: variant/allocation-independent.
     CHECK(anostr_hash(l1) == anostr_hash(l2), "hash equal across allocations");
-    CHECK(anostr_hash(anostr_lit("tick")) == anostr_hash(anostr_from(heap, "tick", 4)),
+    CHECK(anostr_hash(anostr_lit("tick")) == anostr_hash(must(anostr_from(heap, "tick", 4))),
           "hash equal across construction paths");
     CHECK(anostr_hash(anostr_lit("tick")) != anostr_hash(anostr_lit("tock")),
           "hash differs for differing strings");
@@ -111,7 +120,7 @@ static void test_eq_compare_hash(mi_heap_t *heap)
 static void test_slice(mi_heap_t *heap)
 {
     const char *text = "the quick brown fox jumps over the lazy dog";   // 43 bytes
-    anostr_t s = anostr_from(heap, text, strlen(text));
+    anostr_t s = must(anostr_from(heap, text, strlen(text)));
 
     anostr_t word = anostr_slice(s, 4, 9);                  // "quick" -> inline copy
     CHECK(str_equals_mem(word, "quick", 5), "short slice contents");
@@ -136,7 +145,7 @@ static void test_keep(mi_heap_t *persistent)
 {
     // Inline keep: identity, NULL heap safe.
     anostr_t v = anostr_lit("value");
-    anostr_t kept = anostr_keep(NULL, v);
+    anostr_t kept = must(anostr_keep(NULL, v));
     CHECK(memcmp(&v, &kept, sizeof(anostr_t)) == 0, "keep on inline is identity");
 
     // Long keep: copy into persistent heap, scratch destroyed, own backing survives.
@@ -145,13 +154,13 @@ static void test_keep(mi_heap_t *persistent)
     {
         mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
         CHECK(scratch != NULL, "scratch heap created");
-        anostr_t born = anostr_from(scratch, msg, strlen(msg));
-        survivor = anostr_keep(persistent, born);
+        anostr_t born = must(anostr_from(scratch, msg, strlen(msg)));
+        survivor = must(anostr_keep(persistent, born));
         CHECK(anostr_bytes(&survivor) != anostr_bytes(&born), "keep copied the long bytes");
     }   // scratch heap destroyed here
     CHECK(str_equals_mem(survivor, msg, strlen(msg)), "kept string readable after scratch died");
 
-    char *cstr = anostr_to_cstr(persistent, survivor);
+    char *cstr = must(anostr_to_cstr(persistent, survivor));
     CHECK(cstr != NULL && strlen(cstr) == anostr_len(survivor) && strcmp(cstr, msg) == 0,
           "to_cstr round-trips with a NUL terminator");
 }
@@ -159,21 +168,23 @@ static void test_keep(mi_heap_t *persistent)
 static void test_builder(mi_heap_t *heap)
 {
     // Freeze to inline: value owes nothing to the heap.
-    anostr_builder_t b = anostr_builder_make(heap, 0);
-    CHECK(anostr_builder_append_cstr(&b, "tick=") == 0, "append_cstr");
-    CHECK(anostr_builder_appendf(&b, "%d", 42) == 0, "appendf");
-    anostr_t shortStr = anostr_freeze(&b);
+    anostr_builder_t b = must(anostr_builder_make(heap, 0));
+    CHECK(anostr_builder_append_cstr(&b, "tick="), "append_cstr");
+    CHECK(anostr_builder_appendf(&b, "%d", 42), "appendf");
+    anostr_t shortStr = must(anostr_freeze(&b));
     CHECK(str_equals_mem(shortStr, "tick=42", 7), "builder freeze contents (short)");
     CHECK(anostr_is_inline(shortStr), "short freeze canonicalizes to inline (I2)");
-    CHECK(anostr_builder_append_cstr(&b, "x") == -1, "consumed builder refuses appends");
-    CHECK(anostr_is_empty(anostr_freeze(&b)), "consumed builder freezes to empty");
+    CHECK(has_error(anostr_builder_append_cstr(&b, "x"), StringError::consumed),
+          "consumed builder refuses appends");
+    CHECK(has_error(anostr_freeze(&b), StringError::consumed),
+          "consumed builder refuses a second freeze");
 
     // Freeze to long, growth, all append flavors.
-    anostr_builder_t big = anostr_builder_make(heap, 8);    // deliberately small reserve
+    anostr_builder_t big = must(anostr_builder_make(heap, 8)); // deliberately small reserve
     for (int i = 0; i < 100; i++)
-        CHECK(anostr_builder_appendf(&big, "entity_%03d;", i) == 0, "appendf in a loop");
-    CHECK(anostr_builder_append_str(&big, anostr_lit("done")) == 0, "append_str");
-    anostr_t longStr = anostr_freeze(&big);
+        CHECK(anostr_builder_appendf(&big, "entity_%03d;", i), "appendf in a loop");
+    CHECK(anostr_builder_append_str(&big, anostr_lit("done")), "append_str");
+    anostr_t longStr = must(anostr_freeze(&big));
     CHECK(anostr_len(longStr) == 100 * 11 + 4, "builder length adds up");
     CHECK(!anostr_is_inline(longStr), "long freeze stays long");
     CHECK(memcmp(anostr_bytes(&longStr), "entity_000;entity_001;", 22) == 0,
@@ -182,22 +193,24 @@ static void test_builder(mi_heap_t *heap)
           "builder freeze contents (tail)");
 
     // Embedded NUL survives the builder.
-    anostr_builder_t raw = anostr_builder_make(heap, 0);
-    CHECK(anostr_builder_append(&raw, "a\0b", 3) == 0, "append raw bytes");
-    anostr_t rawStr = anostr_freeze(&raw);
+    anostr_builder_t raw = must(anostr_builder_make(heap, 0));
+    CHECK(anostr_builder_append(&raw, "a\0b", 3), "append raw bytes");
+    anostr_t rawStr = must(anostr_freeze(&raw));
     CHECK(str_equals_mem(rawStr, "a\0b", 3), "embedded NUL survives the builder");
 
     // Discard frees and consumes.
-    anostr_builder_t d = anostr_builder_make(heap, 64);
-    CHECK(anostr_builder_append_cstr(&d, "abandoned") == 0, "append before discard");
+    anostr_builder_t d = must(anostr_builder_make(heap, 64));
+    CHECK(anostr_builder_append_cstr(&d, "abandoned"), "append before discard");
     anostr_builder_discard(&d);
-    CHECK(anostr_builder_append_cstr(&d, "x") == -1, "discarded builder refuses appends");
+    CHECK(has_error(anostr_builder_append_cstr(&d, "x"), StringError::consumed),
+          "discarded builder refuses appends");
 
     // I1: append past UINT32_MAX refuses, len intact.
-    anostr_builder_t of = anostr_builder_make(heap, 0);
-    CHECK(anostr_builder_append_cstr(&of, "seed") == 0, "seed append");
+    anostr_builder_t of = must(anostr_builder_make(heap, 0));
+    CHECK(anostr_builder_append_cstr(&of, "seed"), "seed append");
     of.len = UINT32_MAX - 2;    // simulate a near-full builder without allocating 4 GiB
-    CHECK(anostr_builder_append(&of, "xyz", 3) == -1, "overflowing append refused");
+    CHECK(has_error(anostr_builder_append(&of, "xyz", 3), StringError::overflow),
+          "overflowing append refused");
     CHECK(of.len == UINT32_MAX - 2, "failed append left the builder intact");
     of.len = 4;                 // restore truth before freeing real memory
     anostr_builder_discard(&of);
@@ -205,7 +218,7 @@ static void test_builder(mi_heap_t *heap)
 
 static void test_find_concat_join(mi_heap_t *heap)
 {
-    anostr_t s = anostr_from_cstr(heap, "the quick brown fox jumps over the lazy dog");
+    anostr_t s = must(anostr_from_cstr(heap, "the quick brown fox jumps over the lazy dog"));
 
     CHECK(anostr_find(s, anostr_lit("quick"), 0) == 4, "find: first hit");
     CHECK(anostr_find(s, anostr_lit("the"), 0) == 0, "find: hit at 0");
@@ -219,21 +232,22 @@ static void test_find_concat_join(mi_heap_t *heap)
     CHECK(anostr_find(s, anostr_lit("dog"), 41) == ANOSTR_NPOS, "find: from past the last hit");
 
     // concat: stay inline, and cross into heap.
-    anostr_t ab = anostr_concat(NULL, anostr_lit("tick"), anostr_lit("=42"));
+    anostr_t ab = must(anostr_concat(NULL, anostr_lit("tick"), anostr_lit("=42")));
     CHECK(str_equals_mem(ab, "tick=42", 7) && anostr_is_inline(ab),
           "concat: short result is inline (no heap needed)");
-    anostr_t big = anostr_concat(heap, anostr_lit("entity/1776/"), anostr_lit("hull"));
+    anostr_t big = must(anostr_concat(heap, anostr_lit("entity/1776/"), anostr_lit("hull")));
     CHECK(str_equals_mem(big, "entity/1776/hull", 16) && !anostr_is_inline(big),
           "concat: 13+ bytes goes to the heap");
 
     // join: sep placement, count 0/1, path join.
     anostr_t parts[3] = { anostr_lit("assets"), anostr_lit("models"), anostr_lit("hull.gltf") };
-    anostr_t path = anostr_join(heap, anostr_lit("/"), parts, 3);
+    anostr_t path = must(anostr_join(heap, anostr_lit("/"), parts, 3));
     CHECK(str_equals_mem(path, "assets/models/hull.gltf", 23), "join: path with separators");
-    CHECK(anostr_eq(anostr_join(heap, anostr_lit("/"), parts, 1), parts[0]),
+    CHECK(anostr_eq(must(anostr_join(heap, anostr_lit("/"), parts, 1)), parts[0]),
           "join: single part has no separator");
-    CHECK(anostr_is_empty(anostr_join(heap, anostr_lit("/"), parts, 0)), "join: count 0 is empty");
-    anostr_t inl = anostr_join(NULL, anostr_lit(","), parts, 1);
+    CHECK(anostr_is_empty(must(anostr_join(heap, anostr_lit("/"), parts, 0))),
+          "join: count 0 is empty");
+    anostr_t inl = must(anostr_join(NULL, anostr_lit(","), parts, 1));
     CHECK(str_equals_mem(inl, "assets", 6), "join: inline result needs no heap");
 }
 
@@ -268,7 +282,7 @@ static void test_split(mi_heap_t *heap)
 
     // Long source: multi-byte sep; long pieces borrow backing (I4).
     const char *cfg = "graphics.width::graphics.height::graphics.fullscreen-mode";
-    anostr_t s = anostr_from(heap, cfg, strlen(cfg));
+    anostr_t s = must(anostr_from(heap, cfg, strlen(cfg)));
     it = anostr_split(s, anostr_lit("::"));
     CHECK(anostr_split_next(&it, &piece) && str_equals_mem(piece, "graphics.width", 14),
           "split: multi-byte separator piece 1");
@@ -284,23 +298,23 @@ static void test_split(mi_heap_t *heap)
 
 static void test_intern(mi_heap_t *heap)
 {
-    anostr_intern_t *t = anostr_intern_make(heap);
+    anostr_intern_t *t = must(anostr_intern_make(heap));
     CHECK(t != NULL, "intern table created");
     if (t == NULL)
         return;
     CHECK(anostr_intern_count(t) == 0, "fresh table is empty");
 
     // Equal strings -> one symbol across paths/variants.
-    anostr_sym a = anostr_intern(t, anostr_lit("hull"));
-    anostr_sym b = anostr_intern(t, anostr_from(heap, "hull", 4));
-    anostr_sym c = anostr_intern(t, anostr_slice(anostr_lit("[hull]"), 1, 5));
+    anostr_sym a = must(anostr_intern(t, anostr_lit("hull")));
+    anostr_sym b = must(anostr_intern(t, must(anostr_from(heap, "hull", 4))));
+    anostr_sym c = must(anostr_intern(t, anostr_slice(anostr_lit("[hull]"), 1, 5)));
     CHECK(a != ANOSTR_SYM_NONE, "intern returns a symbol");
     CHECK(a == b && b == c, "equal strings share one symbol");
     CHECK(anostr_intern_count(t) == 1, "one distinct string, one entry");
 
     const char *lp = "vulkan_backend/instance/pipelines/flat";     // a long one
-    anostr_sym d = anostr_intern(t, anostr_from(heap, lp, strlen(lp)));
-    anostr_sym e = anostr_intern(t, anostr_view(lp, strlen(lp)));  // other backing, same bytes
+    anostr_sym d = must(anostr_intern(t, must(anostr_from(heap, lp, strlen(lp)))));
+    anostr_sym e = must(anostr_intern(t, anostr_view(lp, strlen(lp)))); // other backing
     CHECK(d != ANOSTR_SYM_NONE && d != a, "distinct strings get distinct symbols");
     CHECK(d == e, "long strings dedupe across backings");
     CHECK(str_equals_mem(anostr_sym_str(t, d), lp, strlen(lp)), "sym_str round-trips");
@@ -313,8 +327,8 @@ static void test_intern(mi_heap_t *heap)
     CHECK(anostr_is_empty(anostr_sym_str(t, 12345)), "sym_str out of range is empty");
 
     // Dedupe: equal inputs bit-identical.
-    anostr_t d1 = anostr_dedupe(t, anostr_from(heap, lp, strlen(lp)));
-    anostr_t d2 = anostr_dedupe(t, anostr_view(lp, strlen(lp)));
+    anostr_t d1 = must(anostr_dedupe(t, must(anostr_from(heap, lp, strlen(lp)))));
+    anostr_t d2 = must(anostr_dedupe(t, anostr_view(lp, strlen(lp))));
     CHECK(memcmp(&d1, &d2, sizeof(anostr_t)) == 0, "deduped values are bit-identical");
 
     // Growth past initial slots; earlier symbols still resolve.
@@ -322,14 +336,14 @@ static void test_intern(mi_heap_t *heap)
     anostr_sym syms[300];
     for (int i = 0; i < 300; i++) {
         int n = snprintf(nameBuf, sizeof nameBuf, "entity_type_%03d", i);
-        syms[i] = anostr_intern(t, anostr_from(heap, nameBuf, (size_t)n));
+        syms[i] = must(anostr_intern(t, must(anostr_from(heap, nameBuf, (size_t)n))));
         CHECK(syms[i] != ANOSTR_SYM_NONE, "intern under growth");
     }
     CHECK(anostr_intern_count(t) == 302, "300 new + 2 old distinct strings");
     bool stable = true;
     for (int i = 0; i < 300; i++) {
         int n = snprintf(nameBuf, sizeof nameBuf, "entity_type_%03d", i);
-        if (anostr_intern_find(t, anostr_from(heap, nameBuf, (size_t)n)) != syms[i])
+        if (anostr_intern_find(t, must(anostr_from(heap, nameBuf, (size_t)n))) != syms[i])
             stable = false;
     }
     CHECK(stable, "all symbols stable after growth");
@@ -451,23 +465,23 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 
     for (uint32_t it = 0; it < iterations; it++) {
         size_t total = 0;
-        anostr_builder_t b = anostr_builder_make(heap, rng_below(&rng, 32));
+        anostr_builder_t b = must(anostr_builder_make(heap, rng_below(&rng, 32)));
         uint32_t appends = 1 + rng_below(&rng, 8);
         for (uint32_t a = 0; a < appends && total < 448; a++) {
             size_t n = rng_fill_printable(&rng, chunk, 0, 63);
             memcpy(reference + total, chunk, n);
             total += n;
-            if (anostr_builder_append(&b, chunk, n) != 0) {
+            if (!anostr_builder_append(&b, chunk, n)) {
                 printf("FAIL: soak append (it=%u)\n", it);
                 failures++;
             }
         }
-        anostr_t s = anostr_freeze(&b);
+        anostr_t s = must(anostr_freeze(&b));
         if (!str_equals_mem(s, reference, total)) {
             printf("FAIL: soak round-trip (it=%u, len=%zu)\n", it, total);
             failures++;
         }
-        if (anostr_hash(s) != anostr_hash(anostr_from(heap, reference, total))) {
+        if (anostr_hash(s) != anostr_hash(must(anostr_from(heap, reference, total)))) {
             printf("FAIL: soak hash mismatch (it=%u)\n", it);
             failures++;
         }

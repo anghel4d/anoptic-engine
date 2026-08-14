@@ -17,6 +17,13 @@
 
 namespace ano {
 
+enum class TransportError : uint8_t {
+    invalid_argument, already_initialized, overflow, out_of_memory,
+};
+
+template<class Value = void>
+using TransportResult = Result<Value, TransportError>;
+
 template<class T>
 consteval bool reflect_transport_data()
 {
@@ -65,19 +72,22 @@ struct SpscRing final {
     T* buffer = nullptr;
 
     template<class Allocate>
-    [[nodiscard]] bool initialize(uint32_t requested, Allocate allocate) noexcept
+    [[nodiscard]] TransportResult<> initialize(
+        uint32_t requested, Allocate allocate) noexcept
     {
-        if (buffer != nullptr) return false;
+        if (buffer != nullptr)
+            return failure(TransportError::already_initialized);
         const uint32_t capacity = spsc_capacity(requested);
         if (capacity == 0u || static_cast<size_t>(capacity) > SIZE_MAX / sizeof(T))
-            return false;
+            return failure(TransportError::overflow);
         T* storage = static_cast<T*>(allocate(capacity, sizeof(T)));
-        if (storage == nullptr) return false;
+        if (storage == nullptr)
+            return failure(TransportError::out_of_memory);
         atomic_init(&tail, 0u);
         atomic_init(&head, 0u);
         mask = capacity - 1u;
         buffer = storage;
-        return true;
+        return {};
     }
 
     template<class Release>
@@ -131,21 +141,25 @@ struct ByteSpscRing final {
     uint8_t* buffer = nullptr;
 
     template<class Allocate>
-    [[nodiscard]] bool initialize(uint32_t requested, uint32_t elementStride,
-                                  Allocate allocate) noexcept
+    [[nodiscard]] TransportResult<> initialize(
+        uint32_t requested, uint32_t elementStride, Allocate allocate) noexcept
     {
-        if (buffer != nullptr || elementStride == 0u) return false;
+        if (buffer != nullptr)
+            return failure(TransportError::already_initialized);
+        if (elementStride == 0u)
+            return failure(TransportError::invalid_argument);
         const uint32_t capacity = spsc_capacity(requested);
         if (capacity == 0u || static_cast<size_t>(capacity) > SIZE_MAX / elementStride)
-            return false;
+            return failure(TransportError::overflow);
         uint8_t* storage = static_cast<uint8_t*>(allocate(capacity, elementStride));
-        if (storage == nullptr) return false;
+        if (storage == nullptr)
+            return failure(TransportError::out_of_memory);
         atomic_init(&tail, 0u);
         atomic_init(&head, 0u);
         mask = capacity - 1u;
         stride = elementStride;
         buffer = storage;
-        return true;
+        return {};
     }
 
     template<class Release>

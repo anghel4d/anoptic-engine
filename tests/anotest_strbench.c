@@ -24,6 +24,13 @@ using namespace ano;
 // Volatile sink against elision.
 static volatile int g_sink;
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    if (!result) { fputs("string setup failed\n", stderr); exit(1); }
+    return *result;
+}
+
 typedef struct {
     anostr_t   a, b;
     const char *rawA, *rawB;    // memcmp baseline bytes
@@ -48,8 +55,8 @@ static pair_t make_pair(mi_heap_t *heap, test_rng *rng, uint32_t len, uint32_t s
     p.lenA = p.lenB = len;
     p.rawA = dup_bytes(heap, bufA, len);
     p.rawB = dup_bytes(heap, bufB, len);
-    p.a = anostr_from(heap, bufA, len);
-    p.b = anostr_from(heap, bufB, len);
+    p.a = must(anostr_from(heap, bufA, len));
+    p.b = must(anostr_from(heap, bufB, len));
     return p;
 }
 

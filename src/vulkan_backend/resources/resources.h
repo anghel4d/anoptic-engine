@@ -27,13 +27,13 @@ AnoResourceError ano_vk_resource_residency_wait_upload(
 void ano_vk_resource_residency_destroy(AnoRenderResidency *residency);
 bool ano_vk_resource_scene_affected(
     const AnoRenderResidency *residency, AnoAssetId asset);
-uint32_t ano_vk_resource_scene_primitives(
+RenderResult<uint32_t> ano_vk_resource_scene_primitives(
     const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
     AnoRenderableDesc *output, uint32_t capacity);
-bool ano_vk_resource_scene_primitive(
+RenderResult<AnoRenderableDesc> ano_vk_resource_scene_primitive(
     const AnoRenderResidency *residency, AnoAssetId asset,
-    uint32_t primitive, const mat4 root, AnoRenderableDesc *output);
-uint32_t ano_vk_resource_scene_lights(
+    uint32_t primitive, const mat4 root);
+RenderResult<uint32_t> ano_vk_resource_scene_lights(
     const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
     AnoSceneLightDesc *output, uint32_t capacity);
 uint32_t ano_vk_resource_default_material(

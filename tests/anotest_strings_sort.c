@@ -22,6 +22,13 @@ static int failures = 0;
     if (!(cond)) { printf("FAIL: %s (%s:%d)\n", (msg), __FILE__, __LINE__); failures++; } \
 } while (0)
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    CHECK(result, "string operation succeeds");
+    return result.value_or(Value{});
+}
+
 static int sign(int v) { return v < 0 ? -1 : v > 0; }
 
 // Corpus: shipped scripts plus fallback and degenerate shapes.
@@ -85,10 +92,10 @@ static anorune_t rng_rune(test_rng *rng)
 static anostr_t rng_str(test_rng *rng, mi_heap_t *heap, uint32_t maxRunes)
 {
     uint32_t n = rng_below(rng, maxRunes + 1);
-    anostr_builder_t b = anostr_builder_make(heap, 0);
+    anostr_builder_t b = must(anostr_builder_make(heap, 0));
     for (uint32_t k = 0; k < n; k++)
-        anostr_builder_append_rune(&b, rng_rune(rng));
-    return anostr_freeze(&b);
+        CHECK(anostr_builder_append_rune(&b, rng_rune(rng)), "random rune appends");
+    return must(anostr_freeze(&b));
 }
 
 // Oracle: qsort(anostr_collate).
@@ -194,9 +201,9 @@ static void test_collate_prefix(void)
 static void test_collate_key(mi_heap_t *heap)
 {
     for (size_t a = 0; a < CORPUS_N; a++) {
-        anostr_t ka = anostr_collate_key(heap, corpus[a]);
+        anostr_t ka = must(anostr_collate_key(heap, corpus[a]));
         for (size_t b = 0; b < CORPUS_N; b++) {
-            anostr_t kb = anostr_collate_key(heap, corpus[b]);
+            anostr_t kb = must(anostr_collate_key(heap, corpus[b]));
             if (sign(anostr_compare(ka, kb)) != sign(anostr_collate(corpus[a], corpus[b]))) {
                 printf("FAIL: full key order breaks on \"%.*s\" vs \"%.*s\"\n",
                        anostr_fmt(corpus[a]), anostr_fmt(corpus[b]));
@@ -351,7 +358,7 @@ static void test_tie_family(mi_heap_t *heap)
 
 static void test_sym_sort(mi_heap_t *heap)
 {
-    anostr_intern_t *t = anostr_intern_make(heap);
+    anostr_intern_t *t = must(anostr_intern_make(heap));
     CHECK(t != NULL, "intern table");
     if (t == NULL)
         return;
@@ -363,7 +370,7 @@ static void test_sym_sort(mi_heap_t *heap)
     test_rng rng = rng_make(0x5EEDBA5Eu);
     for (size_t k = 0; k < N; k++) {
         anostr_t s = corpus[rng_below(&rng, CORPUS_N)];
-        syms[k] = anostr_intern(t, s);
+        syms[k] = must(anostr_intern(t, s));
         CHECK(syms[k] != ANOSTR_SYM_NONE, "intern succeeds");
     }
 
@@ -389,8 +396,8 @@ static void test_sym_sort(mi_heap_t *heap)
     }
 
     // New symbols extend the cache watermark.
-    anostr_sym late = anostr_intern(t, anostr_lit("zzz late entry"));
-    anostr_sym mid = anostr_intern(t, anostr_lit("apple"));
+    anostr_sym late = must(anostr_intern(t, anostr_lit("zzz late entry")));
+    anostr_sym mid = must(anostr_intern(t, anostr_lit("apple")));
     anostr_sym trio[3] = { late, mid, 0x7FFFFFFF };        // an out-of-range symbol
     anostr_sym_sort(t, trio, 3);
     CHECK(trio[0] == 0x7FFFFFFF, "out-of-range symbol sorts first (empty string)");
@@ -400,35 +407,35 @@ static void test_sym_sort(mi_heap_t *heap)
 static void test_replace_all(mi_heap_t *heap)
 {
     // Non-overlapping LTR: "aaa" has one "aa".
-    CHECK(anostr_eq(anostr_replace_all(heap, anostr_lit("aaa"), anostr_lit("aa"), anostr_lit("b")),
+    CHECK(anostr_eq(must(anostr_replace_all(heap, anostr_lit("aaa"), anostr_lit("aa"), anostr_lit("b"))),
                     anostr_lit("ba")), "non-overlapping matches");
     // Grow, shrink, same size.
-    CHECK(anostr_eq(anostr_replace_all(heap, anostr_lit("a-b-c"), anostr_lit("-"), anostr_lit("--")),
+    CHECK(anostr_eq(must(anostr_replace_all(heap, anostr_lit("a-b-c"), anostr_lit("-"), anostr_lit("--"))),
                     anostr_lit("a--b--c")), "grow");
-    CHECK(anostr_eq(anostr_replace_all(heap, anostr_lit("xaxbxc"), anostr_lit("x"), anostr_empty()),
+    CHECK(anostr_eq(must(anostr_replace_all(heap, anostr_lit("xaxbxc"), anostr_lit("x"), anostr_empty())),
                     anostr_lit("abc")), "shrink (delete)");
-    CHECK(anostr_eq(anostr_replace_all(heap, anostr_lit("dog dog"), anostr_lit("dog"), anostr_lit("cat")),
+    CHECK(anostr_eq(must(anostr_replace_all(heap, anostr_lit("dog dog"), anostr_lit("dog"), anostr_lit("cat"))),
                     anostr_lit("cat cat")), "same size");
-    CHECK(anostr_is_empty(anostr_replace_all(heap, anostr_lit("xxx"), anostr_lit("x"), anostr_empty())),
+    CHECK(anostr_is_empty(must(anostr_replace_all(heap, anostr_lit("xxx"), anostr_lit("x"), anostr_empty()))),
           "everything deleted is the empty string");
 
     // UTF-8 needle: é -> e.
-    CHECK(anostr_eq(anostr_replace_all(heap, anostr_lit("r\xC3\xA9sum\xC3\xA9"),
-                                       anostr_lit("\xC3\xA9"), anostr_lit("e")),
+    CHECK(anostr_eq(must(anostr_replace_all(heap, anostr_lit("r\xC3\xA9sum\xC3\xA9"),
+                                            anostr_lit("\xC3\xA9"), anostr_lit("e"))),
                     anostr_lit("resume")), "UTF-8 needle");
 
     // No match: same value, same backing.
     anostr_t big = anostr_lit("a long string with no needle in it");
-    anostr_t out = anostr_replace_all(heap, big, anostr_lit("zebra"), anostr_lit("!"));
+    anostr_t out = must(anostr_replace_all(heap, big, anostr_lit("zebra"), anostr_lit("!")));
     CHECK(anostr_eq(out, big) && anostr_bytes(&out) == anostr_bytes(&big),
           "no match returns the same backing");
-    out = anostr_replace_all(heap, big, anostr_empty(), anostr_lit("!"));
+    out = must(anostr_replace_all(heap, big, anostr_empty(), anostr_lit("!")));
     CHECK(anostr_eq(out, big) && anostr_bytes(&out) == anostr_bytes(&big),
           "empty needle is identity");
 
     // Long source shrink under inline cap -> fresh inline.
-    out = anostr_replace_all(heap, anostr_lit("xxxxxxxxxxxxxxxxxxxxxxab"),
-                             anostr_lit("x"), anostr_empty());
+    out = must(anostr_replace_all(heap, anostr_lit("xxxxxxxxxxxxxxxxxxxxxxab"),
+                                  anostr_lit("x"), anostr_empty()));
     CHECK(anostr_eq(out, anostr_lit("ab")) && anostr_is_inline(out), "shrinks to inline");
 
     // Randomized vs naive rebuild.
@@ -443,18 +450,18 @@ static void test_replace_all(mi_heap_t *heap)
         for (size_t k = 0; k < rn; k++) rb[k] = (char)('a' + rng_below(&rng, 4));
         anostr_t s = anostr_view(sb, sn), a = anostr_view(nb, nn), r = anostr_view(rb, rn);
 
-        anostr_builder_t bd = anostr_builder_make(heap, 0);
+        anostr_builder_t bd = must(anostr_builder_make(heap, 0));
         for (size_t i = 0; i < sn; ) {
             if (i + nn <= sn && memcmp(sb + i, nb, nn) == 0) {
-                anostr_builder_append(&bd, rb, rn);
+                CHECK(anostr_builder_append(&bd, rb, rn), "replacement appends");
                 i += nn;
             } else {
-                anostr_builder_append(&bd, sb + i, 1);
+                CHECK(anostr_builder_append(&bd, sb + i, 1), "source byte appends");
                 i++;
             }
         }
-        anostr_t want = anostr_freeze(&bd);
-        anostr_t got = anostr_replace_all(heap, s, a, r);
+        anostr_t want = must(anostr_freeze(&bd));
+        anostr_t got = must(anostr_replace_all(heap, s, a, r));
         if (!anostr_eq(got, want)) {
             printf("FAIL: replace soak it=%d: \"%.*s\" [%.*s -> %.*s] gave \"%.*s\" want \"%.*s\"\n",
                    it, anostr_fmt(s), anostr_fmt(a), anostr_fmt(r),
@@ -467,7 +474,7 @@ static void test_replace_all(mi_heap_t *heap)
 
 static anostr_t naive_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
 {
-    anostr_builder_t b = anostr_builder_make(heap, 0);
+    anostr_builder_t b = must(anostr_builder_make(heap, 0));
     for (size_t i = 0; i < anostr_len(s); ) {
         size_t at = i;
         anorune_t r = anostr_rune_next(s, &i);
@@ -475,42 +482,45 @@ static anostr_t naive_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
                     ((classes & ANOSTR_CULL_PUNCT) && anorune_is_punct(r)) ||
                     ((classes & ANOSTR_CULL_MARK) && anorune_is_mark(r));
         if (!cull)
-            anostr_builder_append(&b, anostr_bytes(&s) + at, i - at);
+            CHECK(anostr_builder_append(&b, anostr_bytes(&s) + at, i - at),
+                  "unculled run appends");
     }
-    return anostr_freeze(&b);
+    return must(anostr_freeze(&b));
 }
 
 static void test_cull(mi_heap_t *heap)
 {
     // Whitespace: ASCII, NBSP, U+3000.
-    CHECK(anostr_eq(anostr_cull(heap, anostr_lit(" a\tb\nc \xC2\xA0 d \xE3\x80\x80 e "),
-                                ANOSTR_CULL_WHITESPACE),
+    CHECK(anostr_eq(must(anostr_cull(heap, anostr_lit(" a\tb\nc \xC2\xA0 d \xE3\x80\x80 e "),
+                                     ANOSTR_CULL_WHITESPACE)),
                     anostr_lit("abcde")), "whitespace cull across widths");
 
     // Punct is P* only; symbols/digits survive.
-    CHECK(anostr_eq(anostr_cull(heap, anostr_lit("+5 Sword!, ($10) \xE2\x82\xAC. \xE3\x80\x81"),
-                                ANOSTR_CULL_PUNCT),
+    CHECK(anostr_eq(must(anostr_cull(heap, anostr_lit("+5 Sword!, ($10) \xE2\x82\xAC. \xE3\x80\x81"),
+                                     ANOSTR_CULL_PUNCT)),
                     anostr_lit("+5 Sword $10 \xE2\x82\xAC ")),
           "punct cull keeps symbols");
 
     // Marks: combining acute culled, precomposed é kept.
-    CHECK(anostr_eq(anostr_cull(heap, anostr_lit("e\xCC\x81 \xC3\xA9"), ANOSTR_CULL_MARK),
+    CHECK(anostr_eq(must(anostr_cull(heap, anostr_lit("e\xCC\x81 \xC3\xA9"), ANOSTR_CULL_MARK)),
                     anostr_lit("e \xC3\xA9")), "marks cull, precomposed stays");
 
     // Combined classes; total cull -> empty.
-    CHECK(anostr_eq(anostr_cull(heap, anostr_lit(" !.\t,"), ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT),
+    CHECK(anostr_eq(must(anostr_cull(heap, anostr_lit(" !.\t,"),
+                                     ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT)),
                     anostr_empty()), "combined cull to empty");
 
     // Nothing culled: same value, no alloc.
     anostr_t clean = anostr_lit("NothingToCullInThisLongString");
-    anostr_t out = anostr_cull(heap, clean, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT);
+    anostr_t out = must(anostr_cull(
+        heap, clean, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
     CHECK(anostr_eq(out, clean) && anostr_bytes(&out) == anostr_bytes(&clean),
           "no-op cull returns the same backing");
-    out = anostr_cull(heap, anostr_lit(" x "), 0);
+    out = must(anostr_cull(heap, anostr_lit(" x "), 0));
     CHECK(anostr_eq(out, anostr_lit(" x ")), "zero class mask is identity");
 
     // Malformed bytes never culled.
-    CHECK(anostr_eq(anostr_cull(heap, anostr_lit("\x80 \x80"), ANOSTR_CULL_WHITESPACE),
+    CHECK(anostr_eq(must(anostr_cull(heap, anostr_lit("\x80 \x80"), ANOSTR_CULL_WHITESPACE)),
                     anostr_lit("\x80\x80")), "malformed bytes pass through");
 
     // Randomized vs naive rune loop.
@@ -518,7 +528,7 @@ static void test_cull(mi_heap_t *heap)
     for (int it = 0; it < 300; it++) {
         anostr_t s = rng_str(&rng, heap, 24);
         uint32_t classes = 1 + rng_below(&rng, 7);
-        anostr_t got = anostr_cull(heap, s, classes);
+        anostr_t got = must(anostr_cull(heap, s, classes));
         anostr_t want = naive_cull(heap, s, classes);
         if (!anostr_eq(got, want)) {
             printf("FAIL: cull soak it=%d classes=%u on \"%.*s\": got \"%.*s\" want \"%.*s\"\n",
@@ -537,37 +547,40 @@ static int rune_cmp(const void *a, const void *b)
 
 static void test_rune_sort(mi_heap_t *heap)
 {
-    CHECK(anostr_eq(anostr_rune_sort(heap, anostr_lit("dcba")), anostr_lit("abcd")),
+    CHECK(anostr_eq(must(anostr_rune_sort(heap, anostr_lit("dcba"))), anostr_lit("abcd")),
           "ASCII counting sort");
-    CHECK(anostr_eq(anostr_rune_sort(heap, anostr_lit("b\xC3\xA9" "a")),
+    CHECK(anostr_eq(must(anostr_rune_sort(heap, anostr_lit("b\xC3\xA9" "a"))),
                     anostr_lit("ab\xC3\xA9")), "mixed width sorts by code point");
-    CHECK(anostr_eq(anostr_rune_sort(heap, anostr_empty()), anostr_empty()), "empty in, empty out");
+    CHECK(anostr_eq(must(anostr_rune_sort(heap, anostr_empty())), anostr_empty()),
+          "empty in, empty out");
     // Malformed -> U+FFFD; output longer and valid.
-    anostr_t fixed = anostr_rune_sort(heap, anostr_lit("\x80" "a"));
+    anostr_t fixed = must(anostr_rune_sort(heap, anostr_lit("\x80" "a")));
     CHECK(anostr_eq(fixed, anostr_lit("a\xEF\xBF\xBD")), "malformed sorts as U+FFFD");
 
     // Anagram key: code point order is case-sensitive.
-    anostr_t k1 = anostr_rune_sort(heap, anostr_cull(heap, anostr_lit("s i l e n t!"),
-                                                     ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
-    anostr_t k2 = anostr_rune_sort(heap, anostr_cull(heap, anostr_lit("l.i.s.t.e.n"),
-                                                     ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
+    anostr_t k1 = must(anostr_rune_sort(
+        heap, must(anostr_cull(heap, anostr_lit("s i l e n t!"),
+                               ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT))));
+    anostr_t k2 = must(anostr_rune_sort(
+        heap, must(anostr_cull(heap, anostr_lit("l.i.s.t.e.n"),
+                               ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT))));
     CHECK(anostr_eq(k1, k2), "anagram keys agree");
 
     // Randomized: multiset preserved vs qsort of runes.
     test_rng rng = rng_make(0x50F7ED00u);
     for (int it = 0; it < 300; it++) {
         anostr_t s = rng_str(&rng, heap, 32);
-        anostr_t sorted = anostr_rune_sort(heap, s);
+        anostr_t sorted = must(anostr_rune_sort(heap, s));
         size_t n = 0, m = 0;
-        anorune_t *want = anostr_to_utf32(heap, s, &n);
-        anorune_t *got  = anostr_to_utf32(heap, sorted, &m);
+        anorune_t *want = must(anostr_to_utf32(heap, s, &n));
+        anorune_t *got  = must(anostr_to_utf32(heap, sorted, &m));
         qsort(want, n, sizeof want[0], rune_cmp);
         if (m != n || memcmp(want, got, n * sizeof want[0]) != 0) {
             printf("FAIL: rune_sort soak it=%d on \"%.*s\"\n", it, anostr_fmt(s));
             failures++;
             return;
         }
-        if (!anostr_eq(anostr_rune_sort(heap, sorted), sorted)) {
+        if (!anostr_eq(must(anostr_rune_sort(heap, sorted)), sorted)) {
             printf("FAIL: rune_sort not idempotent it=%d\n", it);
             failures++;
             return;

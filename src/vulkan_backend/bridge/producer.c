@@ -9,36 +9,41 @@
 
 // Lock-free bridge producer.
 
-// Valid after initVulkan() returns.
-AnoRenderBridge* ano::anoRenderBridge(void) { return &rendererState.bridge; }
+RenderResult<AnoRenderBridge *> ano::anoRenderBridge(void)
+{
+    return result_if(rendererState.bridge.commands.buffer != nullptr,
+                     &rendererState.bridge, RenderError::unavailable);
+}
 
-// Reserve next free transform-ring slice into out.
-// out: filled on success; false if slice in flight
+// Reserve next free transform-ring slice.
 // inv: produceSeq unchanged
-bool ano::ano_render_stream_begin(AnoStreamRegion* out) {
+RenderResult<AnoStreamRegion> ano::ano_render_stream_begin(void) {
     TransformStreamBuffer* ts = &rendererState.transformStream;
     uint64_t seq = ts->produceSeq + 1u;
     if (seq > ts->ringSlices) {
         uint64_t prior = seq - ts->ringSlices;
         if (atomic_load_explicit(&ts->reclaimSeq, memory_order_acquire) < prior)
-            return false;
+            return failure(RenderError::backpressure);
     }
     uint32_t slice = (uint32_t)((seq - 1u) % ts->ringSlices);
-    out->ids      = ts->idRing + (size_t)slice * ts->capacity;
-    out->xforms   = ts->xformRingMapped + (size_t)slice * ts->capacity;
-    out->capacity = ts->capacity;
-    out->token    = seq;
-    return true;
+    return AnoStreamRegion{
+        .ids = ts->idRing + (size_t)slice * ts->capacity,
+        .xforms = ts->xformRingMapped + (size_t)slice * ts->capacity,
+        .capacity = ts->capacity,
+        .token = seq,
+    };
 }
 
 // Publish filled region as {seq,count}.
-bool ano::ano_render_stream_commit(const AnoStreamRegion* region, uint32_t count) {
+RenderResult<> ano::ano_render_stream_commit(const AnoStreamRegion* region, uint32_t count) {
+    if (!region)
+        return failure(RenderError::invalid_argument);
     TransformStreamBuffer* ts = &rendererState.transformStream;
     if (count > ts->capacity) count = ts->capacity;
     RenderCommand cmd = { .kind = RCMD_STREAM_TRANSFORMS,
                           .stream_seq = region->token, .stream_count = count };
-    if (!ano_render_submit(&rendererState.bridge, &cmd))
-        return false;
+    if (auto submitted = ano_render_submit(&rendererState.bridge, &cmd); !submitted)
+        return submitted;
     ts->produceSeq = region->token;
-    return true;
+    return {};
 }

@@ -51,14 +51,14 @@ static void *text_ft_realloc(FT_Memory memory, long cur_size, long new_size, voi
     return mi_heap_realloc(static_cast<mi_heap_t *>(memory->user), block, (size_t)new_size);
 }
 
-int ano::ano_text_init(void)
+TextResult<> ano::ano_text_init(void)
 {
     if (g_ftLibrary != NULL)
-        return 0;
+        return {};
 
     g_textHeap = ano_heap_create();
     if (g_textHeap == NULL)
-        return ENOMEM;
+        return failure(TextError::out_of_memory);
 
     g_ftMemory.user    = g_textHeap;
     g_ftMemory.alloc   = text_ft_alloc;
@@ -73,7 +73,7 @@ int ano::ano_text_init(void)
         g_ftLibrary = NULL;
         ano_heap_destroy(g_textHeap);
         g_textHeap = NULL;
-        return EIO;
+        return failure(TextError::io);
     }
     FT_Add_Default_Modules(g_ftLibrary);
     FT_Set_Default_Properties(g_ftLibrary); // honors FREETYPE_PROPERTIES, FT_Init parity
@@ -81,7 +81,7 @@ int ano::ano_text_init(void)
     FT_Int maj = 0, min = 0, pat = 0;
     FT_Library_Version(g_ftLibrary, &maj, &min, &pat);
     ano_log(ANO_INFO, "text: FreeType %d.%d.%d ready (module-heap backed)", maj, min, pat);
-    return 0;
+    return {};
 }
 
 // Faces, then library, then heap. Init thread.
@@ -121,10 +121,10 @@ void ano_text_version(int *major, int *minor, int *patch)
 }
 
 // 1-based handle, or 0. Init thread.
-AnoFontId ano::ano_text_font_load(anostr_t path)
+TextResult<AnoFontId> ano::ano_text_font_load(anostr_t path)
 {
     if (g_ftLibrary == NULL || anostr_is_empty(path))
-        return 0;
+        return failure(TextError::invalid_argument);
 
     uint32_t slot = ANO_TEXT_MAX_FONTS;
     for (uint32_t i = 0; i < ANO_TEXT_MAX_FONTS; i++)
@@ -139,13 +139,14 @@ AnoFontId ano::ano_text_font_load(anostr_t path)
     {
         ano_log(ANO_ERROR, "text: font registry full (%u faces), cannot load '%.*s'",
                       ANO_TEXT_MAX_FONTS, anostr_fmt(path));
-        return 0;
+        return failure(TextError::capacity_exhausted);
     }
 
     // FreeType wants a NUL-terminated path. Scratch copy, freed on every exit.
-    char *cpath = anostr_to_cstr(g_textHeap, path);
-    if (cpath == NULL)
-        return 0;
+    auto pathCopy = anostr_to_cstr(g_textHeap, path);
+    if (!pathCopy)
+        return failure(TextError::out_of_memory);
+    char *cpath = *pathCopy;
 
     FT_Face  face = NULL;
     FT_Error err  = FT_New_Face(g_ftLibrary, cpath, 0, &face);
@@ -155,7 +156,7 @@ AnoFontId ano::ano_text_font_load(anostr_t path)
         ano_log(ANO_ERROR, "text: FT_New_Face('%s') failed: %d (%s)", cpath, (int)err,
                       msg ? msg : "?");
         mi_free(cpath);
-        return 0;
+        return failure(TextError::io);
     }
     if (!FT_IS_SCALABLE(face))
     {
@@ -163,7 +164,7 @@ AnoFontId ano::ano_text_font_load(anostr_t path)
         ano_log(ANO_ERROR, "text: '%s' is not a scalable outline face", cpath);
         FT_Done_Face(face);
         mi_free(cpath);
-        return 0;
+        return failure(TextError::unsupported);
     }
 
     g_faces[slot] = face;

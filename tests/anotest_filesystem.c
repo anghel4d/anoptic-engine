@@ -41,19 +41,25 @@ static void check_path_shape(ano_fspath p, const char *label)
 
 static void test_gamepath(void)
 {
-    ano_fspath game = ano_fs_gamepath();
+    const auto resolved = ano_fs_gamepath();
+    CHECK(resolved, "gamepath resolves");
+    if (!resolved)
+        return;
+    const ano_fspath game = *resolved;
     check_path_shape(game, "gamepath");
     CHECK(ano_fs_chdir_gamepath(), "chdir to gamepath succeeds");
 
     // Two calls resolve to the same path.
-    ano_fspath again = ano_fs_gamepath();
+    const ano_fspath again = ano_fs_gamepath().value_or(ano_fspath{});
     CHECK(game.length == again.length && strcmp(game.str, again.str) == 0,
           "gamepath is stable across calls");
 }
 
 static void test_userpath(void)
 {
-    ano_fspath user = ano_fs_userpath();
+    const auto resolved = ano_fs_userpath();
+    CHECK(resolved, "userpath resolves");
+    const ano_fspath user = resolved.value_or(ano_fspath{});
     check_path_shape(user, "userpath");
     if (user.length == 0)
         return; // shape check already failed
@@ -73,11 +79,11 @@ static void test_userpath(void)
              '/'
 #endif
     );
-    ano_file *f = ano_fs_open_append(probe);
+    ano_file *f = ano_fs_open_append(probe).value_or(nullptr);
     CHECK(f != NULL, "can create a file inside userpath");
     if (f != NULL) {
-        CHECK(ano_fs_write(f, "probe\n", 6) == 0, "write to userpath probe");
-        CHECK(ano_fs_close(f) == 0, "close userpath probe");
+        CHECK(ano_fs_write(f, "probe\n", 6), "write to userpath probe");
+        CHECK(ano_fs_close(f), "close userpath probe");
     }
     remove(probe);
 }
@@ -85,47 +91,47 @@ static void test_userpath(void)
 static void test_append_file_api(void)
 {
     // Scratch dir from gamepath (absolute), valid before chdir.
-    ano_fspath base = ano_fs_gamepath();
+    const ano_fspath base = ano_fs_gamepath().value_or(ano_fspath{});
     char dir[512];
     snprintf(dir, sizeof dir, "%s/anotest_filesystem_scratch", base.str);
     char path[sizeof dir + sizeof "/append.log"];
     snprintf(path, sizeof path, "%s/append.log", dir);
     scratch_make_dir(dir);
 
-    ano_file *f = ano_fs_open_append(path);
+    ano_file *f = ano_fs_open_append(path).value_or(nullptr);
     CHECK(f != NULL, "open_append creates the file");
     if (f != NULL) {
         for (int i = 0; i < 5; i++)
-            CHECK(ano_fs_write(f, "line\n", 5) == 0, "write line");
-        CHECK(ano_fs_write(f, NULL, 0) == 0, "zero-length write is a no-op success");
-        CHECK(ano_fs_sync(f) == 0, "sync flushes");
-        CHECK(ano_fs_close(f) == 0, "close succeeds");
+            CHECK(ano_fs_write(f, "line\n", 5), "write line");
+        CHECK(ano_fs_write(f, NULL, 0), "zero-length write is a no-op success");
+        CHECK(ano_fs_sync(f), "sync flushes");
+        CHECK(ano_fs_close(f), "close succeeds");
     }
     CHECK(scratch_count_lines(path) == 5, "5 writes -> 5 lines");
 
     // Reopen: append must extend, not truncate.
-    f = ano_fs_open_append(path);
+    f = ano_fs_open_append(path).value_or(nullptr);
     CHECK(f != NULL, "reopen existing file");
     if (f != NULL) {
-        CHECK(ano_fs_write(f, "line\n", 5) == 0, "write after reopen");
-        CHECK(ano_fs_close(f) == 0, "close after reopen");
+        CHECK(ano_fs_write(f, "line\n", 5), "write after reopen");
+        CHECK(ano_fs_close(f), "close after reopen");
     }
     CHECK(scratch_count_lines(path) == 6, "reopen appended, did not truncate");
 
     // Trunc: clear then append.
-    f = ano_fs_open_trunc(path);
+    f = ano_fs_open_trunc(path).value_or(nullptr);
     CHECK(f != NULL, "open_trunc reopens the file");
     if (f != NULL) {
-        CHECK(ano_fs_write(f, "line\n", 5) == 0, "write after trunc");
-        CHECK(ano_fs_close(f) == 0, "close after trunc");
+        CHECK(ano_fs_write(f, "line\n", 5), "write after trunc");
+        CHECK(ano_fs_close(f), "close after trunc");
     }
     CHECK(scratch_count_lines(path) == 1, "trunc cleared the 6 prior lines");
-    CHECK(ano_fs_open_trunc(NULL) == NULL, "NULL path refused (trunc)");
+    CHECK(!ano_fs_open_trunc(NULL), "NULL path refused (trunc)");
 
-    CHECK(ano_fs_open_append(NULL) == NULL, "NULL path refused");
-    CHECK(ano_fs_write(NULL, "x", 1) == -1, "write on NULL handle refused");
-    CHECK(ano_fs_sync(NULL) == -1, "sync on NULL handle refused");
-    CHECK(ano_fs_close(NULL) == -1, "close on NULL handle refused");
+    CHECK(!ano_fs_open_append(NULL), "NULL path refused");
+    CHECK(!ano_fs_write(NULL, "x", 1), "write on NULL handle refused");
+    CHECK(!ano_fs_sync(NULL), "sync on NULL handle refused");
+    CHECK(!ano_fs_close(NULL), "close on NULL handle refused");
 
     remove(path);
     scratch_remove_dir(dir);

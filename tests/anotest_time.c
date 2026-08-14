@@ -32,11 +32,11 @@ uint64_t firshhhahafigits(uint64_t num, uint64_t n) {
 int testDate() {
     printf("Testing current date.\n");
 
-    int64_t rawTS = ano_timestamp_unix();
-    if (rawTS == INT64_MIN)
+    const auto timestamp = ano_timestamp_unix();
+    if (!timestamp)
         return -1;
 
-    time_t currentTime = (time_t)rawTS;
+    time_t currentTime = (time_t)*timestamp;
     printf("Current Date and Time: %s\n", ctime(&currentTime));
 
     return 0;
@@ -82,8 +82,8 @@ static int sleepCase(uint64_t us, int skipCeil) {
     int early = 0;
     for (int i = 0; i < SLEEP_SAMPLES; i++) {
         uint64_t t0 = ano_timestamp_raw();
-        if (ano_sleep(us) != 0) {
-            printf("  [FAIL] ano_sleep(%" PRIu64 "us) returned nonzero\n", us);
+        if (!ano_sleep(us)) {
+            printf("  [FAIL] ano_sleep(%" PRIu64 "us) failed\n", us);
             return 1;
         }
         uint64_t el = ano_timestamp_raw() - t0;
@@ -116,8 +116,8 @@ static int busyCase(uint64_t ns) {
     int early = 0;
     for (int i = 0; i < BUSY_SAMPLES; i++) {
         uint64_t t0 = ano_timestamp_raw();
-        if (ano_busywait(ns) != 0) {
-            printf("  [FAIL] ano_busywait(%" PRIu64 "ns) returned nonzero\n", ns);
+        if (!ano_busywait(ns)) {
+            printf("  [FAIL] ano_busywait(%" PRIu64 "ns) failed\n", ns);
             return 1;
         }
         uint64_t el = ano_timestamp_raw() - t0;
@@ -139,8 +139,8 @@ static int testResolution(void) {
     int fails = 0;
 
     // Warm up: first ano_sleep creates the per-thread waitable timer (Windows).
-    ano_sleep(1000);
-    ano_busywait(1000);
+    (void)ano_sleep(1000);
+    (void)ano_busywait(1000);
 
     printf("\nano_busywait resolution sweep:\n");
     uint64_t busyNs[] = {1000, 10000, 100000, 1000000, 10000000}; // 1us .. 10ms

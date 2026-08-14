@@ -55,14 +55,14 @@ static_assert(ano::Data<decltype(LIGHTING_MODE_NAMES)>);
 
 } // namespace
 
-uint32_t ano::anoRenderAssetPrimitives(AnoAssetId asset, const mat4 root,
-                                  AnoRenderableDesc* out, uint32_t cap) {
+RenderResult<uint32_t> ano::anoRenderAssetPrimitives(
+    AnoAssetId asset, const mat4 root, AnoRenderableDesc* out, uint32_t cap) {
     return ano_vk_resource_scene_primitives(
         g_resourceResidency, asset, root, out, cap);
 }
 
-uint32_t ano::anoRenderAssetLights(AnoAssetId asset, const mat4 root,
-                              AnoSceneLightDesc* out, uint32_t cap) {
+RenderResult<uint32_t> ano::anoRenderAssetLights(
+    AnoAssetId asset, const mat4 root, AnoSceneLightDesc* out, uint32_t cap) {
     return ano_vk_resource_scene_lights(
         g_resourceResidency, asset, root, out, cap);
 }
@@ -73,19 +73,21 @@ uint32_t ano::anoRenderDefaultMaterial(void) {
 }
 uint32_t ano::anoRenderStaticLightBase(void) { return ANO_STATIC_LIGHT_COUNT; }
 
-// Baked font for logic-side shaping (anoptic_render.h). NULL when the text stack is down.
-const AnoFontBake* ano::anoRenderTextBake(void)
+RenderResult<const AnoFontBake *> ano::anoRenderTextBake(void)
 {
-    return rendererState.textOverlay ? &rendererState.textBake : NULL;
+    return result_if(rendererState.textOverlay,
+                     &rendererState.textBake, RenderError::unavailable);
 }
 // Lighting-mode control. Published into the GlobalUBO tail by updateCullingBuffers.
-void ano::ano_render_set_lighting_mode(AnoLightingMode mode) {
-    if (!LightingMode::from(mode)) return;
+RenderResult<> ano::ano_render_set_lighting_mode(AnoLightingMode mode) {
+    if (!LightingMode::from(mode))
+        return failure(RenderError::invalid_argument);
     if (rendererState.lightingMode != (uint32_t)mode) {
         rendererState.lightingMode = (uint32_t)mode;
         // Discard the in-progress timing window.
         ano_profile_reset_window();
     }
+    return {};
 }
 
 AnoLightingMode ano::ano_render_get_lighting_mode(void) {
@@ -99,26 +101,32 @@ const char *ano::ano_render_lighting_mode_name(AnoLightingMode mode) {
 
 // Per-view screen-area cull threshold. Squared into CullUBO.viewCullParams[view][1] by updateCullingBuffers.
 // Pixels of projected bounding-sphere radius; 0 disables the test, negative clamps to 0.
-void ano::ano_render_set_view_cull_threshold(uint32_t view, float pixels) {
-    if (view >= ANO_VIEW_COUNT) return;
+RenderResult<> ano::ano_render_set_view_cull_threshold(uint32_t view, float pixels) {
+    if (view >= ANO_VIEW_COUNT)
+        return failure(RenderError::invalid_argument);
     rendererState.cullPixelThreshold[view] = (pixels > 0.0f) ? pixels : 0.0f;
+    return {};
 }
 
-float ano::ano_render_get_view_cull_threshold(uint32_t view) {
-    if (view >= ANO_VIEW_COUNT) return 0.0f;
+RenderResult<float> ano::ano_render_get_view_cull_threshold(uint32_t view) {
+    if (view >= ANO_VIEW_COUNT)
+        return failure(RenderError::invalid_argument);
     return rendererState.cullPixelThreshold[view];
 }
 
 // Per-view LOD threshold. Copied into CullUBO.viewCullParams[view][2] by updateCullingBuffers.
 // Pixels of projected radius at which level 1 begins; 0 disables LOD, negative clamps to 0.
-void ano::ano_render_set_view_lod_threshold(uint32_t view, float pixels) {
-    if (view >= ANO_VIEW_COUNT) return;
+RenderResult<> ano::ano_render_set_view_lod_threshold(uint32_t view, float pixels) {
+    if (view >= ANO_VIEW_COUNT)
+        return failure(RenderError::invalid_argument);
     rendererState.lodPixelThreshold[view] = (pixels > 0.0f) ? pixels : 0.0f;
     if (view == 0u) rendererState.shadowGlobalDirty = true; // shadow LOD tracks view 0
+    return {};
 }
 
-float ano::ano_render_get_view_lod_threshold(uint32_t view) {
-    if (view >= ANO_VIEW_COUNT) return 0.0f;
+RenderResult<float> ano::ano_render_get_view_lod_threshold(uint32_t view) {
+    if (view >= ANO_VIEW_COUNT)
+        return failure(RenderError::invalid_argument);
     return rendererState.lodPixelThreshold[view];
 }
 
@@ -148,19 +156,25 @@ int32_t ano::ano_render_get_shadow_lod_bias(void) {
 
 // Per-view Hi-Z occlusion toggle. Rejects entities behind last frame's depth pyramid.
 // Published into CullUBO.hizParams[view].z (mipCount when on, 0 when off) by updateCullingBuffers. Default off.
-void ano::ano_render_set_view_hiz_enable(uint32_t view, bool enable) {
-    if (view >= ANO_VIEW_COUNT) return;
+RenderResult<> ano::ano_render_set_view_hiz_enable(uint32_t view, bool enable) {
+    if (view >= ANO_VIEW_COUNT)
+        return failure(RenderError::invalid_argument);
     rendererState.hizEnable[view] = enable ? 1u : 0u;
+    return {};
 }
 
-bool ano::ano_render_get_view_hiz_enable(uint32_t view) {
-    if (view >= ANO_VIEW_COUNT) return false;
+RenderResult<bool> ano::ano_render_get_view_hiz_enable(uint32_t view) {
+    if (view >= ANO_VIEW_COUNT)
+        return failure(RenderError::invalid_argument);
     return rendererState.hizEnable[view] != 0u;
 }
 
-bool ano::ano_render_capture_next_frame(const char *path)
+RenderResult<> ano::ano_render_capture_next_frame(const char *path)
 {
-    return ano_frame_capture_request(&ctx, &rendererState, path);
+    if (!path)
+        return failure(RenderError::invalid_argument);
+    return result_if(ano_frame_capture_request(&ctx, &rendererState, path),
+                     RenderError::unavailable);
 }
 
 // Claim material SSBO row 0 with stock white PBR before resource realization.
@@ -189,18 +203,17 @@ bool ano_render_load_scene_assets(AnoResourceManager *resources)
 	return true;
 }
 
-AnoResourceError ano::ano_render_resources_prepare_reload(
-    AnoResourceReload *reload, mi_heap_t *preparationHeap,
-    AnoRenderResourcePublication **publication)
+ResourceResult<AnoRenderResourcePublication *>
+ano::ano_render_resources_prepare_reload(
+    AnoResourceReload *reload, mi_heap_t *preparationHeap)
 {
-    if (reload == nullptr || preparationHeap == nullptr || publication == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
-    *publication = nullptr;
+    if (reload == nullptr || preparationHeap == nullptr)
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     AnoRenderResourcePublication *prepared =
         mi_zalloc_tp(AnoRenderResourcePublication);
     if (prepared == nullptr) {
         ano_resource_reload_abort(reload);
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     }
     prepared->reload = reload;
     AnoResourceError result = ANO_RESOURCE_OK;
@@ -211,10 +224,9 @@ AnoResourceError ano::ano_render_resources_prepare_reload(
     }
     if (result != ANO_RESOURCE_OK) {
         destroy_publication(prepared);
-        return result;
+        return failure(result);
     }
-    *publication = prepared;
-    return ANO_RESOURCE_OK;
+    return prepared;
 }
 
 void ano::ano_render_resources_cancel_reload(
@@ -254,10 +266,9 @@ AnoRenderResourceReloadStatus ano::ano_render_resources_poll_reload(
         return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
     }
 
-    const AnoResourceError result =
-        ano_resource_reload_commit(publication->reload);
+    const auto result = ano_resource_reload_commit(publication->reload);
     publication->reload = nullptr;
-    if (result != ANO_RESOURCE_OK) {
+    if (!result) {
         destroy_publication(publication);
         return ANO_RENDER_RESOURCE_RELOAD_REJECTED;
     }

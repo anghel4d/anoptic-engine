@@ -261,24 +261,24 @@ uint32_t ano::ano_timestamp_ms() {
 
 /* Generic Date-Time Stamps */
 
-int64_t ano::ano_timestamp_unix() {
+TimeResult<int64_t> ano::ano_timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
 
     if (currentTime == (time_t)-1) {
-        return INT64_MIN; // Out-of-range sentinel.
+        return failure(TimeError::unavailable);
     }
 
     return (int64_t)currentTime;
 }
 
-ano_datetime ano::ano_localtime(int64_t unix_seconds) {
+TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_s(&tm, &t) != 0)
-        return (ano_datetime){0};
+        return failure(TimeError::invalid_argument);
 
     return (ano_datetime){
         .year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday,
@@ -289,11 +289,10 @@ ano_datetime ano::ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-int ano::ano_busywait(uint64_t ns) {
+TimeResult<> ano::ano_busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
-        printf("Requested busywait time exceeds maximum limit. Exiting.\n");
-        return -1;
+        return failure(TimeError::invalid_argument);
     }
 
     uint64_t startTime = ano_timestamp_raw();
@@ -303,7 +302,7 @@ int ano::ano_busywait(uint64_t ns) {
         endTime = ano_timestamp_raw();
     } while (endTime - startTime < ns);
 
-    return 0;
+    return {};
 }
 
 // Win10 1803+ hi-res timer flag, for older SDKs. No timeBeginPeriod floor.
@@ -350,11 +349,13 @@ static HANDLE ano_sleep_timer(void) {
 }
 
 // Waitable timer + busywait tail. Yields. Returns 0, or positive errno-ish (Unix parity).
-int ano::ano_sleep(uint64_t us) {
+TimeResult<> ano::ano_sleep(uint64_t us) {
 
     if (us == 0)
-        return 0;   // nothing to wait on, matches a zero-length nanosleep
+        return {};   // nothing to wait on, matches a zero-length nanosleep
 
+    if (us > UINT64_MAX / 1000ULL)
+        return failure(TimeError::overflow);
     uint64_t target_ns = us * 1000ULL;
     uint64_t start = ano_timestamp_raw();
 
@@ -374,7 +375,7 @@ int ano::ano_sleep(uint64_t us) {
             due.QuadPart = -(LONGLONG)units;
             if (SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE)) {
                 if (WaitForSingleObject(timer, INFINITE) != WAIT_OBJECT_0)
-                    return EIO;
+                    return failure(TimeError::platform);
                 yielded = true;
             }
         }
@@ -396,10 +397,10 @@ int ano::ano_sleep(uint64_t us) {
         if (elapsed >= target_ns)
             break;
         uint64_t remaining = target_ns - elapsed;
-        ano_busywait(remaining > MAX_BUSYWAIT_NS ? MAX_BUSYWAIT_NS : remaining);
+        (void)ano_busywait(remaining > MAX_BUSYWAIT_NS ? MAX_BUSYWAIT_NS : remaining);
     }
 
-    return 0;
+    return {};
 }
 
 #endif

@@ -110,7 +110,7 @@ static void *producer(void *arg)
 
         if (pick < 2) {
             // Occasional DIR_A/DIR_B swap. Enqueues nothing.
-            ano_log_output_dir((rng_next(&s) & 1) ? DIR_A : DIR_B);
+            (void)ano_log_output_dir((rng_next(&s) & 1) ? DIR_A : DIR_B);
         } else if (pick < 5) {
             // Occasional NOW route. FILE named explicitly, so one file line and no echo.
             rng_fill_printable(&s, content, 1, MAX_CONTENT);
@@ -138,7 +138,7 @@ static void *flusher(void *arg)
     test_rng s = rng_make(0xBEEF ^ (uint32_t)(intptr_t)arg);
     while (!atomic_load_explicit(&g_stop, memory_order_relaxed)) {
         ano_log_flush();
-        ano_sleep(50 + rng_below(&s, 400));   // short random interval, 50..449 us
+        (void)ano_sleep(50 + rng_below(&s, 400));   // short random interval, 50..449 us
     }
     return NULL;
 }
@@ -157,32 +157,32 @@ int main(int argc, char **argv)
     remove(PATH_A);
     remove(PATH_B);
 
-    if (ano_log_init() != 0) {
+    if (!ano_log_init()) {
         fprintf(stderr, "logfuzz: ano_log_init failed\n");
         return 1;
     }
     ano_log_set_level(ANO_INFO);    // gate open: nothing dropped by severity, counts stay exact
-    ano_log_output_dir(DIR_A);
+    (void)ano_log_output_dir(DIR_A);
 
     atomic_store(&g_enqueued, 0);
     atomic_store(&g_worker_fail, 0);
     atomic_store(&g_stop, false);
 
     anothread_t prod[PRODUCERS], flush;
-    ano_thread_create(&flush, NULL, flusher, NULL);
+    (void)ano_thread_create(&flush, NULL, flusher, NULL);
     for (intptr_t i = 0; i < PRODUCERS; i++) {
-        if (ano_thread_create(&prod[i], NULL, producer, (void *)i) != 0) {
+        if (!ano_thread_create(&prod[i], NULL, producer, (void *)i)) {
             fprintf(stderr, "logfuzz: thread create failed\n");
             return 1;
         }
     }
 
     for (int i = 0; i < PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
 
     // Producers stopped: stop flusher, final drain, then read back.
     atomic_store(&g_stop, true);
-    ano_thread_join(flush, NULL);
+    (void)ano_thread_join(flush, NULL);
     ano_log_flush();
 
     // Point output away so cleanup's final drain touches neither file.

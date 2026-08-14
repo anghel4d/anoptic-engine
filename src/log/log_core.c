@@ -422,7 +422,7 @@ static inline char *put2(char *p, int v)
 // Render "HH:MM:SS" (8 bytes) for wall-clock `sec` into out8.
 static void render_hms(char *out8, uint64_t sec)
 {
-    ano_datetime t = ano_localtime((int64_t)sec);
+    ano_datetime t = ano_localtime((int64_t)sec).value_or(ano_datetime{});
     char *p = put2(out8, t.hour);   *p++ = ':';
     p      = put2(p, t.minute);     *p++ = ':';
     (void)   put2(p, t.second);
@@ -451,16 +451,17 @@ static ano_file *open_log(const char *dir, bool fresh)
     int n = snprintf(path, sizeof path, "%s/%s" ANO_LOG_FILESUFFIX, dir, ano_fs_session_stamp());
     if (n <= 0 || n >= (int)sizeof path)
         return NULL;
-    return fresh ? ano_fs_open_trunc(path) : ano_fs_open_append(path);
+    return (fresh ? ano_fs_open_trunc(path) : ano_fs_open_append(path))
+        .value_or(nullptr);
 }
 
 static void persist_file(const void *data, size_t len)
 {
-    if (ano_fs_write(g_outFile, data, len) != 0)
+    if (!ano_fs_write(g_outFile, data, len))
         fwrite(data, 1, len, stderr);
 }
 static void persist_console(const void *data, size_t len) { fwrite(data, 1, len, stdout); }
-static void sync_file(void) { ano_fs_sync(g_outFile); }
+static void sync_file(void) { (void)ano_fs_sync(g_outFile); }
 static void sync_none(void) { }
 
 // Bind writer set to current output (or console). Caller holds g_outFileMtx.
@@ -523,11 +524,11 @@ static void write_batch(const char *data, size_t len)
 {
     if (len == 0)
         return;
-    ano_mutex_lock(&g_outFileMtx);
+    (void)ano_mutex_lock(&g_outFileMtx);
     g_persist(data, len);
     if (!g_haveFile)
         fflush(stdout);
-    ano_mutex_unlock(&g_outFileMtx);
+    (void)ano_mutex_unlock(&g_outFileMtx);
 }
 
 // Write one record straight through (NOW / full-ring wedge). `sync` fsyncs the file.
@@ -540,7 +541,7 @@ static void emit_one(ano_loglevel_t level, uint64_t raw_ts, const char *text, ui
     memcpy(out + p, text, len); p += len;
     out[p++] = '\n';
 
-    ano_mutex_lock(&g_outFileMtx);
+    (void)ano_mutex_lock(&g_outFileMtx);
     bool echoed = toCon && (g_haveFile || !toFile);     // no file: persist already hits console
     if (echoed)
         echo_console(level, out, text, len);
@@ -551,7 +552,7 @@ static void emit_one(ano_loglevel_t level, uint64_t raw_ts, const char *text, ui
     }
     if (echoed)
         fflush(level >= ANO_ERROR ? stderr : stdout);
-    ano_mutex_unlock(&g_outFileMtx);
+    (void)ano_mutex_unlock(&g_outFileMtx);
 }
 
 
@@ -603,9 +604,9 @@ static uint64_t drain_and_emit(void)
             memcpy(g_batch + blen, body, v.len); blen += v.len;
         }
         if (v.flags & ANO_LOG_TOCON) {
-            ano_mutex_lock(&g_outFileMtx);
+            (void)ano_mutex_lock(&g_outFileMtx);
             echo_console((ano_loglevel_t)v.level, g_drainHMS, g_batch + bodyStart, blen - bodyStart);
-            ano_mutex_unlock(&g_outFileMtx);
+            (void)ano_mutex_unlock(&g_outFileMtx);
             if ((ano_loglevel_t)v.level >= ANO_ERROR) conErr = true; else conOut = true;
         }
         if (v.flags & ANO_LOG_TOFILE)
@@ -627,23 +628,23 @@ static uint64_t drain_and_emit(void)
 // One drain pass, serialized. Owned thread loops; ano_log_flush runs inline.
 static uint64_t drain(void)
 {
-    ano_mutex_lock(&g_drainMtx);
+    (void)ano_mutex_lock(&g_drainMtx);
     uint64_t n = drain_and_emit();
-    ano_mutex_unlock(&g_drainMtx);
+    (void)ano_mutex_unlock(&g_drainMtx);
     return n;
 }
 
 static void wake_drainer(void)
 {
-    ano_mutex_lock(&g_wakeMtx);
-    ano_thread_cond_signal(&g_wakeCv);
-    ano_mutex_unlock(&g_wakeMtx);
+    (void)ano_mutex_lock(&g_wakeMtx);
+    (void)ano_thread_cond_signal(&g_wakeCv);
+    (void)ano_mutex_unlock(&g_wakeMtx);
 }
 
 // Park after empty pass. Flag up first, recheck ring under it. seq_cst + DRAIN_PARK_US bound lost wakeup.
 static void drainer_park(void)
 {
-    ano_mutex_lock(&g_wakeMtx);
+    (void)ano_mutex_lock(&g_wakeMtx);
     atomic_store_explicit(&g_drainerParked, true, memory_order_seq_cst);
     uint64_t t = atomic_load_explicit(&g_ring.tail, memory_order_seq_cst);
     uint64_t h = atomic_load_explicit(&g_ring.head, memory_order_relaxed);
@@ -653,10 +654,10 @@ static void drainer_park(void)
         uint64_t ns = (uint64_t)ts.tv_nsec + (uint64_t)DRAIN_PARK_US * 1000u;
         ts.tv_sec  += (time_t)(ns / 1000000000u);
         ts.tv_nsec  = (long)(ns % 1000000000u);
-        ano_thread_cond_timedwait(&g_wakeCv, &g_wakeMtx, &ts);
+        (void)ano_thread_cond_timedwait(&g_wakeCv, &g_wakeMtx, &ts);
     }
     atomic_store_explicit(&g_drainerParked, false, memory_order_relaxed);
-    ano_mutex_unlock(&g_wakeMtx);
+    (void)ano_mutex_unlock(&g_wakeMtx);
 }
 
 // Drain while work, park on empty.
@@ -716,7 +717,7 @@ static int log_buffered(ano_loglevel_t level, uint8_t sinks, const char *file, i
             }
             if (atomic_load_explicit(&g_drainerParked, memory_order_seq_cst))
                 wake_drainer();
-            ano_busywait(backoff);
+            (void)ano_busywait(backoff);
             if (backoff < FULL_BACKOFF_MAX_NS) backoff <<= 1;
             pos = atomic_load_explicit(&g_ring.tail, memory_order_relaxed);
             continue;
@@ -794,25 +795,26 @@ void ano::ano_log_set_route(ano_loglevel_t level, ano_logroute_t route)
     atomic_store_explicit(&g_routeDefault[level], (uint8_t)route, memory_order_relaxed);
 }
 
-int ano::ano_log_output_dir(const char *directoryPath)
+LogResult<> ano::ano_log_output_dir(const char *directoryPath)
 {
     if (directoryPath == NULL || directoryPath[0] == '\0'
         || !atomic_load_explicit(&g_initialized, memory_order_relaxed))
-        return -1;
+        return failure(directoryPath == NULL || directoryPath[0] == '\0'
+            ? LogError::invalid_argument : LogError::not_initialized);
 
     ano_file *newOut = open_log(directoryPath, false);
     if (newOut == NULL)
-        return -1;
+        return failure(LogError::io);
 
-    ano_mutex_lock(&g_outFileMtx);
+    (void)ano_mutex_lock(&g_outFileMtx);
     if (g_outFile != NULL) {
-        ano_fs_sync(g_outFile);
-        ano_fs_close(g_outFile);
+        (void)ano_fs_sync(g_outFile);
+        (void)ano_fs_close(g_outFile);
     }
     g_outFile = newOut;
     select_output();
-    ano_mutex_unlock(&g_outFileMtx);
-    return 0;
+    (void)ano_mutex_unlock(&g_outFileMtx);
+    return {};
 }
 
 void ano::ano_log_set_level(ano_loglevel_t min)
@@ -827,20 +829,20 @@ void ano::ano_log_flush(void)
         drain();
 }
 
-int ano::ano_log_init(void)
+LogResult<> ano::ano_log_init(void)
 {
     if (atomic_load_explicit(&g_initialized, memory_order_relaxed))
-        return 0;
-    if (ano_mutex_init(&g_outFileMtx, NULL) != 0)
-        return -1;
-    if (ano_mutex_init(&g_drainMtx, NULL) != 0) { ano_mutex_destroy(&g_outFileMtx); return -1; }
-    if (ano_mutex_init(&g_wakeMtx, NULL) != 0) {
-        ano_mutex_destroy(&g_drainMtx); ano_mutex_destroy(&g_outFileMtx);
-        return -1;
+        return {};
+    if (!ano_mutex_init(&g_outFileMtx, NULL))
+        return failure(LogError::platform);
+    if (!ano_mutex_init(&g_drainMtx, NULL)) { (void)ano_mutex_destroy(&g_outFileMtx); return failure(LogError::platform); }
+    if (!ano_mutex_init(&g_wakeMtx, NULL)) {
+        (void)ano_mutex_destroy(&g_drainMtx); (void)ano_mutex_destroy(&g_outFileMtx);
+        return failure(LogError::platform);
     }
-    if (ano_thread_cond_init(&g_wakeCv, NULL) != 0) {
-        ano_mutex_destroy(&g_wakeMtx); ano_mutex_destroy(&g_drainMtx); ano_mutex_destroy(&g_outFileMtx);
-        return -1;
+    if (!ano_thread_cond_init(&g_wakeCv, NULL)) {
+        (void)ano_mutex_destroy(&g_wakeMtx); (void)ano_mutex_destroy(&g_drainMtx); (void)ano_mutex_destroy(&g_outFileMtx);
+        return failure(LogError::platform);
     }
     atomic_store_explicit(&g_drainerParked, false, memory_order_relaxed);
 
@@ -849,9 +851,9 @@ int ano::ano_log_init(void)
     g_ring.buf   = static_cast<char *>(
         ano_aligned_malloc(ANO_LOG_RING_BYTES, ANO_LOG_RING_ALIGN));
     if (g_ring.buf == NULL) {
-        ano_thread_cond_destroy(&g_wakeCv); ano_mutex_destroy(&g_wakeMtx);
-        ano_mutex_destroy(&g_drainMtx); ano_mutex_destroy(&g_outFileMtx);
-        return -1;
+        (void)ano_thread_cond_destroy(&g_wakeCv); (void)ano_mutex_destroy(&g_wakeMtx);
+        (void)ano_mutex_destroy(&g_drainMtx); (void)ano_mutex_destroy(&g_outFileMtx);
+        return failure(LogError::out_of_memory);
     }
     memset(g_ring.buf, 0, ANO_LOG_RING_BYTES);
     atomic_store(&g_ring.tail, 0);
@@ -860,9 +862,9 @@ int ano::ano_log_init(void)
     g_batch = static_cast<char *>(mi_malloc(ANO_LOG_BATCH_CAP));
     if (g_batch == NULL) {
         ano_aligned_free(g_ring.buf);
-        ano_thread_cond_destroy(&g_wakeCv); ano_mutex_destroy(&g_wakeMtx);
-        ano_mutex_destroy(&g_drainMtx); ano_mutex_destroy(&g_outFileMtx);
-        return -1;
+        (void)ano_thread_cond_destroy(&g_wakeCv); (void)ano_mutex_destroy(&g_wakeMtx);
+        (void)ano_mutex_destroy(&g_drainMtx); (void)ano_mutex_destroy(&g_outFileMtx);
+        return failure(LogError::out_of_memory);
     }
     g_drainHMSValid = false;
     g_outFile = NULL;
@@ -870,10 +872,10 @@ int ano::ano_log_init(void)
     console_color_init();
 
     g_anchorTicks  = ano_timestamp_ticks();
-    g_anchorUnixNs = (uint64_t)ano_timestamp_unix() * 1000000000ull;
+    g_anchorUnixNs = (uint64_t)ano_timestamp_unix().value_or(0) * 1000000000ull;
 
     // Default: one session file under logs/. Open latches the session stamp.
-    ano_fspath dir = ano_fs_logpath();
+    const ano_fspath dir = ano_fs_logpath().value_or(ano_fspath{});
     if (dir.length > 0)
         g_outFile = open_log(dir.str, true);
     select_output();
@@ -882,32 +884,32 @@ int ano::ano_log_init(void)
 
     // Spawn owned consumer last, once ring + output are live.
     atomic_store_explicit(&g_drainRun, true, memory_order_relaxed);
-    if (ano_thread_create(&g_drainThread, NULL, drainer_main, NULL) != 0) {
+    if (!ano_thread_create(&g_drainThread, NULL, drainer_main, NULL)) {
         atomic_store_explicit(&g_drainRun, false, memory_order_relaxed);
         atomic_store_explicit(&g_initialized, false, memory_order_release);
         ano_aligned_free(g_ring.buf); g_ring.buf = NULL;
         mi_free(g_batch);             g_batch = NULL;
-        ano_thread_cond_destroy(&g_wakeCv); ano_mutex_destroy(&g_wakeMtx);
-        ano_mutex_destroy(&g_drainMtx); ano_mutex_destroy(&g_outFileMtx);
-        return -1;
+        (void)ano_thread_cond_destroy(&g_wakeCv); (void)ano_mutex_destroy(&g_wakeMtx);
+        (void)ano_mutex_destroy(&g_drainMtx); (void)ano_mutex_destroy(&g_outFileMtx);
+        return failure(LogError::platform);
     }
 
     // Open severity gate last.
     atomic_store_explicit(&g_minLevel, ANO_INFO, memory_order_relaxed);
-    return 0;
+    return {};
 }
 
 // ANO_LOG_SCOPE_ATTR target. Cleanup keys off g_initialized.
-void ano::ano_log_scope_release(const int *initStatus)
+void ano::ano_log_scope_release(const LogResult<> *initStatus)
 {
     (void)initStatus;
     ano_log_cleanup();
 }
 
-int ano::ano_log_cleanup(void)
+void ano::ano_log_cleanup(void)
 {
     if (!atomic_load_explicit(&g_initialized, memory_order_relaxed))
-        return 0;
+        return;
 
     atomic_store_explicit(&g_initialized, false, memory_order_release);
     atomic_store_explicit(&g_minLevel, INT_MAX, memory_order_relaxed);
@@ -915,23 +917,22 @@ int ano::ano_log_cleanup(void)
     // Stop consumer before tearing down the ring.
     atomic_store_explicit(&g_drainRun, false, memory_order_relaxed);
     wake_drainer();
-    ano_thread_join(g_drainThread, NULL);
+    (void)ano_thread_join(g_drainThread, NULL);
 
     drain();
 
-    ano_mutex_lock(&g_outFileMtx);
+    (void)ano_mutex_lock(&g_outFileMtx);
     if (g_outFile != NULL) {
-        ano_fs_sync(g_outFile);
-        ano_fs_close(g_outFile);
+        (void)ano_fs_sync(g_outFile);
+        (void)ano_fs_close(g_outFile);
         g_outFile = NULL;
     }
-    ano_mutex_unlock(&g_outFileMtx);
+    (void)ano_mutex_unlock(&g_outFileMtx);
 
     ano_aligned_free(g_ring.buf); g_ring.buf = NULL;
     mi_free(g_batch);             g_batch = NULL;
-    ano_thread_cond_destroy(&g_wakeCv);
-    ano_mutex_destroy(&g_wakeMtx);
-    ano_mutex_destroy(&g_drainMtx);
-    ano_mutex_destroy(&g_outFileMtx);
-    return 0;
+    (void)ano_thread_cond_destroy(&g_wakeCv);
+    (void)ano_mutex_destroy(&g_wakeMtx);
+    (void)ano_mutex_destroy(&g_drainMtx);
+    (void)ano_mutex_destroy(&g_outFileMtx);
 }

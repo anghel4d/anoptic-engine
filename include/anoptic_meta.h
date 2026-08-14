@@ -13,45 +13,69 @@
 #include <stdint.h>
 #include <string_view>
 #include <type_traits>
+#include "anoptic_results.h"
 
 namespace ano {
 
-template<class Left, class Right, class Result>
-    requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>
-              && std::is_unsigned_v<Result>)
-[[nodiscard]] constexpr bool checked_add(
-    Left lhs, Right rhs, Result *result) noexcept
+enum class ArithmeticError : uint8_t { overflow, invalid_alignment };
+
+template<class Value = void>
+using ArithmeticResult = Result<Value, ArithmeticError>;
+
+template<class Left, class Right>
+    requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>)
+[[nodiscard]] constexpr auto checked_add(Left lhs, Right rhs) noexcept
+    -> ArithmeticResult<std::common_type_t<Left, Right>>
 {
-    if (result == nullptr)
-        return false;
-    Result value{};
+    using Value = std::common_type_t<Left, Right>;
+    Value value{};
     if (__builtin_add_overflow(lhs, rhs, &value))
-        return false;
-    *result = value;
-    return true;
+        return failure(ArithmeticError::overflow);
+    return value;
 }
 
-template<class Left, class Right, class Result>
-    requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>
-              && std::is_unsigned_v<Result>)
-[[nodiscard]] constexpr bool checked_multiply(
-    Left lhs, Right rhs, Result *result) noexcept
+template<class Value, class Increment>
+    requires (std::is_unsigned_v<Value> && std::is_unsigned_v<Increment>)
+[[nodiscard]] constexpr ArithmeticResult<> checked_accumulate(
+    Value& value, Increment increment) noexcept
 {
-    if (result == nullptr)
-        return false;
-    Result value{};
+    const auto sum = checked_add(value, increment);
+    if (!sum)
+        return failure(sum.error());
+    value = static_cast<Value>(*sum);
+    return {};
+}
+
+template<class Left, class Right>
+    requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>)
+[[nodiscard]] constexpr auto checked_multiply(Left lhs, Right rhs) noexcept
+    -> ArithmeticResult<std::common_type_t<Left, Right>>
+{
+    using Value = std::common_type_t<Left, Right>;
+    Value value{};
     if (__builtin_mul_overflow(lhs, rhs, &value))
-        return false;
-    *result = value;
-    return true;
+        return failure(ArithmeticError::overflow);
+    return value;
 }
 
 template<class Count, class Width>
     requires (std::is_unsigned_v<Count> && std::is_unsigned_v<Width>)
-[[nodiscard]] constexpr bool checked_allocation_size(
-    Count count, Width width, size_t *bytes) noexcept
+[[nodiscard]] constexpr ArithmeticResult<size_t> checked_allocation_size(
+    Count count, Width width) noexcept
 {
-    return checked_multiply(count, width, bytes);
+    if (count > SIZE_MAX || width > SIZE_MAX)
+        return failure(ArithmeticError::overflow);
+    return checked_multiply(
+        static_cast<size_t>(count), static_cast<size_t>(width));
+}
+
+[[nodiscard]] constexpr ArithmeticResult<size_t> checked_align(
+    size_t value, size_t alignment) noexcept
+{
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0)
+        return failure(ArithmeticError::invalid_alignment);
+    return checked_add(value, alignment - 1).transform(
+        [=](size_t padded) { return padded & ~(alignment - 1); });
 }
 
 constexpr bool enum_identifier_ends_with(std::string_view identifier,

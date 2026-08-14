@@ -41,8 +41,7 @@ namespace ano {
 // the logger's own file (ano_fs_session_stamp) -- resolved once here, never inside a handler.
 // Stage 4 announces how many *_CRASH.log files are left over ("n crash logs detected"), then prunes
 // both *_CRASH.log and *_ano.log to the newest 4 each, never touching the live session's files.
-// Output: 0 on success, -1 if a hook failed to install (the engine flies on, crash-naked).
-int ano_log_crash_init(void);
+[[nodiscard]] LogResult<> ano_log_crash_init(void);
 
 // Arm the CALLING thread's crash stack: an alternate signal stack (POSIX) or a guaranteed
 // stack-overflow handler reservation (win64), so a blown stack on this thread still yields a record.
@@ -50,8 +49,7 @@ int ano_log_crash_init(void);
 // back (external libraries, OS callbacks) need to call this themselves. The hooks are process-wide
 // and order-independent: arming works before or after ano_log_crash_init. Idempotent per thread.
 // Never call on a thread armed by someone else (main is armed by ano_log_crash_init itself).
-// Output: 0 on success, -1 if the OS refused (the thread reports crash-naked, the engine flies on).
-int ano_log_crash_thread_arm(void);
+[[nodiscard]] LogResult<> ano_log_crash_thread_arm(void);
 
 // Release what ano_log_crash_thread_arm reserved, just before the thread exits. Safe to call unarmed.
 void ano_log_crash_thread_disarm(void);

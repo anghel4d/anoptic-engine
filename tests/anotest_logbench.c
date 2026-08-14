@@ -77,7 +77,9 @@ static int ring_enqueue(log_types_t level, const char *file, int line, const cha
 }
 
 static const logger_api RING  = {
-    "ring  (lock-free MPSC)", ano_log_init, ring_enqueue, ano_log_flush, ano_log_cleanup, ano_log_output_dir
+    "ring  (lock-free MPSC)", [] { return ano_log_init() ? 0 : -1; },
+    ring_enqueue, ano_log_flush, [] { ano_log_cleanup(); return 0; },
+    [](const char *path) { return ano_log_output_dir(path) ? 0 : -1; }
 };
 static const logger_api MUTEX = {
     "mutex (baseline)",       mtxlog_init,  mtxlog_enqueue,  mtxlog_flush,  mtxlog_cleanup,  mtxlog_output_dir
@@ -131,7 +133,7 @@ static void *flusher(void *p)
     const logger_api *api = ((flush_arg *)p)->api;
     while (!atomic_load(&g_flusher_stop)) {
         api->flush();
-        ano_sleep(200);   // 0.2 ms between drain passes
+        (void)ano_sleep(200);   // 0.2 ms between drain passes
     }
     return NULL;
 }
@@ -141,7 +143,7 @@ static double run_throughput(const logger_api *api, int producers)
     atomic_store(&g_flusher_stop, false);
     anothread_t fl;
     flush_arg fa = { api };
-    ano_thread_create(&fl, NULL, flusher, &fa);
+    (void)ano_thread_create(&fl, NULL, flusher, &fa);
 
     anothread_t prod[MAXP];
     prod_arg    args[MAXP];
@@ -149,14 +151,14 @@ static double run_throughput(const logger_api *api, int producers)
     uint64_t t0 = ano_timestamp_raw();
     for (int i = 0; i < producers; i++) {
         args[i] = (prod_arg){ api, TP_MSGS, i };
-        ano_thread_create(&prod[i], NULL, producer, &args[i]);
+        (void)ano_thread_create(&prod[i], NULL, producer, &args[i]);
     }
     for (int i = 0; i < producers; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
     uint64_t t1 = ano_timestamp_raw();
 
     atomic_store(&g_flusher_stop, true);
-    ano_thread_join(fl, NULL);
+    (void)ano_thread_join(fl, NULL);
     api->flush();   // drain the tail
 
     double secs = (double)(t1 - t0) / 1e9;
@@ -212,7 +214,7 @@ static double run_var_throughput(const logger_api *api, int producers,
     atomic_store(&g_flusher_stop, false);
     anothread_t fl;
     flush_arg fa = { api };
-    ano_thread_create(&fl, NULL, flusher, &fa);
+    (void)ano_thread_create(&fl, NULL, flusher, &fa);
 
     anothread_t prod[MAXP];
     prod_arg    args[MAXP];
@@ -220,14 +222,14 @@ static double run_var_throughput(const logger_api *api, int producers,
     uint64_t t0 = ano_timestamp_raw();
     for (int i = 0; i < producers; i++) {
         args[i] = (prod_arg){ api, g_var_msgs, i };
-        ano_thread_create(&prod[i], NULL, prod_fn, &args[i]);
+        (void)ano_thread_create(&prod[i], NULL, prod_fn, &args[i]);
     }
     for (int i = 0; i < producers; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
     uint64_t t1 = ano_timestamp_raw();
 
     atomic_store(&g_flusher_stop, true);
-    ano_thread_join(fl, NULL);
+    (void)ano_thread_join(fl, NULL);
     api->flush();
 
     double secs = (double)(t1 - t0) / 1e9;

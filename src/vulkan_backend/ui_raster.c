@@ -162,13 +162,17 @@ static void ui_compose_demo(RendererState* state, bool selftest)
                         state->uiPendingPaints, ANO_UI_MAX_PAINTS,
                         state->uiPendingStops, ANO_UI_MAX_STOPS);
     ano_ui_builder_curves(&b, state->uiPendingCurves, ANO_UI_MAX_CURVE_WORDS);
-    ano_ui_demo_scene(&b, 48.0f, 120.0f);
+    if (!ano_ui_demo_scene(&b, 48.0f, 120.0f))
+        return;
     if (!selftest)
     {
         float r12[4] = { 12, 12, 12, 12 };
         float white[4] = { 1, 1, 1, 1 };
-        ano_ui_image(&b, (float[2]){ 428.0f, 120.0f }, (float[2]){ 568.0f, 225.0f }, r12,
-                     0, 0.0f, white, ANO_UI_REF_NONE, 0);
+        if (!ano_ui_image(
+                &b, (float[2]){ 428.0f, 120.0f },
+                (float[2]){ 568.0f, 225.0f }, r12,
+                0, 0.0f, white, ANO_UI_REF_NONE, 0))
+            return;
     }
     state->uiPendingPrimCount = b.primCount;
     state->uiPendingClipCount = b.clipCount;
@@ -374,14 +378,15 @@ bool ano_vk_ui_build_tiles(RendererState* state, uint32_t frameIndex)
                      NULL, 0, NULL, 0, NULL, 0, NULL, 0 };
     uint32_t* offsets = state->uiTileScratch;
     uint32_t* entries = state->uiTileScratch + ANO_UI_TILE_OFFSET_WORDS;
-    bool ok = false;
-    uint32_t total = ano_ui_tile_build(&s, ox, oy, gx, gy, offsets, ANO_UI_TILE_OFFSET_WORDS,
-                                       entries, ANO_UI_MAX_TILE_ENTRIES, state->uiTileCursor, &ok);
-    if (!ok)
+    const auto built = ano_ui_tile_build(
+        &s, ox, oy, gx, gy, offsets, ANO_UI_TILE_OFFSET_WORDS,
+        entries, ANO_UI_MAX_TILE_ENTRIES, state->uiTileCursor);
+    if (!built)
     {
         fr->uiTileVersion = 0; // entry overflow: rebuild next time, brute this frame
         return false;
     }
+    const uint32_t total = *built;
     memcpy(fr->uiFrameMapped + ANO_UI_TILEOFF_OFF, offsets,
            ((size_t)gx * gy + 1u) * 4u);
     memcpy(fr->uiFrameMapped + ANO_UI_TILEENT_OFF, entries, (size_t)total * 4u);

@@ -91,7 +91,7 @@ static void pool_init(mi_heap_t *heap)
             snprintf(buf, sizeof buf, "%s %s",
                      base_other[rng_below(&rng, sizeof base_other / sizeof base_other[0])],
                      mods[rng_below(&rng, sizeof mods / sizeof mods[0])]);
-        g_pool[k] = anostr_from_cstr(heap, buf);
+        g_pool[k] = anostr_from_cstr(heap, buf).value_or(anostr_empty());
     }
 }
 
@@ -120,10 +120,10 @@ static bench_stats run_point(int producers, uint64_t *buf)
     for (int i = 0; i < producers; i++) {
         arg[i] = (prod_arg){ .id = i, .count = g_msgs };
         bench_lat_init(&arg[i].lat, buf + (size_t)i * (size_t)g_msgs, (size_t)g_msgs);
-        ano_thread_create(&th[i], NULL, producer, &arg[i]);
+        (void)ano_thread_create(&th[i], NULL, producer, &arg[i]);
     }
     for (int i = 0; i < producers; i++)
-        ano_thread_join(th[i], NULL);
+        (void)ano_thread_join(th[i], NULL);
     ano_log_flush();
 
     bench_lat merged;
@@ -175,8 +175,8 @@ int main(int argc, char **argv)
     printf("Logger x strings: %%.*s-captured UTF-8 item names, %d msgs/producer\n\n", g_msgs);
 
     scratch_make_dir(OUT_DIR);
-    ano_log_init();
-    ano_log_output_dir(OUT_DIR);
+    (void)ano_log_init();
+    (void)ano_log_output_dir(OUT_DIR);
 
     uint64_t expected = 0;
     for (int i = 0; i < 256; i++) {   // warm caches, branch predictors, the ring

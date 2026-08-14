@@ -15,19 +15,25 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <anoptic_results.h>
 
 namespace ano {
+
+enum class UiError : uint8_t { invalid_argument, capacity };
+
+template<class Value = void>
+using UiResult = Result<Value, UiError>;
 
 
 /* Primitive Kinds */
 
-typedef enum AnoUiPrimKind {
+enum AnoUiPrimKind {
     ANO_UI_RRECT  = 0, // rounded rect: fill (param[0]==0) or border ring (param[0]=width, inside)
     ANO_UI_SHADOW = 1, // Gaussian rrect shadow/glow: radii[0] uniform corner, param[0] sigma
     ANO_UI_IMAGE  = 2, // rrect-masked textured quad: aux0 tex index, param[0] lod, color = tint
     ANO_UI_PATH   = 3, // filled monotone-quad outline: aux0/aux1 = curveOffset / monotone-quad count
     ANO_UI_GLYPHS = 4, // AnoGlyphInstance range: aux0/aux1 = first/count, color = tint
-} AnoUiPrimKind;
+};
 
 // flags [0:1]: blend mode, painter's order. [3+]: reserved (nine-slice, pixel-snap).
 #define ANO_UI_BLEND_OVER 0x0u // premultiplied src-over
@@ -50,7 +56,7 @@ typedef enum AnoUiPrimKind {
 //   radii  : per-corner (tl, tr, br, bl), pre-clamped by builder (CSS adjacent-side rule).
 //   color  : premultiplied linear RGBA. Tint for IMAGE/GLYPHS, fill when paintRef is NONE.
 
-typedef struct AnoUiPrim {
+struct AnoUiPrim {
     float    inv[4];
     float    origin[2];
     uint32_t kind;
@@ -63,7 +69,7 @@ typedef struct AnoUiPrim {
     uint32_t clipRef;
     uint32_t aux0;
     uint32_t aux1;
-} AnoUiPrim;
+};
 
 static_assert(sizeof(AnoUiPrim) == 96, "GPU ABI: 96-byte std430 element");
 static_assert(offsetof(AnoUiPrim, origin) == 16 && offsetof(AnoUiPrim, kind) == 24
@@ -74,12 +80,12 @@ static_assert(offsetof(AnoUiPrim, origin) == 16 && offsetof(AnoUiPrim, kind) == 
 
 // Clip entry: AA rect (exact window clamp) + optional rounded term (coverage multiply).
 // rrHalf[0] < 0: no rounded term. 48 B std430.
-typedef struct AnoUiClip {
+struct AnoUiClip {
     float rect[4];      // minX, minY, maxX, maxY
     float rrCenter[2];
     float rrHalf[2];
     float rrRadii[4];   // per-corner (tl, tr, br, bl)
-} AnoUiClip;
+};
 
 static_assert(sizeof(AnoUiClip) == 48 && offsetof(AnoUiClip, rrCenter) == 16
                   && offsetof(AnoUiClip, rrRadii) == 32,
@@ -94,20 +100,20 @@ static_assert(sizeof(AnoUiClip) == 48 && offsetof(AnoUiClip, rrCenter) == 16
 
 // Gradient paint ABI. Stops in [stopFirst, +stopCount), ascending t, premultiplied linear.
 // t clamps to end stops (CSS pad). Referenced by AnoUiPrim.paintRef.
-typedef struct AnoUiPaint {
+struct AnoUiPaint {
     uint32_t kind;      // ANO_UI_GRAD_*
     uint32_t stopFirst;
     uint32_t stopCount;
     uint32_t flags;
     float    xform[6];  // 2x3 pixel->gradient space: g.x = xform[0..2].(px,py,1)
     float    pad[2];
-} AnoUiPaint;
+};
 
-typedef struct AnoUiStop {
+struct AnoUiStop {
     float color[4];     // premultiplied linear
     float t;
     float pad[3];
-} AnoUiStop;
+};
 
 static_assert(sizeof(AnoUiPaint) == 48 && sizeof(AnoUiStop) == 32, "GPU ABI: paint tables");
 
@@ -117,13 +123,13 @@ static_assert(sizeof(AnoUiPaint) == 48 && sizeof(AnoUiStop) == 32, "GPU ABI: pai
 // Packs prims and side tables into caller arrays. Never allocates.
 // Full array -> ANO_UI_REF_NONE, no mutation. Emission order IS paint order.
 
-typedef struct AnoUiBuilder {
+struct AnoUiBuilder {
     AnoUiPrim  *prims;   uint32_t primCap;   uint32_t primCount;
     AnoUiClip  *clips;   uint32_t clipCap;   uint32_t clipCount;
     AnoUiPaint *paints;  uint32_t paintCap;  uint32_t paintCount;
     AnoUiStop  *stops;   uint32_t stopCap;   uint32_t stopCount;
     uint32_t   *curves;  uint32_t curveCap;  uint32_t curveCount; // packed path curve words
-} AnoUiBuilder;
+};
 
 // Bind caller arrays and zero counts. NULL + cap 0 is legal. Curves start detached.
 void ano_ui_builder_init(AnoUiBuilder *b,
@@ -140,25 +146,25 @@ void ano_ui_color_srgb(const float srgba[4], float out[4]);
 
 // Rounded rect from min/max. radii = (tl,tr,br,bl), non-neg + CSS adjacent-side clamp.
 // borderWidth 0 = fill, >0 = ring inside the boundary.
-uint32_t ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], const float color[4], float borderWidth,
                       uint32_t paintRef, uint32_t clipRef, uint32_t flags);
 
 // Gaussian shadow of the rrect (uniform cornerRadius). sigma clamps to >= 1e-3.
 // ANO_UI_FLAG_INNER = inner shadow. ANO_UI_BLEND_ADD = glow.
-uint32_t ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                        float cornerRadius, float sigma, const float color[4],
                        uint32_t clipRef, uint32_t flags);
 
 // Textured quad masked by rrect. Full texture maps to the box (uv 0..1). lod = explicit mip.
-uint32_t ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], uint32_t texIndex, float lod,
                       const float tint[4], uint32_t clipRef, uint32_t flags);
 
 // Filled path over curve stream words [curveOffset, ...) for curveCount monotone quads.
 // bbox = conservative cull bounds (logical) + prim-local origin. Low-level: caller
 // supplies a pre-baked stream. Prefer ano_ui_path_fill.
-uint32_t ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                      uint32_t curveOffset, uint32_t curveCount, const float color[4],
                      uint32_t paintRef, uint32_t clipRef, uint32_t flags);
 
@@ -170,27 +176,27 @@ uint32_t ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMa
 
 // Contour separator in packed curve stream (both binary16 halves +inf). Text sweeper grammar. ABI.
 #define ANO_UI_CURVE_SENTINEL 0x7C007C00u
-typedef struct AnoUiPathSeg {
+struct AnoUiPathSeg {
     uint32_t kind;
     float    p[4];
-} AnoUiPathSeg;
+};
 
 // Path fill: lines/quads, auto-closed, into the curve buffer as monotone quads.
 // Nonzero winding; opposite-wound inners punch holes. Bbox + frame from points.
 // ANO_UI_REF_NONE if a table or the curve buffer is full, or the path is empty.
-uint32_t ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
+[[nodiscard]] UiResult<uint32_t> ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
                           const float color[4], uint32_t paintRef, uint32_t clipRef,
                           uint32_t flags);
 
 // Glyph range [first, first+count) of the frame's AnoGlyphInstance array.
 // bbox = shaped text's conservative bounds (logical).
-uint32_t ano_ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                        uint32_t first, uint32_t count, const float tint[4],
                        uint32_t clipRef, uint32_t flags);
 
 // Clip entry: rect always. rrMin NULL = rect-only, else rounded term + radii (rrect clamp).
 // Nested clips: CALLER intersects rects, innermost rounded term wins. One entry per prim.
-uint32_t ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                      const float rrMin[2], const float rrMax[2], const float rrRadii[4]);
 
 
@@ -201,24 +207,25 @@ uint32_t ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMa
 // ANO_UI_REF_NONE when a table is full or stopCount is 0.
 
 // Linear: t runs 0 at p0 to 1 at p1 along p0->p1, constant across it. Zero-length axis -> t = 0.
-uint32_t ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
                              const AnoUiStop *stops, uint32_t stopCount);
 
 // Pre-sorted variant for C++26 ano::UiStops. The caller proves ascending finite t values.
-uint32_t ano_ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
+[[nodiscard]] UiResult<uint32_t> ano_ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
                                     const AnoUiStop *stops, uint32_t stopCount);
 
 // Radial: t = |pixel - center| / radius, 0 at center, 1 on the circle. radius <= 0 -> t = 0.
-uint32_t ano_ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
+[[nodiscard]] UiResult<uint32_t> ano_ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
                              const AnoUiStop *stops, uint32_t stopCount);
 
 // Conic: t sweeps 0..1 about center, 0 at startAngle (radians, y-down = clockwise on screen).
-uint32_t ano_ui_paint_conic(AnoUiBuilder *b, const float center[2], float startAngle,
+[[nodiscard]] UiResult<uint32_t> ano_ui_paint_conic(AnoUiBuilder *b, const float center[2], float startAngle,
                             const AnoUiStop *stops, uint32_t stopCount);
 
 // Standing demo scene (ui-render.md §7): deterministic, reference-evaluable (no IMAGE/GLYPHS).
 // Caps >= 16 prims / 4 clips / 1 paint / 2 stops / 16 curve words. Keep bitwise-stable.
-void ano_ui_demo_scene(AnoUiBuilder *b, float originX, float originY);
+[[nodiscard]] UiResult<> ano_ui_demo_scene(
+    AnoUiBuilder *b, float originX, float originY);
 
 
 /* Surface Fold */
@@ -247,13 +254,13 @@ void ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, floa
 
 // Scalar mirror of the GPU prim math.
 
-typedef struct AnoUiScene {
+struct AnoUiScene {
     const AnoUiPrim  *prims;  uint32_t primCount;
     const AnoUiClip  *clips;  uint32_t clipCount;
     const AnoUiPaint *paints; uint32_t paintCount;
     const AnoUiStop  *stops;  uint32_t stopCount;
     const uint32_t   *curves; uint32_t curveCount; // packed path curve words
-} AnoUiScene;
+};
 
 // Builder contents as a scene view (no copy).
 static inline AnoUiScene ano_ui_scene(const AnoUiBuilder *b)
@@ -297,13 +304,13 @@ void ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4]);
 void ano_ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2]);
 
 // Dense tile grid (tilesX*tilesY of 8px, top-left at ox,oy). offsets[t]..offsets[t+1]
-// owns tile t; cursor is tilesX*tilesY scratch. Returns entry count.
-// *ok false if offsetsCap (needs tilesX*tilesY+1) or entryCap too small. Caller falls back to brute scan.
-uint32_t ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
+// owns tile t; cursor is tilesX*tilesY scratch. Returns entry count; capacity
+// failure asks the caller to fall back to a brute scan.
+[[nodiscard]] UiResult<uint32_t> ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY,
                            uint32_t *offsets, uint32_t offsetsCap,
                            uint32_t *entries, uint32_t entryCap,
-                           uint32_t *cursor, bool *ok);
+                           uint32_t *cursor);
 
 // Painter's-order tiled eval at (px,py). Matches ano_ui_ref_eval inside the grid; GPU mirrors this.
 // IMAGE/GLYPHS shade to zero. Out-of-range entry index fails CLOSED (zero, OVER).
@@ -402,8 +409,9 @@ consteval auto ui_stops(Stops... input)
 }
 
 template<size_t Count>
-inline uint32_t ui_paint_linear(AnoUiBuilder* builder, const float p0[2],
-                                const float p1[2], const UiStops<Count>& stops) noexcept
+inline UiResult<uint32_t> ui_paint_linear(
+    AnoUiBuilder* builder, const float p0[2], const float p1[2],
+    const UiStops<Count>& stops) noexcept
 {
     return ano_ui_paint_linear_sorted(builder, p0, p1, stops.data(), stops.count);
 }

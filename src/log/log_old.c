@@ -41,7 +41,8 @@ static uint64_t          g_dropped;
 
 static void format_walltime(char *out, size_t cap)
 {
-    ano_datetime t = ano_localtime(ano_timestamp_unix());
+    ano_datetime t = ano_localtime(
+        ano_timestamp_unix().value_or(0)).value_or(ano_datetime{});
     snprintf(out, cap, "%02d:%02d:%02d", t.hour, t.minute, t.second);
 }
 
@@ -71,7 +72,7 @@ static void flush_locked(void)
     if (g_bufLen == 0)
         return;
     if (g_sink != NULL) {
-        if (ano_fs_write(g_sink, g_buf, g_bufLen) != 0)
+        if (!ano_fs_write(g_sink, g_buf, g_bufLen))
             fwrite(g_buf, 1, g_bufLen, stderr);
     } else {
         fwrite(g_buf, 1, g_bufLen, stdout);
@@ -81,9 +82,9 @@ static void flush_locked(void)
 
 static void drain(void)
 {
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     flush_locked();
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
 }
 
 // Append line + newline under full-buffer policy. 0 buffered, 1 IMMEDIATE, -1 DROP_NEWEST.
@@ -103,7 +104,7 @@ static int append_locked(const char *line, size_t len)
     g_bufLen += need;
     if (full && g_fullPolicy == MTXLOG_FULL_IMMEDIATE) {
         flush_locked();
-        if (g_sink != NULL) ano_fs_sync(g_sink);
+        if (g_sink != NULL) (void)ano_fs_sync(g_sink);
         return 1;
     }
     return 0;
@@ -117,7 +118,8 @@ static ano_file *open_log(const char *dir)
 {
     char path[MAXPATH];
     int n = snprintf(path, sizeof path, "%s/%s", dir, MTXLOG_FILENAME);
-    return (n > 0 && n < (int)sizeof path) ? ano_fs_open_append(path) : NULL;
+    return n > 0 && n < (int)sizeof path
+        ? ano_fs_open_append(path).value_or(nullptr) : nullptr;
 }
 
 
@@ -134,10 +136,10 @@ int mtxlog_enqueue(log_types_t level, const char *file, int line, const char *fm
     int len = build_line(buf, (int)sizeof buf, level, file, line, fmt, ap);
     va_end(ap);
 
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     // Signed compare (caller may set negative g_minLevel).
     int rc = ((int)level < g_minLevel) ? 0 : append_locked(buf, (size_t)len);
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
     return rc;
 }
 
@@ -155,14 +157,14 @@ void mtxlog_immediate(log_types_t level, const char *file, int line, const char 
     }
     fprintf(level > LOG_WARN ? stderr : stdout, "%.*s\n", len, buf);
 
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     flush_locked();
     if (g_sink != NULL) {
-        ano_fs_write(g_sink, buf, (size_t)len);
-        ano_fs_write(g_sink, "\n", 1);
-        ano_fs_sync(g_sink);
+        (void)ano_fs_write(g_sink, buf, (size_t)len);
+        (void)ano_fs_write(g_sink, "\n", 1);
+        (void)ano_fs_sync(g_sink);
     }
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
 }
 
 int mtxlog_output_dir(const char *directoryPath)
@@ -174,13 +176,13 @@ int mtxlog_output_dir(const char *directoryPath)
     if (sink == NULL)
         return -1;
 
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     if (g_sink != NULL) {
-        ano_fs_sync(g_sink);
-        ano_fs_close(g_sink);
+        (void)ano_fs_sync(g_sink);
+        (void)ano_fs_close(g_sink);
     }
     g_sink = sink;
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
     return 0;
 }
 
@@ -188,18 +190,18 @@ void mtxlog_set_level(log_types_t min)
 {
     if (!atomic_load(&g_initialized))
         return;
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     g_minLevel = (int)min;
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
 }
 
 void mtxlog_set_full_policy(mtxlog_full_policy_t policy)
 {
     if (!atomic_load(&g_initialized))
         return;
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     g_fullPolicy = (int)policy;
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
 }
 
 void mtxlog_flush(void)
@@ -212,15 +214,15 @@ uint64_t mtxlog_dropped(void)
 {
     if (!atomic_load(&g_initialized))
         return 0;
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     uint64_t n = g_dropped;
-    ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
     return n;
 }
 
 int mtxlog_init(void)
 {
-    if (ano_mutex_init(&g_mtx, NULL) != 0)
+    if (!ano_mutex_init(&g_mtx, NULL))
         return -1;
 
     g_bufLen = 0;
@@ -230,7 +232,7 @@ int mtxlog_init(void)
     g_fullPolicy = MTXLOG_FULL_IMMEDIATE;
 
     // Default sink: game directory.
-    ano_fspath dir = ano_fs_gamepath();
+    const ano_fspath dir = ano_fs_gamepath().value_or(ano_fspath{});
     if (dir.length > 0)
         g_sink = open_log(dir.str);
 
@@ -245,14 +247,14 @@ int mtxlog_cleanup(void)
 
     atomic_store(&g_initialized, false);
 
-    ano_mutex_lock(&g_mtx);
+    (void)ano_mutex_lock(&g_mtx);
     flush_locked();
     if (g_sink != NULL) {
-        ano_fs_sync(g_sink);
-        ano_fs_close(g_sink);
+        (void)ano_fs_sync(g_sink);
+        (void)ano_fs_close(g_sink);
         g_sink = NULL;
     }
-    ano_mutex_unlock(&g_mtx);
-    ano_mutex_destroy(&g_mtx);
+    (void)ano_mutex_unlock(&g_mtx);
+    (void)ano_mutex_destroy(&g_mtx);
     return 0;
 }

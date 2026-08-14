@@ -17,69 +17,25 @@ enum class ParseError {
 constexpr auto parse(bool valid) -> ano::Result<int, ParseError>
 {
     if (valid)
-        return ano::success<ParseError>(7);
-    return ano::failure<int>(ParseError::invalid);
+        return 7;
+    return ano::failure(ParseError::invalid);
 }
 
 consteval bool result_surface()
 {
-    auto mapped = ano::map(parse(true), [](int value) {
-        return value * 2;
-    });
-    if (!mapped || *mapped != 14)
-        return false;
-
-    unsigned calls = 0;
-    auto failedMap = ano::map(parse(false), [&](int) {
-        ++calls;
-        return 0;
-    });
-    if (failedMap || failedMap.error() != ParseError::invalid || calls != 0)
-        return false;
-
-    auto chained = ano::and_then(parse(true), [](int value) {
-        return ano::success<ParseError>(value + 5);
-    });
-    if (!chained || *chained != 12)
-        return false;
-
-    auto recovered = ano::or_else(parse(false), [](ParseError error) {
-        return error == ParseError::invalid
-            ? ano::success<ParseError>(11)
-            : ano::failure<int>(error);
-    });
-    if (!recovered || *recovered != 11)
-        return false;
-
-    int observations = 0;
-    ano::inspect(parse(true), [&](int value) {
-        observations += value;
-    });
-    ano::inspect_error(parse(true), [&](ParseError) {
-        observations = -100;
-    });
-    ano::inspect(parse(false), [&](int) {
-        observations = -200;
-    });
-    ano::inspect_error(parse(false), [&](ParseError error) {
-        if (error == ParseError::invalid)
-            ++observations;
-    });
-
-    auto unit = ano::success<ParseError>();
-    ano::inspect(unit, [&] {
-        ++observations;
-    });
-    auto failedUnit = ano::failure<void>(ParseError::missing);
-    ano::inspect_error(failedUnit, [&](ParseError error) {
-        if (error == ParseError::missing)
-            ++observations;
-    });
-    auto unitMap = ano::map(unit, [] {
-        return 3;
-    });
-
-    return observations == 10 && unitMap && *unitMap == 3;
+    const auto value = parse(true);
+    const auto error = parse(false);
+    const ano::Result<void, ParseError> unit{};
+    const ano::Result<void, ParseError> failed =
+        ano::failure(ParseError::missing);
+    return ano::detail::result_type(^^decltype(value))
+        && value && *value == 7
+        && ano::has_error(error, ParseError::invalid)
+        && unit && ano::has_error(failed, ParseError::missing)
+        && ano::result_if(true, ParseError::invalid)
+        && ano::has_error(ano::result_if(false, ParseError::missing),
+                          ParseError::missing)
+        && *ano::result_if(true, 9, ParseError::invalid) == 9;
 }
 
 static_assert(result_surface());

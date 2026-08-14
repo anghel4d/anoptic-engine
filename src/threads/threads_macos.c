@@ -27,20 +27,17 @@
 /* Spinlocks: POSIX gap-fill */
 
 int pthread_spin_init(pthread_spinlock_t *lock, int pshared) {
-
     (void)pshared;
     atomic_store_explicit(lock, 0, memory_order_relaxed);
     return 0;
 }
 
 int pthread_spin_destroy(pthread_spinlock_t *lock) {
-
     (void)lock;
     return 0;
 }
 
 int pthread_spin_lock(pthread_spinlock_t *lock) {
-
     int expected = 0;
     while (!atomic_compare_exchange_weak_explicit(lock, &expected, 1,
                                                   memory_order_acquire,
@@ -53,7 +50,6 @@ int pthread_spin_lock(pthread_spinlock_t *lock) {
 
 // 0 if acquired, EBUSY if already held.
 int pthread_spin_trylock(pthread_spinlock_t *lock) {
-
     int expected = 0;
     if (atomic_compare_exchange_strong_explicit(lock, &expected, 1,
                                                 memory_order_acquire,
@@ -63,7 +59,6 @@ int pthread_spin_trylock(pthread_spinlock_t *lock) {
 }
 
 int pthread_spin_unlock(pthread_spinlock_t *lock) {
-
     atomic_store_explicit(lock, 0, memory_order_release);
     return 0;
 }
@@ -87,7 +82,6 @@ static_assert(__atomic_always_lock_free(sizeof(unsigned int), 0),
 
 // sched_yield cannot fail here. A park cut short by EINTR just re-tests.
 static inline void ano_bar_backoff(unsigned *spins) {
-
     const unsigned i = (*spins)++;
     if (i < ANO_BAR_SPINS)
         ANO_CPU_RELAX();
@@ -101,7 +95,6 @@ static inline void ano_bar_backoff(unsigned *spins) {
 
 int pthread_barrier_init(pthread_barrier_t *barrier,
                          const pthread_barrierattr_t *attr, unsigned int count) {
-
     (void)attr;
     if (count == 0 || count > ANO_BAR_MASK)
         return EINVAL;
@@ -112,7 +105,6 @@ int pthread_barrier_init(pthread_barrier_t *barrier,
 
 // No return until this phase's cohort arrives. Each arrival is in exactly one cohort.
 int pthread_barrier_wait(pthread_barrier_t *barrier) {
-
     const unsigned int count = barrier->count;
     unsigned int state = atomic_load_explicit(&barrier->arrived, memory_order_relaxed);
     unsigned int phase, n;
@@ -141,7 +133,6 @@ int pthread_barrier_wait(pthread_barrier_t *barrier) {
 }
 
 int pthread_barrier_destroy(pthread_barrier_t *barrier) {
-
     (void)barrier;
     return 0;
 }
@@ -149,47 +140,50 @@ int pthread_barrier_destroy(pthread_barrier_t *barrier) {
 
 /* Spinlocks: ano_ wrappers (Darwin) */
 
-int ano::ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
-
-    return pthread_spin_init(lock, pshared);
+ThreadResult<> ano::ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
+    return result_if(pthread_spin_init(lock, pshared) == 0,
+                     ThreadError::platform);
 }
 
-int ano::ano_thread_spin_destroy(anothread_spinlock_t *lock) {
-
-    return pthread_spin_destroy(lock);
+ThreadResult<> ano::ano_thread_spin_destroy(anothread_spinlock_t *lock) {
+    return result_if(pthread_spin_destroy(lock) == 0, ThreadError::platform);
 }
 
-int ano::ano_thread_spin_lock(anothread_spinlock_t *lock) {
-
-    return pthread_spin_lock(lock);
+ThreadResult<> ano::ano_thread_spin_lock(anothread_spinlock_t *lock) {
+    return result_if(pthread_spin_lock(lock) == 0, ThreadError::platform);
 }
 
-int ano::ano_thread_spin_trylock(anothread_spinlock_t *lock) {
-
-    return pthread_spin_trylock(lock);
+ThreadResult<bool> ano::ano_thread_spin_trylock(anothread_spinlock_t *lock) {
+    const int status = pthread_spin_trylock(lock);
+    if (status == 0) return true;
+    if (status == EBUSY) return false;
+    return failure(ThreadError::platform);
 }
 
-int ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
-
-    return pthread_spin_unlock(lock);
+ThreadResult<> ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
+    return result_if(pthread_spin_unlock(lock) == 0, ThreadError::platform);
 }
 
 
 /* Synchronization Barriers: ano_ wrappers (Darwin) */
 
-int ano::ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
-
-    return pthread_barrier_init(barrier, attr, count);
+ThreadResult<> ano::ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
+    const int status = pthread_barrier_init(barrier, attr, count);
+    if (status == 0) return {};
+    return failure(status == EINVAL
+        ? ThreadError::invalid_argument : ThreadError::platform);
 }
 
-int ano::ano_thread_barrier_wait(anothread_barrier_t *barrier) {
-
-    return pthread_barrier_wait(barrier);
+ThreadResult<BarrierRole> ano::ano_thread_barrier_wait(anothread_barrier_t *barrier) {
+    const int status = pthread_barrier_wait(barrier);
+    if (status == 0) return BarrierRole::participant;
+    if (status == PTHREAD_BARRIER_SERIAL_THREAD) return BarrierRole::serial;
+    return failure(ThreadError::platform);
 }
 
-int ano::ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
-
-    return pthread_barrier_destroy(barrier);
+ThreadResult<> ano::ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
+    return result_if(pthread_barrier_destroy(barrier) == 0,
+                     ThreadError::platform);
 }
 
 #endif // __APPLE__

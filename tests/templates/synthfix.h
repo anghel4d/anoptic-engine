@@ -70,7 +70,7 @@ static bool synthfix_load(AnoSynth *s, const char *path)
         if (!ano_synth_score_event(s, &ev))
             goto out;
     }
-    ok = ano_synth_score_end(s);
+    ok = ano_synth_score_end(s).has_value();
 out:
     if (!ok)
         printf("synthfix: parse failed in %s\n", path);

@@ -12,8 +12,17 @@
 #pragma once
 
 #include <stdint.h>
+#include "anoptic_results.h"
 
 namespace ano {
+
+enum class AudioError : uint8_t {
+    invalid_argument, already_initialized, backpressure,
+    out_of_memory, io, unsupported, unavailable,
+};
+
+template<class Value = void>
+using AudioResult = Result<Value, AudioError>;
 
 
 /* Fixed shape */
@@ -36,8 +45,7 @@ namespace ano {
 //   Linux: pipewire -> alsa -> null; Windows: wasapi -> dsound -> null; macOS: coreaudio -> null.
 // Named: that backend or init fails. NULL_DEV: consume blocks at nominal cadence, no device.
 // ANO_AUDIO_BACKEND (pipewire|alsa|wasapi|dsound|coreaudio|null) overrides.
-typedef enum AnoAudioBackend
-{
+enum AnoAudioBackend {
     ANO_AUDIO_BACKEND_AUTO = 0,
     ANO_AUDIO_BACKEND_NULL_DEV,
     ANO_AUDIO_BACKEND_PIPEWIRE,  // Linux
@@ -45,11 +53,10 @@ typedef enum AnoAudioBackend
     ANO_AUDIO_BACKEND_WASAPI,    // Windows
     ANO_AUDIO_BACKEND_DSOUND,    // Windows fallback
     ANO_AUDIO_BACKEND_COREAUDIO, // macOS
-} AnoAudioBackend;
+};
 
 // Bus insert kinds. Chain fixed at init. Params retarget via ACMD_FX_SET.
-typedef enum AnoAudioEffectKind
-{
+enum AnoAudioEffectKind {
     ANO_AUDIO_FX_NONE = 0,
     ANO_AUDIO_FX_FILTER,     // TPT SVF (LP/HP/BP + resonance)
     ANO_AUDIO_FX_EQ3,        // low shelf + peak + high shelf
@@ -62,11 +69,10 @@ typedef enum AnoAudioEffectKind
     ANO_AUDIO_FX_PINGPONG,   // cross-feedback stereo delay
     ANO_AUDIO_FX_WIDTH,      // mid/side width (0 = mono)
     ANO_AUDIO_FX_COUNT,
-} AnoAudioEffectKind;
+};
 
 // Flat ACMD_FX_SET params. Continuous glide per-block. Modes/bypass instant.
-typedef enum AnoAudioFxParam
-{
+enum AnoAudioFxParam {
     ANO_AUDIO_P_BYPASS = 0,        // nonzero = bypass
 
     ANO_AUDIO_P_FILTER_MODE = 16,  // AnoAudioFilterMode
@@ -107,18 +113,17 @@ typedef enum AnoAudioFxParam
     ANO_AUDIO_P_PP_MIX,
 
     ANO_AUDIO_P_WIDTH_AMOUNT = 144, // 0 mono .. 1 unity .. 2 wide
-} AnoAudioFxParam;
+};
 
 // Bus 0 = master. Other parents and send targets must be lower index (acyclic).
 // sendTarget 0 = unused. Master cannot be a send target.
-typedef struct AnoAudioBusDesc
-{
+struct AnoAudioBusDesc {
     uint32_t parent;                             // fold target bus index
     float    gain;                               // initial linear gain; 0 means 1.0
     uint32_t fx[ANO_AUDIO_MAX_FX];               // AnoAudioEffectKind per slot
     uint32_t sendTarget[ANO_AUDIO_MAX_SENDS];    // return bus; 0 = unused
     float    sendLevel[ANO_AUDIO_MAX_SENDS];     // initial linear send level
-} AnoAudioBusDesc;
+};
 
 // Mixer-thread block generator. After buses are zeroed, before voices and fold.
 // Writes busMix[b] (interleaved stereo); rides that bus's chain, fader, and sends.
@@ -143,8 +148,7 @@ typedef uint32_t (*AnoAudioGeneratorCommands)(void *user, struct AnoAudioCommand
                                               uint32_t cap);
 
 // Zero any field for its default.
-typedef struct AnoAudioConfig
-{
+struct AnoAudioConfig {
     uint32_t sampleRate;   // default 48000
     uint32_t blockFrames;  // default 512, clamped [32, 4096]
     uint32_t deviceBlocks; // cooked-block ring depth; default 4
@@ -159,11 +163,10 @@ typedef struct AnoAudioConfig
     AnoAudioGeneratorPoll     generatorPoll;
     AnoAudioGeneratorStats    generatorStats;
     AnoAudioGeneratorCommands generatorCommands;
-} AnoAudioConfig;
+};
 
 // Allocate pools, open backend, spawn mixer. NULL cfg = defaults.
-// false on failure. Call from engine entry before logic produces.
-bool ano_audio_init(const AnoAudioConfig *cfg);
+[[nodiscard]] AudioResult<> ano_audio_init(const AnoAudioConfig *cfg);
 
 // Join mixer/device, destroy bridge, release heap. After logic stops producing.
 void ano_audio_shutdown(void);
@@ -172,39 +175,35 @@ void ano_audio_shutdown(void);
 /* Bridge handle */
 
 // Opaque logic<->audio channel. Created in init, destroyed in shutdown.
-typedef struct AnoAudioBridge AnoAudioBridge;
+struct AnoAudioBridge;
 
-// Producer endpoint. NULL before init returns.
-AnoAudioBridge *anoAudioBridge(void);
+// Producer endpoint.
+[[nodiscard]] AudioResult<AnoAudioBridge *> anoAudioBridge(void);
 
 
 /* Command protocol: logic -> audio */
 
-typedef enum AnoAudioSourceKind
-{
+enum AnoAudioSourceKind {
     ANO_AUDIO_SOURCE_TONE = 0, // sine at desc.freqHz
     ANO_AUDIO_SOURCE_BUFFER,   // registered buffer_id
     ANO_AUDIO_SOURCE_COUNT,
-} AnoAudioSourceKind;
+};
 
-typedef enum AnoAudioSourceFlags
-{
+enum AnoAudioSourceFlags {
     ANO_AUDIO_SOURCE_LOOP       = 1 << 0, // BUFFER: wrap instead of retire
     ANO_AUDIO_SOURCE_POSITIONAL = 1 << 1, // pose vs listener. Mono only; stereo plays non-positional. pan ignored.
-} AnoAudioSourceFlags;
+};
 
-typedef enum AnoAudioFilterMode
-{
+enum AnoAudioFilterMode {
     ANO_AUDIO_FILTER_OFF = 0,
     ANO_AUDIO_FILTER_LOWPASS,
     ANO_AUDIO_FILTER_HIGHPASS,
     ANO_AUDIO_FILTER_BANDPASS,
     ANO_AUDIO_FILTER_COUNT,
-} AnoAudioFilterMode;
+};
 
 // Partial-update masks. Masked params retarget through a ~30 ms one-pole.
-typedef enum AnoAudioFieldBits
-{
+enum AnoAudioFieldBits {
     ANO_AUDIO_FIELD_GAIN     = 1 << 0, // source or bus
     ANO_AUDIO_FIELD_PAN      = 1 << 1, // source (non-positional)
     ANO_AUDIO_FIELD_FREQ     = 1 << 2, // TONE
@@ -212,15 +211,14 @@ typedef enum AnoAudioFieldBits
     ANO_AUDIO_FIELD_RATE     = 1 << 4, // BUFFER playback rate
     ANO_AUDIO_FIELD_SEND0    = 1 << 5, // bus send slot 0
     ANO_AUDIO_FIELD_SEND1    = 1 << 6, // bus send slot 1
-} AnoAudioFieldBits;
+};
 
 enum class AnoAudioCommandPayload : uint8_t { source_play, source_update, source_id, bus_update, fx_parameter, buffer_block, music_affect, music_key, music_tag, music_tag_value, music_seek };
 enum class AnoAudioPayloadOwnership : uint8_t { inline_value, adopted, borrowed, returned };
 enum class AnoAudioCommandTarget : uint8_t { mixer, generator };
 struct AnoAudioCommandContract final { AnoAudioCommandPayload payload; AnoAudioPayloadOwnership ownership; AnoAudioCommandTarget target; };
 
-typedef enum AnoAudioCommandKind
-{
+enum AnoAudioCommandKind {
     ACMD_SOURCE_PLAY [[=AnoAudioCommandContract{AnoAudioCommandPayload::source_play, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::mixer}]],
     ACMD_SOURCE_UPDATE [[=AnoAudioCommandContract{AnoAudioCommandPayload::source_update, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::mixer}]],
     ACMD_SOURCE_STOP [[=AnoAudioCommandContract{AnoAudioCommandPayload::source_id, AnoAudioPayloadOwnership::inline_value, AnoAudioCommandTarget::mixer}]],
@@ -239,7 +237,7 @@ typedef enum AnoAudioCommandKind
     // Borrowed engine snapshot (built off the audio thread). Adopt at next barline;
     // already-sounding plays out. Valid until AEVT_MUSIC_SEEKED.
     ACMD_MUSIC_SEEK [[=AnoAudioCommandContract{AnoAudioCommandPayload::music_seek, AnoAudioPayloadOwnership::borrowed, AnoAudioCommandTarget::generator}]],
-} AnoAudioCommandKind;
+};
 
 struct AnoAudioFieldUse final { uint32_t fields; uint32_t commands; };
 struct AnoAudioPointerPayloadUse final { uint32_t commands; };
@@ -247,8 +245,7 @@ struct AnoAudioPointerPayloadUse final { uint32_t commands; };
 // Longest ACMD_MUSIC_* name, NUL included.
 #define ANO_AUDIO_TAG_MAX 24
 
-typedef struct AnoAudioSourceDesc
-{
+struct AnoAudioSourceDesc {
     uint32_t kind;           // AnoAudioSourceKind
     uint32_t bus;            // [0, busCount)
     uint32_t buffer_id;      // BUFFER
@@ -262,11 +259,10 @@ typedef struct AnoAudioSourceDesc
     float    maxDist;        // attenuation floor distance. 0 = 50.0
     float    rolloff;        // inverse-distance slope. 0 = 1.0
     uint64_t durationFrames; // 0 = until STOP. else release starts here
-} AnoAudioSourceDesc;
+};
 
 // POD, copied by value. Exception: block is adopted (REGISTER) or borrowed (SEEK).
-typedef struct AnoAudioCommand
-{
+struct AnoAudioCommand {
     uint32_t kind;        // AnoAudioCommandKind
     uint32_t source_id;   // logical handle. buffer id for ACMD_BUFFER_*
     uint32_t fields;      // AnoAudioFieldBits (UPDATE / BUS_SET)
@@ -285,11 +281,11 @@ typedef struct AnoAudioCommand
     char     tag[ANO_AUDIO_TAG_MAX]; // MOTIF / OVERRIDE / RELEASE
     const void *block [[=AnoAudioPointerPayloadUse{(1u << ACMD_BUFFER_REGISTER) | (1u << ACMD_MUSIC_SEEK)}]]; // REGISTER adopted; SEEK borrowed
     AnoAudioSourceDesc desc; // SOURCE_PLAY
-} AnoAudioCommand;
+};
 
-// Enqueue one command. false = ring full only.
-// Backpressure: retain and retry on a later tick; never drop (dropped STOP strands a voice).
-bool ano_audio_submit(AnoAudioBridge *bridge, const AnoAudioCommand *cmd);
+// Enqueue one command. Retain and retry after backpressure; never drop STOP.
+[[nodiscard]] AudioResult<> ano_audio_submit(
+    AnoAudioBridge *bridge, const AnoAudioCommand *cmd);
 
 
 /* Event protocol: audio -> logic */
@@ -297,43 +293,41 @@ bool ano_audio_submit(AnoAudioBridge *bridge, const AnoAudioCommand *cmd);
 enum class AnoAudioEventPayloadKind : uint8_t { none, source_id, buffer, music, seeked_bar };
 struct AnoAudioEventContract final { AnoAudioEventPayloadKind payload; AnoAudioPayloadOwnership ownership; };
 
-typedef enum AnoAudioEventKind
-{
+enum AnoAudioEventKind {
     AEVT_SOURCE_RETIRED [[=AnoAudioEventContract{AnoAudioEventPayloadKind::source_id, AnoAudioPayloadOwnership::inline_value}]],
     AEVT_BUFFER_RETIRED [[=AnoAudioEventContract{AnoAudioEventPayloadKind::buffer, AnoAudioPayloadOwnership::returned}]],
     AEVT_CAPACITY [[=AnoAudioEventContract{AnoAudioEventPayloadKind::none, AnoAudioPayloadOwnership::inline_value}]],
     AEVT_MUSIC_BAR [[=AnoAudioEventContract{AnoAudioEventPayloadKind::music, AnoAudioPayloadOwnership::inline_value}]],
     AEVT_MUSIC_SEEKED [[=AnoAudioEventContract{AnoAudioEventPayloadKind::seeked_bar, AnoAudioPayloadOwnership::inline_value}]],
-} AnoAudioEventKind;
+};
 
-typedef struct AnoAudioBufferRetiredEvent { uint32_t buffer_id; void *block; } AnoAudioBufferRetiredEvent;
-typedef struct AnoAudioMusicBarEvent {
+struct AnoAudioBufferRetiredEvent { uint32_t buffer_id; void *block; };
+struct AnoAudioMusicBarEvent {
     int32_t bar, keyTonic, mode, chordDegree, chordInversion;
     int8_t  cadencePolicy;
     bool    isCadence, keyArrived, motifStated;
-} AnoAudioMusicBarEvent;
+};
 
 struct AnoAudioEventPayloadFor final { AnoAudioEventKind kind; AnoAudioEventPayloadKind payload; };
 
-typedef union AnoAudioEventPayload
-{
+union AnoAudioEventPayload {
     uint32_t source_id [[=AnoAudioEventPayloadFor{AEVT_SOURCE_RETIRED, AnoAudioEventPayloadKind::source_id}]];
     AnoAudioBufferRetiredEvent buffer [[=AnoAudioEventPayloadFor{AEVT_BUFFER_RETIRED, AnoAudioEventPayloadKind::buffer}]];
     AnoAudioMusicBarEvent music [[=AnoAudioEventPayloadFor{AEVT_MUSIC_BAR, AnoAudioEventPayloadKind::music}]];
     int32_t seekedBar [[=AnoAudioEventPayloadFor{AEVT_MUSIC_SEEKED, AnoAudioEventPayloadKind::seeked_bar}]];
-} AnoAudioEventPayload;
+};
 
 // Fixed POD. Retirement facts re-emit until landed. CAPACITY best-effort.
-typedef struct AnoAudioEvent
-{
+struct AnoAudioEvent {
     AnoAudioEventKind kind;
     // MUSIC_BAR is a projection of AnoMusicMeaning, held to the audible downbeat.
     // MUSIC_SEEKED carries the adoption bar; the borrowed snapshot may then be freed.
     AnoAudioEventPayload u;
-} AnoAudioEvent;
+};
 
 // Dequeue next event. false if empty. Sole consumer: drain every tick.
-bool ano_audio_poll_event(AnoAudioBridge *bridge, AnoAudioEvent *out);
+[[nodiscard]] AudioResult<bool> ano_audio_poll_event(
+    AnoAudioBridge *bridge, AnoAudioEvent *out);
 
 
 /* Sample buffers */
@@ -342,12 +336,14 @@ bool ano_audio_poll_event(AnoAudioBridge *bridge, AnoAudioEvent *out);
 // RELEASE stops voices; the block returns via AEVT_BUFFER_RETIRED after the last voice quiets.
 // Shutdown frees remaining resident, queued, or un-polled blocks. No AEVT after shutdown; those blocks are already freed.
 
-// Register interleaved f32 (1-2 ch, engine rate). false = backpressure or bad args.
-bool ano_audio_buffer_register(AnoAudioBridge *bridge, uint32_t buffer_id,
-                               const float *interleaved, uint64_t frames, uint32_t channels);
+// Register interleaved f32 (1-2 ch, engine rate).
+[[nodiscard]] AudioResult<> ano_audio_buffer_register(
+    AnoAudioBridge *bridge, uint32_t buffer_id,
+    const float *interleaved, uint64_t frames, uint32_t channels);
 
 // Begin buffer retirement. Same backpressure as submit.
-bool ano_audio_buffer_release(AnoAudioBridge *bridge, uint32_t buffer_id);
+[[nodiscard]] AudioResult<> ano_audio_buffer_release(
+    AnoAudioBridge *bridge, uint32_t buffer_id);
 
 // Free AEVT_BUFFER_RETIRED or ano_audio_wav_load block.
 void ano_audio_block_free(void *block);
@@ -356,17 +352,15 @@ void ano_audio_block_free(void *block);
 /* Published latest-wins lanes */
 
 // Listener pose (logic -> audio). Sampled once per block.
-typedef struct AnoAudioListener
-{
+struct AnoAudioListener {
     float    pos[3];
     float    forward[3]; // unit
     float    up[3];      // unit
     uint64_t seq;        // publish counter (diagnostics)
-} AnoAudioListener;
+};
 
 // Per-block mixer telemetry (audio -> logic). Offline never publishes.
-typedef struct AnoAudioTelemetry
-{
+struct AnoAudioTelemetry {
     uint64_t blockIndex;
     uint64_t blockCpuNs;
     float    masterPeak;     // |peak|, pre clip guard
@@ -381,13 +375,15 @@ typedef struct AnoAudioTelemetry
     uint32_t genUsMax;   // worst since start
     uint32_t genLate;    // work after the playhead needed it
     uint32_t genDropped; // schedule misses + voices the pool could not sound
-} AnoAudioTelemetry;
+};
 
 // Publish listener. At most once per logic tick. Single producer.
-void ano_audio_publish_listener(AnoAudioBridge *bridge, const AnoAudioListener *l);
+[[nodiscard]] AudioResult<> ano_audio_publish_listener(
+    AnoAudioBridge *bridge, const AnoAudioListener *l);
 
 // Copy latest telemetry. false before first mixer publish.
-bool ano_audio_acquire_telemetry(AnoAudioBridge *bridge, AnoAudioTelemetry *out);
+[[nodiscard]] AudioResult<bool> ano_audio_acquire_telemetry(
+    AnoAudioBridge *bridge, AnoAudioTelemetry *out);
 
 
 /* Offline rendering */
@@ -395,29 +391,25 @@ bool ano_audio_acquire_telemetry(AnoAudioBridge *bridge, AnoAudioTelemetry *out)
 // Same mixer core, caller thread. No device, threads, or telemetry.
 // Commands apply at first block boundary at-or-after frame stamp. Deterministic.
 
-typedef struct AnoAudioOfflineEvent
-{
+struct AnoAudioOfflineEvent {
     uint64_t        frame; // absolute apply frame
     AnoAudioCommand cmd;
-} AnoAudioOfflineEvent;
+};
 
 // Pre-registered borrowed buffer. Must outlive the call. ACMD_BUFFER_* ignored offline.
-typedef struct AnoAudioOfflineBuffer
-{
+struct AnoAudioOfflineBuffer {
     uint32_t     buffer_id;
     uint32_t     channels; // 1 or 2
     uint64_t     frames;
     const float *data;     // interleaved f32 at render rate
-} AnoAudioOfflineBuffer;
+};
 
-typedef struct AnoAudioOfflineListener
-{
+struct AnoAudioOfflineListener {
     uint64_t         frame;
     AnoAudioListener listener;
-} AnoAudioOfflineListener;
+};
 
-typedef struct AnoAudioOfflineDesc
-{
+struct AnoAudioOfflineDesc {
     uint32_t sampleRate;  // default 48000
     uint32_t blockFrames; // default 512, clamped [32, 4096]
     uint32_t busCount;    // default 2, max ANO_AUDIO_MAX_BUSES
@@ -433,20 +425,24 @@ typedef struct AnoAudioOfflineDesc
     // Offline steer + desk-automation only; no poll/stats (offline publishes neither).
     AnoAudioGeneratorControl  generatorControl;
     AnoAudioGeneratorCommands generatorCommands;
-} AnoAudioOfflineDesc;
+};
 
 // Render frames into out[frames * ANO_AUDIO_CHANNELS]. Independent of init.
-bool ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames);
+[[nodiscard]] AudioResult<> ano_audio_render_offline(
+    const AnoAudioOfflineDesc *desc, float *out, uint64_t frames);
 
-// Interleaved f32 -> IEEE-float WAV. Truncates existing. false on I/O or bad args.
-bool ano_audio_wav_write(const char *path, const float *interleaved,
-                         uint64_t frames, uint32_t channels, uint32_t sampleRate);
+// Interleaved f32 -> IEEE-float WAV. Truncates existing.
+[[nodiscard]] AudioResult<> ano_audio_wav_write(
+    const char *path, const float *interleaved,
+    uint64_t frames, uint32_t channels, uint32_t sampleRate);
 
 // Load WAV (PCM 16/24/32 or IEEE f32, 1-2 ch) to interleaved f32.
 // Windowed-sinc to targetRate when rates differ. Free with ano_audio_block_free.
 // Logic thread only.
-float *ano_audio_wav_load(const char *path, uint32_t targetRate,
-                          uint64_t *outFrames, uint32_t *outChannels);
+struct AnoAudioSamples final { float *data; uint64_t frames; uint32_t channels; };
+
+[[nodiscard]] AudioResult<AnoAudioSamples> ano_audio_wav_load(
+    const char *path, uint32_t targetRate);
 
 
 } // namespace ano

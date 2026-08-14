@@ -48,18 +48,18 @@ static bool prim_solid_over(const AnoUiPrim *p, float tx0, float ty0, float tx1,
 
 /* Tile Build */
 
-uint32_t ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
+UiResult<uint32_t> ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY,
                            uint32_t *offsets, uint32_t offsetsCap,
                            uint32_t *entries, uint32_t entryCap,
-                           uint32_t *cursor, bool *ok)
+                           uint32_t *cursor)
 {
-    *ok = true;
+    if (!s || !offsets || !entries || !cursor)
+        return failure(UiError::invalid_argument);
     // Cap tested by division before the product: tilesX * tilesY wraps for absurd grids.
     if (tilesX == 0 || tilesY == 0 || offsetsCap == 0 || tilesX > (offsetsCap - 1) / tilesY)
     {
-        *ok = false;
-        return 0;
+        return failure(UiError::capacity);
     }
     uint32_t nTiles = tilesX * tilesY;
     for (uint32_t t = 0; t <= nTiles; t++)
@@ -89,8 +89,7 @@ uint32_t ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
     uint32_t total = offsets[nTiles];
     if (total > entryCap)
     {
-        *ok = false;
-        return 0;
+        return failure(UiError::capacity);
     }
 
     // Pass 2: scatter prim indices (ascending) into each tile, tagging solid coverage.

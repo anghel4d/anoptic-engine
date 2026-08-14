@@ -552,11 +552,11 @@ void *ano_audio_mixer_main(void *arg)
             }
             if (stalledUs < stallUs) {
                 stalledUs += ANO_AUDIO_PACE_US;
-                ano_sleep(ANO_AUDIO_PACE_US);
+                (void)ano_sleep(ANO_AUDIO_PACE_US);
                 continue;
             }
             publish_stats(mx, 0u); // no consumer: the lane stays live, blockIndex frozen
-            ano_sleep(idleUs);
+            (void)ano_sleep(idleUs);
             continue;
         }
 
@@ -569,31 +569,32 @@ void *ano_audio_mixer_main(void *arg)
     return NULL;
 }
 
-bool ano::ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames)
+AudioResult<> ano::ano_audio_render_offline(
+    const AnoAudioOfflineDesc *desc, float *out, uint64_t frames)
 {
     if (!out)
-        return false;
+        return failure(AudioError::invalid_argument);
     AnoAudioOfflineDesc d = desc ? *desc : (AnoAudioOfflineDesc){0};
     if ((d.eventCount > 0u && !d.events) || (d.bufferCount > 0u && !d.buffers)
         || (d.listenerCount > 0u && !d.listeners))
-        return false;
+        return failure(AudioError::invalid_argument);
     if (d.bufferCount > ANO_AUDIO_MAX_BUFFERS)
-        return false;
+        return failure(AudioError::invalid_argument);
     uint32_t rate = d.sampleRate ? d.sampleRate : 48000u;
     uint32_t bf   = d.blockFrames ? d.blockFrames : 512u;
     if (bf < 32u) bf = 32u;
     if (bf > 4096u) bf = 4096u;
     uint32_t buses = d.busCount ? d.busCount : 2u;
     if (buses > ANO_AUDIO_MAX_BUSES)
-        return false;
+        return failure(AudioError::invalid_argument);
 
     mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
     if (!heap)
-        return false;
+        return failure(AudioError::out_of_memory);
     AnoAudioMixer *mx = static_cast<AnoAudioMixer *>(
         mi_heap_zalloc_aligned(heap, sizeof *mx, alignof(AnoAudioMixer)));
     if (!mx)
-        return false;
+        return failure(AudioError::out_of_memory);
     mx->heap            = heap;
     mx->sampleRate      = rate;
     mx->blockFrames     = bf;
@@ -606,16 +607,16 @@ bool ano::ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, 
     mx->generatorControl  = d.generatorControl;
     mx->generatorCommands = d.generatorCommands;
     if (!ano_audio_graph_init(mx, d.busLayout))
-        return false;
+        return failure(AudioError::invalid_argument);
     float *scratch = mi_heap_calloc_tp(
         float, heap, (size_t)bf * ANO_AUDIO_CHANNELS);
     if (!scratch)
-        return false;
+        return failure(AudioError::out_of_memory);
 
     for (uint32_t i = 0; i < d.bufferCount; ++i) {
         const AnoAudioOfflineBuffer *ob = &d.buffers[i];
         if (!ob->data || ob->frames == 0u || ob->channels < 1u || ob->channels > 2u)
-            return false;
+            return failure(AudioError::invalid_argument);
         mx->buffers[i] = (AnoAudioBufferSlot){
             .state     = ANO_AUDIO_BUF_LIVE,
             .buffer_id = ob->buffer_id,
@@ -643,5 +644,5 @@ bool ano::ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, 
         memcpy(out + done * ANO_AUDIO_CHANNELS, scratch, (size_t)n * ANO_AUDIO_CHANNELS * sizeof(float));
         done += n;
     }
-    return true;
+    return {};
 }

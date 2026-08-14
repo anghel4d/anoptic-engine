@@ -82,25 +82,24 @@ uint32_t ano::ano_timestamp_ms() {
 
 /* Generic Date-Time Stamps */
 
-int64_t ano::ano_timestamp_unix() {
+TimeResult<int64_t> ano::ano_timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
 
     if (currentTime == (time_t)-1) {
-        perror("time()");
-        return INT64_MIN; // Out-of-range sentinel.
+        return failure(TimeError::unavailable);
     }
 
     return (int64_t)currentTime;
 }
 
-ano_datetime ano::ano_localtime(int64_t unix_seconds) {
+TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_r(&t, &tm) == NULL)
-        return (ano_datetime){0};
+        return failure(TimeError::invalid_argument);
 
     return (ano_datetime){
         .year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday,
@@ -111,11 +110,10 @@ ano_datetime ano::ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-int ano::ano_busywait(uint64_t ns) {
+TimeResult<> ano::ano_busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
-        printf("Requested busywait time exceeds maximum limit. Returning.\n");
-        return -1;
+        return failure(TimeError::invalid_argument);
     }
 
     uint64_t startTime = ano_timestamp_raw();
@@ -125,7 +123,7 @@ int ano::ano_busywait(uint64_t ns) {
         endTime = ano_timestamp_raw();
     } while (endTime - startTime < ns);
 
-    return 0;
+    return {};
 }
 
 static uint64_t ano_ns_to_ticks(uint64_t ns) {
@@ -144,7 +142,10 @@ static uint64_t ano_ns_to_ticks(uint64_t ns) {
 // Absolute mach_wait_until in half-remainder steps, then spin ANO_SLEEP_SPIN_NS.
 // QoS stretches relative waits ~1.5x; half-remainder is immune below 2x.
 // Re-arming the absolute deadline absorbs KERN_ABORTED without drift.
-int ano::ano_sleep(uint64_t us) {
+TimeResult<> ano::ano_sleep(uint64_t us) {
+
+    if (us > UINT64_MAX / 1000ULL)
+        return failure(TimeError::overflow);
 
     uint64_t waitTicks = ano_ns_to_ticks(us * 1000ULL);
     uint64_t deadline = mach_absolute_time() + waitTicks;
@@ -154,7 +155,7 @@ int ano::ano_sleep(uint64_t us) {
     if (us * 1000ULL <= ANO_SLEEP_SPIN_NS) {
         while (mach_absolute_time() < deadline)
             mach_wait_until(deadline);
-        return 0;
+        return {};
     }
 
     uint64_t now;
@@ -166,7 +167,7 @@ int ano::ano_sleep(uint64_t us) {
     while (mach_absolute_time() < deadline)
         ;
 
-    return 0;
+    return {};
 }
 
 #endif

@@ -91,7 +91,7 @@ int main(void)
             pubCfg = ano_music_config_default();
             privCfg = ano_engine_config_default();
         }
-        AnoMusicEngine *pub = ano_music_create(&pubCfg, 42);
+        AnoMusicEngine *pub = ano_music_create(&pubCfg, 42).value_or(nullptr);
         CHECK(pub != NULL, "ano_music_create");
         ano_engine_init(&priv, 42, &privCfg);
 
@@ -120,7 +120,7 @@ int main(void)
     {
         AnoMusicConfig cfg;
         public_config(&cfg);
-        AnoMusicEngine *e = ano_music_create(&cfg, 42);
+        AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
         uint32_t cadences = 0, keyArrivals = 0;
         int chordsSeen = 0;
         for (uint32_t b = 0; b < 64u; ++b) {
@@ -141,7 +141,7 @@ int main(void)
     {
         AnoMusicConfig cfg;
         public_config(&cfg);
-        AnoMusicEngine *e = ano_music_create(&cfg, 42);
+        AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
         CHECK(ano_music_set_override(e, "reverb_send", 0.5), "override accepted");
         CHECK(!ano_music_set_override(e, "revreb_send", 0.5), "typo refused");
         ano_music_advance_bar(e, &pb);
@@ -161,7 +161,7 @@ int main(void)
         void *snap = malloc(sz);
         void *snapB = malloc(sz);
 
-        AnoMusicEngine *e = ano_music_create(&cfg, 42);
+        AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
         for (uint32_t b = 0; b < 20u; ++b)
             ano_music_advance_bar(e, &pb);
         CHECK(ano_music_snapshot(e, snap, sz), "snapshot at bar 20");
@@ -183,7 +183,7 @@ int main(void)
         CHECK(same, "restore reproduces the future exactly");
 
         // Seek: fresh engine fast-forwarded to bar 20 == snapshot.
-        AnoMusicEngine *fresh = ano_music_create(&cfg, 42);
+        AnoMusicEngine *fresh = ano_music_create(&cfg, 42).value_or(nullptr);
         for (uint32_t b = 0; b < 20u; ++b)
             ano_music_advance_bar(fresh, &pb);
         CHECK(ano_music_snapshot(fresh, snapB, sz), "snapshot the rebuild");
@@ -204,7 +204,8 @@ int main(void)
         // Different bar -> different snapshot.
         for (uint32_t b = 0; b < 2u; ++b)
             ano_music_advance_bar(fresh, &pb);
-        ano_music_snapshot(fresh, snapB, sz);
+        CHECK(ano_music_snapshot(fresh, snapB, sz),
+              "the later snapshot fits its allocation");
         CHECK(memcmp(snap, snapB, sz) != 0, "a different bar is a different state");
 
         free(snap);

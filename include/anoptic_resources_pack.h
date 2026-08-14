@@ -12,11 +12,11 @@
 
 namespace ano {
 
-typedef struct AnoResourceManifest AnoResourceManifest;
-typedef struct AnoResourcePack AnoResourcePack;
-typedef struct AnoCookedRevision AnoCookedRevision;
+struct AnoResourceManifest;
+struct AnoResourcePack;
+struct AnoCookedRevision;
 
-typedef struct AnoResourceManifestEntry {
+struct AnoResourceManifestEntry {
     AnoAssetId asset;
     AnoResourceTypeId type;
     uint64_t producer;
@@ -27,47 +27,39 @@ typedef struct AnoResourceManifestEntry {
     uint64_t byteSize;
     uint64_t dependencyFirst;
     uint64_t dependencyCount;
-} AnoResourceManifestEntry;
+};
 
 // Copies and fully validates canonical manifest bytes.
-AnoResourceError ano_resource_manifest_open(AnoResourceBytes bytes,
-                                            AnoResourceManifest **manifest);
+[[nodiscard]] ResourceResult<AnoResourceManifest *> ano_resource_manifest_open(
+    AnoResourceBytes bytes);
 void ano_resource_manifest_close(AnoResourceManifest *manifest);
-AnoResourceError ano_resource_manifest_id(const AnoResourceManifest *manifest,
-                                          AnoManifestId *id);
+[[nodiscard]] ResourceResult<AnoManifestId> ano_resource_manifest_id(
+    const AnoResourceManifest *manifest);
 uint64_t ano_resource_manifest_entry_count(
     const AnoResourceManifest *manifest);
-AnoResourceError ano_resource_manifest_find(
-    const AnoResourceManifest *manifest, AnoAssetId asset,
-    AnoResourceManifestEntry *entry);
-AnoResourceError ano_resource_manifest_dependency(
-    const AnoResourceManifest *manifest, AnoAssetId asset, uint64_t index,
-    AnoResourceDependency *dependency);
+[[nodiscard]] ResourceResult<AnoResourceManifestEntry> ano_resource_manifest_find(
+    const AnoResourceManifest *manifest, AnoAssetId asset);
+[[nodiscard]] ResourceResult<AnoResourceDependency>
+ano_resource_manifest_dependency(const AnoResourceManifest *manifest,
+                                 AnoAssetId asset, uint64_t index);
 
 // Copies the pack and authenticates its manifest and every artifact.
-AnoResourceError ano_resource_pack_open(AnoResourceBytes bytes,
-                                        AnoResourcePack **pack);
+[[nodiscard]] ResourceResult<AnoResourcePack *> ano_resource_pack_open(
+    AnoResourceBytes bytes);
 void ano_resource_pack_close(AnoResourcePack *pack);
 const AnoResourceManifest *ano_resource_pack_manifest(
     const AnoResourcePack *pack);
 
-// Copies an authenticated artifact. packSize receives the artifact size on
-// success or insufficient capacity.
-AnoResourceError ano_resource_pack_read(const AnoResourcePack *pack,
-                                        AnoAssetId asset,
-                                        AnoResourceMutableBytes output,
-                                        uint64_t *packSize);
 // Returns an authenticated immutable range borrowed from the opened pack.
-AnoResourceError ano_resource_pack_view(const AnoResourcePack *pack,
-                                        AnoAssetId asset,
-                                        AnoResourceBytes *bytes);
+[[nodiscard]] ResourceResult<AnoResourceBytes> ano_resource_pack_view(
+    const AnoResourcePack *pack, AnoAssetId asset);
 // Returns a retained cooked revision over the authenticated pack volume.
-AnoResourceError ano_resource_pack_revision(
-    const AnoResourcePack *pack, const AnoCookedRevision **revision);
+[[nodiscard]] ResourceResult<const AnoCookedRevision *>
+ano_resource_pack_revision(const AnoResourcePack *pack);
 
 // Shipping serialization is explicit; cook does not emit a pack.
-AnoResourceError ano_resource_revision_export_pack(
-    const AnoCookedRevision *revision, AnoResourceMutableBytes *pack);
+[[nodiscard]] ResourceResult<AnoResourceMutableBytes>
+ano_resource_revision_export_pack(const AnoCookedRevision *revision);
 void ano_resource_exported_pack_release(AnoResourceMutableBytes pack);
 
 } // namespace ano

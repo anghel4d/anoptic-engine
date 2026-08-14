@@ -323,13 +323,14 @@ Type *zero_array(ano::MemoryRegion *region, uint64_t count)
     if (count == 0 || count > SIZE_MAX)
         return nullptr;
     return ano::memory_region_allocate_zero<Type>(
-        region, static_cast<size_t>(count));
+        region, static_cast<size_t>(count)).value_or(nullptr);
 }
 
 void *gltf_allocate(void *user, size_t bytes)
 {
     return ano::memory_region_allocate(
-        static_cast<ano::MemoryRegion *>(user), bytes, alignof(max_align_t));
+        static_cast<ano::MemoryRegion *>(user), bytes,
+        alignof(max_align_t)).value_or(nullptr);
 }
 
 void gltf_release(void *, void *) {}
@@ -358,22 +359,29 @@ AnoResourceError gltf_error(AnoGltfResult result)
     return ANO_RESOURCE_NON_CANONICAL;
 }
 
+template<class Value>
+AnoResourceError gltf_error(const GltfResult<Value>& result)
+{
+    return result ? ANO_RESOURCE_OK : gltf_error(result.error());
+}
+
 template<class ArtifactType>
-AnoResourceError encode_prepared(void *context,
+ResourceResult<> encode_prepared(void *context,
                                  AnoResourceMutableBytes destination)
 {
     if (context == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     const auto& prepared = *static_cast<const PreparedArtifact *>(context);
     const EncodeResult encoded = encode(
         ArtifactSource<ArtifactType>{
             .value = static_cast<const ArtifactType *>(prepared.value),
             .extent = prepared.extent,
         }, destination);
-    return encoded.error != ANO_RESOURCE_OK
-        ? encoded.error
-        : encoded.size == destination.size
-            ? ANO_RESOURCE_OK : ANO_RESOURCE_NON_CANONICAL;
+    if (!encoded)
+        return failure(encoded.error());
+    if (*encoded != destination.size)
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    return {};
 }
 
 template<class ArtifactType>
@@ -383,20 +391,20 @@ AnoResourceError prepare_artifact(
     AnoResourceBytes extent = {})
 {
     ArtifactType *stored = ano::memory_region_allocate<ArtifactType>(
-        region, 1);
+        region, 1).value_or(nullptr);
     if (stored == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     *stored = value;
     job.prepared = {.value = stored, .extent = extent};
     const EncodeResult measured = encoded_size(
         ArtifactSource<ArtifactType>{stored, extent});
-    if (measured.error != ANO_RESOURCE_OK)
-        return measured.error;
+    if (!measured)
+        return measured.error();
     job.artifact = {
         .asset = asset,
         .type = resource_type_id<ArtifactType>(),
         .commitGroup = group,
-        .encodedSize = measured.size,
+        .encodedSize = *measured,
         .inputIdentity = job.inputIdentity,
         .context = &job.prepared,
         .encode = encode_prepared<ArtifactType>,
@@ -709,14 +717,13 @@ AnoResourceError register_source_files(AnoResourceCooker& cooker,
                                        const char *sourcePath,
                                        const AnoGltfData& data)
 {
-    uint64_t capacity = 0;
-    if (!ano::checked_add(
-            data.buffersCount, data.imagesCount, &capacity)
-        || capacity > SIZE_MAX / sizeof(char *))
+    const auto capacity = ano::checked_add(
+        uint64_t{data.buffersCount}, uint64_t{data.imagesCount});
+    if (!capacity || *capacity > SIZE_MAX / sizeof(char *))
         return ANO_RESOURCE_OVERFLOW;
-    char **paths = capacity == 0 ? nullptr
-        : mi_calloc_tp(char *, static_cast<size_t>(capacity));
-    if (capacity != 0 && paths == nullptr)
+    char **paths = *capacity == 0 ? nullptr
+        : mi_calloc_tp(char *, static_cast<size_t>(*capacity));
+    if (*capacity != 0 && paths == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     uint64_t count = 0;
     auto registerUri = [&](AnoGltfString uri) {
@@ -856,12 +863,11 @@ AnoResourceError decode_image(AnoResourceCooker& cooker,
             return ANO_RESOURCE_NON_CANONICAL;
         const AnoGltfBufferView& view =
             data.bufferViews[image.bufferView.value];
-        const uint8_t *bytes = ano_gltf_buffer_view_data(&data,
-                                                         image.bufferView);
-        if (bytes == nullptr || view.byteLength > INT_MAX)
+        const auto bytes = ano_gltf_buffer_view_data(&data, image.bufferView);
+        if (!bytes || view.byteLength > INT_MAX)
             return ANO_RESOURCE_NON_CANONICAL;
         *pixels = stbi_load_from_memory(
-            bytes, static_cast<int>(view.byteLength), &decodedWidth,
+            *bytes, static_cast<int>(view.byteLength), &decodedWidth,
             &decodedHeight, &channels, STBI_rgb_alpha);
     } else {
         return ANO_RESOURCE_NON_CANONICAL;
@@ -871,15 +877,18 @@ AnoResourceError decode_image(AnoResourceCooker& cooker,
         *pixels = nullptr;
         return ANO_RESOURCE_NON_CANONICAL;
     }
-    uint64_t pixelCount = 0;
-    if (!ano::checked_multiply(
-            static_cast<uint64_t>(decodedWidth),
-            static_cast<uint64_t>(decodedHeight), &pixelCount)
-        || !ano::checked_multiply(pixelCount, UINT64_C(4), byteCount)) {
+    const auto pixelCount = ano::checked_multiply(
+        static_cast<uint64_t>(decodedWidth),
+        static_cast<uint64_t>(decodedHeight));
+    const auto bytes = pixelCount
+        ? ano::checked_multiply(*pixelCount, UINT64_C(4))
+        : ano::ArithmeticResult<uint64_t>(failure(pixelCount.error()));
+    if (!bytes) {
         stbi_image_free(*pixels);
         *pixels = nullptr;
         return ANO_RESOURCE_OVERFLOW;
     }
+    *byteCount = *bytes;
     *width = static_cast<uint32_t>(decodedWidth);
     *height = static_cast<uint32_t>(decodedHeight);
     return ANO_RESOURCE_OK;
@@ -973,12 +982,11 @@ AnoResourceError build_mesh(const AnoGltfData& data,
         return ANO_RESOURCE_OVERFLOW;
     const uint64_t vertexBytes = position->count * sizeof(Vertex);
     const uint64_t indexBytes = indicesAccessor->count * sizeof(uint32_t);
-    uint64_t extentSize = 0;
-    if (!ano::checked_add(vertexBytes, indexBytes, &extentSize)
-        || extentSize > SIZE_MAX)
+    const auto extentSize = ano::checked_add(vertexBytes, indexBytes);
+    if (!extentSize || *extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
     uint8_t *extent = ano::memory_region_allocate_zero<uint8_t>(
-        region, static_cast<size_t>(extentSize));
+        region, static_cast<size_t>(*extentSize)).value_or(nullptr);
     if (extent == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     Vertex *vertices = reinterpret_cast<Vertex *>(extent);
@@ -1008,11 +1016,13 @@ AnoResourceError build_mesh(const AnoGltfData& data,
             if (!__builtin_isfinite(value))
                 result = ANO_RESOURCE_NON_CANONICAL;
     }
-    if (result == ANO_RESOURCE_OK
-        && ano_gltf_accessor_unpack_indices(
-               &data, indicesAccessor, indices, sizeof(*indices),
-               indicesAccessor->count) != indicesAccessor->count)
-        result = ANO_RESOURCE_NON_CANONICAL;
+    if (result == ANO_RESOURCE_OK) {
+        const auto unpacked = ano_gltf_accessor_unpack_indices(
+            &data, indicesAccessor, indices, sizeof(*indices),
+            indicesAccessor->count);
+        if (!unpacked || *unpacked != indicesAccessor->count)
+            result = ANO_RESOURCE_NON_CANONICAL;
+    }
     for (uint64_t i = 0; i < indicesAccessor->count
                          && result == ANO_RESOURCE_OK; ++i)
         if (indices[i] >= position->count)
@@ -1048,7 +1058,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
         };
         result = prepare_artifact(
             region, job, job.asset, group, mesh,
-            {.data = extent, .size = extentSize});
+            {.data = extent, .size = *extentSize});
     }
     return result;
 }
@@ -1226,29 +1236,29 @@ AnoResourceError build_import_artifacts(
             ++jobCount;
     for (uint32_t mesh = 0; mesh < data.meshesCount; ++mesh)
         if (meshesChanged && scratch.usedMeshes[mesh]
-            && !ano::checked_add(
-                jobCount, data.meshes[mesh].primitives.count, &jobCount))
+            && !ano::checked_accumulate(
+                jobCount, uint64_t{data.meshes[mesh].primitives.count}))
             return ANO_RESOURCE_OVERFLOW;
     uint64_t parallelCount = jobCount;
     if (all) {
         for (uint32_t material = 0; material < data.materialsCount;
              ++material)
             if (scratch.usedMaterials[material]
-                && !ano::checked_add(jobCount, UINT64_C(1), &jobCount))
+                && !ano::checked_accumulate(jobCount, UINT64_C(1)))
                 return ANO_RESOURCE_OVERFLOW;
         const uint64_t tail = (scratch.needsDefaultMaterial ? 1u : 0u) + 1u;
-        if (!ano::checked_add(jobCount, tail, &jobCount))
+        if (!ano::checked_accumulate(jobCount, tail))
             return ANO_RESOURCE_OVERFLOW;
     }
 
-    size_t jobBytes = 0;
-    if (!ano::checked_allocation_size(
-            jobCount, sizeof(ImportJob), &jobBytes))
+    const auto jobBytes = ano::checked_allocation_size(
+        jobCount, sizeof(ImportJob));
+    if (!jobBytes)
         return ANO_RESOURCE_OVERFLOW;
-    ImportJob *jobs = jobBytes == 0 ? nullptr
+    ImportJob *jobs = *jobBytes == 0 ? nullptr
         : ano::memory_region_allocate_zero<ImportJob>(
-              region, static_cast<size_t>(jobCount));
-    if (jobBytes != 0 && jobs == nullptr)
+              region, static_cast<size_t>(jobCount)).value_or(nullptr);
+    if (*jobBytes != 0 && jobs == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
 
     uint64_t cursor = 0;
@@ -1386,14 +1396,16 @@ AnoResourceError build_import_artifacts(
     jobCount = cursor;
     AnoResourceCookArtifact *artifacts = jobCount == 0 ? nullptr
         : ano::memory_region_allocate<AnoResourceCookArtifact>(
-            region, static_cast<size_t>(jobCount));
+              region, static_cast<size_t>(jobCount)).value_or(nullptr);
     if (result == ANO_RESOURCE_OK && jobCount != 0 && artifacts == nullptr)
         result = ANO_RESOURCE_OUT_OF_MEMORY;
     for (uint64_t i = 0; i < jobCount && result == ANO_RESOURCE_OK; ++i)
         artifacts[i] = jobs[i].artifact;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_cooker_encode_batch(
+    if (result == ANO_RESOURCE_OK) {
+        const auto encoded = ano_resource_cooker_encode_batch(
             &cooker, artifacts, jobCount);
+        result = encoded ? ANO_RESOURCE_OK : encoded.error();
+    }
     for (uint64_t i = 0; i < jobCount; ++i)
         stbi_image_free(jobs[i].ownedExtent);
     return result;
@@ -1411,36 +1423,33 @@ AnoResourceError prepare_scene_root(
             continue;
         const AnoGltfNode& source = data.nodes[node];
         if (ano_gltf_has_index(source.mesh)) {
-            if (!ano::checked_add(
-                    renderableCount,
-                    data.meshes[source.mesh.value].primitives.count,
-                    &renderableCount))
+            if (!ano::checked_accumulate(
+                    renderableCount, uint64_t{
+                        data.meshes[source.mesh.value].primitives.count}))
                 return ANO_RESOURCE_OVERFLOW;
         }
         if (source.extensions.known.KHR_lights_punctual.present
-            && !ano::checked_add(lightCount, UINT64_C(1), &lightCount))
+            && !ano::checked_accumulate(lightCount, UINT64_C(1)))
             return ANO_RESOURCE_OVERFLOW;
     }
-    uint64_t renderableBytes = 0;
-    uint64_t lightBytes = 0;
-    uint64_t extentSize = 0;
-    if (!ano::checked_multiply(
-            renderableCount, sizeof(SceneRenderable), &renderableBytes)
-        || !ano::checked_multiply(
-            lightCount, sizeof(SceneLight), &lightBytes)
-        || !ano::checked_add(renderableBytes, lightBytes,
-                                     &extentSize)
-        || extentSize > SIZE_MAX)
+    const auto renderableBytes = ano::checked_multiply(
+        renderableCount, uint64_t{sizeof(SceneRenderable)});
+    const auto lightBytes = ano::checked_multiply(
+        lightCount, uint64_t{sizeof(SceneLight)});
+    const auto extentSize = renderableBytes && lightBytes
+        ? ano::checked_add(*renderableBytes, *lightBytes)
+        : ano::ArithmeticResult<uint64_t>(failure(ano::ArithmeticError::overflow));
+    if (!extentSize || *extentSize > SIZE_MAX)
         return ANO_RESOURCE_OVERFLOW;
-    uint8_t *extent = extentSize == 0 ? nullptr
+    uint8_t *extent = *extentSize == 0 ? nullptr
         : ano::memory_region_allocate_zero<uint8_t>(
-            region, static_cast<size_t>(extentSize));
-    if (extentSize != 0 && extent == nullptr)
+              region, static_cast<size_t>(*extentSize)).value_or(nullptr);
+    if (*extentSize != 0 && extent == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     SceneRenderable *renderables =
         reinterpret_cast<SceneRenderable *>(extent);
     SceneLight *lights = reinterpret_cast<SceneLight *>(
-        extent == nullptr ? nullptr : extent + renderableBytes);
+        extent == nullptr ? nullptr : extent + *renderableBytes);
     uint64_t renderableCursor = 0;
     uint64_t lightCursor = 0;
     AnoResourceError result = ANO_RESOURCE_OK;
@@ -1489,11 +1498,11 @@ AnoResourceError prepare_scene_root(
                 : RelativeSpan<SceneRenderable>{0, renderableCount},
             .lights = lightCount == 0
                 ? RelativeSpan<SceneLight>{0, 0}
-                : RelativeSpan<SceneLight>{renderableBytes, lightCount},
+                : RelativeSpan<SceneLight>{*renderableBytes, lightCount},
         };
         result = prepare_artifact(
             region, job, request.rootAsset, request.commitGroup, scene,
-            {.data = extent, .size = extentSize});
+            {.data = extent, .size = *extentSize});
     }
     return result;
 }
@@ -1524,10 +1533,9 @@ AnoResourceError initialize_scratch(ano::MemoryRegion *region,
         return ANO_RESOURCE_OUT_OF_MEMORY;
     for (uint32_t mesh = 0; mesh < data.meshesCount; ++mesh) {
         scratch.meshFirstPrimitive[mesh] = scratch.primitiveCount;
-        if (!ano::checked_add(
+        if (!ano::checked_accumulate(
                 scratch.primitiveCount,
-                data.meshes[mesh].primitives.count,
-                &scratch.primitiveCount))
+                uint64_t{data.meshes[mesh].primitives.count}))
             return ANO_RESOURCE_OVERFLOW;
     }
     scratch.meshFirstPrimitive[data.meshesCount] = scratch.primitiveCount;
@@ -1540,20 +1548,20 @@ AnoResourceError initialize_scratch(ano::MemoryRegion *region,
 
 } // namespace
 
-AnoResourceError import_gltf(AnoResourceCooker& cooker,
+ResourceResult<> import_gltf(AnoResourceCooker& cooker,
                              const AnoResourceImportRequest& request) noexcept
 {
     if (!ano_resource_cooker_root_valid(&cooker, request.rootAsset))
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     const char *sourcePath = ano_resource_cooker_source_path(
         &cooker, request.source);
     if (sourcePath == nullptr)
-        return ANO_RESOURCE_NOT_FOUND;
+        return failure(ANO_RESOURCE_NOT_FOUND);
     const AnoResourceCookCheckpoint checkpoint =
         ano_resource_cooker_checkpoint(&cooker);
-    ano::MemoryRegion *region = ano::memory_region_create();
+    ano::MemoryRegion *region = ano::memory_region_create().value_or(nullptr);
     if (region == nullptr)
-        return ANO_RESOURCE_OUT_OF_MEMORY;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     AnoGltfOptions options = {
         .allocate = gltf_allocate,
         .free = gltf_release,
@@ -1563,10 +1571,13 @@ AnoResourceError import_gltf(AnoResourceCooker& cooker,
     AnoResourceBytes rootBytes{};
     AnoResourceError result = ano_resource_cooker_source_bytes(
         &cooker, sourcePath, &rootBytes);
-    if (result == ANO_RESOURCE_OK)
-        result = gltf_error(ano_gltf_parse_memory(
-            rootBytes.data, static_cast<size_t>(rootBytes.size),
-            &options, &data));
+    if (result == ANO_RESOURCE_OK) {
+        const auto parsed = ano_gltf_parse_memory(
+            rootBytes.data, static_cast<size_t>(rootBytes.size), &options);
+        result = gltf_error(parsed);
+        if (parsed)
+            data = *parsed;
+    }
     if (result == ANO_RESOURCE_OK)
         result = register_source_files(cooker, sourcePath, *data);
     if (result == ANO_RESOURCE_OK)
@@ -1594,7 +1605,7 @@ AnoResourceError import_gltf(AnoResourceCooker& cooker,
     ano::memory_region_destroy(region);
     if (result != ANO_RESOURCE_OK)
         ano_resource_cooker_rollback(&cooker, checkpoint);
-    return result;
+    return resource_status(result);
 }
 
 } // namespace ano::asset_schema

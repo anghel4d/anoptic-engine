@@ -31,12 +31,12 @@ using namespace ano;
 // Open a shipped engine file resolved against ano_fs_gamepath()
 static FILE* openEngineFile(const char* relative)
 {
-	ano_fspath dir = ano_fs_gamepath();
-	if (dir.length == 0)
+	const auto dir = ano_fs_gamepath();
+	if (!dir)
 		return NULL;
 
 	char path[MAXPATH + 128];
-	int n = snprintf(path, sizeof path, "%s/%s", dir.str, relative);
+	int n = snprintf(path, sizeof path, "%s/%s", dir->str, relative);
 	if (n < 0 || n >= (int)sizeof path)
 		return NULL;
 	return fopen(path, "rb");

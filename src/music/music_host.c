@@ -151,11 +151,12 @@ static void expand(const AnoMusicConfig *c, AnoEngineConfig *e)
 }
 
 // One allocation; engine stays pointer-free (snapshot = bytes).
-AnoMusicEngine *ano::ano_music_create(const AnoMusicConfig *cfg, uint64_t seed)
+MusicResult<AnoMusicEngine *> ano::ano_music_create(
+    const AnoMusicConfig *cfg, uint64_t seed)
 {
     AnoMusicEngine *e = mi_malloc_tp(AnoMusicEngine);
     if (!e)
-        return NULL;
+        return failure(MusicError::out_of_memory);
     AnoMusicConfig def;
     if (!cfg) {
         def = ano_music_config_default();
@@ -245,13 +246,16 @@ static void override_apply(AnoOverrides *o, int id, bool set, double v)
     }
 }
 
-bool ano::ano_music_set_override(AnoMusicEngine *e, const char *param, double value)
+MusicResult<> ano::ano_music_set_override(
+    AnoMusicEngine *e, const char *param, double value)
 {
+    if (!e || !param)
+        return failure(MusicError::invalid_argument);
     int id = override_id(param);
     if (id < 0)
-        return false;
+        return failure(MusicError::invalid_argument);
     override_apply(&e->overrides, id, true, value);
-    return true;
+    return {};
 }
 
 void ano::ano_music_clear_override(AnoMusicEngine *e, const char *param)
@@ -314,18 +318,20 @@ size_t ano::ano_music_snapshot_size(void)
     return sizeof(AnoMusicEngine);
 }
 
-bool ano::ano_music_snapshot(const AnoMusicEngine *e, void *buf, size_t cap)
+MusicResult<> ano::ano_music_snapshot(
+    const AnoMusicEngine *e, void *buf, size_t cap)
 {
     if (!e || !buf || cap < sizeof *e)
-        return false;
+        return failure(MusicError::invalid_argument);
     memcpy(buf, e, sizeof *e);
-    return true;
+    return {};
 }
 
-bool ano::ano_music_restore(AnoMusicEngine *e, const void *buf, size_t len)
+MusicResult<> ano::ano_music_restore(
+    AnoMusicEngine *e, const void *buf, size_t len)
 {
     if (!e || !buf || len != sizeof *e)
-        return false;
+        return failure(MusicError::invalid_argument);
     memcpy(e, buf, sizeof *e);
-    return true;
+    return {};
 }

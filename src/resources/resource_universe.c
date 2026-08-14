@@ -37,21 +37,21 @@ bool importer_matches(const char *path, const ano::Importer& importer)
 
 } // namespace
 
-AnoResourceError ano::ano_resource_import(
-    AnoResourceCooker *cooker, const AnoResourceImportRequest *request)
+ResourceResult<> ano::ano_resource_import(
+    AnoResourceCooker *cooker, const AnoResourceImportRequest& request)
 {
-    if (cooker == nullptr || request == nullptr || request->source.value == 0
-        || request->rootAsset.value == 0 || request->commitGroup.value == 0)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
+    if (cooker == nullptr || request.source.value == 0
+        || request.rootAsset.value == 0 || request.commitGroup.value == 0)
+        return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     const char *path = ano_resource_cooker_source_path(
-        cooker, request->source);
+        cooker, request.source);
     if (path == nullptr)
-        return ANO_RESOURCE_NOT_FOUND;
+        return failure(ANO_RESOURCE_NOT_FOUND);
     bool execute = false;
     AnoResourceError result = ano_resource_cooker_import_begin(
-        cooker, request->source, &execute);
+        cooker, request.source, &execute);
     if (result != ANO_RESOURCE_OK || !execute)
-        return result;
+        return resource_status(result);
     const AnoResourceCookCheckpoint checkpoint =
         ano_resource_cooker_checkpoint(cooker);
     result = ANO_RESOURCE_UNSUPPORTED;
@@ -71,24 +71,23 @@ AnoResourceError ano::ano_resource_import(
                     ano::detail::reflected_importer_id(
                         declaration, importer);
                 ano_resource_cooker_select_producer(cooker, producer);
-                result = [:declaration:](*cooker, *request);
+                const auto imported = [:declaration:](*cooker, request);
+                result = imported ? ANO_RESOURCE_OK : imported.error();
             }
         }
     }
     const AnoResourceError ended = ano_resource_cooker_import_end(
-        cooker, request->source, result == ANO_RESOURCE_OK);
+        cooker, request.source, result == ANO_RESOURCE_OK);
     if (result == ANO_RESOURCE_OK)
         result = ended;
     if (result != ANO_RESOURCE_OK)
         ano_resource_cooker_rollback(cooker, checkpoint);
-    return result;
+    return resource_status(result);
 }
 
-AnoResourceError ano::ano_resource_artifact_schema(
-    AnoResourceTypeId type, AnoResourceSchema *schema)
+ResourceResult<AnoResourceSchema> ano::ano_resource_artifact_schema(
+    AnoResourceTypeId type)
 {
-    if (schema == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
     static constexpr auto resourceDeclarations = std::define_static_array(
         std::meta::members_of(^^ano::asset_schema,
                               std::meta::access_context::unchecked()));
@@ -96,20 +95,18 @@ AnoResourceError ano::ano_resource_artifact_schema(
         if constexpr (ano::detail::has_artifact_marker(declaration)) {
             using Type = [:declaration:];
             constexpr AnoResourceTypeId expected = ano::resource_type_id<Type>();
-            if (type.value == expected.value) {
-                *schema = {
+            if (type.value == expected.value)
+                return AnoResourceSchema{
                     .type = expected,
                     .fingerprint = ano::schema_fingerprint<Type>(),
                     .fixedSize = ano::fixed_wire_size<Type>(),
                 };
-                return ANO_RESOURCE_OK;
-            }
         }
     }
-    return ANO_RESOURCE_TYPE_MISMATCH;
+    return failure(ANO_RESOURCE_TYPE_MISMATCH);
 }
 
-AnoResourceError ano::ano_resource_validate_artifact(
+ResourceResult<> ano::ano_resource_validate_artifact(
     AnoResourceTypeId type, AnoResourceBytes bytes)
 {
     static constexpr auto resourceDeclarations = std::define_static_array(
@@ -122,30 +119,23 @@ AnoResourceError ano::ano_resource_validate_artifact(
                 return ano::validate<Type>(bytes);
         }
     }
-    return ANO_RESOURCE_TYPE_MISMATCH;
+    return failure(ANO_RESOURCE_TYPE_MISMATCH);
 }
 
-AnoResourceError ano::ano_resource_artifact_dependencies(
+ResourceResult<uint64_t> ano::ano_resource_artifact_dependencies(
     AnoResourceTypeId type, AnoResourceBytes bytes,
-    AnoResourceDependency *dependencies, uint64_t dependencyCapacity,
-    uint64_t *dependencyCount)
+    AnoResourceDependency *dependencies, uint64_t dependencyCapacity)
 {
-    if (dependencyCount == nullptr)
-        return ANO_RESOURCE_INVALID_ARGUMENT;
     static constexpr auto resourceDeclarations = std::define_static_array(
         std::meta::members_of(^^ano::asset_schema,
                               std::meta::access_context::unchecked()));
     template for (constexpr std::meta::info declaration : resourceDeclarations) {
         if constexpr (ano::detail::has_artifact_marker(declaration)) {
             using Type = [:declaration:];
-            if (type.value == ano::resource_type_id<Type>().value) {
-                const ano::DependencyResult result = ano::dependencies<Type>(
+            if (type.value == ano::resource_type_id<Type>().value)
+                return ano::dependencies<Type>(
                     bytes, dependencies, dependencyCapacity);
-                *dependencyCount = result.count;
-                return result.error;
-            }
         }
     }
-    *dependencyCount = 0;
-    return ANO_RESOURCE_TYPE_MISMATCH;
+    return failure(ANO_RESOURCE_TYPE_MISMATCH);
 }

@@ -12,23 +12,23 @@
 
 namespace ano {
 
-typedef struct AnoResourceCooker AnoResourceCooker;
+struct AnoResourceCooker;
 
-typedef struct AnoResourceCookerConfig {
+struct AnoResourceCookerConfig {
     AnoAssetId firstDerivedAsset;
     uint32_t workerCount;
-} AnoResourceCookerConfig;
+};
 
-typedef struct AnoResourceImportRequest {
+struct AnoResourceImportRequest {
     AnoResourceSourceId source;
     AnoAssetId rootAsset;
     AnoResourceCommitGroupId commitGroup;
-} AnoResourceImportRequest;
+};
 
-typedef AnoResourceError (*AnoResourceEncodeFunction)(
+using AnoResourceEncodeFunction = ResourceResult<> (*)(
     void *context, AnoResourceMutableBytes destination);
 
-typedef struct AnoResourceCookArtifact {
+struct AnoResourceCookArtifact {
     AnoAssetId asset;
     AnoResourceTypeId type;
     AnoResourceCommitGroupId commitGroup;
@@ -36,45 +36,45 @@ typedef struct AnoResourceCookArtifact {
     AnoContentId inputIdentity;
     void *context;
     AnoResourceEncodeFunction encode;
-} AnoResourceCookArtifact;
+};
 
-AnoResourceError ano_resource_cooker_create(
-    AnoResourceCookerConfig config, AnoResourceCooker **cooker);
+[[nodiscard]] ResourceResult<AnoResourceCooker *> ano_resource_cooker_create(
+    AnoResourceCookerConfig config);
 void ano_resource_cooker_destroy(AnoResourceCooker *cooker);
 // Discards the pending cook. Bindings, snapshots, action keys, executor, and
 // the current revision stay.
-AnoResourceError ano_resource_cooker_begin(AnoResourceCooker *cooker);
+[[nodiscard]] ResourceResult<> ano_resource_cooker_begin(
+    AnoResourceCooker *cooker);
 
 // Source IDs are stable. Rebinding replaces the path; import requests and
 // semantic asset IDs stay.
-AnoResourceError ano_resource_source_bind(AnoResourceCooker *cooker,
-                                          AnoResourceSourceId source,
-                                          const char *path);
+[[nodiscard]] ResourceResult<> ano_resource_source_bind(
+    AnoResourceCooker *cooker, AnoResourceSourceId source, const char *path);
 
 // Import dispatch is generated from reflected Importer annotations.
-AnoResourceError ano_resource_import(AnoResourceCooker *cooker,
-                                     const AnoResourceImportRequest *request);
+[[nodiscard]] ResourceResult<> ano_resource_import(
+    AnoResourceCooker *cooker, const AnoResourceImportRequest& request);
 
 // Copies canonical artifact bytes. Callers keep the input span.
-AnoResourceError ano_resource_cooker_add(
+[[nodiscard]] ResourceResult<> ano_resource_cooker_add(
     AnoResourceCooker *cooker, AnoAssetId asset, AnoResourceTypeId type,
     AnoResourceCommitGroupId commitGroup, AnoResourceBytes artifact);
 // Caller supplies encodedSize. Encoding writes disjoint reservations in sealed
 // volumes. Callbacks complete before return.
-AnoResourceError ano_resource_cooker_encode_batch(
+[[nodiscard]] ResourceResult<> ano_resource_cooker_encode_batch(
     AnoResourceCooker *cooker, AnoResourceCookArtifact *artifacts,
     uint64_t count);
 
 // Publishes an immutable revision. Unchanged artifacts keep their volumes;
 // changed ones occupy newly sealed volumes.
-AnoResourceError ano_resource_cook(AnoResourceCooker *cooker,
-                                   const AnoCookedRevision **revision);
-AnoResourceError ano_resource_revision_retain(
+[[nodiscard]] ResourceResult<const AnoCookedRevision *> ano_resource_cook(
+    AnoResourceCooker *cooker);
+[[nodiscard]] ResourceResult<> ano_resource_revision_retain(
     const AnoCookedRevision *revision);
 void ano_resource_revision_release(const AnoCookedRevision *revision);
-AnoResourceError ano_resource_revision_resolve(
+[[nodiscard]] ResourceResult<AnoResourceBytes> ano_resource_revision_resolve(
     const AnoCookedRevision *revision, AnoAssetId asset,
-    AnoResourceTypeId requiredType, AnoResourceBytes *bytes);
+    AnoResourceTypeId requiredType);
 void ano_resource_cooker_cancel(AnoResourceCooker *cooker);
 
 namespace detail {
@@ -85,34 +85,35 @@ struct CookArtifactContext final {
 };
 
 template<class ArtifactType>
-AnoResourceError encode_cooked_artifact(
+ResourceResult<> encode_cooked_artifact(
     void *opaque, AnoResourceMutableBytes destination)
 {
     const auto& context =
         *static_cast<const CookArtifactContext<ArtifactType> *>(opaque);
     const EncodeResult encoded = encode(context.source, destination);
-    return encoded.error != ANO_RESOURCE_OK
-        ? encoded.error
-        : encoded.size == destination.size
-            ? ANO_RESOURCE_OK : ANO_RESOURCE_NON_CANONICAL;
+    if (!encoded)
+        return failure(encoded.error());
+    if (*encoded != destination.size)
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    return {};
 }
 
 } // namespace detail
 
 template<class ArtifactType>
-AnoResourceError cook_artifact(
+ResourceResult<> cook_artifact(
     AnoResourceCooker *cooker, AssetRef<ArtifactType> asset,
     AnoResourceCommitGroupId group, ArtifactSource<ArtifactType> source)
 {
     const EncodeResult measured = encoded_size(source);
-    if (measured.error != ANO_RESOURCE_OK)
-        return measured.error;
+    if (!measured)
+        return failure(measured.error());
     detail::CookArtifactContext<ArtifactType> context{source};
     AnoResourceCookArtifact artifact{
         .asset = asset.id,
         .type = resource_type_id<ArtifactType>(),
         .commitGroup = group,
-        .encodedSize = measured.size,
+        .encodedSize = *measured,
         .context = &context,
         .encode = detail::encode_cooked_artifact<ArtifactType>,
     };

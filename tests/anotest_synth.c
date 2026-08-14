@@ -104,7 +104,7 @@ static bool load_probe(AnoSynth *syn, uint32_t bars, double bpm,
         if (!ano_synth_score_event(syn, &ev))
             return false;
     }
-    return ano_synth_score_end(syn);
+    return ano_synth_score_end(syn).has_value();
 }
 
 /* Heap churn */
@@ -136,7 +136,7 @@ int main(int argc, char **argv)
     }
 
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc);
+    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
     CHECK(syn != NULL, "synth world up");
     if (!syn) return 1;
 
@@ -149,9 +149,10 @@ int main(int argc, char **argv)
         CHECK(!ano_synth_score_tempo(syn, 4.0, 90.0), "regressing tempo point rejected");
         AnoMusicalParams p = { .tempoBpm = 120.0, .filterCutoff = 2500.0f };
         AnoMusicAffect a = {0};
-        for (uint32_t b = 0; b < 4; ++b) ano_synth_score_bar(syn, b, &p, &a);
+        for (uint32_t b = 0; b < 4; ++b)
+            CHECK(ano_synth_score_bar(syn, b, &p, &a), "clock bar");
         AnoNoteEvent ev = { quiet.start, quiet.dur, quiet.pitch, quiet.vel, quiet.layer, 0 };
-        ano_synth_score_event(syn, &ev);
+        CHECK(ano_synth_score_event(syn, &ev), "clock event");
         CHECK(ano_synth_score_end(syn), "clock score end");
         CHECK(fabs(ano_synth_time_at(syn, 4.0) - 2.0) < 1e-12, "time_at within first segment");
         CHECK(fabs(ano_synth_time_at(syn, 8.0) - 4.0) < 1e-12, "time_at at the anchor");
@@ -213,7 +214,7 @@ int main(int argc, char **argv)
     // --- patch showcase: morph pad, bell keys, chimes, glass FM, all drums ---
     {
         CHECK(ano_synth_score_begin(syn, 4.0, 4, 1, 24), "showcase begin");
-        ano_synth_score_tempo(syn, 0.0, 100.0);
+        CHECK(ano_synth_score_tempo(syn, 0.0, 100.0), "showcase tempo");
         AnoMusicalParams p = { .tempoBpm = 100.0, .filterCutoff = 3200.0f,
                                .reverbSend = 0.25f, .delaySend = 0.1f,
                                .drive = 0.15f, .stereoWidth = 0.9f };
@@ -236,26 +237,26 @@ int main(int argc, char **argv)
         AnoMusicAffect a = { 0.2f, 0.5f, 0.4f };
         for (uint32_t b = 0; b < 4; ++b) {
             if (b == 2) p.instruments[ANO_MUSIC_ARP] = ANO_PATCH_GLASS;
-            ano_synth_score_bar(syn, b, &p, &a);
+            CHECK(ano_synth_score_bar(syn, b, &p, &a), "showcase bar");
         }
         // Morph pad, bell phrase, chime/glass arps.
         AnoNoteEvent ev = { 0.0, 8.0, 48, 72, ANO_MUSIC_PAD, 0 };
-        ano_synth_score_event(syn, &ev);
+        CHECK(ano_synth_score_event(syn, &ev), "showcase pad event");
         for (int i = 0; i < 4; ++i) {
             ev = (AnoNoteEvent){ 1.0 + i * 2.0, 1.5, (uint8_t)(72 + 2 * i), 76, ANO_MUSIC_MELODY, 0 };
-            ano_synth_score_event(syn, &ev);
+            CHECK(ano_synth_score_event(syn, &ev), "showcase melody event");
             ev = (AnoNoteEvent){ 0.5 + i * 3.5, 0.5, (uint8_t)(76 + i), 70, ANO_MUSIC_ARP, 0 };
-            ano_synth_score_event(syn, &ev);
+            CHECK(ano_synth_score_event(syn, &ev), "showcase arp event");
         }
         // Every drum recipe once (kick ducks).
         static const uint8_t drums[10] = { 36, 37, 38, 42, 46, 45, 47, 50, 49, 70 };
         for (int i = 0; i < 10; ++i) {
             ev = (AnoNoteEvent){ 8.0 + i * 0.75, 0.25, drums[i], 90, ANO_MUSIC_PERC, 0 };
-            ano_synth_score_event(syn, &ev);
+            CHECK(ano_synth_score_event(syn, &ev), "showcase drum event");
         }
         // Driven bass + hard lead on the same score.
         ev = (AnoNoteEvent){ 12.0, 2.0, 36, 84, ANO_MUSIC_BASS, 0 };
-        ano_synth_score_event(syn, &ev);
+        CHECK(ano_synth_score_event(syn, &ev), "showcase bass event");
         CHECK(ano_synth_score_end(syn), "showcase end");
 
         uint64_t frames = ano_synth_score_frames(syn, 2.5f);
@@ -315,7 +316,7 @@ int main(int argc, char **argv)
 
     // --- score_event field ranges: pitch 0..127, velocity 1..127 ---
     {
-        AnoSynth *g = ano_synth_create(NULL);
+        AnoSynth *g = ano_synth_create(NULL).value_or(nullptr);
         CHECK(g != NULL, "range-guard synth created");
         if (g) {
             CHECK(ano_synth_score_begin(g, 4.0, 1, 1, 8), "score_begin accepted");
@@ -352,8 +353,8 @@ int main(int argc, char **argv)
 
     // --- score_tempo obeys the documented load order like its siblings ---
     {
-        AnoSynth *a = ano_synth_create(NULL);
-        AnoSynth *b = ano_synth_create(NULL);
+        AnoSynth *a = ano_synth_create(NULL).value_or(nullptr);
+        AnoSynth *b = ano_synth_create(NULL).value_or(nullptr);
         CHECK(a != NULL && b != NULL, "tempo-order synths created");
         if (a && b) {
             // control: the documented order (begin -> tempo -> bars -> events -> end) works
@@ -382,8 +383,8 @@ int main(int argc, char **argv)
     // --- score_begin sizes what it promises, tempoCount at the uint32 edge ---
     {
         // control: tempoCount 1 holds exactly one added point, tempoCount 0 holds none
-        AnoSynth *a = ano_synth_create(NULL);
-        AnoSynth *b = ano_synth_create(NULL);
+        AnoSynth *a = ano_synth_create(NULL).value_or(nullptr);
+        AnoSynth *b = ano_synth_create(NULL).value_or(nullptr);
         CHECK(a != NULL && b != NULL, "anchor-cap control synths created");
         if (a && b) {
             CHECK(ano_synth_score_begin(a, 4.0, 1, 1, 0), "begin with tempoCount 1 accepted");
@@ -398,7 +399,7 @@ int main(int argc, char **argv)
 
         // UINT32_MAX tempoCount: begin must refuse or honor (tempoCount+1 for beat-0 seed).
         fflush(stdout);
-        AnoSynth *c = ano_synth_create(NULL);
+        AnoSynth *c = ano_synth_create(NULL).value_or(nullptr);
         CHECK(c != NULL, "anchor-cap edge synth created");
         if (c) {
             if (ano_synth_score_begin(c, 4.0, 1, UINT32_MAX, 0))

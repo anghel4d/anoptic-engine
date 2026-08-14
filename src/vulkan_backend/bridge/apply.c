@@ -107,11 +107,10 @@ bool render_resource_epoch_compatible(
         if (!ano_vk_resource_scene_affected(
                 residency, state->slotResourceAsset[slot]))
             continue;
-        AnoRenderableDesc resolved = {};
         if (!ano_vk_resource_scene_primitive(
                 residency, state->slotResourceAsset[slot],
                 state->slotResourcePrimitive[slot],
-                state->slotResourceRoot[slot], &resolved))
+                state->slotResourceRoot[slot]))
             return false;
     }
     return true;
@@ -129,21 +128,21 @@ void render_apply_resource_epoch(
         if (!ano_vk_resource_scene_affected(
                 residency, state->slotResourceAsset[slot]))
             continue;
-        AnoRenderableDesc resolved = {};
-        if (!ano_vk_resource_scene_primitive(
+        const auto resolved = ano_vk_resource_scene_primitive(
                 residency, state->slotResourceAsset[slot],
                 state->slotResourcePrimitive[slot],
-                state->slotResourceRoot[slot], &resolved))
+                state->slotResourceRoot[slot]);
+        if (!resolved)
             continue;
         RenderCommand command = {
             .kind = RCMD_UPDATE,
             .fields = RFIELD_TRANSFORM | RFIELD_MESH_MAT,
-            .mesh_index = resolved.mesh_index,
-            .material_index = resolved.material_index,
-            .resource_asset = resolved.resource_asset,
-            .resource_primitive = resolved.resource_primitive,
+            .mesh_index = resolved->mesh_index,
+            .material_index = resolved->material_index,
+            .resource_asset = resolved->resource_asset,
+            .resource_primitive = resolved->resource_primitive,
         };
-        memcpy(command.transform, resolved.transform, sizeof(mat4));
+        memcpy(command.transform, resolved->transform, sizeof(mat4));
         memcpy(command.resource_root, state->slotResourceRoot[slot],
                sizeof(mat4));
         stage_command_fields(state, &command, slot, frameIndex);

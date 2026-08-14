@@ -36,11 +36,11 @@ static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutM
     uint32_t start = ano_timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t) && pred(&t))
+        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
         if (ano_timestamp_ms() - start > timeoutMs)
             return false;
-        ano_sleep(5000);
+        (void)ano_sleep(5000);
     }
 }
 
@@ -50,7 +50,7 @@ static bool pred_audible(const AnoAudioTelemetry *t)   { return t->masterPeak > 
 static void must_submit(AnoAudioBridge *b, const AnoAudioCommand *c)
 {
     while (!ano_audio_submit(b, c))
-        ano_sleep(1000);
+        (void)ano_sleep(1000);
 }
 
 int main(int argc, char **argv)
@@ -60,7 +60,7 @@ int main(int argc, char **argv)
         seconds = (uint32_t)atoi(argv[1]); // 0 = full piece
 
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc);
+    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
     CHECK(syn != NULL, "synth world up");
     if (!syn) return 1;
     CHECK(synthfix_load(syn, ANO_FIXTURE_DIR "/journey_s42.anofix"), "journey fixture loads");
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
         .generator = ano_synth_generator, .generatorUser = syn,
     };
     CHECK(ano_audio_init(&cfg), "audio world up (music console + synth)");
-    AnoAudioBridge *b = anoAudioBridge();
+    AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b) return 1;
     CHECK(wait_telemetry(b, pred_heartbeat, 3000), "mixer heartbeat");
@@ -93,7 +93,7 @@ int main(int argc, char **argv)
 
     // Transport a few blocks out; pace automation ~0.5 s ahead.
     AnoAudioTelemetry t;
-    CHECK(ano_audio_acquire_telemetry(b, &t), "telemetry frame");
+    CHECK(ano_audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
     uint64_t transport = (t.blockIndex + 8u) * t.blockFrames;
     ano_synth_transport_start(syn, transport);
 
@@ -105,7 +105,7 @@ int main(int argc, char **argv)
 
     uint32_t lastInfoBar = UINT32_MAX;
     for (;;) {
-        if (!ano_audio_acquire_telemetry(b, &t))
+        if (!ano_audio_acquire_telemetry(b, &t).value_or(false))
             break;
         uint64_t playhead = t.blockIndex * t.blockFrames;
         uint64_t scoreF = playhead > transport ? playhead - transport : 0u;
@@ -121,13 +121,13 @@ int main(int argc, char **argv)
             printf("info: ~bar %u │ peak %.3f │ underruns %u\n",
                    bar + 1u, (double)t.masterPeak, t.underruns);
         }
-        ano_sleep(20000);
+        (void)ano_sleep(20000);
     }
 
     ano_synth_transport_stop(syn);
-    ano_sleep(50000); // stop + tails
+    (void)ano_sleep(50000); // stop + tails
 
-    if (ano_audio_acquire_telemetry(b, &t))
+    if (ano_audio_acquire_telemetry(b, &t).value_or(false))
         printf("info: scene 〜 blocks %llu, cpu %llu ns/block, underruns %u, clipped %u, dropped %u\n",
                (unsigned long long)t.blockIndex, (unsigned long long)t.blockCpuNs,
                t.underruns, t.clippedSamples, ano_synth_dropped(syn));

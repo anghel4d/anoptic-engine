@@ -73,9 +73,9 @@ int main(void)
     remove(PATH_CTRL);
     remove(PATH_WIDE);
 
-    CHECK(ano_log_init() == 0, "logger up");
+    CHECK(ano_log_init(), "logger up");
     ano_log_set_level(ANO_INFO);
-    CHECK(ano_log_output_dir(DIR_CTRL) == 0, "output -> control scratch");
+    CHECK(ano_log_output_dir(DIR_CTRL), "output -> control scratch");
 
     // control: narrow deferred burst, rendered ~ stored, nothing lost
     for (int i = 0; i < CTRL_RECORDS; i++)
@@ -85,12 +85,12 @@ int main(void)
     fflush(stdout);
 
     // trigger: wide deferred burst. Drain must survive before joins return
-    CHECK(ano_log_output_dir(DIR_WIDE) == 0, "output -> wide scratch");
+    CHECK(ano_log_output_dir(DIR_WIDE), "output -> wide scratch");
     anothread_t prod[WIDE_PRODUCERS];
     for (intptr_t i = 0; i < WIDE_PRODUCERS; i++)
-        CHECK(ano_thread_create(&prod[i], NULL, wide_producer, (void *)i) == 0, "wide producer up");
+        CHECK(ano_thread_create(&prod[i], NULL, wide_producer, (void *)i), "wide producer up");
     for (int i = 0; i < WIDE_PRODUCERS; i++)
-        ano_thread_join(prod[i], NULL);
+        (void)ano_thread_join(prod[i], NULL);
     ano_log_flush();
     printf("logflood: wide burst drained (%d records)\n", WIDE_TOTAL);
     fflush(stdout);

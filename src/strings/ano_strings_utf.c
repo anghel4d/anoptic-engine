@@ -145,7 +145,8 @@ int ano::anorune_encode(char buf[4], anorune_t r)
     return 4;
 }
 
-int ano::anostr_builder_append_rune(anostr_builder_t *b, anorune_t r)
+StringResult<> ano::anostr_builder_append_rune(
+    anostr_builder_t *b, anorune_t r)
 {
     char buf[4];
     int n = anorune_encode(buf, r);
@@ -248,7 +249,8 @@ static size_t cull_find_first(anostr_t s, uint8_t ucMask, const uint64_t asciiSe
     return s.len;
 }
 
-anostr_t ano::anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
+StringResult<anostr_t> ano::anostr_cull(
+    mi_heap_t *heap, anostr_t s, uint32_t classes)
 {
     uint8_t ucMask = cull_uc_mask(classes);
     if (ucMask == 0 || s.len == 0)
@@ -264,10 +266,13 @@ anostr_t ano::anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
         return s;   // same backing
 
     const uint8_t *p = (const uint8_t *)anostr_bytes(&s);
-    anostr_builder_t b = anostr_builder_make(heap, s.len);
-    if (anostr_builder_append(&b, p, first) != 0) {
+    auto made = anostr_builder_make(heap, s.len);
+    if (!made)
+        return failure(made.error());
+    anostr_builder_t b = *made;
+    if (auto appended = anostr_builder_append(&b, p, first); !appended) {
         anostr_builder_discard(&b);
-        return anostr_empty();
+        return failure(appended.error());
     }
 
     size_t i = first, runStart = first;
@@ -283,16 +288,22 @@ anostr_t ano::anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes)
             culled = r < ANO_UC_TABLE_MAX && (uc_record(r)->flags & ucMask) != 0;
         }
         if (culled) {
-            if (at > runStart && anostr_builder_append(&b, p + runStart, at - runStart) != 0) {
-                anostr_builder_discard(&b);
-                return anostr_empty();
+            if (at > runStart) {
+                auto appended = anostr_builder_append(&b, p + runStart, at - runStart);
+                if (!appended) {
+                    anostr_builder_discard(&b);
+                    return failure(appended.error());
+                }
             }
             runStart = i;
         }
     }
-    if (s.len > runStart && anostr_builder_append(&b, p + runStart, s.len - runStart) != 0) {
-        anostr_builder_discard(&b);
-        return anostr_empty();
+    if (s.len > runStart) {
+        auto appended = anostr_builder_append(&b, p + runStart, s.len - runStart);
+        if (!appended) {
+            anostr_builder_discard(&b);
+            return failure(appended.error());
+        }
     }
     return anostr_freeze(&b);
 }
@@ -307,7 +318,7 @@ static int rune_cmp_(const void *a, const void *b)
     return x < y ? -1 : (x > y);
 }
 
-anostr_t ano::anostr_rune_sort(mi_heap_t *heap, anostr_t s)
+StringResult<anostr_t> ano::anostr_rune_sort(mi_heap_t *heap, anostr_t s)
 {
     if (s.len < 2)
         return s;
@@ -320,7 +331,10 @@ anostr_t ano::anostr_rune_sort(mi_heap_t *heap, anostr_t s)
         uint32_t counts[128] = {0};
         for (size_t i = 0; i < s.len; i++)
             counts[p[i]]++;
-        anostr_builder_t b = anostr_builder_make(heap, s.len);
+        auto made = anostr_builder_make(heap, s.len);
+        if (!made)
+            return failure(made.error());
+        anostr_builder_t b = *made;
         char fill[64];
         for (uint32_t c = 0; c < 128; c++) {
             size_t remaining = counts[c];
@@ -329,9 +343,9 @@ anostr_t ano::anostr_rune_sort(mi_heap_t *heap, anostr_t s)
             memset(fill, (int)c, remaining < sizeof fill ? remaining : sizeof fill);
             while (remaining > 0) {
                 size_t chunk = remaining < sizeof fill ? remaining : sizeof fill;
-                if (anostr_builder_append(&b, fill, chunk) != 0) {
+                if (auto appended = anostr_builder_append(&b, fill, chunk); !appended) {
                     anostr_builder_discard(&b);
-                    return anostr_empty();
+                    return failure(appended.error());
                 }
                 remaining -= chunk;
             }
@@ -342,13 +356,13 @@ anostr_t ano::anostr_rune_sort(mi_heap_t *heap, anostr_t s)
     // At most len runes. Malformed -> U+FFFD.
     anorune_t *runes = mi_mallocn_tp(anorune_t, (size_t)s.len);
     if (runes == NULL)
-        return anostr_empty();
+        return failure(StringError::out_of_memory);
     size_t n = 0;
     for (size_t i = 0; i < s.len; )
         runes[n++] = anostr_rune_next(s, &i);
     qsort(runes, n, sizeof runes[0], rune_cmp_);
 
-    anostr_t out = anostr_from_utf32(heap, runes, n);
+    auto out = anostr_from_utf32(heap, runes, n);
     mi_free(runes);
     return out;
 }
@@ -373,43 +387,52 @@ static anorune_t utf16_next(const char16_t *src, size_t count, size_t *i)
     return ANORUNE_REPLACEMENT;
 }
 
-anostr_t ano::anostr_from_utf16(mi_heap_t *heap, const char16_t *src, size_t count)
+StringResult<anostr_t> ano::anostr_from_utf16(
+    mi_heap_t *heap, const char16_t *src, size_t count)
 {
     if (src == NULL)
-        return anostr_empty();
+        return failure(StringError::invalid_argument);
     // Worst case 3 UTF-8 bytes per unit.
     uint64_t worst = (uint64_t)count * 3;
-    anostr_builder_t b = anostr_builder_make(heap, worst > UINT32_MAX ? 0 : (uint32_t)worst);
+    if (worst > UINT32_MAX)
+        return failure(StringError::overflow);
+    auto made = anostr_builder_make(heap, (uint32_t)worst);
+    if (!made)
+        return failure(made.error());
+    anostr_builder_t b = *made;
     for (size_t i = 0; i < count; ) {
-        if (anostr_builder_append_rune(&b, utf16_next(src, count, &i)) != 0) {
+        if (auto appended = anostr_builder_append_rune(&b, utf16_next(src, count, &i));
+            !appended) {
             anostr_builder_discard(&b);
-            return anostr_empty();
+            return failure(appended.error());
         }
     }
     return anostr_freeze(&b);
 }
 
-anostr_t ano::anostr_from_utf16_cstr(mi_heap_t *heap, const char16_t *src)
+StringResult<anostr_t> ano::anostr_from_utf16_cstr(
+    mi_heap_t *heap, const char16_t *src)
 {
     if (src == NULL)
-        return anostr_empty();
+        return failure(StringError::invalid_argument);
     size_t count = 0;
     while (src[count] != 0)
         count++;
     return anostr_from_utf16(heap, src, count);
 }
 
-char16_t *ano::anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
+StringResult<char16_t *> ano::anostr_to_utf16(
+    mi_heap_t *heap, anostr_t s, size_t *count)
 {
     if (count != NULL)
         *count = 0;
     if (heap == NULL)
-        return NULL;
+        return failure(StringError::invalid_argument);
     // Worst case one unit per byte, plus NUL.
     char16_t *out = mi_heap_mallocn_tp(
         char16_t, heap, (size_t)s.len + 1);
     if (out == NULL)
-        return NULL;
+        return failure(StringError::out_of_memory);
     size_t n = 0;
     for (size_t i = 0; i < s.len; ) {
         anorune_t r = anostr_rune_next(s, &i);
@@ -429,32 +452,39 @@ char16_t *ano::anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count)
     return exact != NULL ? exact : out;
 }
 
-anostr_t ano::anostr_from_utf32(mi_heap_t *heap, const anorune_t *src, size_t count)
+StringResult<anostr_t> ano::anostr_from_utf32(
+    mi_heap_t *heap, const anorune_t *src, size_t count)
 {
     if (src == NULL)
-        return anostr_empty();
+        return failure(StringError::invalid_argument);
     uint64_t worst = (uint64_t)count * 4;
-    anostr_builder_t b = anostr_builder_make(heap, worst > UINT32_MAX ? 0 : (uint32_t)worst);
+    if (worst > UINT32_MAX)
+        return failure(StringError::overflow);
+    auto made = anostr_builder_make(heap, (uint32_t)worst);
+    if (!made)
+        return failure(made.error());
+    anostr_builder_t b = *made;
     for (size_t k = 0; k < count; k++) {
-        if (anostr_builder_append_rune(&b, src[k]) != 0) {
+        if (auto appended = anostr_builder_append_rune(&b, src[k]); !appended) {
             anostr_builder_discard(&b);
-            return anostr_empty();
+            return failure(appended.error());
         }
     }
     return anostr_freeze(&b);
 }
 
-anorune_t *ano::anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count)
+StringResult<anorune_t *> ano::anostr_to_utf32(
+    mi_heap_t *heap, anostr_t s, size_t *count)
 {
     if (count != NULL)
         *count = 0;
     if (heap == NULL)
-        return NULL;
+        return failure(StringError::invalid_argument);
     // Worst case one rune per byte, plus NUL.
     anorune_t *out = mi_heap_mallocn_tp(
         anorune_t, heap, (size_t)s.len + 1);
     if (out == NULL)
-        return NULL;
+        return failure(StringError::out_of_memory);
     size_t n = 0;
     for (size_t i = 0; i < s.len; )
         out[n++] = anostr_rune_next(s, &i);

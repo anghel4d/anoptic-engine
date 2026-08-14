@@ -109,7 +109,7 @@ static bool render(float *out, const AnoAudioBusDesc *layout,
         .listeners = &listener,
         .listenerCount = 1,
     };
-    return ano_audio_render_offline(&desc, out, FRAMES);
+    return !!ano_audio_render_offline(&desc, out, FRAMES);
 }
 
 static bool run_events(const char *label, float *out, const AnoAudioBusDesc *layout,

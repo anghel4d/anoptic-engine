@@ -31,7 +31,8 @@ size_t ano::anostr_find(anostr_t s, anostr_t needle, size_t from)
     return ANOSTR_NPOS;
 }
 
-anostr_t ano::anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, anostr_t repl)
+StringResult<anostr_t> ano::anostr_replace_all(
+    mi_heap_t *heap, anostr_t s, anostr_t needle, anostr_t repl)
 {
     if (needle.len == 0 || needle.len > s.len)
         return s;
@@ -47,16 +48,16 @@ anostr_t ano::anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, a
         ? (uint64_t)s.len + (uint64_t)(repl.len - needle.len) * matches
         : (uint64_t)s.len - (uint64_t)(needle.len - repl.len) * matches;
     if (total > UINT32_MAX)
-        return anostr_empty();
+        return failure(StringError::overflow);
 
     char inlineBuf[ANOSTR_INLINE_CAP];
     char *dst = inlineBuf;
     if (total > ANOSTR_INLINE_CAP) {
         if (heap == NULL)
-            return anostr_empty();
+            return failure(StringError::invalid_argument);
         dst = static_cast<char *>(mi_heap_malloc(heap, (size_t)total));
         if (dst == NULL)
-            return anostr_empty();
+            return failure(StringError::out_of_memory);
     }
 
     const char *src = anostr_bytes(&s);
@@ -76,18 +77,21 @@ anostr_t ano::anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, a
                                       : anostr_make_long_(dst, (size_t)total);
 }
 
-anostr_t ano::anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_t count)
+StringResult<anostr_t> ano::anostr_join(
+    mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_t count)
 {
-    if (count == 0 || parts == NULL)
+    if (count == 0)
         return anostr_empty();
+    if (parts == NULL)
+        return failure(StringError::invalid_argument);
 
     // Overflow-safe size. Reject on wrap.
     if (sep.len != 0 && (uint64_t)(count - 1) > (uint64_t)UINT32_MAX / sep.len)
-        return anostr_empty();
+        return failure(StringError::overflow);
     uint64_t total = (uint64_t)sep.len * (count - 1);
     for (size_t i = 0; i < count; i++) {
         if (parts[i].len > UINT32_MAX - total)
-            return anostr_empty();
+            return failure(StringError::overflow);
         total += parts[i].len;
     }
 
@@ -106,10 +110,10 @@ anostr_t ano::anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, 
     }
 
     if (heap == NULL)
-        return anostr_empty();
+        return failure(StringError::invalid_argument);
     char *dst = static_cast<char *>(mi_heap_malloc(heap, (size_t)total));
     if (dst == NULL)
-        return anostr_empty();
+        return failure(StringError::out_of_memory);
 
     size_t off = 0;
     for (size_t i = 0; i < count; i++) {
@@ -123,7 +127,8 @@ anostr_t ano::anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, 
     return anostr_make_long_(dst, (size_t)total);
 }
 
-anostr_t ano::anostr_concat(mi_heap_t *heap, anostr_t a, anostr_t b)
+StringResult<anostr_t> ano::anostr_concat(
+    mi_heap_t *heap, anostr_t a, anostr_t b)
 {
     anostr_t parts[2] = { a, b };
     return anostr_join(heap, anostr_empty(), parts, 2);

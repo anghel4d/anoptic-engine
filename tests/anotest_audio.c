@@ -147,7 +147,7 @@ static bool render_score(float *out)
         .listeners = k_listeners,
         .listenerCount = (uint32_t)(sizeof k_listeners / sizeof k_listeners[0]),
     };
-    return ano_audio_render_offline(&desc, out, FRAMES);
+    return !!ano_audio_render_offline(&desc, out, FRAMES);
 }
 
 static float peak_of(const float *buf, uint64_t samples)
@@ -231,24 +231,22 @@ static void test_wav(void)
     CHECK(!ano_audio_wav_write(NULL, buf, FRAMES, 2, RATE), "NULL path rejected");
 
     // f32 round-trip at native rate: bit-exact.
-    uint64_t lf = 0;
-    uint32_t lc = 0;
-    float *loaded = ano_audio_wav_load(path, 0, &lf, &lc);
-    CHECK(loaded != NULL, "wav loads back");
+    auto loaded = ano_audio_wav_load(path, 0);
+    CHECK(loaded, "wav loads back");
     if (loaded) {
-        CHECK(lf == FRAMES && lc == ANO_AUDIO_CHANNELS, "round-trip frame/channel counts");
-        CHECK(memcmp(loaded, buf, SAMPLES * sizeof(float)) == 0, "f32 round-trip bit-exact");
-        ano_audio_block_free(loaded);
+        CHECK(loaded->frames == FRAMES && loaded->channels == ANO_AUDIO_CHANNELS, "round-trip frame/channel counts");
+        CHECK(memcmp(loaded->data, buf, SAMPLES * sizeof(float)) == 0, "f32 round-trip bit-exact");
+        ano_audio_block_free(loaded->data);
     }
 
     // Half-rate resample: length halves, level survives.
-    loaded = ano_audio_wav_load(path, RATE / 2u, &lf, &lc);
-    CHECK(loaded != NULL, "wav loads resampled");
+    loaded = ano_audio_wav_load(path, RATE / 2u);
+    CHECK(loaded, "wav loads resampled");
     if (loaded) {
-        CHECK(lf == FRAMES / 2u, "resampled frame count");
-        float p = peak_of(loaded, lf * lc);
+        CHECK(loaded->frames == FRAMES / 2u, "resampled frame count");
+        float p = peak_of(loaded->data, loaded->frames * loaded->channels);
         CHECK(p > 0.05f && p < 1.5f, "resampled peak sane");
-        ano_audio_block_free(loaded);
+        ano_audio_block_free(loaded->data);
     }
 
     // PCM16 scaling fixture (4-sample mono).
@@ -269,14 +267,14 @@ static void test_wav(void)
         FILE *pf = fopen(p16, "wb");
         CHECK(pf && fwrite(w, 1, sizeof w, pf) == sizeof w, "pcm16 fixture written");
         if (pf) fclose(pf);
-        float *pl = ano_audio_wav_load(p16, 0, &lf, &lc);
-        CHECK(pl != NULL, "pcm16 loads");
+        const auto pl = ano_audio_wav_load(p16, 0);
+        CHECK(pl, "pcm16 loads");
         if (pl) {
-            CHECK(lf == 4u && lc == 1u, "pcm16 counts");
-            CHECK(fabsf(pl[0]) < 1e-6f && fabsf(pl[1] - 0.5f) < 1e-4f
-                      && fabsf(pl[2] + 0.5f) < 1e-4f && pl[3] > 0.999f,
+            CHECK(pl->frames == 4u && pl->channels == 1u, "pcm16 counts");
+            CHECK(fabsf(pl->data[0]) < 1e-6f && fabsf(pl->data[1] - 0.5f) < 1e-4f
+                      && fabsf(pl->data[2] + 0.5f) < 1e-4f && pl->data[3] > 0.999f,
                   "pcm16 scaling exact");
-            ano_audio_block_free(pl);
+            ano_audio_block_free(pl->data);
         }
         remove(p16);
     }
@@ -294,11 +292,11 @@ static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutM
     uint32_t start = ano_timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t) && pred(&t))
+        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
         if (ano_timestamp_ms() - start > timeoutMs)
             return false;
-        ano_sleep(5000);
+        (void)ano_sleep(5000);
     }
 }
 
@@ -311,7 +309,7 @@ static void test_live_world(void)
     // Pin NULL_DEV. AUTO opens the real device.
     AnoAudioConfig nullCfg = { .backend = ANO_AUDIO_BACKEND_NULL_DEV };
     CHECK(ano_audio_init(&nullCfg), "audio world up (null backend)");
-    AnoAudioBridge *b = anoAudioBridge();
+    AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge handle valid after init");
     if (!b) return;
 
@@ -326,7 +324,7 @@ static void test_live_world(void)
                   .flags = ANO_AUDIO_SOURCE_POSITIONAL, .gain = 0.6f,
                   .position = { 1.0f, 0.0f, -1.0f } } };
     AnoAudioListener l = { .pos = {0, 0, 0}, .forward = {0, 0, -1}, .up = {0, 1, 0}, .seq = 1 };
-    ano_audio_publish_listener(b, &l);
+	(void)ano_audio_publish_listener(b, &l);
     CHECK(ano_audio_submit(b, &play), "submit buffer PLAY");
     CHECK(wait_telemetry(b, pred_audible, 2000), "cue audible in telemetry peak");
 
@@ -335,7 +333,7 @@ static void test_live_world(void)
     uint32_t start = ano_timestamp_ms();
     while ((!srcRetired || !bufRetired) && ano_timestamp_ms() - start < 4000u) {
         AnoAudioEvent e;
-        while (ano_audio_poll_event(b, &e)) {
+        while (ano_audio_poll_event(b, &e).value_or(false)) {
             if (e.kind == AEVT_SOURCE_RETIRED && e.u.source_id == 7u)
                 srcRetired = true;
             if (e.kind == AEVT_BUFFER_RETIRED && e.u.buffer.buffer_id == 42u) {
@@ -344,25 +342,26 @@ static void test_live_world(void)
             }
         }
         if (!srcRetired || !bufRetired)
-            ano_sleep(5000);
+            (void)ano_sleep(5000);
     }
     CHECK(srcRetired, "AEVT_SOURCE_RETIRED for the finished cue");
     CHECK(bufRetired, "AEVT_BUFFER_RETIRED brings the block home");
     CHECK(wait_telemetry(b, pred_quiet, 2000), "voice pool drains to zero");
 
     AnoAudioTelemetry t;
-    if (ano_audio_acquire_telemetry(b, &t))
+    if (ano_audio_acquire_telemetry(b, &t).value_or(false))
         printf("info: live telemetry 〜 blocks %llu, cpu %llu ns/block, underruns %u, clipped %u\n",
                (unsigned long long)t.blockIndex, (unsigned long long)t.blockCpuNs,
                t.underruns, t.clippedSamples);
 
     ano_audio_shutdown();
     ano_audio_shutdown(); // idempotent
-    CHECK(anoAudioBridge() == NULL, "bridge handle NULL after shutdown");
+    CHECK(has_error(anoAudioBridge(), AudioError::unavailable),
+          "bridge handle unavailable after shutdown");
 
     // Re-init after shutdown.
     CHECK(ano_audio_init(&nullCfg), "re-init after shutdown");
-    CHECK(anoAudioBridge() != NULL, "bridge valid after re-init");
+    CHECK(anoAudioBridge(), "bridge valid after re-init");
     ano_audio_shutdown();
 }
 
@@ -378,13 +377,12 @@ static void test_wav_write_size_wrap(void)
     float material[16] = { 0.25f, -0.25f, 0.5f, -0.5f };
 
     CHECK(ano_audio_wav_write(sanePath, material, 4u, 1u, 48000u), "sane 4-frame write accepted");
-    uint64_t frames = 0; uint32_t channels = 0;
-    float *back = ano_audio_wav_load(sanePath, 0u, &frames, &channels);
-    CHECK(back != NULL, "sane file loads back");
+    const auto back = ano_audio_wav_load(sanePath, 0u);
+    CHECK(back, "sane file loads back");
     if (back) {
-        CHECK(frames == 4u && channels == 1u, "sane file round-trips 4 frames / 1 ch");
-        CHECK(back[0] == material[0] && back[3] == material[3], "sane samples byte-exact");
-        ano_audio_block_free(back);
+        CHECK(back->frames == 4u && back->channels == 1u, "sane file round-trips 4 frames / 1 ch");
+        CHECK(back->data[0] == material[0] && back->data[3] == material[3], "sane samples byte-exact");
+        ano_audio_block_free(back->data);
     }
 
     CHECK(!ano_audio_wav_write(sanePath, material, 4u, 0u, 48000u), "channels == 0 rejected");
@@ -394,18 +392,18 @@ static void test_wav_write_size_wrap(void)
           "byte size wrapping to 0 must be rejected as bad args");
 
     // wrap to small nonzero: ((1 << 62) + 4) frames * 1 ch * 4 bytes == 16 mod 2^64
-    bool lied = ano_audio_wav_write(poisonPath, material, (1ull << 62) + 4u, 1u, 48000u);
+    const bool lied = !!ano_audio_wav_write(
+        poisonPath, material, (1ull << 62) + 4u, 1u, 48000u);
     CHECK(!lied, "byte size wrapping to 16 must be rejected as bad args");
 
     // a write that reported success must round-trip the frame count it was handed
     if (lied) {
-        uint64_t pf = 0; uint32_t pc = 0;
-        float *poison = ano_audio_wav_load(poisonPath, 0u, &pf, &pc);
-        CHECK(poison != NULL && pf == (1ull << 62) + 4u,
+        const auto poison = ano_audio_wav_load(poisonPath, 0u);
+        CHECK(poison && poison->frames == (1ull << 62) + 4u,
               "a write that returned true must round-trip its frame count");
         if (poison) {
-            printf("  poison.wav claims %llu frames (asked for 2^62 + 4)\n", (unsigned long long)pf);
-            ano_audio_block_free(poison);
+            printf("  poison.wav claims %llu frames (asked for 2^62 + 4)\n", (unsigned long long)poison->frames);
+            ano_audio_block_free(poison->data);
         }
     }
 
@@ -419,7 +417,7 @@ static void test_buffer_register_size_wrap(void)
 {
     AnoAudioConfig nullCfg = { .backend = ANO_AUDIO_BACKEND_NULL_DEV };
     CHECK(ano_audio_init(&nullCfg), "audio world up (null backend)");
-    AnoAudioBridge *b = anoAudioBridge();
+    AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge handle valid after init");
     if (!b) return;
 

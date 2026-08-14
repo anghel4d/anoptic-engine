@@ -242,11 +242,13 @@ static void collate_key_emit(key_buf_t *kb, key_buf_t *l2, key_buf_t *l3, anostr
     kb->oom = kb->oom || l2->oom || l3->oom;
 }
 
-anostr_t ano::anostr_collate_key(mi_heap_t *heap, anostr_t s)
+StringResult<anostr_t> ano::anostr_collate_key(mi_heap_t *heap, anostr_t s)
 {
     key_buf_t kb = {0}, l2 = {0}, l3 = {0};
     collate_key_emit(&kb, &l2, &l3, s);
-    anostr_t out = kb.oom ? anostr_empty() : anostr_from(heap, kb.p, kb.n);
+    auto out = kb.oom
+        ? StringResult<anostr_t>(failure(StringError::out_of_memory))
+        : anostr_from(heap, kb.p, kb.n);
     mi_free(kb.p);
     mi_free(l2.p);
     mi_free(l3.p);

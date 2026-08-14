@@ -56,7 +56,8 @@ bool anostr_utf8_valid(anostr_t s);
 int anorune_encode(char buf[4], anorune_t r);
 
 // Encode r and append. Same returns as anostr_builder_append.
-int anostr_builder_append_rune(anostr_builder_t *b, anorune_t r);
+[[nodiscard]] StringResult<> anostr_builder_append_rune(
+    anostr_builder_t *b, anorune_t r);
 
 // Outside the shipped scripts: caseless, no flags.
 
@@ -91,9 +92,9 @@ int anostr_collate(anostr_t a, anostr_t b);
 // First four nonzero primary weights of s, big-endian u64. Short strings zero-pad. Unequal keys agree with collate's sign.
 uint64_t anostr_collate_prefix(anostr_t s);
 
-// Full sort key: anostr_compare(key(a), key(b)) == anostr_collate(a, b). Empty on alloc fail.
+// Full sort key: anostr_compare(key(a), key(b)) == anostr_collate(a, b).
 // Layout: nonzero u16 weights big-endian per level, 0x0000 terminator, three levels, then bytes.
-anostr_t anostr_collate_key(mi_heap_t *heap, anostr_t s);
+[[nodiscard]] StringResult<anostr_t> anostr_collate_key(mi_heap_t *heap, anostr_t s);
 
 // Sort values in collation order, in place. Stable (equal strings keep their order).
 void anostr_sort(anostr_t *items, size_t count);
@@ -122,30 +123,36 @@ size_t anostr_find_base(anostr_t s, anostr_t needle, size_t from);
 #define ANOSTR_CULL_PUNCT      2u   // P*
 #define ANOSTR_CULL_MARK       4u   // M*
 
-// s minus every rune whose class is in `classes`. No match -> s unchanged. Empty on alloc fail.
-anostr_t anostr_cull(mi_heap_t *heap, anostr_t s, uint32_t classes);
+// s minus every rune whose class is in `classes`. No match -> s unchanged.
+[[nodiscard]] StringResult<anostr_t> anostr_cull(
+    mi_heap_t *heap, anostr_t s, uint32_t classes);
 
-// Runes of s sorted ascending by code point. Empty on alloc fail.
-anostr_t anostr_rune_sort(mi_heap_t *heap, anostr_t s);
+// Runes of s sorted ascending by code point.
+[[nodiscard]] StringResult<anostr_t> anostr_rune_sort(mi_heap_t *heap, anostr_t s);
 
 
 /* Encoding conversion */
 
 // For foreign boundaries (Win32 W APIs, middleware). Unpaired/invalid -> U+FFFD.
 
-// UTF-16 -> value. count in code units. Empty on NULL src or alloc fail.
-anostr_t anostr_from_utf16(mi_heap_t *heap, const char16_t *src, size_t count);
+// UTF-16 -> value. count in code units.
+[[nodiscard]] StringResult<anostr_t> anostr_from_utf16(
+    mi_heap_t *heap, const char16_t *src, size_t count);
 
 // anostr_from_utf16 over a NUL-terminated string.
-anostr_t anostr_from_utf16_cstr(mi_heap_t *heap, const char16_t *src);
+[[nodiscard]] StringResult<anostr_t> anostr_from_utf16_cstr(
+    mi_heap_t *heap, const char16_t *src);
 
-// value -> NUL-terminated UTF-16 from heap. Code unit count (sans NUL) in *count if non-NULL. NULL on fail.
-char16_t *anostr_to_utf16(mi_heap_t *heap, anostr_t s, size_t *count);
+// Value -> NUL-terminated UTF-16. Code-unit count (sans NUL) in *count when supplied.
+[[nodiscard]] StringResult<char16_t *> anostr_to_utf16(
+    mi_heap_t *heap, anostr_t s, size_t *count);
 
-// UTF-32 -> value. count in runes. Empty on NULL src or alloc fail.
-anostr_t anostr_from_utf32(mi_heap_t *heap, const anorune_t *src, size_t count);
+// UTF-32 -> value. count is measured in runes.
+[[nodiscard]] StringResult<anostr_t> anostr_from_utf32(
+    mi_heap_t *heap, const anorune_t *src, size_t count);
 
-// value -> NUL-terminated rune array from heap. Rune count (sans NUL) in *count if non-NULL. NULL on fail.
-anorune_t *anostr_to_utf32(mi_heap_t *heap, anostr_t s, size_t *count);
+// Value -> NUL-terminated rune array. Rune count (sans NUL) in *count when supplied.
+[[nodiscard]] StringResult<anorune_t *> anostr_to_utf32(
+    mi_heap_t *heap, anostr_t s, size_t *count);
 
 } // namespace ano

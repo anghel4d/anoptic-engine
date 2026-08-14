@@ -20,6 +20,13 @@ using namespace ano;
 
 enum { REPS = 40 };
 
+template<class Value>
+static Value must(StringResult<Value> result)
+{
+    if (!result) abort();
+    return *result;
+}
+
 // Inventory name generator. Pool ~ count/4 with replacement (duplicate stacks).
 
 static const char *base_ascii[] = {
@@ -61,7 +68,7 @@ static anostr_t make_name(mi_heap_t *heap, test_rng *rng)
         snprintf(buf, sizeof buf, "\xE1\x9A\xA6%s\xE1\x9A\xA6",
                  base_ascii[rng_below(rng, sizeof base_ascii / sizeof base_ascii[0])]);
     }
-    return anostr_from_cstr(heap, buf);
+    return must(anostr_from_cstr(heap, buf));
 }
 
 static void shuffle_items(anostr_t *v, size_t n, test_rng *rng)
@@ -198,11 +205,11 @@ int main(int argc, char **argv)
     bench_lat_row("anostr_sort_idx", s);
 
     // Interned symbols: cold builds key cache; warm sorts ints.
-    anostr_intern_t *tbl = anostr_intern_make(heap);
+    anostr_intern_t *tbl = must(anostr_intern_make(heap));
     anostr_sym *syms = mi_heap_mallocn_tp(anostr_sym, heap, count);
     if (tbl == NULL || syms == NULL) { printf("FAIL: intern alloc\n"); return 1; }
     for (size_t k = 0; k < count; k++)
-        syms[k] = anostr_intern(tbl, items[k]);
+        syms[k] = must(anostr_intern(tbl, items[k]));
 
     uint64_t t0 = bench_begin();
     anostr_sym_sort(tbl, syms, count);
@@ -256,19 +263,21 @@ int main(int argc, char **argv)
            (double)ns / (double)count);
 
     // A ~1 MB document for the byte transforms.
-    anostr_builder_t db = anostr_builder_make(heap, 1u << 20);
+    anostr_builder_t db = must(anostr_builder_make(heap, 1u << 20));
     while (db.len < (1u << 20))
-        anostr_builder_append_cstr(&db, "the quick brown fox, jumps over \xC3\xA9 lazy dogs; ");
-    anostr_t doc = anostr_freeze(&db);
+        if (!anostr_builder_append_cstr(&db, "the quick brown fox, jumps over \xC3\xA9 lazy dogs; "))
+            abort();
+    anostr_t doc = must(anostr_freeze(&db));
 
     t0 = bench_begin();
-    anostr_t rep = anostr_replace_all(heap, doc, anostr_lit("the"), anostr_lit("THE"));
+    anostr_t rep = must(anostr_replace_all(heap, doc, anostr_lit("the"), anostr_lit("THE")));
     ns = ano_ticks_to_ns(bench_end(t0));
     printf("replace_all:    %.2f GB/s over %u bytes (%zu-byte result)\n",
            (double)anostr_len(doc) / (double)ns, doc.len, anostr_len(rep));
 
     t0 = bench_begin();
-    anostr_t culled = anostr_cull(heap, doc, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT);
+    anostr_t culled = must(anostr_cull(
+        heap, doc, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
     ns = ano_ticks_to_ns(bench_end(t0));
     printf("cull ws+punct:  %.2f GB/s over %u bytes (%zu-byte result)\n",
            (double)anostr_len(doc) / (double)ns, doc.len, anostr_len(culled));

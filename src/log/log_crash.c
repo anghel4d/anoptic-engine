@@ -31,12 +31,12 @@ static void investigate_previous_flight(const char *dir)
     bb_prune_suffix(dir, "_ano.log",   BB_KEEP_LOGS, stamp);
 }
 
-int ano::ano_log_crash_init(void)
+LogResult<> ano::ano_log_crash_init(void)
 {
     // Resolve <logs>/<stamp>_CRASH.log once. Fallbacks: <gamedir>, then CWD.
-    ano_fspath dir = ano_fs_logpath();
+    ano_fspath dir = ano_fs_logpath().value_or(ano_fspath{});
     if (dir.length == 0)
-        dir = ano_fs_gamepath();
+        dir = ano_fs_gamepath().value_or(ano_fspath{});
     const char *stamp = ano_fs_session_stamp();
     int n = dir.length > 0
         ? snprintf(bb_crashPath, sizeof bb_crashPath, "%s/%s_CRASH.log", dir.str, stamp)
@@ -47,12 +47,12 @@ int ano::ano_log_crash_init(void)
 
     investigate_previous_flight(dir.length > 0 ? dir.str : ".");
 
-    return bb_install();
+    return result_if(bb_install() == 0, LogError::platform);
 }
 
-int ano::ano_log_crash_thread_arm(void)
+LogResult<> ano::ano_log_crash_thread_arm(void)
 {
-    return bb_thread_arm();
+    return result_if(bb_thread_arm() == 0, LogError::platform);
 }
 
 void ano::ano_log_crash_thread_disarm(void)

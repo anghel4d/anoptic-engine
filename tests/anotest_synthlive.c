@@ -93,8 +93,8 @@ static void top_up(LiveDriver *d, uint64_t startFrame)
         ano_engine_advance_bar(&d->engine, &d->result);
         BarFeed f;
         capture(&d->result, &f);
-        ano_synth_live_bar(d->synth, d->nextBar, f.tempo, f.tempoCount, &f.params,
-                           &f.affect, f.events, f.eventCount);
+        (void)ano_synth_live_bar(d->synth, d->nextBar, f.tempo, f.tempoCount,
+                                 &f.params, &f.affect, f.events, f.eventCount);
         d->nextBar++;
     }
 }
@@ -134,7 +134,7 @@ int main(void)
     CHECK(totalEvents > 200u, "the piece has substance");
 
     // --- A: batch path ---
-    AnoSynth *batch = ano_synth_create(&sd);
+    AnoSynth *batch = ano_synth_create(&sd).value_or(nullptr);
     CHECK(batch != NULL, "batch synth");
     CHECK(ano_synth_score_begin(batch, 4.0, BARS, totalTempo, totalEvents),
           "score_begin");
@@ -173,7 +173,7 @@ int main(void)
     CHECK(ano_synth_dropped(batch) == 0u, "batch dropped no voices");
 
     // --- B: live path from the block loop ---
-    AnoSynth *live = ano_synth_create(&sd);
+    AnoSynth *live = ano_synth_create(&sd).value_or(nullptr);
     CHECK(live != NULL, "live synth");
     static LiveDriver drv;
     drv.synth = live;
@@ -232,7 +232,7 @@ int main(void)
 
     // --- starved driver: late counter fires ---
     // stall=900 (~9.6 s) > 2 pending bars (~4.8 s): schedule runs dry, late > 0.
-    AnoSynth *starved = ano_synth_create(&sd);
+    AnoSynth *starved = ano_synth_create(&sd).value_or(nullptr);
     static LiveDriver sd2;
     sd2.synth = starved;
     sd2.nextBar = 0;
@@ -245,8 +245,9 @@ int main(void)
     ano_engine_advance_bar(&sd2.engine, &sd2.result);
     BarFeed f0;
     capture(&sd2.result, &f0);
-    ano_synth_live_bar(starved, 0, f0.tempo, f0.tempoCount, &f0.params, &f0.affect,
-                       f0.events, f0.eventCount);
+    CHECK(ano_synth_live_bar(starved, 0, f0.tempo, f0.tempoCount, &f0.params,
+                             &f0.affect, f0.events, f0.eventCount),
+          "starved first bar");
     sd2.nextBar = 1;
     ano_synth_transport_start(starved, 0);
     AnoAudioOfflineDesc os = od;

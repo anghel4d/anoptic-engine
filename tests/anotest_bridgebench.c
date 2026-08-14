@@ -71,7 +71,7 @@ static void *rb_render_main(void *arg)
             if (v.eye[0] != want || v.eye[1] != want || v.eye[2] != want)
                 atomic_fetch_add_explicit(&g_rbTornViews, 1u, memory_order_relaxed);
         }
-        ano_sleep(1000);
+        (void)ano_sleep(1000);
     }
     return NULL;
 }
@@ -83,13 +83,13 @@ static bool wait_heartbeat(AnoAudioBridge *b, uint32_t ms)
     uint64_t first = UINT64_MAX;
     uint32_t start = ano_timestamp_ms();
     while (ano_timestamp_ms() - start < ms) {
-        if (ano_audio_acquire_telemetry(b, &t)) {
+        if (ano_audio_acquire_telemetry(b, &t).value_or(false)) {
             if (first == UINT64_MAX)
                 first = t.blockIndex;
             else if (t.blockIndex != first)
                 return true;
         }
-        ano_sleep(1000);
+        (void)ano_sleep(1000);
     }
     return false;
 }
@@ -108,8 +108,8 @@ int main(int argc, char **argv)
     cfg.mapper    = ano_mapping_table_default();
 
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc);
-    AnoMusicEngine *music = ano_music_create(&cfg, 31337u);
+    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
+    AnoMusicEngine *music = ano_music_create(&cfg, 31337u).value_or(nullptr);
     CHECK(syn && music, "synth + composer");
     if (!syn || !music)
         return 1;
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
         .generatorCommands = ano_synth_commands,
     };
     CHECK(ano_audio_init(&acfg), "audio world up");
-    AnoAudioBridge *b = anoAudioBridge();
+    AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b || failures)
         return 1;
@@ -141,7 +141,7 @@ int main(int argc, char **argv)
         (void)ano_audio_submit(b, &setup[i].cmd);
 
     AnoAudioTelemetry t;
-    CHECK(ano_audio_acquire_telemetry(b, &t), "telemetry frame");
+    CHECK(ano_audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
     ano_synth_transport_start(syn, (t.blockIndex + 8u) * t.blockFrames);
 
     // ~1 kHz logic tick: acquire + publish every tick, affect every 64th.
@@ -165,7 +165,7 @@ int main(int argc, char **argv)
     const uint32_t runMs   = seconds * 1000u;
     for (uint64_t tick = 0; ano_timestamp_ms() - startMs < runMs; ++tick) {
         uint64_t t0 = bench_begin();
-        bool ok = ano_audio_acquire_telemetry(b, &t);
+        bool ok = ano_audio_acquire_telemetry(b, &t).value_or(false);
         bench_lat_add(&acq, bench_end(t0));
         if (ok && t.blockIndex != lastBlock) {
             lastBlock = t.blockIndex;
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
             .seq = ++seq,
         };
         t0 = bench_begin();
-        ano_audio_publish_listener(b, &l);
+		(void)ano_audio_publish_listener(b, &l);
         bench_lat_add(&pub, bench_end(t0));
 
         if (tick % 64u == 0u) {
@@ -190,11 +190,11 @@ int main(int argc, char **argv)
                             (float)rng_below(&rng, 1000u) / 1000.0f } };
             (void)ano_audio_submit(b, &affect);
         }
-        ano_sleep(1000);
+        (void)ano_sleep(1000);
     }
 
     ano_synth_transport_stop(syn);
-    ano_sleep(50000); // tails ring down
+    (void)ano_sleep(50000); // tails ring down
     ano_audio_shutdown();
 
     CHECK(blk.n > 0, "mixer blocks observed");
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
 
     atomic_store_explicit(&g_rbRun, true, memory_order_release);
     anothread_t rt;
-    CHECK(ano_thread_create(&rt, NULL, rb_render_main, NULL) == 0, "render thread");
+    CHECK(ano_thread_create(&rt, NULL, rb_render_main, NULL), "render thread");
     if (failures)
         return 1;
 
@@ -224,7 +224,7 @@ int main(int argc, char **argv)
     for (; ano_timestamp_ms() - rbStartMs < runMs;) {
         RenderSnapshot snap;
         uint64_t t0 = bench_begin();
-        bool ok = ano_render_acquire_snapshot(&g_rb, &snap);
+        bool ok = ano_render_acquire_snapshot(&g_rb, &snap).value_or(false);
         bench_lat_add(&racq, bench_end(t0));
         if (ok && (snap.vpWidth != (uint32_t)snap.frameId || snap.vpHeight != (uint32_t)snap.frameId))
             tornSnaps++;
@@ -238,12 +238,12 @@ int main(int argc, char **argv)
             .seq = rseq,
         };
         t0 = bench_begin();
-        ano_render_publish_view(&g_rb, &v);
+		(void)ano_render_publish_view(&g_rb, &v);
         bench_lat_add(&rpub, bench_end(t0));
-        ano_sleep(1000);
+        (void)ano_sleep(1000);
     }
     atomic_store_explicit(&g_rbRun, false, memory_order_release);
-    ano_thread_join(rt, NULL);
+    (void)ano_thread_join(rt, NULL);
 
     CHECK(tornSnaps == 0, "untorn snapshot reads");
     CHECK(atomic_load_explicit(&g_rbTornViews, memory_order_relaxed) == 0, "untorn view reads");

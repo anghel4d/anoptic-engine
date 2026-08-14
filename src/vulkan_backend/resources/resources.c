@@ -109,9 +109,10 @@ consteval TransformEndpoints transform_endpoints(std::meta::info declaration)
             std::meta::remove_reference(parameterType);
         if (std::meta::is_const_type(referred))
             result.input = valueType;
-        else
-            result.output = valueType;
     }
+    const auto arguments = std::meta::template_arguments_of(
+        std::meta::dealias(std::meta::return_type_of(declaration)));
+    result.output = arguments[0];
     return result;
 }
 
@@ -496,17 +497,17 @@ AnoResourceError invoke_render_transform(
         type, [&]<auto Declaration, class Input, class Output>() {
             const ano::DecodeResult<Input> decoded =
                 ano::decode<Input>(artifact);
-            if (decoded.error != ANO_RESOURCE_OK) {
-                result = decoded.error;
+            if (!decoded) {
+                result = decoded.error();
                 return;
             }
-            Output output = {};
             context.artifact = artifact;
-            if (![:Declaration:](decoded.view.value, context, output)) {
-                result = ANO_RESOURCE_OWNER_REJECTED;
+            const auto output = [:Declaration:](decoded->value, context);
+            if (!output) {
+                result = output.error();
                 return;
             }
-            publish_output(target, output);
+            publish_output(target, *output);
             result = ANO_RESOURCE_OK;
         });
     return result;
@@ -526,25 +527,23 @@ AnoResourceError prepare_decoded(
     const schema::Texture& texture,
     AnoResourceBytes artifact, mi_heap_t*)
 {
-    uint64_t pixels = 0;
-    uint64_t bytes = 0;
+    const auto pixels = ano::checked_multiply(texture.width, texture.height);
+    const auto bytes = pixels
+        ? ano::checked_multiply(*pixels, UINT64_C(4))
+        : ano::ArithmeticResult<uint64_t>(ano::failure(pixels.error()));
     if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0
-        || !ano::checked_multiply(texture.width, texture.height, &pixels)
-        || !ano::checked_multiply(pixels, UINT64_C(4), &bytes)
-        || bytes != texture.bytes.count || bytes > SIZE_MAX)
+        || !bytes || *bytes != texture.bytes.count || *bytes > SIZE_MAX)
         return ANO_RESOURCE_NON_CANONICAL;
     const ano::ArtifactView<schema::Texture> view = {
         .value = texture, .bytes = artifact};
-    AnoResourceBytes pixelsView = {};
-    const AnoResourceError result = ano::borrow_bytes(
-        view, texture.bytes, &pixelsView);
-    if (result != ANO_RESOURCE_OK)
-        return result;
-    if (pixelsView.size != bytes)
+    const auto pixelsView = ano::borrow_bytes(view, texture.bytes);
+    if (!pixelsView)
+        return pixelsView.error();
+    if (pixelsView->size != *bytes)
         return ANO_RESOURCE_NON_CANONICAL;
     return !reserve_upload_slice(
-                residency, static_cast<VkDeviceSize>(bytes),
+                residency, static_cast<VkDeviceSize>(*bytes),
                 &binding.uploadOffset)
         ? ANO_RESOURCE_OVERFLOW : ANO_RESOURCE_OK;
 }
@@ -568,12 +567,12 @@ AnoResourceError prepare_decoded(
     if (!portable || !indices) return ANO_RESOURCE_OUT_OF_MEMORY;
     const ano::ArtifactView<schema::Mesh> view = {
         .value = mesh, .bytes = artifact};
-    AnoResourceError result = ano::resolve_span(
+    auto result = ano::resolve_span(
         view, mesh.vertices, portable, mesh.vertices.count);
-    if (result == ANO_RESOURCE_OK)
+    if (result)
         result = ano::resolve_span(
             view, mesh.indices, indices, mesh.indices.count);
-    if (result != ANO_RESOURCE_OK) return result;
+    if (!result) return result.error();
     static_assert(sizeof(schema::Vertex) == sizeof(::Vertex));
     const AnoLodConfig lod = ano_lod_config_default(ANO_DEFAULT_LOD_COUNT);
     if (!geometry_prepare_chain(
@@ -598,10 +597,10 @@ AnoResourceError invoke_prepare_transform(
         type, [&]<auto, class Input, class>() {
             const ano::DecodeResult<Input> decoded =
                 ano::decode<Input>(artifact);
-            result = decoded.error == ANO_RESOURCE_OK
+            result = decoded
                 ? prepare_decoded(
-                    residency, target, decoded.view.value, artifact, heap)
-                : decoded.error;
+                    residency, target, decoded->value, artifact, heap)
+                : decoded.error();
         });
     return result;
 }
@@ -709,16 +708,18 @@ AnoResourceError plan_asset(
         || previous == nullptr || asset.value > previous->bindingCount
         || previous->bindings[index].state != BindingState::resident
         || previous->bindings[index].sourceType.value != type.value;
-    AnoResourceBytes artifact = {};
-    AnoResourceError result = ano_resource_epoch_resolve(
-        candidate.source, asset, type, &artifact);
-    const AnoResourceDependency *dependencies = nullptr;
-    uint64_t dependencyCount = 0;
-    if (result == ANO_RESOURCE_OK)
-        result = ano_resource_epoch_dependencies(
-            candidate.source, asset, &dependencies, &dependencyCount);
+    const auto artifact = ano_resource_epoch_resolve(
+        candidate.source, asset, type);
+    auto dependencyResult = artifact
+        ? ano_resource_epoch_dependencies(candidate.source, asset)
+        : ResourceResult<std::span<const AnoResourceDependency>>(
+              failure(artifact.error()));
+    AnoResourceError result = dependencyResult
+        ? ANO_RESOURCE_OK : dependencyResult.error();
+    const auto dependencies = dependencyResult.value_or(
+        std::span<const AnoResourceDependency>{});
     bool dependencyChanged = false;
-    for (uint64_t i = 0; i < dependencyCount
+    for (uint64_t i = 0; i < dependencies.size()
                          && result == ANO_RESOURCE_OK; ++i) {
         if (!is_render_input(dependencies[i].type)) continue;
         result = plan_asset(
@@ -762,7 +763,7 @@ AnoResourceError plan_asset(
         target->reuseGeometry = true;
     }
     result = invoke_prepare_transform(
-        candidate, *target, type, artifact, heap);
+        candidate, *target, type, *artifact, heap);
     if (result == ANO_RESOURCE_OK && !append_realization(candidate, asset))
         result = ANO_RESOURCE_OVERFLOW;
     target->state = result == ANO_RESOURCE_OK
@@ -778,19 +779,20 @@ AnoResourceError plan_resident_assets(
         candidate.source);
     AnoResourceError result = ANO_RESOURCE_OK;
     for (uint64_t i = 0; i < changedCount && result == ANO_RESOURCE_OK; ++i) {
-        AnoAssetId changed = {};
-        result = ano_resource_epoch_changed(candidate.source, i, &changed);
-        if (result == ANO_RESOURCE_OK && changed.value != 0
-            && changed.value <= candidate.bindingCount)
-            candidate.bindings[changed.value - 1].affected = true;
+        const auto changed = ano_resource_epoch_changed(candidate.source, i);
+        result = changed ? ANO_RESOURCE_OK : changed.error();
+        if (changed && changed->value != 0
+            && changed->value <= candidate.bindingCount)
+            candidate.bindings[changed->value - 1].affected = true;
     }
     for (uint64_t i = 0; i < candidate.bindingCount
                          && result == ANO_RESOURCE_OK; ++i) {
-        bool resident = false;
-        result = ano_resource_epoch_asset(
-            candidate.source, {i + 1}, &candidate.bindings[i].sourceType,
-            &resident);
-        if (result == ANO_RESOURCE_OK && resident
+        const auto asset = ano_resource_epoch_asset(
+            candidate.source, {i + 1});
+        result = asset ? ANO_RESOURCE_OK : asset.error();
+        if (asset)
+            candidate.bindings[i].sourceType = asset->type;
+        if (asset && asset->resident
             && is_render_input(candidate.bindings[i].sourceType))
             result = plan_asset(
                 candidate, previous, {i + 1},
@@ -809,17 +811,17 @@ AnoResourceError realize_planned_asset(
         return target.state == BindingState::resident
             ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_MANIFEST;
     target.state = BindingState::realizing;
-    AnoResourceBytes artifact = {};
-    AnoResourceError result = ano_resource_epoch_resolve(
-        residency.source, asset, target.sourceType, &artifact);
-    if (result == ANO_RESOURCE_OK) {
+    const auto artifact = ano_resource_epoch_resolve(
+        residency.source, asset, target.sourceType);
+    AnoResourceError result = artifact ? ANO_RESOURCE_OK : artifact.error();
+    if (artifact) {
         schema::RenderResourceContext context = {
             .residency = &residency,
             .asset = asset,
-            .artifact = artifact,
+            .artifact = *artifact,
         };
         result = invoke_render_transform(
-            target, context, target.sourceType, artifact);
+            target, context, target.sourceType, *artifact);
     }
     target.preparedGeometry = {};
     target.uploadOffset = 0;
@@ -862,38 +864,41 @@ PbrFeatureFlags material_features(const schema::Material& material)
 
 namespace ano::asset_schema {
 
-bool realize_texture(const Texture& texture, RenderResourceContext& context,
-                     GpuTexture& output) noexcept
+ResourceResult<GpuTexture> realize_texture(
+    const Texture& texture, RenderResourceContext& context) noexcept
 {
     if (texture.format != TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0)
-        return false;
-    uint64_t pixelCount = 0;
-    uint64_t requiredBytes = 0;
-    if (!ano::checked_multiply(texture.width, texture.height,
-                                       &pixelCount)
-        || !ano::checked_multiply(pixelCount, UINT64_C(4), &requiredBytes)
-        || requiredBytes != texture.bytes.count || requiredBytes > SIZE_MAX)
-        return false;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
+    const auto pixelCount = ano::checked_multiply(
+        texture.width, texture.height);
+    const auto requiredBytes = pixelCount
+        ? ano::checked_multiply(*pixelCount, UINT64_C(4))
+        : ArithmeticResult<uint64_t>(failure(pixelCount.error()));
+    if (!requiredBytes || *requiredBytes != texture.bytes.count
+        || *requiredBytes > SIZE_MAX)
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     RenderBinding* target = binding(
         *context.residency, context.asset, ano::resource_type_id<Texture>());
-    if (!target) return false;
+    if (!target)
+        return failure(ANO_RESOURCE_BAD_MANIFEST);
     AnoRenderResidency& residency = *context.residency;
     if (residency.uploadCommands == VK_NULL_HANDLE
         || residency.uploadStaging == VK_NULL_HANDLE
         || !residency.uploadAllocation.mapped)
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     const ArtifactView<Texture> view = {
         .value = texture,
         .bytes = context.artifact,
     };
-    AnoResourceBytes pixels = {};
-    if (borrow_bytes(view, texture.bytes, &pixels) != ANO_RESOURCE_OK
-        || pixels.size != requiredBytes)
-        return false;
+    const auto pixels = borrow_bytes(view, texture.bytes);
+    if (!pixels)
+        return failure(pixels.error());
+    if (pixels->size != *requiredBytes)
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     memcpy(static_cast<uint8_t*>(residency.uploadAllocation.mapped)
                + static_cast<size_t>(target->uploadOffset),
-           pixels.data, static_cast<size_t>(requiredBytes));
+           pixels->data, static_cast<size_t>(*requiredBytes));
     TexturePackage package = {};
     const TextureUsageFlags usage = static_cast<TextureUsageFlags>(texture.usage);
     const AnoTextureResult built = createTextureImageFromStaging(
@@ -901,7 +906,8 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
         residency.uploadStaging, target->uploadOffset, texture.width,
         texture.height, usage);
     if (built != ANO_TEXTURE_BUILT)
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
+    GpuTexture output{};
     output.colorSlot = (usage & TEXTURE_USE_COLOR)
         ? bindless_register_texture(
             &ctx, &rendererState.bindlessTextures, package.srgbView,
@@ -920,7 +926,7 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
                                  output.dataSlot);
         ::release_upload_storage(context.residency);
         destroyTexturePackage(&ctx, &package);
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     }
     output.ownerSlot = ano_vk_register_texture(
         &rendererState.primitives, ano_texture_record(&package));
@@ -931,17 +937,16 @@ bool realize_texture(const Texture& texture, RenderResourceContext& context,
                                  output.dataSlot);
         ::release_upload_storage(context.residency);
         destroyTexturePackage(&ctx, &package);
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     }
-    return true;
+    return output;
 }
 
-bool realize_material(const Material& material,
-                      RenderResourceContext& context,
-                      GpuMaterial& output) noexcept
+ResourceResult<GpuMaterial> realize_material(
+    const Material& material, RenderResourceContext& context) noexcept
 {
     if (material.unlit)
-        return false;
+        return failure(ANO_RESOURCE_UNSUPPORTED);
     MaterialData destination;
     ano_vk_init_default_material_data(&destination);
     project_material_data(destination, material);
@@ -959,14 +964,14 @@ bool realize_material(const Material& material,
             const MaterialTexture& use = material.textures[
                 ano::detail::enum_index(match.slot)];
             if (use.hasTransform || use.texCoord != 0)
-                return false;
+                return failure(ANO_RESOURCE_UNSUPPORTED);
             uint32_t slot = ANO_BINDLESS_NONE;
             if (use.texture.id.value != 0) {
                 RenderBinding *texture = binding(
                     *context.residency, use.texture);
                 if (texture == nullptr
                     || texture->state != BindingState::resident)
-                    return false;
+                    return failure(ANO_RESOURCE_BAD_MANIFEST);
                 constexpr TextureUsage usage =
                     schema::material_texture_usage(match.slot);
                 if constexpr (usage == TextureUsage::color)
@@ -974,7 +979,7 @@ bool realize_material(const Material& material,
                 else if constexpr (usage == TextureUsage::data)
                     slot = texture->texture.dataSlot;
                 else
-                    return false;
+                    return failure(ANO_RESOURCE_UNSUPPORTED);
             }
             destination.[:field:] = slot;
         }
@@ -989,7 +994,7 @@ bool realize_material(const Material& material,
         ano_vk_get_active_pipelines_supported_features(&rendererState);
     if (!ano_vk_check_feature_compatibility(
             available, required, &unsupported))
-        return false;
+        return failure(ANO_RESOURCE_UNSUPPORTED);
     destination.features = required;
     if (required & (PBR_FEATURE_TRANSMISSION | PBR_FEATURE_VOLUME))
         destination.pipelineType = PIPELINE_TRANSMISSION;
@@ -1003,58 +1008,60 @@ bool realize_material(const Material& material,
     else
         destination.pipelineType = PIPELINE_FLAT;
 
-    output.slot = reserve_material_slot();
-    if (output.slot == UINT32_MAX) return false;
+    GpuMaterial output{.slot = reserve_material_slot()};
+    if (output.slot == UINT32_MAX)
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     for (uint32_t frame = 0; frame < MAX_FRAMES_IN_FLIGHT; ++frame)
         rendererState.materialBuffer.mapped[frame][output.slot] = destination;
-    return true;
+    return output;
 }
 
-bool realize_mesh(const Mesh& mesh, RenderResourceContext& context,
-                  GpuMesh& output) noexcept
+ResourceResult<GpuMesh> realize_mesh(
+    const Mesh& mesh, RenderResourceContext& context) noexcept
 {
     if (mesh.vertices.count == 0 || mesh.indices.count == 0
         || mesh.vertices.count > UINT32_MAX
         || mesh.indices.count > UINT32_MAX
         || mesh.vertices.count > SIZE_MAX / sizeof(schema::Vertex)
         || mesh.indices.count > SIZE_MAX / sizeof(uint32_t))
-        return false;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     RenderBinding *material = binding(*context.residency, mesh.material);
     RenderBinding *target = binding(
         *context.residency, context.asset, ano::resource_type_id<Mesh>());
     if (material == nullptr
         || material->state != BindingState::resident)
-        return false;
+        return failure(ANO_RESOURCE_BAD_MANIFEST);
+    GpuMesh output{};
     if (target != nullptr && target->reuseGeometry) {
         output.geometrySlot = target->mesh.geometrySlot;
         output.materialSlot = material->material.slot;
-        return true;
+        return output;
     }
 
     if (target == nullptr || target->preparedGeometry.lodCount == 0)
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     AnoRenderResidency& residency = *context.residency;
     if (residency.uploadCommands == VK_NULL_HANDLE
         || residency.uploadStaging == VK_NULL_HANDLE
         || !residency.uploadAllocation.mapped)
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     const uint32_t base = geometry_pool_record_prepared_chain(
         &rendererState.globalGeometryPool, &target->preparedGeometry,
         residency.uploadCommands, residency.uploadStaging,
         residency.uploadAllocation.mapped, target->uploadOffset);
     if (base == ANO_MESH_NONE)
-        return false;
+        return failure(ANO_RESOURCE_OWNER_REJECTED);
     output.geometrySlot = base;
     output.materialSlot = material->material.slot;
-    return true;
+    return output;
 }
 
-bool realize_scene(const Scene& scene, RenderResourceContext& context,
-                   GpuScene& output) noexcept
+ResourceResult<GpuScene> realize_scene(
+    const Scene& scene, RenderResourceContext& context) noexcept
 {
     if (scene.renderables.count > SIZE_MAX / sizeof(SceneRenderable)
         || scene.lights.count > SIZE_MAX / sizeof(SceneLight))
-        return false;
+        return failure(ANO_RESOURCE_NON_CANONICAL);
     SceneLight *lights = scene.lights.count == 0 ? nullptr
         : mi_mallocn_tp(SceneLight,
                         static_cast<size_t>(scene.lights.count));
@@ -1066,34 +1073,35 @@ bool realize_scene(const Scene& scene, RenderResourceContext& context,
         || (scene.lights.count != 0 && lights == nullptr)) {
         mi_free(renderables);
         mi_free(lights);
-        return false;
+        return failure(ANO_RESOURCE_OUT_OF_MEMORY);
     }
     const ArtifactView<Scene> view = {
         .value = scene,
         .bytes = context.artifact,
     };
-    AnoResourceError decoded = resolve_span(
+    auto decoded = resolve_span(
         view, scene.lights, lights, scene.lights.count);
     auto project = [&](const SceneRenderable& portable,
-                       uint64_t index) -> AnoResourceError {
+                       uint64_t index) -> ResourceResult<> {
         RenderBinding *mesh = binding(
             *context.residency, portable.mesh);
         if (mesh == nullptr || mesh->state != BindingState::resident)
-            return ANO_RESOURCE_OWNER_REJECTED;
+            return failure(ANO_RESOURCE_BAD_MANIFEST);
         memcpy(renderables[index].transform, portable.transform,
                sizeof(portable.transform));
         renderables[index].mesh_index = mesh->mesh.geometrySlot;
         renderables[index].material_index = mesh->mesh.materialSlot;
-        return ANO_RESOURCE_OK;
+        return {};
     };
-    if (decoded == ANO_RESOURCE_OK)
+    if (decoded)
         decoded = visit_span(view, scene.renderables, project);
     uint32_t slot = 0;
-    if (decoded != ANO_RESOURCE_OK
+    if (!decoded
         || !reserve_scene(*context.residency, &slot)) {
         mi_free(renderables);
         mi_free(lights);
-        return false;
+        return decoded ? failure(ANO_RESOURCE_OUT_OF_MEMORY)
+                       : ResourceResult<GpuScene>(failure(decoded.error()));
     }
     context.residency->scenes[slot] = {
         .renderables = renderables,
@@ -1101,8 +1109,7 @@ bool realize_scene(const Scene& scene, RenderResourceContext& context,
         .lights = lights,
         .lightCount = scene.lights.count,
     };
-    output.slot = slot;
-    return true;
+    return GpuScene{.slot = slot};
 }
 
 } // namespace ano::asset_schema
@@ -1179,8 +1186,9 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     AnoRenderResidency *created = mi_zalloc_tp(AnoRenderResidency);
     if (created == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    AnoResourceError result = ano_resource_epoch_retain(epoch);
-    if (result == ANO_RESOURCE_OK)
+    const auto retained = ano_resource_epoch_retain(epoch);
+    AnoResourceError result = retained ? ANO_RESOURCE_OK : retained.error();
+    if (retained)
         created->source = epoch;
     if (result == ANO_RESOURCE_OK)
         created->bindingCount = ano_resource_epoch_asset_count(created->source);
@@ -1201,10 +1209,11 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     }
     for (uint64_t i = 0; i < created->bindingCount
                          && result == ANO_RESOURCE_OK; ++i) {
-        bool resident = false;
-        result = ano_resource_epoch_asset(
-            created->source, {i + 1}, &created->bindings[i].sourceType,
-            &resident);
+        const auto asset = ano_resource_epoch_asset(
+            created->source, {i + 1});
+        result = asset ? ANO_RESOURCE_OK : asset.error();
+        if (asset)
+            created->bindings[i].sourceType = asset->type;
     }
     if (result == ANO_RESOURCE_OK)
         result = plan_resident_assets(
@@ -1293,12 +1302,13 @@ AnoResourceError ano_vk_resource_residency_create(
 {
     if (manager == nullptr || residency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
-    const AnoResidencyEpoch *epoch = nullptr;
     mi_heap_t *preparationHeap = ano_heap_create();
     if (preparationHeap == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    AnoResourceError result = ano_resource_epoch_acquire(manager, &epoch);
-    if (result == ANO_RESOURCE_OK)
+    const auto acquired = ano_resource_epoch_acquire(manager);
+    const AnoResidencyEpoch *epoch = acquired.value_or(nullptr);
+    AnoResourceError result = acquired ? ANO_RESOURCE_OK : acquired.error();
+    if (acquired)
         result = ano_vk_resource_residency_prepare_from_epoch(
             epoch, nullptr, preparationHeap, residency);
     bool complete = false;
@@ -1356,66 +1366,72 @@ bool ano_vk_resource_scene_affected(
         || binding.affected;
 }
 
-uint32_t ano_vk_resource_scene_primitives(
+static RenderResult<const RealizedScene *> resource_scene(
+    const AnoRenderResidency *residency, AnoAssetId asset)
+{
+    if (residency == nullptr)
+        return failure(RenderError::unavailable);
+    if (asset.value == 0 || asset.value > residency->bindingCount)
+        return failure(RenderError::invalid_argument);
+    const RenderBinding& binding = residency->bindings[asset.value - 1];
+    if (binding.sourceType.value != ano::resource_type_id<schema::Scene>().value)
+        return failure(RenderError::invalid_argument);
+    if (binding.state != BindingState::resident
+        || binding.scene.slot >= residency->sceneCount)
+        return failure(RenderError::unavailable);
+    return &residency->scenes[binding.scene.slot];
+}
+
+static AnoRenderableDesc instance_desc(
+    const AnoRenderableDesc& source, AnoAssetId asset,
+    uint32_t primitive, const mat4 root)
+{
+    AnoRenderableDesc output = source;
+    mat4 local;
+    memcpy(local, source.transform, sizeof(local));
+    multiplyMat4(output.transform, root, local);
+    output.resource_asset = asset;
+    output.resource_primitive = primitive;
+    return output;
+}
+
+RenderResult<uint32_t> ano_vk_resource_scene_primitives(
     const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
     AnoRenderableDesc *output, uint32_t capacity)
 {
-    if (residency == nullptr || asset.value == 0
-        || asset.value > residency->bindingCount)
-        return 0;
-    const RenderBinding& binding = residency->bindings[asset.value - 1];
-    if (binding.sourceType.value != ano::resource_type_id<schema::Scene>().value
-        || binding.state != BindingState::resident
-        || binding.scene.slot >= residency->sceneCount)
-        return 0;
-    const RealizedScene& scene = residency->scenes[binding.scene.slot];
+    const auto found = resource_scene(residency, asset);
+    if (!found)
+        return failure(found.error());
+    const RealizedScene& scene = **found;
     const uint32_t count = scene.renderableCount > UINT32_MAX
         ? UINT32_MAX : static_cast<uint32_t>(scene.renderableCount);
     const uint32_t written = count < capacity ? count : capacity;
     for (uint32_t i = 0; output != nullptr && i < written; ++i)
-        (void)ano_vk_resource_scene_primitive(
-            residency, asset, i, root, &output[i]);
+        output[i] = instance_desc(scene.renderables[i], asset, i, root);
     return count;
 }
 
-bool ano_vk_resource_scene_primitive(
+RenderResult<AnoRenderableDesc> ano_vk_resource_scene_primitive(
     const AnoRenderResidency *residency, AnoAssetId asset,
-    uint32_t primitive, const mat4 root, AnoRenderableDesc *output)
+    uint32_t primitive, const mat4 root)
 {
-    if (residency == nullptr || output == nullptr || asset.value == 0
-        || asset.value > residency->bindingCount)
-        return false;
-    const RenderBinding& binding = residency->bindings[asset.value - 1];
-    if (binding.sourceType.value != ano::resource_type_id<schema::Scene>().value
-        || binding.state != BindingState::resident
-        || binding.scene.slot >= residency->sceneCount)
-        return false;
-    const RealizedScene& scene = residency->scenes[binding.scene.slot];
+    const auto found = resource_scene(residency, asset);
+    if (!found)
+        return failure(found.error());
+    const RealizedScene& scene = **found;
     if (primitive >= scene.renderableCount)
-        return false;
-    mat4 local;
-    memcpy(local, scene.renderables[primitive].transform, sizeof(local));
-    multiplyMat4(output->transform, root, local);
-    output->mesh_index = scene.renderables[primitive].mesh_index;
-    output->material_index = scene.renderables[primitive].material_index;
-    output->resource_asset = asset;
-    output->resource_primitive = primitive;
-    return true;
+        return failure(RenderError::invalid_argument);
+    return instance_desc(scene.renderables[primitive], asset, primitive, root);
 }
 
-uint32_t ano_vk_resource_scene_lights(
+RenderResult<uint32_t> ano_vk_resource_scene_lights(
     const AnoRenderResidency *residency, AnoAssetId asset, const mat4 root,
     AnoSceneLightDesc *output, uint32_t capacity)
 {
-    if (residency == nullptr || asset.value == 0
-        || asset.value > residency->bindingCount)
-        return 0;
-    const RenderBinding& binding = residency->bindings[asset.value - 1];
-    if (binding.sourceType.value != ano::resource_type_id<schema::Scene>().value
-        || binding.state != BindingState::resident
-        || binding.scene.slot >= residency->sceneCount)
-        return 0;
-    const RealizedScene& scene = residency->scenes[binding.scene.slot];
+    const auto found = resource_scene(residency, asset);
+    if (!found)
+        return failure(found.error());
+    const RealizedScene& scene = **found;
     const uint32_t count = scene.lightCount > UINT32_MAX
         ? UINT32_MAX : static_cast<uint32_t>(scene.lightCount);
     const uint32_t written = count < capacity ? count : capacity;

@@ -12,8 +12,16 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <anoptic_results.h>
 
 namespace ano {
+
+enum class MusicError : uint8_t {
+    invalid_argument, invalid_state, out_of_memory,
+};
+
+template<class Value = void>
+using MusicResult = Result<Value, MusicError>;
 
 struct AnoModeContract final {
     uint8_t intervals[7];
@@ -29,8 +37,7 @@ struct AnoCadenceContract final {
 };
 
 // Six layers, canonical order, fixed.
-typedef enum AnoMusicLayer
-{
+enum AnoMusicLayer {
     ANO_MUSIC_PAD = 0,
     ANO_MUSIC_BASS,
     ANO_MUSIC_MELODY,
@@ -38,49 +45,44 @@ typedef enum AnoMusicLayer
     ANO_MUSIC_ARP,
     ANO_MUSIC_PERC,
     ANO_MUSIC_LAYER_COUNT,
-} AnoMusicLayer;
+};
 
 // Tie chain: out -> both... -> in is one musical note; merge_ties recovers it.
 // Orphan out -> plain note; orphan in passes through struck.
-typedef enum AnoMusicTie
-{
+enum AnoMusicTie {
     ANO_MUSIC_TIE_NONE = 0,
     ANO_MUSIC_TIE_OUT,
     ANO_MUSIC_TIE_IN,
     ANO_MUSIC_TIE_BOTH,
-} AnoMusicTie;
+};
 
 // Playable core. dur is gated sounding duration; release tail may extend past it.
-typedef struct AnoNoteEvent
-{
+struct AnoNoteEvent {
     double  start;    // absolute beats, >= 0
     double  dur;      // beats, > 0
     uint8_t pitch;    // MIDI 0..127
     uint8_t velocity; // 1..127
     uint8_t layer;    // AnoMusicLayer
     uint8_t tie;      // AnoMusicTie
-} AnoNoteEvent;
+};
 
 // Piecewise-constant bpm from beat until the next anchor. Monotonic in beat; same beat replaces.
 // Cadence ritardandi are extra points on this map.
-typedef struct AnoTempoPoint
-{
+struct AnoTempoPoint {
     double beat;
     double bpm;
-} AnoTempoPoint;
+};
 
-typedef struct AnoMusicAffect
-{
+struct AnoMusicAffect {
     float valence; // -1 .. 1
     float energy;  //  0 .. 1
     float tension; //  0 .. 1
-} AnoMusicAffect;
+};
 
 // Tier-2 params per bar. Immutable value struct; conductor derives variants by copy.
 // DSP fields are retarget values, not per-sample automation.
 // instruments[]: AnoPatchName per layer; 0 = layer default.
-typedef struct AnoMusicalParams
-{
+struct AnoMusicalParams {
     double   tempoBpm;         // 100.0
     float    noteDensity;      // 0.5
     float    roughness;        // 0.0
@@ -99,20 +101,18 @@ typedef struct AnoMusicalParams
     float delaySend;    // 0.10
     float drive;        // 0.15
     float stereoWidth;  // 0.70
-} AnoMusicalParams;
+};
 
 
 /* Theory Vocabulary */
 
-typedef struct AnoMeter
-{
+struct AnoMeter {
     int numerator;
     int denominator;
-} AnoMeter;
+};
 
 // One declaration owns scale intervals, brightness, and affect-mapping membership.
-typedef enum AnoMode
-{
+enum AnoMode {
     ANO_MODE_IONIAN [[=AnoModeContract{{0, 2, 4, 5, 7, 9, 11}, 2}]] = 0,
     ANO_MODE_DORIAN [[=AnoModeContract{{0, 2, 3, 5, 7, 9, 10}, 0}]],
     ANO_MODE_PHRYGIAN [[=AnoModeContract{{0, 1, 3, 5, 7, 8, 10}, -2}]],
@@ -122,13 +122,12 @@ typedef enum AnoMode
     ANO_MODE_LOCRIAN [[=AnoModeContract{{0, 1, 3, 5, 6, 8, 10}, -1, false}]],
     ANO_MODE_COUNT,
     ANO_MODE_NONE = -1, // valence-driven (with mapper) / ionian (without)
-} AnoMode;
+};
 
 // Reflected lowercase enum name. Invalid/NONE falls back to ionian.
 const char *ano_mode_name(AnoMode mode);
 
-typedef enum AnoCadencePolicy
-{
+enum AnoCadencePolicy {
     ANO_CADENCE_AUTHENTIC [[=AnoCadenceContract{
         1, 'D', {1, 3}, {1, -1}, {5, 7}}]] = 0,
     ANO_CADENCE_HALF [[=AnoCadenceContract{
@@ -137,22 +136,20 @@ typedef enum AnoCadencePolicy
         6, 'D', {1, 3}, {6, -1}, {5, 7}}]],
     ANO_CADENCE_COUNT,
     ANO_CADENCE_NONE = -1, // not a cadence bar
-} AnoCadencePolicy;
+};
 
 // Texture ladder, lean -> rich. NONE = no texture system.
-typedef enum AnoTexture
-{
+enum AnoTexture {
     ANO_TEX_NONE = 0,
     ANO_TEX_MONOPHONIC,
     ANO_TEX_HOMOPHONIC,
     ANO_TEX_DOUBLED,
     ANO_TEX_IMITATIVE,
     ANO_TEX_COUNTER,
-} AnoTexture;
+};
 
 // Semantic patch names. Synth maps them to voice variants.
-typedef enum AnoPatchName
-{
+enum AnoPatchName {
     ANO_PATCH_NONE = 0,   // layer default
     /* pads */
     ANO_PATCH_WARM,       // tight-detune 3-saw, mono, slow attack
@@ -174,7 +171,7 @@ typedef enum AnoPatchName
     ANO_PATCH_GLASS,      // 2-op FM, higher ratio
     ANO_PATCH_CHIMES,     // 5-partial tubular additive
     ANO_PATCH_COUNT,
-} AnoPatchName;
+};
 
 // Name <-> id. Unknown name returns 0.
 uint32_t    ano_music_patch_id(const char *name);
@@ -187,67 +184,59 @@ const char *ano_music_patch_name(uint32_t id);
 #define ANO_MOTIF_MAX  ANO_RHYTHM_MAX
 #define ANO_SIG_MAX    16 // authored signature motifs
 
-typedef struct AnoRhythmNote
-{
+struct AnoRhythmNote {
     int slot;
     int durSlots;
-} AnoRhythmNote;
+};
 
 // CONTOUR_SHAPES tuple order (feeds rng.choice).
-typedef enum AnoContourShape
-{
+enum AnoContourShape {
     ANO_SHAPE_ARCH = 0,
     ANO_SHAPE_DESCENT,
     ANO_SHAPE_ASCENT,
     ANO_SHAPE_ZIGZAG,
     ANO_SHAPE_COUNT,
-} AnoContourShape;
+};
 
 // Cell: slot timing + diatonic offsets from the bar anchor. Pitches never authored.
-typedef struct AnoMotif
-{
+struct AnoMotif {
     AnoRhythmNote rhythm[ANO_MOTIF_MAX];
     int           contour[ANO_MOTIF_MAX];
     uint32_t      n;
     uint8_t       shape; // AnoContourShape
-} AnoMotif;
+};
 
 #define ANO_MOTIF_TAG_MAX 16
 
 // Tag is COPIED, not borrowed (engine is pointer-free for snapshot = bytes).
-typedef struct AnoSignatureMotif
-{
+struct AnoSignatureMotif {
     char     tag[ANO_MOTIF_TAG_MAX]; // request handle: "hero", "threat", ...
     AnoMotif motif;
     double   importance; // 0..1: identity landmark (high) vs colour (low)
-} AnoSignatureMotif;
+};
 
 
 /* Mapping Table */
 
 // Affect -> Tier-2. Pure tuning; no engine internals.
 
-typedef struct AnoLayerGate
-{
+struct AnoLayerGate {
     uint8_t layer; // AnoMusicLayer
     double  threshold;
-} AnoLayerGate;
+};
 
-typedef struct AnoInstrumentTier
-{
+struct AnoInstrumentTier {
     uint8_t patch; // AnoPatchName
     double  threshold;
-} AnoInstrumentTier;
+};
 
-typedef struct AnoInstrumentRow
-{
+struct AnoInstrumentRow {
     uint8_t layer; // AnoMusicLayer
     uint8_t tierCount;
     AnoInstrumentTier tiers[3];
-} AnoInstrumentRow;
+};
 
-typedef struct AnoMappingTable
-{
+struct AnoMappingTable {
     /* tempo (BPM) */
     double tempoBase;        // 70.0
     double tempoEnergy;      // 80.0
@@ -313,7 +302,7 @@ typedef struct AnoMappingTable
     double driveEnergy;          // 0.45
     double widthBase;            // 0.55
     double widthValence;         // 0.25
-} AnoMappingTable;
+};
 
 AnoMappingTable ano_mapping_table_default(void);
 
@@ -325,8 +314,7 @@ AnoMappingTable ano_mapping_table_electronic(void);
 
 // Tension ledger: accrues while unresolved, spends on break.
 
-typedef struct AnoDramaturgConfig
-{
+struct AnoDramaturgConfig {
     bool    enabled;          // true; false => inert
     double  leniency;         // 0.5: 0 strict .. 1 lenient
     double  accrueAbove;      // 0.55
@@ -340,7 +328,7 @@ typedef struct AnoDramaturgConfig
     bool    earnedDissonance; // true (M14)
     bool    motifLifecycle;   // true (M15)
     bool    lamentBass;       // true (B4)
-} AnoDramaturgConfig;
+};
 
 AnoDramaturgConfig ano_dramaturg_config_default(void);
 
@@ -349,27 +337,24 @@ AnoDramaturgConfig ano_dramaturg_config_default(void);
 
 // Every flag off == byte-identical baseline.
 
-typedef struct AnoFormConfig
-{
+struct AnoFormConfig {
     bool   cadential64;    // B1: I64 -> V -> I
     bool   periods;        // B2: antecedent-consequent pairs
     double periodProb;     // 0.65
     bool   hypermeter;     // B3: bar weight within phrase group
     bool   bassInversions; // B4: stepwise bass via first inversions
     bool   split64;        // D3: 6/4 compressed into pre-cadence bar
-} AnoFormConfig;
+};
 
-typedef struct AnoTextureConfig
-{
+struct AnoTextureConfig {
     bool doubling;  // C1: parallel 3rds/6ths inside melody
     bool animate;   // C2: pad figuration
     bool imitation; // C3: phrase cell echoed in arp register
     bool rotate;    // C4: texture chosen per phrase
     bool counter;   // C5: countermelody layer
-} AnoTextureConfig;
+};
 
-typedef struct AnoClockConfig
-{
+struct AnoClockConfig {
     bool   codetta;          // D2: tonic afterglow after big spend
     bool   extension;        // pre-dominant stretched while withholding
     bool   elision;          // next phrase starts ON the cadence bar
@@ -377,26 +362,23 @@ typedef struct AnoClockConfig
     int    codettaBars;      // 2
     double extensionTension; // 0.7
     double elisionEnergy;    // 0.75
-} AnoClockConfig;
+};
 
-typedef struct AnoTieConfig
-{
+struct AnoTieConfig {
     bool anacrusis;   // D1: cadence-bar pickups into next downbeat
     bool suspension;  // M14 prep held across barline
     bool syncopation; // rough bars push last note through barline
-} AnoTieConfig;
+};
 
-typedef struct AnoMelodyFlags
-{
+struct AnoMelodyFlags {
     bool planApex;     // A4: one planned melodic apex per phrase
     bool counterpoint; // A3: guard melody-bass outer-voice frame
-} AnoMelodyFlags;
+};
 
 
 /* Engine */
 
-typedef struct AnoMusicConfig
-{
+struct AnoMusicConfig {
     AnoMeter meter;    // 4/4
     int      keyTonic; // pitch class 0..11
     int      mode;     // AnoMode; NONE = valence-driven (mapper) / ionian
@@ -429,14 +411,15 @@ typedef struct AnoMusicConfig
 
     bool useChains;     // performance modifiers
     bool performChains; // ...with expressive Perform pass
-} AnoMusicConfig;
+};
 
 AnoMusicConfig ano_music_config_default(void);
 
 // Opaque generator. Pointer-free: snapshot/restore is memcpy.
-typedef struct AnoMusicEngine AnoMusicEngine;
+struct AnoMusicEngine;
 
-AnoMusicEngine *ano_music_create(const AnoMusicConfig *cfg, uint64_t seed);
+[[nodiscard]] MusicResult<AnoMusicEngine *> ano_music_create(
+    const AnoMusicConfig *cfg, uint64_t seed);
 void            ano_music_destroy(AnoMusicEngine *e);
 
 
@@ -454,7 +437,8 @@ void ano_music_request_key(AnoMusicEngine *e, int tonicPc, bool urgent);
 void ano_music_request_motif(AnoMusicEngine *e, const char *tag);
 
 // Pin / release one Tier-2 param. Ids: "tempo_bpm", "reverb_send", "texture", ...
-bool ano_music_set_override(AnoMusicEngine *e, const char *param, double value);
+[[nodiscard]] MusicResult<> ano_music_set_override(
+    AnoMusicEngine *e, const char *param, double value);
 void ano_music_clear_override(AnoMusicEngine *e, const char *param);
 
 
@@ -464,8 +448,7 @@ void ano_music_clear_override(AnoMusicEngine *e, const char *param);
 #define ANO_MUSIC_MAX_TEMPO      8
 
 // Bar meaning for gameplay. Delivered when the bar sounds, not when composed.
-typedef struct AnoMusicMeaning
-{
+struct AnoMusicMeaning {
     int    bar;
     int    keyTonic;
     int    mode;           // AnoMode
@@ -475,10 +458,9 @@ typedef struct AnoMusicMeaning
     bool   isCadence;
     bool   keyArrived;
     bool   motifStated;
-} AnoMusicMeaning;
+};
 
-typedef struct AnoMusicBar
-{
+struct AnoMusicBar {
     AnoNoteEvent     events[ANO_MUSIC_MAX_BAR_EVENTS];
     uint32_t         eventCount;
     AnoMusicalParams params;
@@ -486,7 +468,7 @@ typedef struct AnoMusicBar
     AnoTempoPoint    tempo[ANO_MUSIC_MAX_TEMPO];
     uint32_t         tempoCount;
     AnoMusicMeaning  meaning;
-} AnoMusicBar;
+};
 
 // Safe on the audio thread at a bar edge.
 void ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out);
@@ -499,7 +481,9 @@ int ano_music_next_bar(const AnoMusicEngine *e);
 
 // Snapshot = engine bytes (pointer-free; padding deterministic). Same config+seed+bar => byte-identical.
 size_t ano_music_snapshot_size(void);
-bool   ano_music_snapshot(const AnoMusicEngine *e, void *buf, size_t cap);
-bool   ano_music_restore(AnoMusicEngine *e, const void *buf, size_t len);
+[[nodiscard]] MusicResult<> ano_music_snapshot(
+    const AnoMusicEngine *e, void *buf, size_t cap);
+[[nodiscard]] MusicResult<> ano_music_restore(
+    AnoMusicEngine *e, const void *buf, size_t len);
 
 } // namespace ano

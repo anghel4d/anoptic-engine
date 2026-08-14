@@ -17,8 +17,16 @@
 #include <string.h>
 
 #include "anoptic_memory.h"
+#include "anoptic_results.h"
 
 namespace ano {
+
+enum class StringError : uint8_t {
+    invalid_argument, overflow, out_of_memory, consumed,
+};
+
+template<class Value = void>
+using StringResult = Result<Value, StringError>;
 
 
 /* Value Type */
@@ -42,14 +50,14 @@ namespace ano {
 
 #define ANOSTR_INLINE_CAP 12u
 
-typedef struct anostr_t {
+struct anostr_t {
     uint32_t len;               // byte count
     char     prefix[4];         // first min(len,4) bytes, 0x00-padded
     union {
         char        suffix[8];  // len <= 12: bytes [4..len), 0x00-padded
         const char* ptr;        // len >  12: all len bytes in backing (heap or borrow)
     };
-} anostr_t;
+};
 
 static_assert(sizeof(anostr_t) == 16, "anostr_t must be a 16-byte value");
 static_assert(offsetof(anostr_t, prefix) == 4 && offsetof(anostr_t, suffix) == 8,
@@ -60,35 +68,51 @@ static_assert(offsetof(anostr_t, prefix) == 4 && offsetof(anostr_t, suffix) == 8
 
 // Total: bad input yields empty, never UB.
 
-static inline anostr_t anostr_empty(void)
+constexpr anostr_t anostr_empty(void)
 {
     anostr_t s = {0};
     return s;
 }
 
-// Copy len bytes: inline if len <= 12, else from heap. Empty on bad input or alloc fail.
-anostr_t anostr_from(mi_heap_t *heap, const void *bytes, size_t len);
+// Copy len bytes: inline if len <= 12, else from heap.
+[[nodiscard]] StringResult<anostr_t> anostr_from(
+    mi_heap_t *heap, const void *bytes, size_t len);
 
-// anostr_from over strlen(cstr). NULL -> empty.
-anostr_t anostr_from_cstr(mi_heap_t *heap, const char *cstr);
+[[nodiscard]] StringResult<anostr_t> anostr_from_cstr(
+    mi_heap_t *heap, const char *cstr);
 
 // len <= 12 copies inline; len > 12 borrows without copy (bytes outlive every use; never mutate underneath).
 // For literals use anostr_lit.
 anostr_t anostr_view(const char *bytes, size_t len);
 
 // Value from a string literal (static storage; borrow is sound).
-#define anostr_lit(strlit) anostr_view("" strlit, sizeof(strlit) - 1)
+template<size_t Count>
+consteval anostr_t anostr_lit(const char (&text)[Count])
+{
+    static_assert(Count > 0 && Count - 1 <= UINT32_MAX);
+    anostr_t result{};
+    result.len = Count - 1;
+    for (size_t i = 0; i < (Count - 1 < 4 ? Count - 1 : 4); ++i)
+        result.prefix[i] = text[i];
+    if constexpr (Count - 1 <= ANOSTR_INLINE_CAP) {
+        for (size_t i = 4; i < Count - 1; ++i)
+            result.suffix[i - 4] = text[i];
+    } else {
+        result.ptr = text;
+    }
+    return result;
+}
 
 
 /* Accessors */
 
-static inline size_t anostr_len(anostr_t s)       { return s.len; }
-static inline bool   anostr_is_empty(anostr_t s)  { return s.len == 0; }
-static inline bool   anostr_is_inline(anostr_t s) { return s.len <= ANOSTR_INLINE_CAP; }
+constexpr size_t anostr_len(anostr_t s)       { return s.len; }
+constexpr bool   anostr_is_empty(anostr_t s)  { return s.len == 0; }
+constexpr bool   anostr_is_inline(anostr_t s) { return s.len <= ANOSTR_INLINE_CAP; }
 
 // Bytes, NOT NUL-terminated; read exactly anostr_len(*s).
 // Inline: into *s (valid while *s lives at this address). Long: into backing (heap or borrow).
-static inline const char *anostr_bytes(const anostr_t *s)
+constexpr const char *anostr_bytes(const anostr_t *s)
 {
     return s->len <= ANOSTR_INLINE_CAP ? s->prefix : s->ptr;
 }
@@ -155,11 +179,11 @@ uint32_t anostr_hash32(anostr_t s);
 // Sub-string [start, end). Clamped, total, allocation-free. <= 12: fresh inline; longer borrows s's backing (same lifetime as s).
 anostr_t anostr_slice(anostr_t s, size_t start, size_t end);
 
-// Inline: identity. Long: copy into heap (must outlive the result; may be shared). Empty on alloc fail.
-anostr_t anostr_keep(mi_heap_t *heap, anostr_t s);
+// Inline: identity. Long: copy into heap (must outlive the result; may be shared).
+[[nodiscard]] StringResult<anostr_t> anostr_keep(mi_heap_t *heap, anostr_t s);
 
-// NUL-terminated copy from heap (len + 0x00). NULL on alloc fail. Embedded 0x00 truncates the C view.
-char *anostr_to_cstr(mi_heap_t *heap, anostr_t s);
+// NUL-terminated copy from heap (len + 0x00). Embedded 0x00 truncates the C view.
+[[nodiscard]] StringResult<char *> anostr_to_cstr(mi_heap_t *heap, anostr_t s);
 
 
 /* Search, Join, Split */
@@ -171,21 +195,24 @@ char *anostr_to_cstr(mi_heap_t *heap, anostr_t s);
 // Byte index of first needle at/after `from`; ANOSTR_NPOS if absent. Empty needle -> min(from, len).
 size_t anostr_find(anostr_t s, anostr_t needle, size_t from);
 
-// Every needle replaced by repl, LTR, non-overlapping. Empty needle or zero matches -> s unchanged. Empty on overflow/alloc fail.
-anostr_t anostr_replace_all(mi_heap_t *heap, anostr_t s, anostr_t needle, anostr_t repl);
+// Every needle replaced by repl, LTR, non-overlapping. Empty needle or zero matches -> s unchanged.
+[[nodiscard]] StringResult<anostr_t> anostr_replace_all(
+    mi_heap_t *heap, anostr_t s, anostr_t needle, anostr_t repl);
 
-// a ++ b. Allocates only when result exceeds inline cap. Empty on overflow/alloc fail.
-anostr_t anostr_concat(mi_heap_t *heap, anostr_t a, anostr_t b);
+// a ++ b. Allocates only when result exceeds inline cap.
+[[nodiscard]] StringResult<anostr_t> anostr_concat(
+    mi_heap_t *heap, anostr_t a, anostr_t b);
 
-// parts joined by sep; count == 0 -> empty. One exact-size alloc (none if fits inline). Empty on fail.
-anostr_t anostr_join(mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_t count);
+// parts joined by sep; count == 0 -> empty. One exact-size alloc (none if fits inline).
+[[nodiscard]] StringResult<anostr_t> anostr_join(
+    mi_heap_t *heap, anostr_t sep, const anostr_t *parts, size_t count);
 
 // Zero-alloc splitter. Empty pieces included. Pieces re-canonicalize per anostr_slice. Empty sep -> s whole.
-typedef struct anostr_split_t {
+struct anostr_split_t {
     anostr_t src, sep;  // long-piece lifetimes follow src's backing
     size_t   pos;
     bool     done;
-} anostr_split_t;
+};
 
 static inline anostr_split_t anostr_split(anostr_t s, anostr_t sep)
 {
@@ -204,13 +231,13 @@ bool anostr_split_next(anostr_split_t *it, anostr_t *piece);
 typedef uint32_t anostr_sym;
 #define ANOSTR_SYM_NONE UINT32_MAX
 
-typedef struct anostr_intern_t anostr_intern_t;
+struct anostr_intern_t;
 
-// Table allocating from heap (heap outlives the table). NULL on alloc fail.
-anostr_intern_t *anostr_intern_make(mi_heap_t *heap);
+// Table allocating from heap (heap outlives the table).
+[[nodiscard]] StringResult<anostr_intern_t *> anostr_intern_make(mi_heap_t *heap);
 
-// Symbol for s's contents, inserting a canonical copy on first sight. ANOSTR_SYM_NONE on alloc fail.
-anostr_sym anostr_intern(anostr_intern_t *t, anostr_t s);
+// Symbol for s's contents, inserting a canonical copy on first sight.
+[[nodiscard]] StringResult<anostr_sym> anostr_intern(anostr_intern_t *t, anostr_t s);
 
 // Lookup without insertion: symbol, or ANOSTR_SYM_NONE.
 anostr_sym anostr_intern_find(const anostr_intern_t *t, anostr_t s);
@@ -218,8 +245,8 @@ anostr_sym anostr_intern_find(const anostr_intern_t *t, anostr_t s);
 // Canonical value for a symbol (lives as long as the table's heap). Empty for NONE/out-of-range.
 anostr_t anostr_sym_str(const anostr_intern_t *t, anostr_sym sym);
 
-// Intern s, return the canonical value. Equal inputs -> bit-identical (shared backing). Fail -> s.
-anostr_t anostr_dedupe(anostr_intern_t *t, anostr_t s);
+// Intern s, return the canonical value. Equal inputs -> bit-identical (shared backing).
+[[nodiscard]] StringResult<anostr_t> anostr_dedupe(anostr_intern_t *t, anostr_t s);
 
 // Distinct strings interned; symbols are dense 0 .. count-1.
 size_t anostr_intern_count(const anostr_intern_t *t);
@@ -258,30 +285,35 @@ consteval anostr_sid32 ANOSTR_SID32(const char (&text)[Count])
 
 // The ONLY mutation path. Accumulate in scratch, freeze to an immutable value.
 // Geometric growth. Not thread-safe; one owner.
-typedef struct anostr_builder_t {
+struct anostr_builder_t {
     char      *ptr;   // heap-owned, cap bytes; NULL until allocated (reserve 0 defers)
     uint32_t   len;
     uint32_t   cap;
-    mi_heap_t *heap;  // NULL = consumed/discarded: appends fail with -1
-} anostr_builder_t;
+    mi_heap_t *heap;  // NULL after consumption or discard
+};
 
-// Builder from heap, cap >= reserve (0 defers allocation). heap non-NULL, calling-thread-owned.
-anostr_builder_t anostr_builder_make(mi_heap_t *heap, uint32_t reserve);
+// Builder from heap, cap >= reserve (0 defers allocation). Calling-thread-owned.
+[[nodiscard]] StringResult<anostr_builder_t> anostr_builder_make(
+    mi_heap_t *heap, uint32_t reserve);
 
-// Append n raw bytes. 0, or -1 on consumed/overflow/growth fail (builder intact on fail).
-int anostr_builder_append(anostr_builder_t *b, const void *bytes, size_t n);
+// Append n raw bytes. Builder remains intact on failure.
+[[nodiscard]] StringResult<> anostr_builder_append(
+    anostr_builder_t *b, const void *bytes, size_t n);
 
-int anostr_builder_append_str(anostr_builder_t *b, anostr_t s);
+[[nodiscard]] StringResult<> anostr_builder_append_str(
+    anostr_builder_t *b, anostr_t s);
 
-int anostr_builder_append_cstr(anostr_builder_t *b, const char *cstr);
+[[nodiscard]] StringResult<> anostr_builder_append_cstr(
+    anostr_builder_t *b, const char *cstr);
 
 // printf into the builder (grows to fit). Same returns as anostr_builder_append.
-int anostr_builder_appendf(anostr_builder_t *b, const char *fmt, ...)
+[[nodiscard]] StringResult<> anostr_builder_appendf(
+    anostr_builder_t *b, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 
 // Consume builder -> immutable value. <= 12: inline, buffer freed. Longer: shrink-to-len, value takes buffer.
-// Builder zeroed; further appends return -1.
-anostr_t anostr_freeze(anostr_builder_t *b);
+// Builder zeroed; further appends return StringError::consumed.
+[[nodiscard]] StringResult<anostr_t> anostr_freeze(anostr_builder_t *b);
 
 // Consume without a value; frees the buffer now.
 void anostr_builder_discard(anostr_builder_t *b);

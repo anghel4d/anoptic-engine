@@ -51,23 +51,22 @@ uint32_t ano::ano_timestamp_ms() {
 
 /* Generic Date-Time Stamps */
 
-int64_t ano::ano_timestamp_unix() {
+TimeResult<int64_t> ano::ano_timestamp_unix() {
     time_t currentTime;
     currentTime = time(NULL);
 
     if (currentTime == (time_t)-1) {
-        perror("time()");
-        return INT64_MIN; // Out-of-range sentinel.
+        return failure(TimeError::unavailable);
     }
 
     return (int64_t)currentTime;
 }
 
-ano_datetime ano::ano_localtime(int64_t unix_seconds) {
+TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_r(&t, &tm) == NULL)
-        return (ano_datetime){0};
+        return failure(TimeError::invalid_argument);
 
     return (ano_datetime){
         .year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday,
@@ -75,20 +74,11 @@ ano_datetime ano::ano_localtime(int64_t unix_seconds) {
     };
 }
 
-// NTP-adjusted timestamp. Not monotonic. Stub.
-int64_t ano_timestamp_ntp(){
-    printf("ano_timestamp_ntp\tTest!\n");
-    // TODO: network socket path.
-    return 0;
-}
-
 /* Waiting Facilities */
 
-int ano::ano_busywait(uint64_t ns) {
-    if (ns > MAX_BUSYWAIT_NS) {
-        printf("Requested busywait time exceeds maximum limit. Returning.\n");
-        return -1;
-    }
+TimeResult<> ano::ano_busywait(uint64_t ns) {
+    if (ns > MAX_BUSYWAIT_NS)
+        return failure(TimeError::invalid_argument);
 
     uint64_t startTime = ano_timestamp_raw();
     uint64_t endTime;
@@ -97,11 +87,11 @@ int ano::ano_busywait(uint64_t ns) {
         endTime = ano_timestamp_raw();
     } while (endTime - startTime < ns);
 
-    return 0;
+    return {};
 }
 
 // Relative clock_nanosleep(CLOCK_MONOTONIC). Restarts on EINTR.
-int ano::ano_sleep(uint64_t us) {
+TimeResult<> ano::ano_sleep(uint64_t us) {
     struct timespec request = {0};
     struct timespec remaining = {0};
 
@@ -112,15 +102,13 @@ int ano::ano_sleep(uint64_t us) {
     while ((sleepStatus = clock_nanosleep(CLOCK_MONOTONIC, 0, &request, &remaining)) != 0) {
         if (sleepStatus == EINTR) {
             request = remaining;
-            printf("Interrupted by signal handler\n");
         } else {
-            // clock_nanosleep returns the error; it does not set errno.
-            printf("clock_nanosleep error with status: %d\n", sleepStatus);
-            return sleepStatus;
+            return failure(sleepStatus == EINVAL
+                ? TimeError::invalid_argument : TimeError::platform);
         }
     }
 
-    return 0;
+    return {};
 }
 
 #endif
