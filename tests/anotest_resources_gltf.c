@@ -129,15 +129,12 @@ static void test_incremental_external_image(void)
         "/resource-incremental/viking_room.bin";
     const char *image = ANO_TEST_BINARY_DIR
         "/resource-incremental/viking_room.png";
-    const char *alternate = ANO_TEST_BINARY_DIR
-        "/resource-incremental/hat_loli.png";
     const char *cursed = ANO_TEST_BINARY_DIR
         "/resource-incremental/cursed.png";
     const bool staged = copy_file(
             ANO_TEST_SOURCE_DIR "/assets/viking_room.gltf", gltf)
         && copy_file(ANO_TEST_SOURCE_DIR "/assets/viking_room.bin", binary)
         && copy_file(ANO_TEST_SOURCE_DIR "/assets/viking_room.png", image)
-        && copy_file(ANO_TEST_SOURCE_DIR "/assets/hat_loli.png", alternate)
         && copy_file(ANO_TEST_SOURCE_DIR "/assets/cursed.png", cursed);
     CHECK(staged, "incremental fixture stages exact source files");
     if (!staged)
@@ -158,7 +155,7 @@ static void test_incremental_external_image(void)
     if (result == ANO_RESOURCE_OK)
         result = ano_resource_cooker_begin(cooker);
     if (result == ANO_RESOURCE_OK
-        && !copy_file(ANO_TEST_SOURCE_DIR "/assets/hat_loli.png", image))
+        && !copy_file(ANO_TEST_SOURCE_DIR "/assets/cursed.png", image))
         result = ANO_RESOURCE_IO_ERROR;
     if (result == ANO_RESOURCE_OK)
         result = ano_resource_import(cooker, &request);
@@ -206,15 +203,12 @@ static void test_incremental_external_image(void)
         "/resource-incremental-relocated/viking_room.bin";
     const char *relocatedImage = ANO_TEST_BINARY_DIR
         "/resource-incremental-relocated/viking_room.png";
-    const char *relocatedAlternate = ANO_TEST_BINARY_DIR
-        "/resource-incremental-relocated/hat_loli.png";
     const char *relocatedCursed = ANO_TEST_BINARY_DIR
         "/resource-incremental-relocated/cursed.png";
     if (result == ANO_RESOURCE_OK
         && (!copy_file(gltf, relocatedGltf)
             || !copy_file(binary, relocatedBinary)
             || !copy_file(image, relocatedImage)
-            || !copy_file(alternate, relocatedAlternate)
             || !copy_file(cursed, relocatedCursed)))
         result = ANO_RESOURCE_IO_ERROR;
     if (result == ANO_RESOURCE_OK)
@@ -237,12 +231,10 @@ static void test_incremental_external_image(void)
     ano_resource_revision_release(first);
     ano_resource_cooker_destroy(cooker);
     (void)remove(image);
-    (void)remove(alternate);
     (void)remove(cursed);
     (void)remove(binary);
     (void)remove(gltf);
     (void)remove(relocatedImage);
-    (void)remove(relocatedAlternate);
     (void)remove(relocatedCursed);
     (void)remove(relocatedBinary);
     (void)remove(relocatedGltf);

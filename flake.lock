@@ -3,11 +3,11 @@
     "anoptic-assets": {
       "flake": false,
       "locked": {
-        "lastModified": 1783730983,
-        "narHash": "sha256-a8bWLmRaHoFDXiVJTP1a3D4+sOHv1JQn+A0Ep4CK6cU=",
+        "lastModified": 1786665811,
+        "narHash": "sha256-KUbO0qpOsQR7QfyvFAg6laCNh/fkQsEO5+0N9mMK9kY=",
         "owner": "Anoptic-Games",
         "repo": "assets-free",
-        "rev": "a9415d5c0dd340b0016df1edd5eef3350072e585",
+        "rev": "76f45e0f565f3f900cadb7124ea18a12e58839a1",
         "type": "github"
       },
       "original": {
