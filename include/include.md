@@ -1,3 +1,5 @@
+**2026-08-14 — not current!**
+
 # `include/` Directory
 
 `include/` contains the public type of the Anoptic engine.
