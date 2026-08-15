@@ -182,10 +182,10 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 	return true;
 	}();
 
-	ano_aligned_free(geomCode.data);
-	ano_aligned_free(fragCode.data);
-	ano_aligned_free(mGeomCode.data);
-	ano_aligned_free(mFragCode.data);
+	aligned_free(geomCode.data);
+	aligned_free(fragCode.data);
+	aligned_free(mGeomCode.data);
+	aligned_free(mFragCode.data);
 	vkDestroyShaderModule(ctx->device, geomModule, NULL);
 	vkDestroyShaderModule(ctx->device, fragModule, NULL);
 	vkDestroyShaderModule(ctx->device, mGeomModule, NULL);
@@ -271,8 +271,8 @@ bool ano_vk_init_shadow(VulkanContext* ctx, RendererState* state)
 	if (!blurOk) ano_log(ANO_FATAL, "Failed to create shadow blur pipeline!");
 
 	// Both paths, unconditional.
-	ano_aligned_free(blurVertCode.data);
-	ano_aligned_free(blurFragCode.data);
+	aligned_free(blurVertCode.data);
+	aligned_free(blurFragCode.data);
 	vkDestroyShaderModule(ctx->device, blurVert, NULL);
 	vkDestroyShaderModule(ctx->device, blurFrag, NULL);
 	return blurOk;

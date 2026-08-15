@@ -32,7 +32,7 @@ uint64_t firshhhahafigits(uint64_t num, uint64_t n) {
 int testDate() {
     printf("Testing current date.\n");
 
-    const auto timestamp = ano_timestamp_unix();
+    const auto timestamp = timestamp_unix();
     if (!timestamp)
         return -1;
 
@@ -45,9 +45,9 @@ int testDate() {
 int testTimeStamps() {
     printf("Testing timestamps across various resolutions\n");
 
-    uint64_t nanoStamp = ano_timestamp_raw();
-    uint64_t microStamp = ano_timestamp_us();
-    uint32_t milliStamp = ano_timestamp_ms();
+    uint64_t nanoStamp = timestamp_raw();
+    uint64_t microStamp = timestamp_us();
+    uint32_t milliStamp = timestamp_ms();
 
     printf("nanoseconds: %" PRIu64 "\n", nanoStamp);
     printf("microseconds: %" PRIu64 "\n", microStamp);
@@ -70,7 +70,7 @@ int testTimeStamps() {
 #define SLEEP_SAMPLES   8   // best-of-N
 #define BUSY_SAMPLES    5
 
-// ano_sleep case: never early (hard), best within ceil. skipCeil drops ceil (macOS nix sandbox).
+// sleep_us case: never early (hard), best within ceil. skipCeil drops ceil (macOS nix sandbox).
 //   in:  us (uint64_t) sleep us; skipCeil (int) floor only
 //   out: int, 0 pass, 1 fail
 static int sleepCase(uint64_t us, int skipCeil) {
@@ -81,12 +81,12 @@ static int sleepCase(uint64_t us, int skipCeil) {
     uint64_t best = UINT64_MAX;
     int early = 0;
     for (int i = 0; i < SLEEP_SAMPLES; i++) {
-        uint64_t t0 = ano_timestamp_raw();
-        if (!ano_sleep(us)) {
-            printf("  [FAIL] ano_sleep(%" PRIu64 "us) failed\n", us);
+        uint64_t t0 = timestamp_raw();
+        if (!sleep_us(us)) {
+            printf("  [FAIL] sleep_us(%" PRIu64 "us) failed\n", us);
             return 1;
         }
-        uint64_t el = ano_timestamp_raw() - t0;
+        uint64_t el = timestamp_raw() - t0;
         if (el + floorSlack < want)                     // woke meaningfully early
             early = 1;
         if (el < best)
@@ -105,7 +105,7 @@ static int sleepCase(uint64_t us, int skipCeil) {
     return ok ? 0 : 1;
 }
 
-// ano_busywait case: must elapse at least target, not wildly overshoot.
+// busywait case: must elapse at least target, not wildly overshoot.
 //   in:  ns (uint64_t) requested busy-wait
 //   out: int, 0 pass, 1 fail
 static int busyCase(uint64_t ns) {
@@ -115,12 +115,12 @@ static int busyCase(uint64_t ns) {
     uint64_t best = UINT64_MAX;
     int early = 0;
     for (int i = 0; i < BUSY_SAMPLES; i++) {
-        uint64_t t0 = ano_timestamp_raw();
-        if (!ano_busywait(ns)) {
-            printf("  [FAIL] ano_busywait(%" PRIu64 "ns) failed\n", ns);
+        uint64_t t0 = timestamp_raw();
+        if (!busywait(ns)) {
+            printf("  [FAIL] busywait(%" PRIu64 "ns) failed\n", ns);
             return 1;
         }
-        uint64_t el = ano_timestamp_raw() - t0;
+        uint64_t el = timestamp_raw() - t0;
         if (el + floorSlack < ns)
             early = 1;
         if (el < best)
@@ -138,9 +138,9 @@ static int busyCase(uint64_t ns) {
 static int testResolution(void) {
     int fails = 0;
 
-    // Warm up: first ano_sleep creates the per-thread waitable timer (Windows).
-    (void)ano_sleep(1000);
-    (void)ano_busywait(1000);
+    // Warm up: first sleep_us creates the per-thread waitable timer (Windows).
+    (void)sleep_us(1000);
+    (void)busywait(1000);
 
     printf("\nano_busywait resolution sweep:\n");
     uint64_t busyNs[] = {1000, 10000, 100000, 1000000, 10000000}; // 1us .. 10ms
@@ -182,18 +182,18 @@ static int testGranularity(void) {
     printf("\nTesting timebase granularity (smallest resolvable step)\n");
 
     uint64_t quantum = 0;
-    uint64_t prev = ano_timestamp_ticks();
-    uint64_t prevNs = ano_timestamp_raw();
+    uint64_t prev = timestamp_ticks();
+    uint64_t prevNs = timestamp_raw();
     uint64_t backward = 0;
     for (int i = 0; i < GRAIN_SAMPLES; i++) {
-        uint64_t now = ano_timestamp_ticks();
+        uint64_t now = timestamp_ticks();
         if (now < prev)
             backward++;
         else if (now != prev)
             quantum = gcd_u64(quantum, now - prev);
         prev = now;
 
-        uint64_t nowNs = ano_timestamp_raw();
+        uint64_t nowNs = timestamp_raw();
         if (nowNs < prevNs)
             backward++;
         prevNs = nowNs;
@@ -209,7 +209,7 @@ static int testGranularity(void) {
         return 1;
     }
 
-    uint64_t grainNs = ano_ticks_to_ns(quantum);
+    uint64_t grainNs = ticks_to_ns(quantum);
     int ok = grainNs < GRAIN_MAX_NS;
     printf("  [%s] quantum = %" PRIu64 " ticks = %" PRIu64 " ns (need < %d ns)\n",
            ok ? "PASS" : "FAIL", quantum, grainNs, GRAIN_MAX_NS);
@@ -242,7 +242,7 @@ int main() {
         return -1;
     }
 
-    /* Resolution Tests: assert ano_busywait/ano_sleep land near their target across all scales */
+    /* Resolution Tests: assert busywait/sleep_us land near their target across all scales */
     int resFails = testResolution();
     if (resFails != 0) {
         printf("\nanoptic_time.h: %d resolution case(s) failed.\n", resFails);

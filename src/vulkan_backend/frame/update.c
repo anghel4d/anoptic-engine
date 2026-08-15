@@ -24,7 +24,7 @@ bool updateUniformBuffer(VulkanContext* ctx, RendererState* state)
 	static uint64_t startTime = 0;
 	static uint32_t frameCount = 0;
 
-	time = ano_timestamp_us();
+	time = timestamp_us();
 	if (startTime == 0) {
 		startTime = time;
 		oldTime = time;

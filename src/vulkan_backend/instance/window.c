@@ -173,28 +173,28 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
 	ie.u.key.mods = mods;
 	forward_input(&ie);
 	if (key == GLFW_KEY_L && action == GLFW_PRESS) {
-		AnoLightingMode next = (AnoLightingMode)(((uint32_t)ano_render_get_lighting_mode() + 1u) % (uint32_t)ANO_LIGHTING_MODE_COUNT);
-		(void)ano_render_set_lighting_mode(next);
-		ano_log(ANO_INFO, "Lighting mode: %s", ano_render_lighting_mode_name(next));
+		AnoLightingMode next = (AnoLightingMode)(((uint32_t)render_get_lighting_mode() + 1u) % (uint32_t)ANO_LIGHTING_MODE_COUNT);
+		(void)render_set_lighting_mode(next);
+		ano_log(ANO_INFO, "Lighting mode: %s", render_lighting_mode_name(next));
 	}
 	// LOD bias: [ finer, ] coarser.
 	if ((key == GLFW_KEY_LEFT_BRACKET || key == GLFW_KEY_RIGHT_BRACKET) &&
 	    (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-		int32_t bias = ano_render_get_lod_bias() + (key == GLFW_KEY_RIGHT_BRACKET ? 1 : -1);
-		ano_render_set_lod_bias(bias);
-		ano_log(ANO_INFO, "LOD bias: %+d", ano_render_get_lod_bias());
+		int32_t bias = render_get_lod_bias() + (key == GLFW_KEY_RIGHT_BRACKET ? 1 : -1);
+		render_set_lod_bias(bias);
+		ano_log(ANO_INFO, "LOD bias: %+d", render_get_lod_bias());
 	}
 	// Shadow LOD bias: ; finer, ' coarser.
 	if ((key == GLFW_KEY_SEMICOLON || key == GLFW_KEY_APOSTROPHE) &&
 	    (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-		int32_t bias = ano_render_get_shadow_lod_bias() + (key == GLFW_KEY_APOSTROPHE ? 1 : -1);
-		ano_render_set_shadow_lod_bias(bias);
-		ano_log(ANO_INFO, "Shadow LOD bias: %+d", ano_render_get_shadow_lod_bias());
+		int32_t bias = render_get_shadow_lod_bias() + (key == GLFW_KEY_APOSTROPHE ? 1 : -1);
+		render_set_shadow_lod_bias(bias);
+		ano_log(ANO_INFO, "Shadow LOD bias: %+d", render_get_shadow_lod_bias());
 	}
 	// Hi-Z occlusion toggle: H flips view 0 GPU occlusion cull.
 	if (key == GLFW_KEY_H && action == GLFW_PRESS) {
-		bool on = !ano_render_get_view_hiz_enable(0u).value_or(false);
-		(void)ano_render_set_view_hiz_enable(0u, on);
+		bool on = !render_get_view_hiz_enable(0u).value_or(false);
+		(void)render_set_view_hiz_enable(0u, on);
 		ano_log(ANO_INFO, "Hi-Z occlusion (view 0): %s", on ? "ON" : "OFF");
 	}
 }

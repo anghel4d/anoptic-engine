@@ -16,7 +16,7 @@ using namespace ano;
 #include <stddef.h>
 #include <string.h>
 
-// "<gamedir>/logs/<session-stamp>_CRASH.log". Resolved once by ano_log_crash_init, never in a handler.
+// "<gamedir>/logs/<session-stamp>_CRASH.log". Resolved once by log_crash_init, never in a handler.
 extern char bb_crashPath[];
 
 // Stage 1, per-platform: install fatal hooks. 0 ok, -1 if any failed.

@@ -186,7 +186,7 @@ static inline uint32_t bsearch_find(const sidrec *arr, size_t n, uint64_t sid)
             sum += acc;                                                     \
         }                                                                   \
         (sumVar) = sum;                                                     \
-        (tpVar)  = ano_ticks_to_ns(totalTicks);                            \
+        (tpVar)  = ticks_to_ns(totalTicks);                            \
         bench_lat_row((label), bench_lat_stats(&lat));                      \
     } while (0)
 
@@ -326,8 +326,8 @@ int main(int argc, char **argv)
     uint32_t events = EVENTS_DEFAULT;
     if (argc > 1) events = (uint32_t)strtoul(argv[1], NULL, 10);
 
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-    if (heap == NULL) { printf("ano_heap_create failed\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+    if (heap == NULL) { printf("heap_create failed\n"); return 1; }
 
     // Shared fixtures: names + intern table (sym i == type i).
     anostr_t names[NTYPES];
@@ -391,14 +391,14 @@ int main(int argc, char **argv)
     uint64_t t0 = bench_begin();
     for (uint32_t i = 0; i < BULK_KEYS; i++)
         if (anostr_intern(bulkTable, bulk[i]) == ANOSTR_SYM_NONE) { printf("intern failed\n"); return 1; }
-    uint64_t insertNs = ano_ticks_to_ns(bench_end(t0));
+    uint64_t insertNs = ticks_to_ns(bench_end(t0));
 
     t0 = bench_begin();
     uint64_t acc = 0;
     for (uint32_t i = 0; i < BULK_KEYS; i++)
         acc += anostr_intern_find(bulkTable, bulk[i]);
     g_sink = acc;
-    uint64_t rekeyNs = ano_ticks_to_ns(bench_end(t0));
+    uint64_t rekeyNs = ticks_to_ns(bench_end(t0));
 
     printf("\nbulk keying, %u distinct identifiers:\n", BULK_KEYS);
     printf("  runtime intern (insert):  %8.2f ms total, %6.1f ns/key, %10.0f keys/s\n",

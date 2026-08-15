@@ -102,13 +102,13 @@ hooks (FreeType supports this natively).
 
 Public API, PoC scope:
 
-    ano_text_init / ano_text_shutdown
-    ano_text_font_load(path)                              -> AnoFontId
-    ano_text_font_bake(font, firstCp, lastCp, heap, &out) // GPU-ready blobs in caller heap
-    ano_text_shape(bake, utf8, len, sizePx, origin, color, out, cap, penOut) -> count
-    ano_text_measure(bake, utf8, len, sizePx, &w, &h)
-    ano_text_shape_runs(bake, utf8, runs, runCount, origin, out, cap, penOut) -> count
-    ano_text_measure_runs(bake, utf8, runs, runCount, &w, &h)   // v2 style runs
+    text_init / text_shutdown
+    text_font_load(path)                              -> AnoFontId
+    text_font_bake(font, firstCp, lastCp, heap, &out) // GPU-ready blobs in caller heap
+    text_shape(bake, utf8, len, sizePx, origin, color, out, cap, penOut) -> count
+    text_measure(bake, utf8, len, sizePx, &w, &h)
+    text_shape_runs(bake, utf8, runs, runCount, origin, out, cap, penOut) -> count
+    text_measure_runs(bake, utf8, runs, runCount, &w, &h)   // v2 style runs
 
 Load/bake are bound to the module thread (FreeType underneath); shape/measure are pure
 functions over the immutable bake: no parser state, callable from ANY thread.
@@ -140,8 +140,8 @@ unhinted analytic AA by design). If the game ever needs Arabic or Devanagari, th
 separate decision about a real shaping engine, not an extension of this module.
 
 Shaper v2, per-glyph color/style runs (landed 2026-07-04): `AnoTextRun {byteCount,
-sizePx, color}` spans partition the UTF-8 buffer; `ano_text_shape_runs` /
-`ano_text_measure_runs` walk ONE pen across all runs, so a style change never moves a
+sizePx, color}` spans partition the UTF-8 buffer; `text_shape_runs` /
+`text_measure_runs` walk ONE pen across all runs, so a style change never moves a
 glyph. The four public functions are now thin wrappers over a single static `shape_core`
 in text_shape.c (the old shape/measure duplication is gone; plain shape = one synthesized
 run, bit-identical op order). Zero GPU-side change: size and color were already
@@ -348,7 +348,7 @@ the per-frame buffer is instance array + tile ranges; a block is a contiguous in
 `{first, count}` (PoC: one block). When the logic side starts producing text, blocks arrive
 over the bridge either as copy-at-submit bulk payloads (the `RCMD_BULK`/`bulk_owned` lifetime
 rules, `anoptic_render.h:334`) or through the zero-copy stream region
-(`ano_render_stream_begin/commit`). Transport choice deferred until the UI layer defines
+(`render_stream_begin/commit`). Transport choice deferred until the UI layer defines
 update rates; the ABI above is public in `anoptic_text.h` from day one so that path never
 re-ABIs.
 
@@ -358,10 +358,10 @@ rule picks the command ring). Public surface: `anoRenderTextBake()` hands logic 
 render-side bake (immutable plain data, published before the logic thread spawns; NULL =
 text stack down, and shaping over NULL yields 0 so producers degrade for free); logic
 shapes on its own thread and ships `RenderTextBlock {count, instances}` via
-`ano_render_text_set(bridge, text_id, instances, count)`: one mi allocation packs header
+`render_text_set(bridge, text_id, instances, count)`: one mi allocation packs header
 + copy, the command carries it `bulk_owned`, and the render-side registry ADOPTS the
 allocation on RCMD_TEXT_SET (no second copy; freed on replace/clear/teardown).
-`ano_render_text_clear` / count 0 removes a block; text_id is the producer's namespace
+`render_text_clear` / count 0 removes a block; text_id is the producer's namespace
 (the light_id convention). SET is a full replace, so unlike CREATE/DESTROY a dropped
 submit is safe to skip: the block is stale one tick; one-shot sets and clears retry.
 Both endpoints answer `AnoRenderSubmitResult`, not a bool: a producer's correct reaction differs per outcome.
@@ -369,7 +369,7 @@ ACCEPTED: the block was packed and enqueued and ownership crossed into the bridg
 BACKPRESSURE: the command ring was full, the packed block was released, nothing was enqueued; retry next tick.
 OOM: the block itself could not be allocated. Never spelled as backpressure: retrying at tick rate hammers an allocator that just refused.
 INVALID: count > 0 with a NULL instances pointer. Deterministic; retire the block, do not retry.
-`ano_render_text_clear` allocates nothing and validates nothing, so its domain is ACCEPTED or BACKPRESSURE alone: that lets a caller's exhaustive switch treat the other two as unreachable. Callers inspect `result.code` only; `if (result)` inverts success because ACCEPTED is 0, and switching without a `default` makes a fifth code a compile-time diagnostic at every policy site.
+`render_text_clear` allocates nothing and validates nothing, so its domain is ACCEPTED or BACKPRESSURE alone: that lets a caller's exhaustive switch treat the other two as unreachable. Callers inspect `result.code` only; `if (result)` inverts success because ACCEPTED is 0, and switching without a `default` makes a fifth code a compile-time diagnostic at every policy site.
 Registry: ANO_TEXT_MAX_BLOCKS (64) entries, render thread only; compose = OSD region
 [0, textOsdCount) + blocks in creation order, truncated at ANO_RENDER_TEXT_MAX == the
 region cap (static-asserted against ANO_TEXT_WORLD_FIRST); every change recomposes

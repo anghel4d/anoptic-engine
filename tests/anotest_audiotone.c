@@ -24,14 +24,14 @@ static int failures = 0;
 typedef bool (*telem_pred)(const AnoAudioTelemetry *t);
 static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutMs)
 {
-    uint32_t start = ano_timestamp_ms();
+    uint32_t start = timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
+        if (audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
-        if (ano_timestamp_ms() - start > timeoutMs)
+        if (timestamp_ms() - start > timeoutMs)
             return false;
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
 }
 
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
         if (s > 0) seconds = (uint32_t)s;
     }
 
-    CHECK(ano_audio_init(NULL), "audio world up");
+    CHECK(audio_init(NULL), "audio world up");
     AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b) return 1;
@@ -57,43 +57,43 @@ int main(int argc, char **argv)
     AnoAudioCommand play = { .kind = ACMD_SOURCE_PLAY, .source_id = 1,
         .desc = { .kind = ANO_AUDIO_SOURCE_TONE, .bus = 1, .gain = 0.30f, .pan = -0.4f,
                   .freqHz = 440.0f } };
-    CHECK(ano_audio_submit(b, &play), "submit tone A");
+    CHECK(audio_submit(b, &play), "submit tone A");
     CHECK(wait_telemetry(b, pred_audible, 2000), "tone audible in telemetry");
 
-    (void)ano_sleep((uint64_t)seconds * 500000ull);
+    (void)sleep_us((uint64_t)seconds * 500000ull);
 
     AnoAudioCommand play2 = { .kind = ACMD_SOURCE_PLAY, .source_id = 2,
         .desc = { .kind = ANO_AUDIO_SOURCE_TONE, .bus = 1, .gain = 0.25f, .pan = 0.4f,
                   .freqHz = 330.0f } };
-    CHECK(ano_audio_submit(b, &play2), "submit tone E");
+    CHECK(audio_submit(b, &play2), "submit tone E");
 
-    (void)ano_sleep((uint64_t)seconds * 500000ull);
+    (void)sleep_us((uint64_t)seconds * 500000ull);
 
     // Stop both; drain until both retire.
     AnoAudioCommand stop1 = { .kind = ACMD_SOURCE_STOP, .source_id = 1 };
     AnoAudioCommand stop2 = { .kind = ACMD_SOURCE_STOP, .source_id = 2 };
-    CHECK(ano_audio_submit(b, &stop1), "submit stop A");
-    CHECK(ano_audio_submit(b, &stop2), "submit stop E");
+    CHECK(audio_submit(b, &stop1), "submit stop A");
+    CHECK(audio_submit(b, &stop2), "submit stop E");
 
     uint32_t retired = 0;
-    uint32_t start = ano_timestamp_ms();
-    while (retired < 2u && ano_timestamp_ms() - start < 4000u) {
+    uint32_t start = timestamp_ms();
+    while (retired < 2u && timestamp_ms() - start < 4000u) {
         AnoAudioEvent e;
-        while (ano_audio_poll_event(b, &e).value_or(false))
+        while (audio_poll_event(b, &e).value_or(false))
             if (e.kind == AEVT_SOURCE_RETIRED)
                 retired++;
         if (retired < 2u)
-            (void)ano_sleep(5000);
+            (void)sleep_us(5000);
     }
     CHECK(retired == 2u, "both tones retired after stop");
 
     AnoAudioTelemetry t;
-    if (ano_audio_acquire_telemetry(b, &t).value_or(false))
+    if (audio_acquire_telemetry(b, &t).value_or(false))
         printf("info: %u Hz, block %u, blocks %llu, cpu %llu ns/block, peak %.3f, underruns %u\n",
                t.sampleRate, t.blockFrames, (unsigned long long)t.blockIndex,
                (unsigned long long)t.blockCpuNs, (double)t.masterPeak, t.underruns);
 
-    ano_audio_shutdown();
+    audio_shutdown();
 
     if (failures) {
         printf("anotest_audiotone: %d FAILURE(S)\n", failures);

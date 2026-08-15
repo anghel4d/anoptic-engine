@@ -274,7 +274,7 @@ int ano_gpos_extract_kerns(const uint8_t *gpos, uint32_t len, const uint32_t *sl
     uint32_t lookupListCount = g16(&g, llOff, &ok);
     if (!ok)
         return EIO;
-    mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t *scratch ANO_SCOPED_HEAP = heap_create();
     if (scratch == NULL)
         return ENOMEM;
 

@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Darwin: mach_absolute_time() is a register read. Apple Silicon is 24 MHz, not ns.
-// ano_sleep uses absolute mach_wait_until + spin tail: QoS leeway stretches relative waits.
+// sleep_us uses absolute mach_wait_until + spin tail: QoS leeway stretches relative waits.
 
 #if defined(__APPLE__)
 #include "anoptic_time.h"
@@ -52,11 +52,11 @@ static inline uint64_t timebase_freq(void) {
     return freq;
 }
 
-uint64_t ano::ano_timestamp_ticks() {
+uint64_t ano::timestamp_ticks() {
     return mach_absolute_time();
 }
 
-uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
+uint64_t ano::ticks_to_ns(uint64_t ticks) {
 
     uint64_t freq = timebase_freq();
 
@@ -67,22 +67,22 @@ uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
     return remainder + (seconds * 1000000000LL);
 }
 
-uint64_t ano::ano_timestamp_raw() {
-    return ano_ticks_to_ns(ano_timestamp_ticks());
+uint64_t ano::timestamp_raw() {
+    return ticks_to_ns(timestamp_ticks());
 }
 
-uint64_t ano::ano_timestamp_us() {
-    return ano_timestamp_raw() / 1000;
+uint64_t ano::timestamp_us() {
+    return timestamp_raw() / 1000;
 }
 
-uint32_t ano::ano_timestamp_ms() {
-    return (uint32_t)(ano_timestamp_raw() / 1000000LL);
+uint32_t ano::timestamp_ms() {
+    return (uint32_t)(timestamp_raw() / 1000000LL);
 }
 
 
 /* Generic Date-Time Stamps */
 
-TimeResult<int64_t> ano::ano_timestamp_unix() {
+TimeResult<int64_t> ano::timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
@@ -94,14 +94,14 @@ TimeResult<int64_t> ano::ano_timestamp_unix() {
     return (int64_t)currentTime;
 }
 
-TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
+TimeResult<datetime> ano::local_datetime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_r(&t, &tm) == NULL)
         return failure(TimeError::invalid_argument);
 
-    return (ano_datetime){
+    return (datetime){
         .year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday,
         .hour = tm.tm_hour, .minute = tm.tm_min, .second = tm.tm_sec,
     };
@@ -110,17 +110,17 @@ TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-TimeResult<> ano::ano_busywait(uint64_t ns) {
+TimeResult<> ano::busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
         return failure(TimeError::invalid_argument);
     }
 
-    uint64_t startTime = ano_timestamp_raw();
+    uint64_t startTime = timestamp_raw();
     uint64_t endTime;
 
     do {
-        endTime = ano_timestamp_raw();
+        endTime = timestamp_raw();
     } while (endTime - startTime < ns);
 
     return {};
@@ -142,7 +142,7 @@ static uint64_t ano_ns_to_ticks(uint64_t ns) {
 // Absolute mach_wait_until in half-remainder steps, then spin ANO_SLEEP_SPIN_NS.
 // QoS stretches relative waits ~1.5x; half-remainder is immune below 2x.
 // Re-arming the absolute deadline absorbs KERN_ABORTED without drift.
-TimeResult<> ano::ano_sleep(uint64_t us) {
+TimeResult<> ano::sleep_us(uint64_t us) {
 
     if (us > UINT64_MAX / 1000ULL)
         return failure(TimeError::overflow);

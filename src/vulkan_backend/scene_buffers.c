@@ -437,7 +437,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
         4, 1, 5, 1, 4, 0  // bottom
     };
 
-    mi_heap_t* fallbackHeap = ano_heap_create();
+    mi_heap_t* fallbackHeap = heap_create();
     AnoPreparedGeometry fallbackGeometry = {};
     const bool fallbackPrepared = fallbackHeap
         && geometry_prepare_chain(
@@ -468,7 +468,7 @@ bool createFallbackResources(VulkanContext* ctx, RendererState* state)
             ctx->device, state->commandPool, 1, &fallbackUpload);
     vkDestroyBuffer(ctx->device, fallbackStaging, nullptr);
     gpu_free(&stagingAllocator, fallbackStagingAlloc);
-    ano_heap_destroy(fallbackHeap);
+    heap_destroy(fallbackHeap);
     if (!fallbackUploaded) fallbackMeshIdx = ANO_MESH_NONE;
 
     // Fallback must land at FALLBACK_MESH_INDEX; else unwind.

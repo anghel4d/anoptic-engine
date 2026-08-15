@@ -55,7 +55,7 @@ static void test_primitives(void)
 {
     // Sliding-window max == naive max.
     {
-        mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+        mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
         enum { N = 5000, WIN = 64 };
         AnoDspWinMax wm;
         CHECK(ano_dsp_winmax_init(&wm, heap, WIN), "winmax init");
@@ -191,7 +191,7 @@ static bool render_case(const AnoAudioBusDesc *layout, uint32_t busCount,
         .buffers = buffers,
         .bufferCount = 3,
     };
-    return !!ano_audio_render_offline(&desc, out, frames);
+    return !!audio_render_offline(&desc, out, frames);
 }
 
 static void test_effects(void)
@@ -413,7 +413,7 @@ static bool render_console(float *out, uint64_t frames)
         .buffers = buffers,
         .bufferCount = 1,
     };
-    return !!ano_audio_render_offline(&desc, out, frames);
+    return !!audio_render_offline(&desc, out, frames);
 }
 
 static void test_console_golden(uint32_t soak)

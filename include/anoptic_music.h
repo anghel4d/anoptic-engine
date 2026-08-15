@@ -125,7 +125,7 @@ enum AnoMode {
 };
 
 // Reflected lowercase enum name. Invalid/NONE falls back to ionian.
-const char *ano_mode_name(AnoMode mode);
+const char *mode_name(AnoMode mode);
 
 enum AnoCadencePolicy {
     ANO_CADENCE_AUTHENTIC [[=AnoCadenceContract{
@@ -174,8 +174,8 @@ enum AnoPatchName {
 };
 
 // Name <-> id. Unknown name returns 0.
-uint32_t    ano_music_patch_id(const char *name);
-const char *ano_music_patch_name(uint32_t id);
+uint32_t    music_patch_id(const char *name);
+const char *music_patch_name(uint32_t id);
 
 
 /* Authored Motifs */
@@ -304,10 +304,10 @@ struct AnoMappingTable {
     double widthValence;         // 0.25
 };
 
-AnoMappingTable ano_mapping_table_default(void);
+AnoMappingTable mapping_table_default(void);
 
 // Second personality: same engine/seed, different instrument rows.
-AnoMappingTable ano_mapping_table_electronic(void);
+AnoMappingTable mapping_table_electronic(void);
 
 
 /* Dramaturg */
@@ -330,7 +330,7 @@ struct AnoDramaturgConfig {
     bool    lamentBass;       // true (B4)
 };
 
-AnoDramaturgConfig ano_dramaturg_config_default(void);
+AnoDramaturgConfig dramaturg_config_default(void);
 
 
 /* Feature Flags */
@@ -413,33 +413,33 @@ struct AnoMusicConfig {
     bool performChains; // ...with expressive Perform pass
 };
 
-AnoMusicConfig ano_music_config_default(void);
+AnoMusicConfig music_config_default(void);
 
 // Opaque generator. Pointer-free: snapshot/restore is memcpy.
 struct AnoMusicEngine;
 
-[[nodiscard]] MusicResult<AnoMusicEngine *> ano_music_create(
+[[nodiscard]] MusicResult<AnoMusicEngine *> music_create(
     const AnoMusicConfig *cfg, uint64_t seed);
-void            ano_music_destroy(AnoMusicEngine *e);
+void            music_destroy(AnoMusicEngine *e);
 
 
 /* Control Plane */
 
 // Legal any wall-clock moment; takes effect at the parameter's musical boundary.
 // NAN leaves an axis alone. urgent demotes phrase-quantized changes to next barline.
-void ano_music_set_affect(AnoMusicEngine *e, float valence, float energy,
+void music_set_affect(AnoMusicEngine *e, float valence, float energy,
                           float tension, bool urgent);
 
 // Queue pivot-chord modulation. Rides next phrase cadence; urgent = earliest ungenerated bar.
-void ano_music_request_key(AnoMusicEngine *e, int tonicPc, bool urgent);
+void music_request_key(AnoMusicEngine *e, int tonicPc, bool urgent);
 
 // Request authored motif at next sound phrase boundary. Persists until honoured; unknown tag no-op.
-void ano_music_request_motif(AnoMusicEngine *e, const char *tag);
+void music_request_motif(AnoMusicEngine *e, const char *tag);
 
 // Pin / release one Tier-2 param. Ids: "tempo_bpm", "reverb_send", "texture", ...
-[[nodiscard]] MusicResult<> ano_music_set_override(
+[[nodiscard]] MusicResult<> music_set_override(
     AnoMusicEngine *e, const char *param, double value);
-void ano_music_clear_override(AnoMusicEngine *e, const char *param);
+void music_clear_override(AnoMusicEngine *e, const char *param);
 
 
 /* Generation */
@@ -471,19 +471,19 @@ struct AnoMusicBar {
 };
 
 // Safe on the audio thread at a bar edge.
-void ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out);
+void music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out);
 
 // Bar length in quarter-note beats (4/4 -> 4.0, 6/8 -> 3.0).
-double ano_music_bar_quarters(const AnoMusicEngine *e);
+double music_bar_quarters(const AnoMusicEngine *e);
 
 // Bar index advance_bar will produce next (0 on a fresh engine).
-int ano_music_next_bar(const AnoMusicEngine *e);
+int music_next_bar(const AnoMusicEngine *e);
 
 // Snapshot = engine bytes (pointer-free; padding deterministic). Same config+seed+bar => byte-identical.
-size_t ano_music_snapshot_size(void);
-[[nodiscard]] MusicResult<> ano_music_snapshot(
+size_t music_snapshot_size(void);
+[[nodiscard]] MusicResult<> music_snapshot(
     const AnoMusicEngine *e, void *buf, size_t cap);
-[[nodiscard]] MusicResult<> ano_music_restore(
+[[nodiscard]] MusicResult<> music_restore(
     AnoMusicEngine *e, const void *buf, size_t len);
 
 } // namespace ano

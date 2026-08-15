@@ -30,11 +30,11 @@ static int failures = 0;
 
 static void author_config(AnoMusicConfig *c)
 {
-    *c = ano_music_config_default();
+    *c = music_config_default();
     c->hasMapper = true;
-    c->mapper = ano_mapping_table_electronic(); // synthetic band
+    c->mapper = mapping_table_electronic(); // synthetic band
     c->hasDramaturg = true;
-    c->dramaturg = ano_dramaturg_config_default();
+    c->dramaturg = dramaturg_config_default();
     c->phraseGroove = true;
     c->cadenceRit = 0.03;
     c->wanderPhrases = 6;
@@ -101,21 +101,21 @@ static AnoMusicEngine *reconstruct(const AnoMusicConfig *cfg, uint64_t seed,
                                    const Script *s, int toBar)
 {
     static AnoMusicBar sink;
-    AnoMusicEngine *e = ano_music_create(cfg, seed).value_or(nullptr);
+    AnoMusicEngine *e = music_create(cfg, seed).value_or(nullptr);
     if (!e)
         return NULL;
     for (int b = 0; b < toBar; ++b) {
         for (uint32_t i = 0; i < s->n; ++i)
-            if (s->cue[i].bar == b && !ano_music_apply_command(e, &s->cue[i].cmd)) {
-                ano_music_destroy(e);
+            if (s->cue[i].bar == b && !music_apply_command(e, &s->cue[i].cmd)) {
+                music_destroy(e);
                 return NULL;
             }
-        ano_music_advance_bar(e, &sink);
+        music_advance_bar(e, &sink);
     }
     // Apply pending toBar cue after the loop.
     for (uint32_t i = 0; i < s->n; ++i)
-        if (s->cue[i].bar == toBar && !ano_music_apply_command(e, &s->cue[i].cmd)) {
-            ano_music_destroy(e);
+        if (s->cue[i].bar == toBar && !music_apply_command(e, &s->cue[i].cmd)) {
+            music_destroy(e);
             return NULL;
         }
     return e;
@@ -125,21 +125,21 @@ static AnoMusicEngine *reconstruct(const AnoMusicConfig *cfg, uint64_t seed,
 
 static void must_submit(AnoAudioBridge *b, const AnoAudioCommand *c)
 {
-    while (!ano_audio_submit(b, c))
-        (void)ano_sleep(1000);
+    while (!audio_submit(b, c))
+        (void)sleep_us(1000);
 }
 
 typedef bool (*telem_pred)(const AnoAudioTelemetry *t);
 static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutMs)
 {
-    uint32_t start = ano_timestamp_ms();
+    uint32_t start = timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
+        if (audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
-        if (ano_timestamp_ms() - start > timeoutMs)
+        if (timestamp_ms() - start > timeoutMs)
             return false;
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
 }
 static bool pred_heartbeat(const AnoAudioTelemetry *t) { return t->blockIndex >= 3u; }
@@ -164,27 +164,27 @@ int main(int argc, char **argv)
 
     // Composer + host synth.
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
-    AnoMusicEngine *music = ano_music_create(&cfg, seed).value_or(nullptr);
+    AnoSynth *syn = synth_create(&synthDesc).value_or(nullptr);
+    AnoMusicEngine *music = music_create(&cfg, seed).value_or(nullptr);
     CHECK(syn && music, "synth + composer");
     if (!syn || !music)
         return 1;
-    CHECK(ano_synth_attach_music(syn, music), "the composer drives the generator");
+    CHECK(synth_attach_music(syn, music), "the composer drives the generator");
 
     AnoAudioBusDesc layout[ANO_SYNTH_CONSOLE_BUSES];
-    uint32_t busCount = ano_synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
+    uint32_t busCount = synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
 
     // Generator/control/poll/stats/commands all wired.
     AnoAudioConfig acfg = {
         .sampleRate = RATE, .busCount = busCount, .busLayout = layout,
-        .generator         = ano_synth_generator,
+        .generator         = synth_generator,
         .generatorUser     = syn,
-        .generatorControl  = ano_synth_control,
-        .generatorPoll     = ano_synth_poll,
-        .generatorStats    = ano_synth_stats,
-        .generatorCommands = ano_synth_commands,
+        .generatorControl  = synth_control,
+        .generatorPoll     = synth_poll,
+        .generatorStats    = synth_stats,
+        .generatorCommands = synth_commands,
     };
-    CHECK(ano_audio_init(&acfg), "audio world up");
+    CHECK(audio_init(&acfg), "audio world up");
     AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b)
@@ -193,13 +193,13 @@ int main(int argc, char **argv)
 
     // One-time console setup; sounding bar automates the rest.
     static AnoAudioOfflineEvent setup[64];
-    uint32_t setupCount = ano_synth_console_setup(setup, 64);
+    uint32_t setupCount = synth_console_setup(setup, 64);
     for (uint32_t i = 0; i < setupCount; ++i)
         must_submit(b, &setup[i].cmd);
 
     AnoAudioTelemetry t;
-    CHECK(ano_audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
-    ano_synth_transport_start(syn, (t.blockIndex + 8u) * t.blockFrames);
+    CHECK(audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
+    synth_transport_start(syn, (t.blockIndex + 8u) * t.blockFrames);
     CHECK(wait_telemetry(b, pred_audible, 5000), "the music comes up");
 
     /* Game: calm -> approach -> fight -> quiet (time-scaled) */
@@ -213,17 +213,17 @@ int main(int argc, char **argv)
     int  lastBar = -1, stage = -1;
     bool everSilent = false;
 
-    const uint32_t startMs = ano_timestamp_ms();
+    const uint32_t startMs = timestamp_ms();
     const uint32_t runMs   = seconds * 1000u;
     for (;;) {
-        uint32_t nowMs = ano_timestamp_ms() - startMs;
+        uint32_t nowMs = timestamp_ms() - startMs;
         if (nowMs >= runMs)
             break;
         double phase = (double)nowMs / (double)runMs; // 0 .. 1 through the arc
 
         // Audio-thread events.
         AnoAudioEvent e;
-        while (ano_audio_poll_event(b, &e).value_or(false)) {
+        while (audio_poll_event(b, &e).value_or(false)) {
             if (e.kind == AEVT_MUSIC_SEEKED) {
                 seekAcked = true;
                 seekedTo = e.u.seekedBar;
@@ -244,7 +244,7 @@ int main(int argc, char **argv)
                 printf("      · bar %-4d the theme is stated\n", e.u.music.bar);
         }
         if (lastBar < 0) { // nothing sounded yet
-            (void)ano_sleep(20000);
+            (void)sleep_us(20000);
             continue;
         }
 
@@ -299,15 +299,15 @@ int main(int argc, char **argv)
             printf("game: LOAD 〜 rebuilding bar %d off the audio thread\n", savedBar);
 
             // Two reconstructions of one save must be byte-identical.
-            uint32_t t0 = ano_timestamp_ms();
+            uint32_t t0 = timestamp_ms();
             AnoMusicEngine *a = reconstruct(&cfg, seed, &saved, savedBar);
             AnoMusicEngine *c2 = reconstruct(&cfg, seed, &saved, savedBar);
-            uint32_t buildMs = ano_timestamp_ms() - t0;
+            uint32_t buildMs = timestamp_ms() - t0;
             CHECK(a && c2, "the save reconstructs");
 
-            size_t sz = ano_music_snapshot_size();
+            size_t sz = music_snapshot_size();
             void *snapA = malloc(sz), *snapB = malloc(sz);
-            CHECK(ano_music_snapshot(a, snapA, sz) && ano_music_snapshot(c2, snapB, sz),
+            CHECK(music_snapshot(a, snapA, sz) && music_snapshot(c2, snapB, sz),
                   "snapshot the rebuild");
             CHECK(memcmp(snapA, snapB, sz) == 0,
                   "two reconstructions of one save are byte-identical");
@@ -320,12 +320,12 @@ int main(int argc, char **argv)
             uint32_t waited = 0;
             while (!seekAcked && waited < 2000u) {
                 AnoAudioEvent ev;
-                while (ano_audio_poll_event(b, &ev).value_or(false))
+                while (audio_poll_event(b, &ev).value_or(false))
                     if (ev.kind == AEVT_MUSIC_SEEKED) {
                         seekAcked = true;
                         seekedTo = ev.u.seekedBar;
                     }
-                (void)ano_sleep(5000);
+                (void)sleep_us(5000);
                 waited += 5;
             }
             CHECK(seekAcked, "the audio thread consumed the save");
@@ -333,12 +333,12 @@ int main(int argc, char **argv)
             printf("      · seek consumed 〜 the save's bar %d is next\n", seekedTo);
             free(snapA);
             free(snapB);
-            ano_music_destroy(a);
-            ano_music_destroy(c2);
+            music_destroy(a);
+            music_destroy(c2);
         }
 
         // Telemetry.
-        if (ano_audio_acquire_telemetry(b, &t).value_or(false)) {
+        if (audio_acquire_telemetry(b, &t).value_or(false)) {
             if (t.masterPeak < 0.001f && bars > 2u)
                 everSilent = true; // endless piece must stay audible
             if (t.blockIndex % 512u == 0u)
@@ -348,7 +348,7 @@ int main(int argc, char **argv)
                        (uint32_t)((uint64_t)t.blockFrames * 1000000u / t.sampleRate),
                        t.underruns);
         }
-        (void)ano_sleep(20000);
+        (void)sleep_us(20000);
     }
 
     /* Assertions */
@@ -368,10 +368,10 @@ int main(int argc, char **argv)
     if (savedBar >= 0)
         CHECK(loaded && seekAcked, "the save was written and loaded back");
 
-    ano_synth_transport_stop(syn);
-    (void)ano_sleep(50000); // stop + tails
+    synth_transport_stop(syn);
+    (void)sleep_us(50000); // stop + tails
 
-    if (ano_audio_acquire_telemetry(b, &t).value_or(false)) {
+    if (audio_acquire_telemetry(b, &t).value_or(false)) {
         uint32_t blockUs = (uint32_t)((uint64_t)t.blockFrames * 1000000u / t.sampleRate);
         printf("info: %u s │ %llu blocks │ bars %u │ cadences %u │ motifs %u │ "
                "keys %u │ cues %u\n",
@@ -389,9 +389,9 @@ int main(int argc, char **argv)
         CHECK(t.genDropped == 0u, "nothing was dropped for want of room");
     }
 
-    ano_audio_shutdown();
-    ano_synth_destroy(syn);
-    ano_music_destroy(music);
+    audio_shutdown();
+    synth_destroy(syn);
+    music_destroy(music);
 
     if (failures) {
         printf("anotest_musicscene: %d FAILURE(S)\n", failures);

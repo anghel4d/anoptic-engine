@@ -38,11 +38,11 @@ static bool ev_eq(const AnoNoteEvent *a, const AnoNoteEvent *b)
 // Everything-on config in both vocabularies.
 static void public_config(AnoMusicConfig *c)
 {
-    *c = ano_music_config_default();
+    *c = music_config_default();
     c->hasMapper = true;
-    c->mapper = ano_mapping_table_default();
+    c->mapper = mapping_table_default();
     c->hasDramaturg = true;
-    c->dramaturg = ano_dramaturg_config_default();
+    c->dramaturg = dramaturg_config_default();
     c->phraseGroove = true;
     c->cadenceRit = 0.02;
     c->wanderPhrases = 4;
@@ -59,9 +59,9 @@ static void private_config(AnoEngineConfig *e)
 {
     *e = ano_engine_config_default();
     e->hasMapper = true;
-    e->mapper = ano_mapping_table_default();
+    e->mapper = mapping_table_default();
     e->hasDramaturg = true;
-    e->dramaturg = ano_dramaturg_config_default();
+    e->dramaturg = dramaturg_config_default();
     e->phraseGroove = true;
     e->cadenceRit = 0.02;
     e->wanderPhrases = 4;
@@ -88,17 +88,17 @@ int main(void)
             public_config(&pubCfg);
             private_config(&privCfg);
         } else {
-            pubCfg = ano_music_config_default();
+            pubCfg = music_config_default();
             privCfg = ano_engine_config_default();
         }
-        AnoMusicEngine *pub = ano_music_create(&pubCfg, 42).value_or(nullptr);
-        CHECK(pub != NULL, "ano_music_create");
+        AnoMusicEngine *pub = music_create(&pubCfg, 42).value_or(nullptr);
+        CHECK(pub != NULL, "music_create");
         ano_engine_init(&priv, 42, &privCfg);
 
         uint32_t events = 0;
         bool same = true;
         for (uint32_t b = 0; b < BARS && same; ++b) {
-            ano_music_advance_bar(pub, &pb);
+            music_advance_bar(pub, &pb);
             ano_engine_advance_bar(&priv, &pr);
             same = pb.meaning.bar == pr.bar && pb.eventCount == pr.eventCount
                    && pb.tempoCount == pr.tempoPointCount
@@ -113,18 +113,18 @@ int main(void)
         CHECK(same, rich ? "public config == private (everything on)"
                          : "public config == private (defaults)");
         CHECK(events > (rich ? 400u : 100u), "the piece has substance");
-        ano_music_destroy(pub);
+        music_destroy(pub);
     }
 
     // --- bar MEANING populated (AEVT_MUSIC_BAR payload) ---
     {
         AnoMusicConfig cfg;
         public_config(&cfg);
-        AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
+        AnoMusicEngine *e = music_create(&cfg, 42).value_or(nullptr);
         uint32_t cadences = 0, keyArrivals = 0;
         int chordsSeen = 0;
         for (uint32_t b = 0; b < 64u; ++b) {
-            ano_music_advance_bar(e, &pb);
+            music_advance_bar(e, &pb);
             cadences += pb.meaning.isCadence;
             keyArrivals += pb.meaning.keyArrived;
             if (pb.meaning.chordDegree >= 1 && pb.meaning.chordDegree <= 7)
@@ -134,48 +134,48 @@ int main(void)
         CHECK(cadences > 4u, "cadences are reported");
         CHECK(keyArrivals > 0u, "the wander's key arrivals are reported");
         CHECK(chordsSeen == 64, "every bar names its chord");
-        ano_music_destroy(e);
+        music_destroy(e);
     }
 
     // --- overrides by name; typo refused ---
     {
         AnoMusicConfig cfg;
         public_config(&cfg);
-        AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
-        CHECK(ano_music_set_override(e, "reverb_send", 0.5), "override accepted");
-        CHECK(!ano_music_set_override(e, "revreb_send", 0.5), "typo refused");
-        ano_music_advance_bar(e, &pb);
+        AnoMusicEngine *e = music_create(&cfg, 42).value_or(nullptr);
+        CHECK(music_set_override(e, "reverb_send", 0.5), "override accepted");
+        CHECK(!music_set_override(e, "revreb_send", 0.5), "typo refused");
+        music_advance_bar(e, &pb);
         CHECK(pb.params.reverbSend == 0.5f, "the override is in force");
-        ano_music_clear_override(e, "reverb_send");
-        ano_music_advance_bar(e, &pb);
+        music_clear_override(e, "reverb_send");
+        music_advance_bar(e, &pb);
         CHECK(pb.params.reverbSend != 0.5f, "clearing returns it to the mapper");
-        ano_music_destroy(e);
+        music_destroy(e);
     }
 
     // --- snapshot/restore: engine bytes are the future ---
     {
         AnoMusicConfig cfg;
         public_config(&cfg);
-        size_t sz = ano_music_snapshot_size();
+        size_t sz = music_snapshot_size();
         CHECK(sz == sizeof(AnoMusicEngine), "snapshot is the engine");
         void *snap = malloc(sz);
         void *snapB = malloc(sz);
 
-        AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
+        AnoMusicEngine *e = music_create(&cfg, 42).value_or(nullptr);
         for (uint32_t b = 0; b < 20u; ++b)
-            ano_music_advance_bar(e, &pb);
-        CHECK(ano_music_snapshot(e, snap, sz), "snapshot at bar 20");
+            music_advance_bar(e, &pb);
+        CHECK(music_snapshot(e, snap, sz), "snapshot at bar 20");
 
         // Record future.
         static AnoMusicBar future[12];
         for (uint32_t b = 0; b < 12u; ++b)
-            ano_music_advance_bar(e, &future[b]);
+            music_advance_bar(e, &future[b]);
 
         // Restore and re-run: same future.
-        CHECK(ano_music_restore(e, snap, sz), "restore");
+        CHECK(music_restore(e, snap, sz), "restore");
         bool same = true;
         for (uint32_t b = 0; b < 12u && same; ++b) {
-            ano_music_advance_bar(e, &pb);
+            music_advance_bar(e, &pb);
             same = pb.meaning.bar == future[b].meaning.bar && pb.eventCount == future[b].eventCount;
             for (uint32_t i = 0; i < pb.eventCount && same; ++i)
                 same = ev_eq(&pb.events[i], &future[b].events[i]);
@@ -183,10 +183,10 @@ int main(void)
         CHECK(same, "restore reproduces the future exactly");
 
         // Seek: fresh engine fast-forwarded to bar 20 == snapshot.
-        AnoMusicEngine *fresh = ano_music_create(&cfg, 42).value_or(nullptr);
+        AnoMusicEngine *fresh = music_create(&cfg, 42).value_or(nullptr);
         for (uint32_t b = 0; b < 20u; ++b)
-            ano_music_advance_bar(fresh, &pb);
-        CHECK(ano_music_snapshot(fresh, snapB, sz), "snapshot the rebuild");
+            music_advance_bar(fresh, &pb);
+        CHECK(music_snapshot(fresh, snapB, sz), "snapshot the rebuild");
         if (memcmp(snap, snapB, sz) != 0) {
             const unsigned char *x = static_cast<const unsigned char *>(snap);
             const unsigned char *y = static_cast<const unsigned char *>(snapB);
@@ -203,15 +203,15 @@ int main(void)
 
         // Different bar -> different snapshot.
         for (uint32_t b = 0; b < 2u; ++b)
-            ano_music_advance_bar(fresh, &pb);
-        CHECK(ano_music_snapshot(fresh, snapB, sz),
+            music_advance_bar(fresh, &pb);
+        CHECK(music_snapshot(fresh, snapB, sz),
               "the later snapshot fits its allocation");
         CHECK(memcmp(snap, snapB, sz) != 0, "a different bar is a different state");
 
         free(snap);
         free(snapB);
-        ano_music_destroy(e);
-        ano_music_destroy(fresh);
+        music_destroy(e);
+        music_destroy(fresh);
     }
 
     if (failures) {

@@ -5,7 +5,7 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Tail-latency benchmark: per-call ano_log() percentiles (p50/p90/p99/p99.9).
-// Calibrated rdtsc on x86-64, else ano_timestamp_ticks. P producers + owned drain thread.
+// Calibrated rdtsc on x86-64, else timestamp_ticks. P producers + owned drain thread.
 // DISABLED in CTest. Always exits 0. argv[1] = messages-per-producer.
 
 #include <anoptic_log.h>
@@ -40,19 +40,19 @@ static int g_msgs = DEFAULT_MSGS;
 static inline uint64_t tick_now(void) { return __rdtsc(); }
 static double g_nsPerTick = 1.0;
 
-// Ratio from ~50ms window vs ano_timestamp_raw.
+// Ratio from ~50ms window vs timestamp_raw.
 static void tick_calibrate(void)
 {
-    uint64_t ns0 = ano_timestamp_raw(), t0 = tick_now();
-    while (ano_timestamp_raw() - ns0 < 50u * 1000u * 1000u) { }
-    uint64_t ns1 = ano_timestamp_raw(), t1 = tick_now();
+    uint64_t ns0 = timestamp_raw(), t0 = tick_now();
+    while (timestamp_raw() - ns0 < 50u * 1000u * 1000u) { }
+    uint64_t ns1 = timestamp_raw(), t1 = tick_now();
     g_nsPerTick = (double)(ns1 - ns0) / (double)(t1 - t0);
 }
 static uint64_t tick_to_ns(uint64_t t) { return (uint64_t)((double)t * g_nsPerTick); }
 #else
-static inline uint64_t tick_now(void) { return ano_timestamp_ticks(); }
+static inline uint64_t tick_now(void) { return timestamp_ticks(); }
 static void tick_calibrate(void) { }
-static uint64_t tick_to_ns(uint64_t t) { return ano_ticks_to_ns(t); }
+static uint64_t tick_to_ns(uint64_t t) { return ticks_to_ns(t); }
 #endif
 
 /* Producers */
@@ -83,11 +83,11 @@ static bench_stats run_point(int producers, uint64_t *buf)
     for (int i = 0; i < producers; i++) {
         arg[i] = (prod_arg){ .id = i, .count = g_msgs };
         bench_lat_init(&arg[i].lat, buf + (size_t)i * (size_t)g_msgs, (size_t)g_msgs);
-        (void)ano_thread_create(&th[i], NULL, producer, &arg[i]);
+        (void)thread_create(&th[i], NULL, producer, &arg[i]);
     }
     for (int i = 0; i < producers; i++)
-        (void)ano_thread_join(th[i], NULL);
-    ano_log_flush();    // drain the tail so the next point starts empty
+        (void)thread_join(th[i], NULL);
+    log_flush();    // drain the tail so the next point starts empty
 
     bench_lat merged;   // adjacent slices, all full: one contiguous sample set
     bench_lat_init(&merged, buf, (size_t)producers * (size_t)g_msgs);
@@ -132,12 +132,12 @@ int main(int argc, char **argv)
     }
 
     scratch_make_dir(TAIL_DIR);
-    (void)ano_log_init();
-    (void)ano_log_output_dir(TAIL_DIR);
+    (void)log_init();
+    (void)log_output_dir(TAIL_DIR);
 
     for (int i = 0; i < 256; i++)   // warm caches + branch predictors
         ano_log(ANO_INFO, "warm %d", i);
-    ano_log_flush();
+    log_flush();
 
     for (int p = 0; p < NPOINTS; p++) {
         bench_stats s = run_point(POINTS[p], buf);
@@ -147,10 +147,10 @@ int main(int argc, char **argv)
         bench_lat_row(label, s);
     }
 
-    ano_log_cleanup();
+    log_cleanup();
     free(buf);
     char tailLog[96];
-    snprintf(tailLog, sizeof tailLog, "%s/%s_ano.log", TAIL_DIR, ano_fs_session_stamp());
+    snprintf(tailLog, sizeof tailLog, "%s/%s_ano.log", TAIL_DIR, fs_session_stamp());
     remove(tailLog);
     scratch_remove_dir(TAIL_DIR);
 

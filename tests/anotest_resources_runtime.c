@@ -80,25 +80,25 @@ static bool make_fixture(uint8_t red, Fixture *fixture)
 
     constexpr AnoResourceTypeId textureType = ano::resource_type_id<Texture>();
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    const auto cooker = ano_resource_cooker_create(
+    const auto cooker = resource_cooker_create(
         {.firstDerivedAsset = {3}});
     if (!cooker)
         return false;
-    auto result = ano_resource_cooker_add(
+    auto result = resource_cooker_add(
             *cooker, {2}, materialType, {7},
             {fixture->material, fixture->materialSize});
     if (result)
-        result = ano_resource_cooker_add(
+        result = resource_cooker_add(
             *cooker, {1}, textureType, {7},
             {fixture->texture, fixture->textureSize});
     if (result) {
-        const auto revision = ano_resource_cook(*cooker);
+        const auto revision = resource_cook(*cooker);
         if (revision)
             fixture->revision = *revision;
         else
             result = ano::failure(revision.error());
     }
-    ano_resource_cooker_destroy(*cooker);
+    resource_cooker_destroy(*cooker);
     return result.has_value();
 }
 
@@ -106,9 +106,9 @@ static void check_changed(const AnoResidencyEpoch *epoch,
                           const uint64_t *expected, uint64_t count,
                           const char *message)
 {
-    bool equal = ano_resource_epoch_changed_count(epoch) == count;
+    bool equal = resource_epoch_changed_count(epoch) == count;
     for (uint64_t i = 0; i < count && equal; ++i) {
-        const auto asset = ano_resource_epoch_changed(epoch, i);
+        const auto asset = resource_epoch_changed(epoch, i);
         equal = asset && asset->value == expected[i];
     }
     CHECK(equal, message);
@@ -123,28 +123,28 @@ static void test_residency_epochs(void)
     CHECK(fixtures,
           "runtime fixtures build as complete revisions");
     if (!fixtures) {
-        ano_resource_revision_release(replacement.revision);
-        ano_resource_revision_release(original.revision);
+        resource_revision_release(replacement.revision);
+        resource_revision_release(original.revision);
         return;
     }
 
-    const auto managerResult = ano_resource_manager_create(original.revision);
+    const auto managerResult = resource_manager_create(original.revision);
     AnoResourceManager *manager = managerResult.value_or(nullptr);
     CHECK(manager != nullptr,
           "manager retains the initial revision");
     if (manager == nullptr) {
-        ano_resource_revision_release(replacement.revision);
-        ano_resource_revision_release(original.revision);
+        resource_revision_release(replacement.revision);
+        resource_revision_release(original.revision);
         return;
     }
 
     constexpr AnoResourceTypeId textureType = ano::resource_type_id<Texture>();
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    const auto emptyResult = ano_resource_epoch_acquire(manager);
+    const auto emptyResult = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *empty = emptyResult.value_or(nullptr);
-    CHECK(empty && ano_resource_epoch_id(empty).value == 1,
+    CHECK(empty && resource_epoch_id(empty).value == 1,
           "manager begins with an immutable empty epoch");
-    CHECK(ano::has_error(ano_resource_epoch_resolve(
+    CHECK(ano::has_error(resource_epoch_resolve(
               empty, {1}, textureType), ANO_RESOURCE_NOT_FOUND),
           "empty epoch exposes no undemanded artifact");
 
@@ -156,7 +156,7 @@ static void test_residency_epochs(void)
         .quality = {ANO_RESOURCE_QUALITY_WHOLE},
         .importance = 1.0f,
     };
-    CHECK(ano::has_error(ano_resource_goal_set(manager, wrong),
+    CHECK(ano::has_error(resource_goal_set(manager, wrong),
                          ANO_RESOURCE_TYPE_MISMATCH),
           "goal type must match the reflected manifest type");
 
@@ -168,114 +168,114 @@ static void test_residency_epochs(void)
         .quality = {ANO_RESOURCE_QUALITY_WHOLE},
         .importance = 1.0f,
     };
-    CHECK(ano_resource_goal_set(manager, materialGoal)
-          && ano_resource_reconcile(manager),
+    CHECK(resource_goal_set(manager, materialGoal)
+          && resource_reconcile(manager),
           "reconciliation materializes the complete commit-group floor");
 
-    const auto residentResult = ano_resource_epoch_acquire(manager);
+    const auto residentResult = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *resident = residentResult.value_or(nullptr);
-    CHECK(resident && ano_resource_epoch_id(resident).value == 2,
+    CHECK(resident && resource_epoch_id(resident).value == 2,
           "complete demand publishes one successor epoch");
     const uint64_t firstChanged[2] = {1, 2};
     check_changed(resident, firstChanged, 2,
                   "first publication reports both new bindings");
-    auto resolved = ano_resource_epoch_resolve(resident, {1}, textureType);
+    auto resolved = resource_epoch_resolve(resident, {1}, textureType);
     CHECK(resolved && resolved->size == original.textureSize
           && memcmp(resolved->data, original.texture,
                     static_cast<size_t>(resolved->size)) == 0,
           "dependency artifact resolves from the resident epoch");
-    resolved = ano_resource_epoch_resolve(resident, {2}, materialType);
+    resolved = resource_epoch_resolve(resident, {2}, materialType);
     CHECK(resolved && resolved->size == original.materialSize,
           "root artifact resolves from the same epoch");
-    CHECK(ano::has_error(ano_resource_epoch_resolve(
+    CHECK(ano::has_error(resource_epoch_resolve(
               empty, {1}, textureType), ANO_RESOURCE_NOT_FOUND),
           "retained previous epoch does not observe new bindings");
 
-    CHECK(ano_resource_reconcile(manager).has_value(),
+    CHECK(resource_reconcile(manager).has_value(),
           "unchanged reconciliation succeeds");
-    const auto unchangedResult = ano_resource_epoch_acquire(manager);
+    const auto unchangedResult = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *unchanged = unchangedResult.value_or(nullptr);
-    CHECK(unchanged && ano_resource_epoch_id(unchanged).value == 2,
+    CHECK(unchanged && resource_epoch_id(unchanged).value == 2,
           "unchanged reconciliation publishes no redundant epoch");
-    ano_resource_epoch_release(unchanged);
+    resource_epoch_release(unchanged);
 
-    auto preparedResult = ano_resource_reload_prepare(
+    auto preparedResult = resource_reload_prepare(
         manager, replacement.revision);
     AnoResourceReload *prepared = preparedResult.value_or(nullptr);
     CHECK(prepared != nullptr
-          && ano_resource_reload_has_changes(prepared),
+          && resource_reload_has_changes(prepared),
           "replacement prepares as a private changed generation");
-    const AnoResidencyEpoch *candidate = ano_resource_reload_epoch(prepared);
-    resolved = ano_resource_epoch_resolve(candidate, {1}, textureType);
+    const AnoResidencyEpoch *candidate = resource_reload_epoch(prepared);
+    resolved = resource_epoch_resolve(candidate, {1}, textureType);
     CHECK(candidate != nullptr && resolved
           && memcmp(resolved->data, replacement.texture,
                     static_cast<size_t>(resolved->size)) == 0,
           "owner preparation can resolve replacement bytes before publication");
-    auto duringPrepareResult = ano_resource_epoch_acquire(manager);
+    auto duringPrepareResult = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *duringPrepare =
         duringPrepareResult.value_or(nullptr);
-    resolved = ano_resource_epoch_resolve(
+    resolved = resource_epoch_resolve(
         duringPrepare, {1}, textureType);
-    CHECK(duringPrepare && ano_resource_epoch_id(duringPrepare).value == 2
+    CHECK(duringPrepare && resource_epoch_id(duringPrepare).value == 2
           && resolved && memcmp(resolved->data, original.texture,
                     static_cast<size_t>(resolved->size)) == 0,
           "readers retain the published generation while owners prepare");
-    ano_resource_epoch_release(duringPrepare);
-    ano_resource_reload_abort(prepared);
-    duringPrepareResult = ano_resource_epoch_acquire(manager);
+    resource_epoch_release(duringPrepare);
+    resource_reload_abort(prepared);
+    duringPrepareResult = resource_epoch_acquire(manager);
     duringPrepare = duringPrepareResult.value_or(nullptr);
-    CHECK(duringPrepare && ano_resource_epoch_id(duringPrepare).value == 2,
+    CHECK(duringPrepare && resource_epoch_id(duringPrepare).value == 2,
           "aborting owner preparation preserves the published epoch");
-    ano_resource_epoch_release(duringPrepare);
+    resource_epoch_release(duringPrepare);
 
-    preparedResult = ano_resource_reload_prepare(
+    preparedResult = resource_reload_prepare(
         manager, replacement.revision);
     prepared = preparedResult.value_or(nullptr);
-    CHECK(prepared && ano_resource_reload_commit(prepared),
+    CHECK(prepared && resource_reload_commit(prepared),
           "owner-approved replacement publishes transactionally");
-    const auto reloadedResult = ano_resource_epoch_acquire(manager);
+    const auto reloadedResult = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *reloaded = reloadedResult.value_or(nullptr);
-    CHECK(reloaded && ano_resource_epoch_id(reloaded).value == 3,
+    CHECK(reloaded && resource_epoch_id(reloaded).value == 3,
           "successful reload advances the epoch once");
     const uint64_t reloadChanged[1] = {1};
     check_changed(reloaded, reloadChanged, 1,
                   "reload identifies only changed artifact content");
-    resolved = ano_resource_epoch_resolve(reloaded, {1}, textureType);
+    resolved = resource_epoch_resolve(reloaded, {1}, textureType);
     CHECK(resolved && memcmp(resolved->data, replacement.texture,
                     static_cast<size_t>(resolved->size)) == 0,
           "successor epoch exposes replacement content");
-    resolved = ano_resource_epoch_resolve(resident, {1}, textureType);
+    resolved = resource_epoch_resolve(resident, {1}, textureType);
     CHECK(resolved && memcmp(resolved->data, original.texture,
                     static_cast<size_t>(resolved->size)) == 0,
           "retained reader keeps the complete previous generation");
 
-    CHECK(ano_resource_goal_remove(manager, {1})
-          && ano::has_error(ano_resource_goal_remove(manager, {1}),
+    CHECK(resource_goal_remove(manager, {1})
+          && ano::has_error(resource_goal_remove(manager, {1}),
                             ANO_RESOURCE_NOT_FOUND)
-          && ano_resource_reconcile(manager),
+          && resource_reconcile(manager),
           "removing demand reconciles rather than unloading directly");
-    const auto retiredResult = ano_resource_epoch_acquire(manager);
+    const auto retiredResult = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *retired = retiredResult.value_or(nullptr);
-    CHECK(retired && ano_resource_epoch_id(retired).value == 4
-          && ano::has_error(ano_resource_epoch_resolve(
+    CHECK(retired && resource_epoch_id(retired).value == 4
+          && ano::has_error(resource_epoch_resolve(
               retired, {1}, textureType), ANO_RESOURCE_NOT_FOUND),
           "removed demand publishes a new empty binding set");
     const uint64_t retiredChanged[2] = {1, 2};
     check_changed(retired, retiredChanged, 2,
                   "retirement reports both removed bindings");
-    ano_resource_epoch_release(retired);
+    resource_epoch_release(retired);
 
-    ano_resource_manager_destroy(manager);
-    resolved = ano_resource_epoch_resolve(reloaded, {1}, textureType);
+    resource_manager_destroy(manager);
+    resolved = resource_epoch_resolve(reloaded, {1}, textureType);
     CHECK(resolved && memcmp(resolved->data, replacement.texture,
                     static_cast<size_t>(resolved->size)) == 0,
           "acquired epoch outlives its manager and later generations");
 
-    ano_resource_epoch_release(reloaded);
-    ano_resource_epoch_release(resident);
-    ano_resource_epoch_release(empty);
-    ano_resource_revision_release(replacement.revision);
-    ano_resource_revision_release(original.revision);
+    resource_epoch_release(reloaded);
+    resource_epoch_release(resident);
+    resource_epoch_release(empty);
+    resource_revision_release(replacement.revision);
+    resource_revision_release(original.revision);
 }
 
 int main(void)

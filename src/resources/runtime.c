@@ -131,9 +131,9 @@ void destroy_reload(AnoResourceReload *reload)
 {
     if (reload == nullptr)
         return;
-    ano_resource_revision_release(reload->revision);
-    ano_resource_epoch_release(reload->base);
-    ano_resource_epoch_release(reload->epoch);
+    resource_revision_release(reload->revision);
+    resource_epoch_release(reload->base);
+    resource_epoch_release(reload->epoch);
     mi_free(reload);
 }
 
@@ -296,7 +296,7 @@ AnoResourceError build_epoch(
             break;
         }
         if (hasOld != hasNew
-            || (hasOld && (!ano_resource_content_id_equal(
+            || (hasOld && (!resource_content_id_equal(
                     previous->bindings[i].content, bindings[i].content)
                 || previous->bindings[i].resident
                     != bindings[i].resident)))
@@ -351,13 +351,13 @@ bool epoch_has_changes(const AnoResidencyEpoch *candidate,
 
 AnoResourceError lock_manager(AnoResourceManager *manager)
 {
-    return manager != nullptr && ano_mutex_lock(&manager->mutex)
+    return manager != nullptr && mutex_lock(&manager->mutex)
         ? ANO_RESOURCE_OK : ANO_RESOURCE_INVALID_ARGUMENT;
 }
 
 } // namespace
 
-ResourceResult<AnoResourceManager *> ano::ano_resource_manager_create(
+ResourceResult<AnoResourceManager *> ano::resource_manager_create(
     const AnoCookedRevision *revision)
 {
     if (revision == nullptr)
@@ -369,12 +369,12 @@ ResourceResult<AnoResourceManager *> ano::ano_resource_manager_create(
         result = ANO_RESOURCE_OUT_OF_MEMORY;
     bool mutexReady = false;
     if (result == ANO_RESOURCE_OK) {
-        mutexReady = ano_mutex_init(&created->mutex, nullptr).has_value();
+        mutexReady = mutex_init(&created->mutex, nullptr).has_value();
         if (!mutexReady)
             result = ANO_RESOURCE_IO_ERROR;
     }
     if (result == ANO_RESOURCE_OK) {
-        const auto retained = ano_resource_revision_retain(revision);
+        const auto retained = resource_revision_retain(revision);
         result = retained ? ANO_RESOURCE_OK : retained.error();
     }
     if (result == ANO_RESOURCE_OK) {
@@ -387,9 +387,9 @@ ResourceResult<AnoResourceManager *> ano::ano_resource_manager_create(
     }
     if (result != ANO_RESOURCE_OK) {
         if (created != nullptr) {
-            ano_resource_revision_release(created->revision);
+            resource_revision_release(created->revision);
             if (mutexReady)
-                (void)ano_mutex_destroy(&created->mutex);
+                (void)mutex_destroy(&created->mutex);
             mi_free(created);
         }
         return failure(result);
@@ -397,27 +397,27 @@ ResourceResult<AnoResourceManager *> ano::ano_resource_manager_create(
     return created;
 }
 
-void ano::ano_resource_manager_destroy(AnoResourceManager *manager)
+void ano::resource_manager_destroy(AnoResourceManager *manager)
 {
     if (manager == nullptr)
         return;
     const AnoCookedRevision *revision = nullptr;
     AnoResidencyEpoch *current = nullptr;
-    if (ano_mutex_lock(&manager->mutex)) {
+    if (mutex_lock(&manager->mutex)) {
         revision = manager->revision;
         current = manager->current;
         manager->revision = nullptr;
         manager->current = nullptr;
-        (void)ano_mutex_unlock(&manager->mutex);
+        (void)mutex_unlock(&manager->mutex);
     }
-    (void)ano_mutex_destroy(&manager->mutex);
+    (void)mutex_destroy(&manager->mutex);
     mi_free(manager->goals);
-    ano_resource_epoch_release(current);
-    ano_resource_revision_release(revision);
+    resource_epoch_release(current);
+    resource_revision_release(revision);
     mi_free(manager);
 }
 
-ResourceResult<> ano::ano_resource_goal_set(
+ResourceResult<> ano::resource_goal_set(
     AnoResourceManager *manager, AnoResourceGoal goal)
 {
     if (manager == nullptr || goal.goal.value == 0 || goal.asset.value == 0
@@ -466,11 +466,11 @@ ResourceResult<> ano::ano_resource_goal_set(
         manager->goals[index] = goal;
         ++manager->goalRevision;
     }
-    (void)ano_mutex_unlock(&manager->mutex);
+    (void)mutex_unlock(&manager->mutex);
     return resource_status(result);
 }
 
-ResourceResult<> ano::ano_resource_goal_remove(
+ResourceResult<> ano::resource_goal_remove(
     AnoResourceManager *manager, AnoResourceGoalId goal)
 {
     if (manager == nullptr || goal.value == 0)
@@ -494,11 +494,11 @@ ResourceResult<> ano::ano_resource_goal_remove(
                                         * sizeof(AnoResourceGoal)));
         ++manager->goalRevision;
     }
-    (void)ano_mutex_unlock(&manager->mutex);
+    (void)mutex_unlock(&manager->mutex);
     return resource_status(result);
 }
 
-ResourceResult<> ano::ano_resource_reconcile(
+ResourceResult<> ano::resource_reconcile(
     AnoResourceManager *manager)
 {
     AnoResourceError result = lock_manager(manager);
@@ -516,13 +516,13 @@ ResourceResult<> ano::ano_resource_reconcile(
         candidate = nullptr;
         ++manager->nextEpoch;
     }
-    (void)ano_mutex_unlock(&manager->mutex);
-    ano_resource_epoch_release(retired);
-    ano_resource_epoch_release(candidate);
+    (void)mutex_unlock(&manager->mutex);
+    resource_epoch_release(retired);
+    resource_epoch_release(candidate);
     return resource_status(result);
 }
 
-ResourceResult<AnoResourceReload *> ano::ano_resource_reload_prepare(
+ResourceResult<AnoResourceReload *> ano::resource_reload_prepare(
     AnoResourceManager *manager, const AnoCookedRevision *revision)
 {
     if (manager == nullptr || revision == nullptr)
@@ -542,7 +542,7 @@ ResourceResult<AnoResourceReload *> ano::ano_resource_reload_prepare(
         revision, manager->current, manager->goals, manager->goalCount,
         {manager->nextEpoch}, true, &prepared->epoch);
     if (result == ANO_RESOURCE_OK) {
-        const auto retained = ano_resource_revision_retain(revision);
+        const auto retained = resource_revision_retain(revision);
         result = retained ? ANO_RESOURCE_OK : retained.error();
     }
     if (result == ANO_RESOURCE_OK)
@@ -557,7 +557,7 @@ ResourceResult<AnoResourceReload *> ano::ano_resource_reload_prepare(
         prepared->hasChanges = epoch_has_changes(
             prepared->epoch, manager->current);
     }
-    (void)ano_mutex_unlock(&manager->mutex);
+    (void)mutex_unlock(&manager->mutex);
     if (result != ANO_RESOURCE_OK) {
         destroy_reload(prepared);
         return failure(result);
@@ -565,24 +565,24 @@ ResourceResult<AnoResourceReload *> ano::ano_resource_reload_prepare(
     return prepared;
 }
 
-const AnoResidencyEpoch *ano::ano_resource_reload_epoch(
+const AnoResidencyEpoch *ano::resource_reload_epoch(
     const AnoResourceReload *reload)
 {
     return reload == nullptr ? nullptr : reload->epoch;
 }
 
-bool ano::ano_resource_reload_has_changes(
+bool ano::resource_reload_has_changes(
     const AnoResourceReload *reload)
 {
     return reload != nullptr && reload->hasChanges;
 }
 
-void ano::ano_resource_reload_abort(AnoResourceReload *reload)
+void ano::resource_reload_abort(AnoResourceReload *reload)
 {
     destroy_reload(reload);
 }
 
-ResourceResult<> ano::ano_resource_reload_commit(
+ResourceResult<> ano::resource_reload_commit(
     AnoResourceReload *reload)
 {
     if (reload == nullptr || reload->manager == nullptr)
@@ -606,15 +606,15 @@ ResourceResult<> ano::ano_resource_reload_commit(
                 ++manager->nextEpoch;
             }
         }
-        (void)ano_mutex_unlock(&manager->mutex);
+        (void)mutex_unlock(&manager->mutex);
     }
-    ano_resource_revision_release(retiredRevision);
-    ano_resource_epoch_release(retiredEpoch);
+    resource_revision_release(retiredRevision);
+    resource_epoch_release(retiredEpoch);
     destroy_reload(reload);
     return resource_status(result);
 }
 
-ResourceResult<const AnoResidencyEpoch *> ano::ano_resource_epoch_acquire(
+ResourceResult<const AnoResidencyEpoch *> ano::resource_epoch_acquire(
     AnoResourceManager *manager)
 {
     if (manager == nullptr)
@@ -627,13 +627,13 @@ ResourceResult<const AnoResidencyEpoch *> ano::ano_resource_epoch_acquire(
         result = ANO_RESOURCE_OVERFLOW;
     else
         epoch = manager->current;
-    (void)ano_mutex_unlock(&manager->mutex);
+    (void)mutex_unlock(&manager->mutex);
     if (result != ANO_RESOURCE_OK)
         return failure(result);
     return epoch;
 }
 
-ResourceResult<> ano::ano_resource_epoch_retain(
+ResourceResult<> ano::resource_epoch_retain(
     const AnoResidencyEpoch *epoch)
 {
     if (epoch == nullptr)
@@ -643,7 +643,7 @@ ResourceResult<> ano::ano_resource_epoch_retain(
     return {};
 }
 
-void ano::ano_resource_epoch_release(
+void ano::resource_epoch_release(
     const AnoResidencyEpoch *epoch)
 {
     if (epoch == nullptr)
@@ -654,13 +654,13 @@ void ano::ano_resource_epoch_release(
         destroy_epoch(mutableEpoch);
 }
 
-AnoResidencyEpochId ano::ano_resource_epoch_id(
+AnoResidencyEpochId ano::resource_epoch_id(
     const AnoResidencyEpoch *epoch)
 {
     return epoch == nullptr ? AnoResidencyEpochId{0} : epoch->id;
 }
 
-ResourceResult<AnoManifestId> ano::ano_resource_epoch_manifest_id(
+ResourceResult<AnoManifestId> ano::resource_epoch_manifest_id(
     const AnoResidencyEpoch *epoch)
 {
     if (epoch == nullptr)
@@ -668,7 +668,7 @@ ResourceResult<AnoManifestId> ano::ano_resource_epoch_manifest_id(
     return epoch->manifest;
 }
 
-ResourceResult<AnoResourceBytes> ano::ano_resource_epoch_resolve(
+ResourceResult<AnoResourceBytes> ano::resource_epoch_resolve(
     const AnoResidencyEpoch *epoch, AnoAssetId asset,
     AnoResourceTypeId requiredType)
 {
@@ -693,7 +693,7 @@ ResourceResult<AnoResourceBytes> ano::ano_resource_epoch_resolve(
 }
 
 ResourceResult<std::span<const AnoResourceDependency>>
-ano::ano_resource_epoch_dependencies(const AnoResidencyEpoch *epoch,
+ano::resource_epoch_dependencies(const AnoResidencyEpoch *epoch,
                                      AnoAssetId asset)
 {
     if (epoch == nullptr)
@@ -711,13 +711,13 @@ ano::ano_resource_epoch_dependencies(const AnoResidencyEpoch *epoch,
         static_cast<size_t>(binding.dependencyCount)};
 }
 
-uint64_t ano::ano_resource_epoch_asset_count(
+uint64_t ano::resource_epoch_asset_count(
     const AnoResidencyEpoch *epoch)
 {
     return epoch == nullptr ? 0 : epoch->bindingCount;
 }
 
-ResourceResult<AnoResourceAssetState> ano::ano_resource_epoch_asset(
+ResourceResult<AnoResourceAssetState> ano::resource_epoch_asset(
     const AnoResidencyEpoch *epoch, AnoAssetId asset)
 {
     if (epoch == nullptr)
@@ -728,13 +728,13 @@ ResourceResult<AnoResourceAssetState> ano::ano_resource_epoch_asset(
     return AnoResourceAssetState{binding.type, binding.resident};
 }
 
-uint64_t ano::ano_resource_epoch_changed_count(
+uint64_t ano::resource_epoch_changed_count(
     const AnoResidencyEpoch *epoch)
 {
     return epoch == nullptr ? 0 : epoch->changedCount;
 }
 
-ResourceResult<AnoAssetId> ano::ano_resource_epoch_changed(
+ResourceResult<AnoAssetId> ano::resource_epoch_changed(
     const AnoResidencyEpoch *epoch, uint64_t index)
 {
     if (epoch == nullptr)

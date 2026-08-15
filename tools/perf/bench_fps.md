@@ -6,7 +6,7 @@ How we measure anopticengine frame throughput. Engine instrumentation and interp
 
 The engine emits three release-visible lines to `logs/<session-stamp>_ano.log` (under the executable dir; b85e213 replaced fixed `anoptic.log`), defined in `src/vulkan_backend/frame/profiling.c`. Drivers snapshot `logs/` before launch and tail the new `*_ano.log`.
 
-Wall-clock: one `anoperf_accumulator_t`, one `ano_timestamp_us` per presented frame in `ano_frame_mark()` (inlined in `frame.h`), dt into a fixed window, no extra clock read. Every **ANO_PERF_WINDOW_FRAMES** = 128 presented frames: sort once, log `[frame]` + `[frametime]`, reset. No per-frame logging. 128 = 2^7 (~2 s at 60 fps, ~1 s at 120).
+Wall-clock: one `anoperf_accumulator_t`, one `timestamp_us` per presented frame in `ano_frame_mark()` (inlined in `frame.h`), dt into a fixed window, no extra clock read. Every **ANO_PERF_WINDOW_FRAMES** = 128 presented frames: sort once, log `[frame]` + `[frametime]`, reset. No per-frame logging. 128 = 2^7 (~2 s at 60 fps, ~1 s at 120).
 
 - `[frame] <fps> fps <ms> ms wall`: **wall-clock throughput** over the flush window, from `anoperf_flush()` on the presented-frame path in `drawFrame`. Timestamp-independent; keeps reporting when swapchain recreation starves GPU-timestamp reads. Whole pipeline (CPU record + submit + present + GPU).
 - `[frametime] n=128 min=<ms> p50=<ms> p90=<ms> p99=<ms> p999=<ms> max=<ms>`: **per-frame frametime distribution**. Exact percentiles over the window's 128 wall dts, sorted at flush. Stutter signal the `[frame]` window mean cannot show. At n=128, `p999` interpolates the two worst frames (window worst-frame statistic); `max` is the single worst frame.

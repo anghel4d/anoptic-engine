@@ -187,7 +187,7 @@ AnoResourceError extract_dependencies(
 {
     *dependencies = nullptr;
     *dependencyCount = 0;
-    const auto measured = ano_resource_artifact_dependencies(
+    const auto measured = resource_artifact_dependencies(
         type, artifact, nullptr, 0);
     if (!measured)
         return measured.error();
@@ -201,7 +201,7 @@ AnoResourceError extract_dependencies(
     if (!allocation)
         return ANO_RESOURCE_OUT_OF_MEMORY;
     auto *values = *allocation;
-    const auto extracted = ano_resource_artifact_dependencies(
+    const auto extracted = resource_artifact_dependencies(
         type, artifact, values, required);
     if (!extracted || *extracted != required)
         return extracted ? ANO_RESOURCE_BAD_MANIFEST : extracted.error();
@@ -238,19 +238,19 @@ void encode_artifact(void *context, uint64_t index, ano::MemoryRegion *)
         {.data = view.data(), .size = view.size()});
     work.result = encoded ? ANO_RESOURCE_OK : encoded.error();
     if (work.result == ANO_RESOURCE_OK) {
-        const auto valid = ano_resource_validate_artifact(
+        const auto valid = resource_validate_artifact(
             work.artifact->type, work.bytes);
         work.result = valid ? ANO_RESOURCE_OK : valid.error();
     }
     if (work.result == ANO_RESOURCE_OK) {
-        const auto schema = ano_resource_artifact_schema(work.artifact->type);
+        const auto schema = resource_artifact_schema(work.artifact->type);
         if (schema)
             work.schema = *schema;
         else
             work.result = schema.error();
     }
     if (work.result == ANO_RESOURCE_OK) {
-        const auto content = ano_resource_content_id(work.bytes);
+        const auto content = resource_content_id(work.bytes);
         if (content)
             work.content = *content;
         else
@@ -635,7 +635,7 @@ AnoResourceError requires_action(
     AnoResourceCommitGroupId commitGroup, uint64_t producer,
     AnoContentId inputIdentity, bool& required)
 {
-    const auto schema = ano_resource_artifact_schema(type);
+    const auto schema = resource_artifact_schema(type);
     if (!schema)
         return schema.error();
     const AnoContentId expected = action_key(
@@ -644,7 +644,7 @@ AnoResourceError requires_action(
     required = node == nullptr || !node->present
         || node->source.value != source.value
         || node->type.value != type.value || node->producer != producer
-        || !ano_resource_content_id_equal(node->action, expected);
+        || !resource_content_id_equal(node->action, expected);
     return ANO_RESOURCE_OK;
 }
 
@@ -694,7 +694,7 @@ void finish_transaction(AnoResourceCooker& cooker, bool publishSources = false)
 
 } // namespace
 
-ResourceResult<AnoResourceCooker *> ano::ano_resource_cooker_create(
+ResourceResult<AnoResourceCooker *> ano::resource_cooker_create(
     AnoResourceCookerConfig config)
 {
     if (config.firstDerivedAsset.value < 2)
@@ -720,7 +720,7 @@ ResourceResult<AnoResourceCooker *> ano::ano_resource_cooker_create(
     return cooker;
 }
 
-void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
+void ano::resource_cooker_destroy(AnoResourceCooker *cooker)
 {
     if (cooker == nullptr)
         return;
@@ -736,12 +736,12 @@ void ano::ano_resource_cooker_destroy(AnoResourceCooker *cooker)
     mi_free(cooker->pendingVolumes);
     mi_free(cooker->pendingIndex);
     mi_free(cooker->nodeIndex);
-    ano_resource_revision_release(cooker->current);
+    resource_revision_release(cooker->current);
     cooker->~AnoResourceCooker();
     mi_free(cooker);
 }
 
-ResourceResult<> ano::ano_resource_cooker_begin(
+ResourceResult<> ano::resource_cooker_begin(
     AnoResourceCooker *cooker)
 {
     if (cooker == nullptr)
@@ -755,7 +755,7 @@ ResourceResult<> ano::ano_resource_cooker_begin(
     return {};
 }
 
-ResourceResult<> ano::ano_resource_source_bind(
+ResourceResult<> ano::resource_source_bind(
     AnoResourceCooker *cooker, AnoResourceSourceId source, const char *path)
 {
     if (cooker == nullptr || source.value == 0 || path == nullptr
@@ -784,7 +784,7 @@ ResourceResult<> ano::ano_resource_source_bind(
     return {};
 }
 
-ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
+ResourceResult<const AnoCookedRevision *> ano::resource_cook(
     AnoResourceCooker *cooker)
 {
     if (cooker == nullptr)
@@ -827,7 +827,7 @@ ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
         if (source_replaced(*cooker, storage.source)
             || pending_asset(*cooker, entry.asset))
             continue;
-        const auto bytes = ano_resource_revision_resolve(
+        const auto bytes = resource_revision_resolve(
             cooker->current, entry.asset, entry.type);
         if (!bytes) {
             ano::memory_region_destroy(transaction);
@@ -903,11 +903,11 @@ ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
             item.source.schema.fingerprint, input);
         const bool sameArtifact = item.previous != nullptr
             && item.previous->type.value == item.source.type.value
-            && ano_resource_content_id_equal(
+            && resource_content_id_equal(
                 item.previous->content, item.source.content);
         const bool same = sameArtifact
             && item.previous->producer == item.source.producer
-            && ano_resource_content_id_equal(
+            && resource_content_id_equal(
                 item.previous->inputIdentity, item.source.inputIdentity)
             && item.previousStorage != nullptr
             && item.previousStorage->source.value
@@ -926,7 +926,7 @@ ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
                 node->action = work[i].action;
             }
         }
-        const auto retained = ano_resource_revision_retain(cooker->current);
+        const auto retained = resource_revision_retain(cooker->current);
         finish_transaction(*cooker, true);
         ano::memory_region_destroy(transaction);
         if (!retained)
@@ -1072,9 +1072,9 @@ ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
         node->action = work[i].action;
         node->present = true;
     }
-    ano_resource_revision_release(cooker->current);
+    resource_revision_release(cooker->current);
     cooker->current = revision;
-    const auto retained = ano_resource_revision_retain(revision);
+    const auto retained = resource_revision_retain(revision);
     finish_transaction(*cooker, true);
     ano::memory_region_destroy(transaction);
     if (!retained)
@@ -1082,7 +1082,7 @@ ResourceResult<const AnoCookedRevision *> ano::ano_resource_cook(
     return revision;
 }
 
-ResourceResult<> ano::ano_resource_revision_retain(
+ResourceResult<> ano::resource_revision_retain(
     const AnoCookedRevision *revision)
 {
     if (revision == nullptr)
@@ -1099,7 +1099,7 @@ ResourceResult<> ano::ano_resource_revision_retain(
     return {};
 }
 
-void ano::ano_resource_revision_release(
+void ano::resource_revision_release(
     const AnoCookedRevision *constant)
 {
     if (constant == nullptr)
@@ -1144,7 +1144,7 @@ AnoResourceError ano_resource_revision_dependencies(
     return ANO_RESOURCE_OK;
 }
 
-ResourceResult<AnoResourceBytes> ano::ano_resource_revision_resolve(
+ResourceResult<AnoResourceBytes> ano::resource_revision_resolve(
     const AnoCookedRevision *revision, AnoAssetId asset,
     AnoResourceTypeId requiredType)
 {
@@ -1175,7 +1175,7 @@ AnoResourceError ano_resource_revision_validate(
         ? ANO_RESOURCE_OK : ANO_RESOURCE_BAD_MANIFEST;
 }
 
-ResourceResult<AnoResourceMutableBytes> ano::ano_resource_revision_export_pack(
+ResourceResult<AnoResourceMutableBytes> ano::resource_revision_export_pack(
     const AnoCookedRevision *revision)
 {
     AnoResourceMutableBytes pack{};
@@ -1185,13 +1185,13 @@ ResourceResult<AnoResourceMutableBytes> ano::ano_resource_revision_export_pack(
     return pack;
 }
 
-void ano::ano_resource_exported_pack_release(
+void ano::resource_exported_pack_release(
     AnoResourceMutableBytes pack)
 {
     mi_free(pack.data);
 }
 
-void ano::ano_resource_cooker_cancel(AnoResourceCooker *cooker)
+void ano::resource_cooker_cancel(AnoResourceCooker *cooker)
 {
     if (cooker != nullptr)
         atomic_store_explicit(&cooker->cancelled, true, memory_order_release);
@@ -1292,7 +1292,7 @@ AnoResourceError ano_resource_cooker_allocate_derived(
     return ANO_RESOURCE_OK;
 }
 
-ResourceResult<> ano::ano_resource_cooker_encode_batch(
+ResourceResult<> ano::resource_cooker_encode_batch(
     AnoResourceCooker *cooker, AnoResourceCookArtifact *artifacts,
     uint64_t count)
 {
@@ -1423,21 +1423,21 @@ ResourceResult<> ano::ano_resource_cooker_encode_batch(
     return resource_status(result);
 }
 
-ResourceResult<> ano::ano_resource_cooker_add(
+ResourceResult<> ano::resource_cooker_add(
     AnoResourceCooker *cooker, AnoAssetId asset, AnoResourceTypeId type,
     AnoResourceCommitGroupId commitGroup, AnoResourceBytes artifact)
 {
     if (artifact.data == nullptr || artifact.size == 0
         || artifact.size > SIZE_MAX)
         return failure(ANO_RESOURCE_INVALID_ARGUMENT);
-    if (!ano_resource_validate_artifact(type, artifact))
+    if (!resource_validate_artifact(type, artifact))
         return failure(ANO_RESOURCE_NON_CANONICAL);
     if (cooker == nullptr || asset.value == 0 || type.value == 0
         || commitGroup.value == 0)
         return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     if (pending_asset(*cooker, asset))
         return failure(ANO_RESOURCE_DUPLICATE_ASSET);
-    const auto content = ano_resource_content_id(artifact);
+    const auto content = resource_content_id(artifact);
     if (!content)
         return failure(content.error());
     AnoResourceError result = ANO_RESOURCE_OK;
@@ -1461,7 +1461,7 @@ ResourceResult<> ano::ano_resource_cooker_add(
     };
     const AnoResourceSourceId active = cooker->activeSource;
     cooker->activeSource = {};
-    const auto encoded = ano_resource_cooker_encode_batch(
+    const auto encoded = resource_cooker_encode_batch(
         cooker, &input, 1);
     cooker->activeSource = active;
     return encoded;
@@ -1501,7 +1501,7 @@ AnoResourceError ano_resource_cooker_import_begin(
     AnoResourceError result = acquire_file(*cooker, binding->path, &root);
     cooker->activeRootChanged = result == ANO_RESOURCE_OK
         && (!binding->rootValid
-            || !ano_resource_content_id_equal(
+            || !resource_content_id_equal(
                 binding->rootId, root->content));
     if (result == ANO_RESOURCE_OK && !cooker->activeRootChanged
         && binding->snapshotValid && !binding->pathChanged)
@@ -1520,7 +1520,7 @@ AnoResourceError ano_resource_cooker_import_begin(
         cooker->activeFiles, cooker->activeFileCount);
     if (!cooker->rebuildTail && !cooker->activeRootChanged
         && binding->snapshotValid
-        && ano_resource_content_id_equal(binding->snapshotId, identity)) {
+        && resource_content_id_equal(binding->snapshotId, identity)) {
         clear_active_import(*cooker);
         if (cooker->current != nullptr)
             for (uint64_t i = 0; i < cooker->current->itemCount; ++i)
@@ -1740,7 +1740,7 @@ bool ano_resource_cooker_source_changed(
         return true;
     for (uint64_t i = 0; i < binding->fileCount; ++i)
         if (strcmp(binding->files[i].path, path) == 0)
-            return !ano_resource_content_id_equal(
+            return !resource_content_id_equal(
                 binding->files[i].content, active->content);
     return true;
 }

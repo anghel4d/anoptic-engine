@@ -419,12 +419,12 @@ AnoResourceError texture_image(const AnoGltfData& data,
     if (image == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
     *image = ANO_GLTF_NO_INDEX;
-    if (!ano_gltf_has_index(info.index))
+    if (!gltf_has_index(info.index))
         return ANO_RESOURCE_OK;
     if (info.index.value >= data.texturesCount)
         return ANO_RESOURCE_NON_CANONICAL;
     const AnoGltfTexture& texture = data.textures[info.index.value];
-    if (ano_gltf_has_index(texture.source)) {
+    if (gltf_has_index(texture.source)) {
         if (texture.source.value >= data.imagesCount)
             return ANO_RESOURCE_NON_CANONICAL;
         *image = texture.source.value;
@@ -442,7 +442,7 @@ AnoResourceError mark_material_images(const AnoGltfData& data,
 {
     AnoResourceError result = ANO_RESOURCE_OK;
     auto mark = [&]<std::meta::info source>(const AnoGltfTextureInfo& info) {
-        if (result != ANO_RESOURCE_OK || !ano_gltf_has_index(info.index))
+        if (result != ANO_RESOURCE_OK || !gltf_has_index(info.index))
             return;
         constexpr MaterialTextureSlotMatch match =
             material_texture_slot(source);
@@ -477,7 +477,7 @@ MaterialTexture material_texture(const AnoGltfData& data,
         .hasTransform = false,
         .transformsTexcoord = false,
     };
-    if (ano_gltf_has_index(source.index)) {
+    if (gltf_has_index(source.index)) {
         uint32_t image = ANO_GLTF_NO_INDEX;
         *error = texture_image(data, source, &image);
         if (*error != ANO_RESOURCE_OK)
@@ -563,7 +563,7 @@ AnoResourceError make_material(const AnoGltfData& data,
         constexpr MaterialTextureSlotMatch match =
             material_texture_slot(field);
         if constexpr (!match.found) {
-            if (ano_gltf_has_index(texture.index))
+            if (gltf_has_index(texture.index))
                 result = ANO_RESOURCE_UNSUPPORTED;
         } else {
             material->textures[ano::detail::enum_index(match.slot)] =
@@ -600,7 +600,7 @@ AnoResourceError resolved_image_path(const char *gltfPath,
     if (uri.length != 0)
         memcpy(resolved + prefix, uri.data, uri.length);
     resolved[prefix + uri.length] = '\0';
-    const size_t decoded = ano_gltf_decode_uri(resolved + prefix);
+    const size_t decoded = gltf_decode_uri(resolved + prefix);
     if (strlen(resolved + prefix) != decoded) {
         mi_free(resolved);
         return ANO_RESOURCE_NON_CANONICAL;
@@ -693,12 +693,12 @@ AnoResourceError texture_input_identity(
     const AnoGltfImage& image = data.images[imageIndex];
     if (external_uri(image.uri)) {
         external = image.uri;
-    } else if (ano_gltf_has_index(image.bufferView)) {
+    } else if (gltf_has_index(image.bufferView)) {
         if (image.bufferView.value >= data.bufferViewsCount)
             return ANO_RESOURCE_NON_CANONICAL;
         const AnoGltfBufferIndex buffer =
             data.bufferViews[image.bufferView.value].buffer;
-        if (!ano_gltf_has_index(buffer) || buffer.value >= data.buffersCount)
+        if (!gltf_has_index(buffer) || buffer.value >= data.buffersCount)
             return ANO_RESOURCE_NON_CANONICAL;
         if (external_uri(data.buffers[buffer.value].uri))
             external = data.buffers[buffer.value].uri;
@@ -771,7 +771,7 @@ AnoResourceError bind_external_buffers(AnoResourceCooker& cooker,
             result = ano_resource_cooker_source_bytes(
                 &cooker, path, &bytes);
         if (result == ANO_RESOURCE_OK
-            && gltf_error(ano_gltf_bind_buffer(
+            && gltf_error(gltf_bind_buffer(
                    &data, {i}, bytes.data, static_cast<size_t>(bytes.size)))
                 != ANO_RESOURCE_OK)
             result = ANO_RESOURCE_NON_CANONICAL;
@@ -797,7 +797,7 @@ bool external_file_changed(AnoResourceCooker& cooker,
 bool buffer_changed(AnoResourceCooker& cooker, const char *sourcePath,
                     const AnoGltfData& data, AnoGltfBufferIndex buffer)
 {
-    return !ano_gltf_has_index(buffer) || buffer.value >= data.buffersCount
+    return !gltf_has_index(buffer) || buffer.value >= data.buffersCount
         || external_file_changed(
             cooker, sourcePath, data.buffers[buffer.value].uri);
 }
@@ -810,7 +810,7 @@ bool image_changed(AnoResourceCooker& cooker, const char *sourcePath,
     const AnoGltfImage& image = data.images[imageIndex];
     if (image.uri.length != 0)
         return external_file_changed(cooker, sourcePath, image.uri);
-    if (!ano_gltf_has_index(image.bufferView)
+    if (!gltf_has_index(image.bufferView)
         || image.bufferView.value >= data.bufferViewsCount)
         return true;
     return buffer_changed(
@@ -858,12 +858,12 @@ AnoResourceError decode_image(AnoResourceCooker& cooker,
         *pixels = stbi_load_from_memory(
             encoded.data, static_cast<int>(encoded.size), &decodedWidth,
             &decodedHeight, &channels, STBI_rgb_alpha);
-    } else if (ano_gltf_has_index(image.bufferView)) {
+    } else if (gltf_has_index(image.bufferView)) {
         if (image.bufferView.value >= data.bufferViewsCount)
             return ANO_RESOURCE_NON_CANONICAL;
         const AnoGltfBufferView& view =
             data.bufferViews[image.bufferView.value];
-        const auto bytes = ano_gltf_buffer_view_data(&data, image.bufferView);
+        const auto bytes = gltf_buffer_view_data(&data, image.bufferView);
         if (!bytes || view.byteLength > INT_MAX)
             return ANO_RESOURCE_NON_CANONICAL;
         *pixels = stbi_load_from_memory(
@@ -935,22 +935,22 @@ AnoResourceError primitive_accessors(
         || primitive.targets.count != 0
         || primitive.extensions.known.KHR_draco_mesh_compression.present)
         return ANO_RESOURCE_UNSUPPORTED;
-    *position = ano_gltf_find_accessor(
+    *position = gltf_find_accessor(
         &data, &primitive, AnoGltfAttributeType::position, 0);
-    *normal = ano_gltf_find_accessor(
+    *normal = gltf_find_accessor(
         &data, &primitive, AnoGltfAttributeType::normal, 0);
-    *texCoord = ano_gltf_find_accessor(
+    *texCoord = gltf_find_accessor(
         &data, &primitive, AnoGltfAttributeType::texcoord, 0);
-    if (*position == nullptr || !ano_gltf_has_index(primitive.indices)
+    if (*position == nullptr || !gltf_has_index(primitive.indices)
         || primitive.indices.value >= data.accessorsCount)
         return ANO_RESOURCE_UNSUPPORTED;
     *indices = &data.accessors[primitive.indices.value];
-    if (ano_gltf_component_count((*position)->type) != 3
+    if (gltf_component_count((*position)->type) != 3
         || (*normal != nullptr
-            && ano_gltf_component_count((*normal)->type) != 3)
+            && gltf_component_count((*normal)->type) != 3)
         || (*texCoord != nullptr
-            && ano_gltf_component_count((*texCoord)->type) != 2)
-        || ano_gltf_component_count((*indices)->type) != 1)
+            && gltf_component_count((*texCoord)->type) != 2)
+        || gltf_component_count((*indices)->type) != 1)
         return ANO_RESOURCE_NON_CANONICAL;
     if ((*position)->count == 0 || (*indices)->count == 0
         || (*indices)->count % 3 != 0
@@ -992,13 +992,13 @@ AnoResourceError build_mesh(const AnoGltfData& data,
     Vertex *vertices = reinterpret_cast<Vertex *>(extent);
     uint32_t *indices = reinterpret_cast<uint32_t *>(extent + vertexBytes);
     for (uint64_t vertex = 0; vertex < position->count; ++vertex) {
-        if (!ano_gltf_accessor_read_float(
+        if (!gltf_accessor_read_float(
                 &data, position, vertex, vertices[vertex].position, 3)) {
             result = ANO_RESOURCE_NON_CANONICAL;
             break;
         }
         if (normal != nullptr) {
-            if (!ano_gltf_accessor_read_float(
+            if (!gltf_accessor_read_float(
                     &data, normal, vertex, vertices[vertex].normal, 3)) {
                 result = ANO_RESOURCE_NON_CANONICAL;
                 break;
@@ -1007,7 +1007,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
             vertices[vertex].normal[1] = 1.0f;
         }
         if (texCoord != nullptr
-            && !ano_gltf_accessor_read_float(
+            && !gltf_accessor_read_float(
                 &data, texCoord, vertex, vertices[vertex].texCoord, 2)) {
             result = ANO_RESOURCE_NON_CANONICAL;
             break;
@@ -1017,7 +1017,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
                 result = ANO_RESOURCE_NON_CANONICAL;
     }
     if (result == ANO_RESOURCE_OK) {
-        const auto unpacked = ano_gltf_accessor_unpack_indices(
+        const auto unpacked = gltf_accessor_unpack_indices(
             &data, indicesAccessor, indices, sizeof(*indices),
             indicesAccessor->count);
         if (!unpacked || *unpacked != indicesAccessor->count)
@@ -1045,7 +1045,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
     }
     if (result == ANO_RESOURCE_OK) {
         AnoAssetId materialAsset = scratch.defaultMaterial;
-        if (ano_gltf_has_index(primitive.material))
+        if (gltf_has_index(primitive.material))
             materialAsset = scratch.materialAssets[primitive.material.value];
         const Mesh mesh = {
             .vertices = {0, position->count},
@@ -1068,7 +1068,7 @@ AnoResourceError mark_selected_scene(const AnoGltfData& data,
 {
     if (data.scenesCount == 0)
         return ANO_RESOURCE_NON_CANONICAL;
-    const uint32_t sceneIndex = ano_gltf_has_index(data.scene)
+    const uint32_t sceneIndex = gltf_has_index(data.scene)
         ? data.scene.value : 0;
     if (sceneIndex >= data.scenesCount)
         return ANO_RESOURCE_NON_CANONICAL;
@@ -1107,17 +1107,17 @@ AnoResourceError analyze_scene(const AnoGltfData& data,
         if (!scratch.reachableNodes[node])
             continue;
         const AnoGltfNode& source = data.nodes[node];
-        if (ano_gltf_has_index(source.skin)
+        if (gltf_has_index(source.skin)
             || source.extensions.known.EXT_mesh_gpu_instancing.present)
             return ANO_RESOURCE_UNSUPPORTED;
-        if (ano_gltf_has_index(source.mesh)) {
+        if (gltf_has_index(source.mesh)) {
             if (source.mesh.value >= data.meshesCount)
                 return ANO_RESOURCE_NON_CANONICAL;
             scratch.usedMeshes[source.mesh.value] = true;
         }
         const auto& light = source.extensions.known.KHR_lights_punctual;
         if (light.present
-            && (!ano_gltf_has_index(light.value.light)
+            && (!gltf_has_index(light.value.light)
                 || light.value.light.value >= data.lightsCount))
             return ANO_RESOURCE_NON_CANONICAL;
     }
@@ -1136,7 +1136,7 @@ AnoResourceError analyze_scene(const AnoGltfData& data,
                 data, value, &position, &normal, &texCoord, &indices);
             if (supported != ANO_RESOURCE_OK)
                 return supported;
-            if (ano_gltf_has_index(value.material)) {
+            if (gltf_has_index(value.material)) {
                 if (value.material.value >= data.materialsCount)
                     return ANO_RESOURCE_NON_CANONICAL;
                 scratch.usedMaterials[value.material.value] = true;
@@ -1402,7 +1402,7 @@ AnoResourceError build_import_artifacts(
     for (uint64_t i = 0; i < jobCount && result == ANO_RESOURCE_OK; ++i)
         artifacts[i] = jobs[i].artifact;
     if (result == ANO_RESOURCE_OK) {
-        const auto encoded = ano_resource_cooker_encode_batch(
+        const auto encoded = resource_cooker_encode_batch(
             &cooker, artifacts, jobCount);
         result = encoded ? ANO_RESOURCE_OK : encoded.error();
     }
@@ -1422,7 +1422,7 @@ AnoResourceError prepare_scene_root(
         if (!scratch.reachableNodes[node])
             continue;
         const AnoGltfNode& source = data.nodes[node];
-        if (ano_gltf_has_index(source.mesh)) {
+        if (gltf_has_index(source.mesh)) {
             if (!ano::checked_accumulate(
                     renderableCount, uint64_t{
                         data.meshes[source.mesh.value].primitives.count}))
@@ -1459,12 +1459,12 @@ AnoResourceError prepare_scene_root(
             continue;
         const AnoGltfNode& source = data.nodes[node];
         float world[16] = {};
-        if (!ano_gltf_node_transform_world(
+        if (!gltf_node_transform_world(
                 &data, AnoGltfNodeIndex{node}, world)) {
             result = ANO_RESOURCE_NON_CANONICAL;
             break;
         }
-        if (ano_gltf_has_index(source.mesh)) {
+        if (gltf_has_index(source.mesh)) {
             const uint32_t mesh = source.mesh.value;
             for (uint32_t primitive = 0;
                  primitive < data.meshes[mesh].primitives.count; ++primitive) {
@@ -1572,7 +1572,7 @@ ResourceResult<> import_gltf(AnoResourceCooker& cooker,
     AnoResourceError result = ano_resource_cooker_source_bytes(
         &cooker, sourcePath, &rootBytes);
     if (result == ANO_RESOURCE_OK) {
-        const auto parsed = ano_gltf_parse_memory(
+        const auto parsed = gltf_parse_memory(
             rootBytes.data, static_cast<size_t>(rootBytes.size), &options);
         result = gltf_error(parsed);
         if (parsed)
@@ -1584,9 +1584,9 @@ ResourceResult<> import_gltf(AnoResourceCooker& cooker,
         result = bind_external_buffers(cooker, sourcePath, *data);
     if (result == ANO_RESOURCE_OK)
         result = gltf_error(
-            ano_gltf_load_buffers(data, sourcePath, &options));
+            gltf_load_buffers(data, sourcePath, &options));
     if (result == ANO_RESOURCE_OK)
-        result = gltf_error(ano_gltf_validate_loaded_data(data));
+        result = gltf_error(gltf_validate_loaded_data(data));
 
     ImportScratch scratch = {};
     if (result == ANO_RESOURCE_OK)
@@ -1601,7 +1601,7 @@ ResourceResult<> import_gltf(AnoResourceCooker& cooker,
         result = build_import_artifacts(
             cooker, request, sourcePath, *data, scratch, region);
 
-    ano_gltf_free(data);
+    gltf_free(data);
     ano::memory_region_destroy(region);
     if (result != ANO_RESOURCE_OK)
         ano_resource_cooker_rollback(&cooker, checkpoint);

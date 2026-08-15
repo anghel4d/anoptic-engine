@@ -45,21 +45,21 @@ namespace ano {
 
 // First-class heap: any thread may allocate. Destroy winks out every live
 // allocation after users have stopped.
-mi_heap_t *ano_heap_create(void);
-void ano_heap_destroy(mi_heap_t *heap);
-void ano_heap_cleanup(mi_heap_t **heap);
+mi_heap_t *heap_create(void);
+void heap_destroy(mi_heap_t *heap);
+void heap_cleanup(mi_heap_t **heap);
 
-// Scoped lifetime heap: mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-#define ANO_SCOPED_HEAP __attribute__((__cleanup__(ano_heap_cleanup)))
+// Scoped lifetime heap: mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+#define ANO_SCOPED_HEAP __attribute__((__cleanup__(heap_cleanup)))
 
 // Stack alloc. Overflow risk.
 #define ano_salloc(bytes) alloca((size_t)bytes)
 
 // mi_malloc_aligned wrapper. Power-of-2 alignment. NULL if size or alignment is 0.
-void* ano_aligned_malloc(size_t size, size_t alignment);
+void* aligned_malloc(size_t size, size_t alignment);
 
-// Only a pointer from ano_aligned_malloc. Else UB.
-void ano_aligned_free(void* ptr);
+// Only a pointer from aligned_malloc. Else UB.
+void aligned_free(void* ptr);
 
 struct MemoryReservation final { size_t offset = 0; size_t size = 0; };
 

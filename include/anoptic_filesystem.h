@@ -22,7 +22,7 @@ namespace ano {
 #define ANO_GAME_NAME "anoptic"
 
 // NUL-terminated syscall path. length excludes NUL.
-struct ano_fspath {
+struct fspath {
     uint16_t length;
     char str[MAXPATH];
 };
@@ -37,44 +37,44 @@ using FilesystemResult = Result<Value, FilesystemError>;
 
 // Executable directory: no file name, no trailing separator except drive/FS root.
 // Thread-safe: computed fresh per call, no shared state, no dirname().
-[[nodiscard]] FilesystemResult<ano_fspath> ano_fs_gamepath(void);
+[[nodiscard]] FilesystemResult<fspath> fs_gamepath(void);
 
 // User data path (profiles, saves, settings). Creates if absent. Thread-safe.
-[[nodiscard]] FilesystemResult<ano_fspath> ano_fs_userpath(void);
+[[nodiscard]] FilesystemResult<fspath> fs_userpath(void);
 
 // Log directory: "<gamepath>/logs", home of <stamp>_ano.log / <stamp>_CRASH.log.
 // Creates if absent. Thread-safe.
-[[nodiscard]] FilesystemResult<ano_fspath> ano_fs_logpath(void);
+[[nodiscard]] FilesystemResult<fspath> fs_logpath(void);
 
 // Session stamp: "YYYY-MM-DD_XXXXXX" = local date + low six digits of raw ticks.
 // Latched at first call; names this session's files. Thread-safe.
 // Output: NUL-terminated stamp, static storage.
-const char *ano_fs_session_stamp(void);
+const char *fs_session_stamp(void);
 
 // Set CWD to the executable directory so relative asset loads resolve.
-[[nodiscard]] FilesystemResult<> ano_fs_chdir_gamepath(void);
+[[nodiscard]] FilesystemResult<> fs_chdir_gamepath(void);
 
 
 /* Append-Only File */
 
 // Opaque handle: platform fd/HANDLE stays in the per-OS source.
-struct ano_file;
+struct fs_file;
 
 // Open `path` for append (OS append mode), create if absent. Concurrent appends do not interleave.
-[[nodiscard]] FilesystemResult<ano_file*> ano_fs_open_append(const char *path);
+[[nodiscard]] FilesystemResult<fs_file*> fs_open_append(const char *path);
 
 // Open `path` for append after truncate to zero, create if absent.
 // For a file this session owns from its first byte (the logger's init open).
-[[nodiscard]] FilesystemResult<ano_file*> ano_fs_open_trunc(const char *path);
+[[nodiscard]] FilesystemResult<fs_file*> fs_open_trunc(const char *path);
 
 // Write all `length` bytes, looping past short writes.
-[[nodiscard]] FilesystemResult<> ano_fs_write(
-    ano_file *file, const void *data, size_t length);
+[[nodiscard]] FilesystemResult<> fs_write(
+    fs_file *file, const void *data, size_t length);
 
 // Flush to the device (fsync / FlushFileBuffers).
-[[nodiscard]] FilesystemResult<> ano_fs_sync(ano_file *file);
+[[nodiscard]] FilesystemResult<> fs_sync(fs_file *file);
 
-// Close and free without sync. Call ano_fs_sync for durability.
-[[nodiscard]] FilesystemResult<> ano_fs_close(ano_file *file);
+// Close and free without sync. Call fs_sync for durability.
+[[nodiscard]] FilesystemResult<> fs_close(fs_file *file);
 
 } // namespace ano

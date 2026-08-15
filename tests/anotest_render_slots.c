@@ -101,14 +101,14 @@ static void test_set_capacity(mi_heap_t *heap)
 
 int main(void)
 {
-    mi_heap_t *heap = ano_heap_create();
+    mi_heap_t *heap = heap_create();
     CHECK(heap != NULL, "heap creation");
 
     test_bulk_range(heap);
     test_lifecycle(heap);
     test_set_capacity(heap);
 
-    ano_heap_destroy(heap);
+    heap_destroy(heap);
 
     if (failures == 0) { printf("anotest_render_slots: all checks passed\n"); return 0; }
     printf("anotest_render_slots: %d check(s) failed\n", failures);

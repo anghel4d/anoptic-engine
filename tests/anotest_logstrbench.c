@@ -46,22 +46,22 @@ static anostr_t g_pool[POOL_N];
 
 /* Tick Source */
 
-// Calibrated rdtsc on x86-64 (below QPC grain), else ano_timestamp_ticks. Same as anotest_logtail.
+// Calibrated rdtsc on x86-64 (below QPC grain), else timestamp_ticks. Same as anotest_logtail.
 #if defined(__x86_64__) || defined(_M_X64)
 static inline uint64_t tick_now(void) { return __rdtsc(); }
 static double g_nsPerTick = 1.0;
 static void tick_calibrate(void)
 {
-    uint64_t ns0 = ano_timestamp_raw(), t0 = tick_now();
-    while (ano_timestamp_raw() - ns0 < 50u * 1000u * 1000u) { }
-    uint64_t ns1 = ano_timestamp_raw(), t1 = tick_now();
+    uint64_t ns0 = timestamp_raw(), t0 = tick_now();
+    while (timestamp_raw() - ns0 < 50u * 1000u * 1000u) { }
+    uint64_t ns1 = timestamp_raw(), t1 = tick_now();
     g_nsPerTick = (double)(ns1 - ns0) / (double)(t1 - t0);
 }
 static uint64_t tick_to_ns(uint64_t t) { return (uint64_t)((double)t * g_nsPerTick); }
 #else
-static inline uint64_t tick_now(void) { return ano_timestamp_ticks(); }
+static inline uint64_t tick_now(void) { return timestamp_ticks(); }
 static void tick_calibrate(void) { }
-static uint64_t tick_to_ns(uint64_t t) { return ano_ticks_to_ns(t); }
+static uint64_t tick_to_ns(uint64_t t) { return ticks_to_ns(t); }
 #endif
 
 // Inventory-name shapes, heavy on non-ASCII.
@@ -120,11 +120,11 @@ static bench_stats run_point(int producers, uint64_t *buf)
     for (int i = 0; i < producers; i++) {
         arg[i] = (prod_arg){ .id = i, .count = g_msgs };
         bench_lat_init(&arg[i].lat, buf + (size_t)i * (size_t)g_msgs, (size_t)g_msgs);
-        (void)ano_thread_create(&th[i], NULL, producer, &arg[i]);
+        (void)thread_create(&th[i], NULL, producer, &arg[i]);
     }
     for (int i = 0; i < producers; i++)
-        (void)ano_thread_join(th[i], NULL);
-    ano_log_flush();
+        (void)thread_join(th[i], NULL);
+    log_flush();
 
     bench_lat merged;
     bench_lat_init(&merged, buf, (size_t)producers * (size_t)g_msgs);
@@ -164,8 +164,8 @@ int main(int argc, char **argv)
     }
     tick_calibrate();
 
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+    if (heap == NULL) { printf("FAIL: heap_create\n"); return 1; }
     pool_init(heap);
 
     uint64_t *buf = static_cast<uint64_t *>(
@@ -175,15 +175,15 @@ int main(int argc, char **argv)
     printf("Logger x strings: %%.*s-captured UTF-8 item names, %d msgs/producer\n\n", g_msgs);
 
     scratch_make_dir(OUT_DIR);
-    (void)ano_log_init();
-    (void)ano_log_output_dir(OUT_DIR);
+    (void)log_init();
+    (void)log_output_dir(OUT_DIR);
 
     uint64_t expected = 0;
     for (int i = 0; i < 256; i++) {   // warm caches, branch predictors, the ring
         ano_log(ANO_INFO, "warm %.*s", anostr_fmt(g_pool[i % POOL_N]));
         expected++;
     }
-    ano_log_flush();
+    log_flush();
 
     bench_lat_header();
     for (int p = 0; p < NPOINTS; p++) {
@@ -201,11 +201,11 @@ int main(int argc, char **argv)
     ano_log(ANO_INFO, "sentinel: %.*s / %.*s", anostr_fmt(sentinel), anostr_fmt(inl));
     expected++;
 
-    ano_log_cleanup();  // final drain + close, so the file below is complete
+    log_cleanup();  // final drain + close, so the file below is complete
 
     int failures = 0;
     char outLog[96];    // the logger's file is session-stamped: <dir>/<stamp>_ano.log
-    snprintf(outLog, sizeof outLog, "%s/%s_ano.log", OUT_DIR, ano_fs_session_stamp());
+    snprintf(outLog, sizeof outLog, "%s/%s_ano.log", OUT_DIR, fs_session_stamp());
     uint64_t lines = scratch_count_lines(outLog);
     if (lines != expected) {
         printf("ORACLE BROKEN: %llu lines in file, %llu records enqueued\n",

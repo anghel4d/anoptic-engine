@@ -228,7 +228,7 @@ static void bb_handler(int sig, siginfo_t *info, void *uctx)
     }
 
     // Stage 3: hail mary.
-    ano_log_flush();
+    log_flush();
 
     // Re-raise with default disposition.
     sigset_t un;
@@ -335,12 +335,12 @@ int bb_thread_arm(void)
 {
     if (bb_threadAltStack != NULL)
         return 0;
-    char *mem = static_cast<char *>(ano_aligned_malloc(BB_ALTSTACK_SZ, 16));
+    char *mem = static_cast<char *>(aligned_malloc(BB_ALTSTACK_SZ, 16));
     if (mem == NULL)
         return -1;
     stack_t ss = { .ss_sp = mem, .ss_size = BB_ALTSTACK_SZ };
     if (sigaltstack(&ss, NULL) != 0) {
-        ano_aligned_free(mem);
+        aligned_free(mem);
         return -1;
     }
     bb_threadAltStack = mem;
@@ -353,7 +353,7 @@ void bb_thread_disarm(void)
         return;
     stack_t off = { .ss_flags = SS_DISABLE };
     sigaltstack(&off, NULL);
-    ano_aligned_free(bb_threadAltStack);
+    aligned_free(bb_threadAltStack);
     bb_threadAltStack = NULL;
 }
 

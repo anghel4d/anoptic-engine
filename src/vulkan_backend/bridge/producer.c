@@ -17,7 +17,7 @@ RenderResult<AnoRenderBridge *> ano::anoRenderBridge(void)
 
 // Reserve next free transform-ring slice.
 // inv: produceSeq unchanged
-RenderResult<AnoStreamRegion> ano::ano_render_stream_begin(void) {
+RenderResult<AnoStreamRegion> ano::render_stream_begin(void) {
     TransformStreamBuffer* ts = &rendererState.transformStream;
     uint64_t seq = ts->produceSeq + 1u;
     if (seq > ts->ringSlices) {
@@ -35,14 +35,14 @@ RenderResult<AnoStreamRegion> ano::ano_render_stream_begin(void) {
 }
 
 // Publish filled region as {seq,count}.
-RenderResult<> ano::ano_render_stream_commit(const AnoStreamRegion* region, uint32_t count) {
+RenderResult<> ano::render_stream_commit(const AnoStreamRegion* region, uint32_t count) {
     if (!region)
         return failure(RenderError::invalid_argument);
     TransformStreamBuffer* ts = &rendererState.transformStream;
     if (count > ts->capacity) count = ts->capacity;
     RenderCommand cmd = { .kind = RCMD_STREAM_TRANSFORMS,
                           .stream_seq = region->token, .stream_count = count };
-    if (auto submitted = ano_render_submit(&rendererState.bridge, &cmd); !submitted)
+    if (auto submitted = render_submit(&rendererState.bridge, &cmd); !submitted)
         return submitted;
     ts->produceSeq = region->token;
     return {};

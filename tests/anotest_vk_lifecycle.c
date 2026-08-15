@@ -18,7 +18,7 @@ int main() {
         return 1;
     }
     printf("initVulkan() succeeded.\n");
-    if (!ano_render_capture_next_frame(capturePath)) {
+    if (!render_capture_next_frame(capturePath)) {
         fprintf(stderr, "renderer-native capture request failed.\n");
         unInitVulkan();
         return 1;

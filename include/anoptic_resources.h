@@ -65,18 +65,18 @@ using ResourceResult = Result<Value, AnoResourceError>;
     return result_if(error == ANO_RESOURCE_OK, error);
 }
 
-static inline bool ano_asset_id_equal(AnoAssetId lhs, AnoAssetId rhs)
+static inline bool asset_id_equal(AnoAssetId lhs, AnoAssetId rhs)
 {
     return lhs.value == rhs.value;
 }
 
-static inline bool ano_resource_type_id_equal(AnoResourceTypeId lhs,
+static inline bool resource_type_id_equal(AnoResourceTypeId lhs,
                                                AnoResourceTypeId rhs)
 {
     return lhs.value == rhs.value;
 }
 
-static inline bool ano_resource_content_id_equal(AnoContentId lhs,
+static inline bool resource_content_id_equal(AnoContentId lhs,
                                                   AnoContentId rhs)
 {
     for (size_t i = 0; i < sizeof(lhs.bytes); ++i)
@@ -85,16 +85,16 @@ static inline bool ano_resource_content_id_equal(AnoContentId lhs,
     return true;
 }
 
-[[nodiscard]] const char *ano_resource_error_string(AnoResourceError error);
-[[nodiscard]] ResourceResult<AnoContentId> ano_resource_content_id(
+[[nodiscard]] const char *resource_error_string(AnoResourceError error);
+[[nodiscard]] ResourceResult<AnoContentId> resource_content_id(
     AnoResourceBytes bytes);
-[[nodiscard]] ResourceResult<AnoResourceSchema> ano_resource_artifact_schema(
+[[nodiscard]] ResourceResult<AnoResourceSchema> resource_artifact_schema(
     AnoResourceTypeId type);
-[[nodiscard]] ResourceResult<> ano_resource_validate_artifact(
+[[nodiscard]] ResourceResult<> resource_validate_artifact(
     AnoResourceTypeId type, AnoResourceBytes bytes);
 // Returns the required dependency count. A short output span is a size query,
 // not an error; written entries are the prefix that fits.
-[[nodiscard]] ResourceResult<uint64_t> ano_resource_artifact_dependencies(
+[[nodiscard]] ResourceResult<uint64_t> resource_artifact_dependencies(
     AnoResourceTypeId type, AnoResourceBytes bytes,
     AnoResourceDependency *dependencies, uint64_t dependencyCapacity);
 

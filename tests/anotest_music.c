@@ -76,16 +76,16 @@ static CadenceWalk cadence_walk(const AnoMusicConfig *cfg, bool hasOverride, dou
     static AnoMusicBar bar; // ~9 KB: keep it off the walk's frame
     CadenceWalk w = { .firstBad = 0 };
 
-    AnoMusicEngine *e = ano_music_create(cfg, 42).value_or(nullptr);
+    AnoMusicEngine *e = music_create(cfg, 42).value_or(nullptr);
     if (!e) {
         CHECK(false, "cadence walk: engine creation");
         return w;
     }
     if (hasOverride)
-        CHECK(ano_music_set_override(e, "cadence_policy", ov), "cadence override");
+        CHECK(music_set_override(e, "cadence_policy", ov), "cadence override");
 
     for (int b = 0; b < bars; ++b) {
-        ano_music_advance_bar(e, &bar);
+        music_advance_bar(e, &bar);
         int8_t p = bar.meaning.cadencePolicy;
         if (bar.meaning.isCadence)
             w.cadenceBars++;
@@ -102,14 +102,14 @@ static CadenceWalk cadence_walk(const AnoMusicConfig *cfg, bool hasOverride, dou
             w.outOfEnum++;
         }
     }
-    ano_music_destroy(e);
+    music_destroy(e);
     return w;
 }
 
 // Default config + melody layer (cadence sink).
 static AnoMusicConfig cadence_config(void)
 {
-    AnoMusicConfig cfg = ano_music_config_default();
+    AnoMusicConfig cfg = music_config_default();
     cfg.params.layersActive |= (uint8_t)(1u << ANO_MUSIC_MELODY);
     return cfg;
 }
@@ -209,22 +209,22 @@ static ModeWalk mode_walk(int cfgMode, bool useMapper, bool hasOverride, double 
     static AnoMusicBar bar; // ~9 KB: keep it off the walk's frame
     ModeWalk w = { .firstBad = 0 };
 
-    AnoMusicConfig cfg = ano_music_config_default();
+    AnoMusicConfig cfg = music_config_default();
     cfg.mode = cfgMode;
     if (useMapper) {
         cfg.hasMapper = true;
-        cfg.mapper = ano_mapping_table_default();
+        cfg.mapper = mapping_table_default();
     }
-    AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
+    AnoMusicEngine *e = music_create(&cfg, 42).value_or(nullptr);
     if (!e) {
         CHECK(false, "mode walk: engine creation");
         return w;
     }
     if (hasOverride)
-        CHECK(ano_music_set_override(e, "mode", ov), "override name \"mode\" is known");
+        CHECK(music_set_override(e, "mode", ov), "override name \"mode\" is known");
 
     for (int b = 0; b < 4; ++b) {
-        ano_music_advance_bar(e, &bar);
+        music_advance_bar(e, &bar);
         int m = bar.meaning.mode;
         w.bars++;
         if (m < ANO_MODE_IONIAN || m >= ANO_MODE_COUNT) {
@@ -235,7 +235,7 @@ static ModeWalk mode_walk(int cfgMode, bool useMapper, bool hasOverride, double 
         if (expect >= 0 && m != expect)
             w.offMode++;
     }
-    ano_music_destroy(e);
+    music_destroy(e);
     return w;
 }
 
@@ -303,7 +303,7 @@ static MotifWalk motif_walk(uint32_t poisonN, int bars)
     static AnoMusicBar bar; // ~9 KB: keep it off the walk's frame
     MotifWalk w = { 0 };
 
-    AnoMusicConfig cfg = ano_music_config_default();
+    AnoMusicConfig cfg = music_config_default();
     cfg.params.layersActive |= (uint8_t)(1u << ANO_MUSIC_MELODY); // the realizers' sink
     cfg.motifLeniency = 1.0;
     AnoMotif hero = motif_hero_cell();
@@ -312,20 +312,20 @@ static MotifWalk motif_walk(uint32_t poisonN, int bars)
     cfg.motifLibrary[0] = (AnoSignatureMotif){ "hero", hero, 0.9 };
     cfg.motifLibraryCount = 1;
 
-    AnoMusicEngine *e = ano_music_create(&cfg, 42).value_or(nullptr);
+    AnoMusicEngine *e = music_create(&cfg, 42).value_or(nullptr);
     if (!e)
         return w;
     w.created = true;
     for (int b = 0; b < bars; ++b) {
-        ano_music_request_motif(e, "hero"); // cleared once honoured; keep it standing
-        ano_music_advance_bar(e, &bar);
+        music_request_motif(e, "hero"); // cleared once honoured; keep it standing
+        music_advance_bar(e, &bar);
         w.notes += bar.eventCount;
         if (bar.eventCount)
             w.barsWithNotes++;
         if (bar.meaning.motifStated)
             w.statedBars++;
     }
-    ano_music_destroy(e);
+    music_destroy(e);
     return w;
 }
 
@@ -368,28 +368,28 @@ static void seam_drive(uint32_t bars, bool hot, SeamTally *out)
     *out = (SeamTally){ .plumbingOk = true };
 
     // mapper path, energy 0.95: every gated layer on from bar 0 (arp gate 0.62)
-    AnoMusicConfig cfg = ano_music_config_default();
+    AnoMusicConfig cfg = music_config_default();
     cfg.hasMapper = true;
-    cfg.mapper = ano_mapping_table_default();
+    cfg.mapper = mapping_table_default();
     cfg.energy = 0.95f;
-    AnoMusicEngine *eng = ano_music_create(&cfg, 42).value_or(nullptr);
+    AnoMusicEngine *eng = music_create(&cfg, 42).value_or(nullptr);
     if (hot)
-        out->plumbingOk &= ano_music_set_override(
+        out->plumbingOk &= music_set_override(
             eng, "velocity_center", 150.0).has_value();
 
-    AnoSynth *syn = ano_synth_create(NULL).value_or(nullptr);
-    double barQ = ano_music_bar_quarters(eng);
-    out->plumbingOk &= ano_synth_score_begin(
+    AnoSynth *syn = synth_create(NULL).value_or(nullptr);
+    double barQ = music_bar_quarters(eng);
+    out->plumbingOk &= synth_score_begin(
         syn, barQ, bars, bars * ANO_MUSIC_MAX_TEMPO,
         bars * ANO_MUSIC_MAX_BAR_EVENTS).has_value();
 
     AnoMusicBar *bar = static_cast<AnoMusicBar *>(malloc(sizeof *bar));
     for (uint32_t b = 0; b < bars; ++b) {
-        ano_music_advance_bar(eng, bar);
+        music_advance_bar(eng, bar);
         for (uint32_t t = 0; t < bar->tempoCount; ++t)
-            out->plumbingOk &= ano_synth_score_tempo(
+            out->plumbingOk &= synth_score_tempo(
                 syn, bar->tempo[t].beat, bar->tempo[t].bpm).has_value();
-        out->plumbingOk &= ano_synth_score_bar(
+        out->plumbingOk &= synth_score_bar(
             syn, b, &bar->params, &bar->affect).has_value();
         for (uint32_t i = 0; i < bar->eventCount; ++i) {
             const AnoNoteEvent *ev = &bar->events[i];
@@ -399,7 +399,7 @@ static void seam_drive(uint32_t bars, bool hot, SeamTally *out)
                 out->maxVelocity = ev->velocity;
             if (ev->pitch > out->maxPitch)
                 out->maxPitch = ev->pitch;
-            bool staged = ano_synth_score_event(syn, ev).has_value();
+            bool staged = synth_score_event(syn, ev).has_value();
             bool legal = ev->start >= 0.0 && ev->dur > 0.0 && ev->pitch <= 127u
                       && ev->velocity >= 1u && ev->velocity <= 127u
                       && ev->layer < ANO_MUSIC_LAYER_COUNT;
@@ -407,11 +407,11 @@ static void seam_drive(uint32_t bars, bool hot, SeamTally *out)
                 out->hotStaged++;
         }
     }
-    out->plumbingOk &= ano_synth_score_end(syn).has_value();
+    out->plumbingOk &= synth_score_end(syn).has_value();
 
     free(bar);
-    ano_synth_destroy(syn);
-    ano_music_destroy(eng);
+    synth_destroy(syn);
+    music_destroy(eng);
 }
 
 // Composer events at synth seam: velocity 1..127, pitch 0..127 (incl. hot velocity_center).
@@ -478,20 +478,20 @@ static uint64_t det_bar_fold(uint64_t h, const AnoMusicBar *b)
     return h;
 }
 
-// Inputs: seed, bar count, snapshot buffer (ano_music_snapshot_size() bytes).
+// Inputs: seed, bar count, snapshot buffer (music_snapshot_size() bytes).
 // Output: event-stream fold; *snap holds the engine bytes after the last bar.
 // Default config (pad + bass): every bar routes through the chord voicer.
 static uint64_t det_run_span(uint64_t seed, uint32_t bars, void *snap)
 {
-    AnoMusicEngine *e = ano_music_create(NULL, seed).value_or(nullptr);
+    AnoMusicEngine *e = music_create(NULL, seed).value_or(nullptr);
     AnoMusicBar *bar = static_cast<AnoMusicBar *>(malloc(sizeof *bar));
     uint64_t h = 1469598103934665603ull;
     for (uint32_t i = 0; i < bars; ++i) {
-        ano_music_advance_bar(e, bar);
+        music_advance_bar(e, bar);
         h = det_bar_fold(h, bar);
     }
-    CHECK(ano_music_snapshot(e, snap, ano_music_snapshot_size()), "determinism snapshot");
-    ano_music_destroy(e);
+    CHECK(music_snapshot(e, snap, music_snapshot_size()), "determinism snapshot");
+    music_destroy(e);
     free(bar);
     return h;
 }
@@ -522,11 +522,11 @@ typedef struct DetDisturber
 static void *det_disturb(void *arg)
 {
     DetDisturber *d = static_cast<DetDisturber *>(arg);
-    AnoMusicEngine *e = ano_music_create(NULL, d->seed).value_or(nullptr);
+    AnoMusicEngine *e = music_create(NULL, d->seed).value_or(nullptr);
     AnoMusicBar *bar = static_cast<AnoMusicBar *>(malloc(sizeof *bar));
     while (!atomic_load_explicit(&d->stop, memory_order_relaxed))
-        ano_music_advance_bar(e, bar);
-    ano_music_destroy(e);
+        music_advance_bar(e, bar);
+    music_destroy(e);
     free(bar);
     return NULL;
 }
@@ -535,7 +535,7 @@ static void *det_disturb(void *arg)
 // Controls: solo replay, foreign-thread span, different seed diverges.
 static void test_engine_instance_independence(void)
 {
-    size_t ss = ano_music_snapshot_size();
+    size_t ss = music_snapshot_size();
     void *ref = malloc(ss), *ctl = malloc(ss), *trial = malloc(ss);
     if (!ref || !ctl || !trial) {
         CHECK(false, "snapshot buffers allocated");
@@ -550,10 +550,10 @@ static void test_engine_instance_independence(void)
 
     DetSpanJob job = { DET_SEED, DET_BARS, ctl, 0 };
     anothread_t st;
-    bool spanStarted = ano_thread_create(&st, NULL, det_span_thread, &job).has_value();
+    bool spanStarted = thread_create(&st, NULL, det_span_thread, &job).has_value();
     CHECK(spanStarted, "foreign-thread span starts");
     if (spanStarted) {
-        (void)ano_thread_join(st, NULL);
+        (void)thread_join(st, NULL);
         CHECK(job.h == hRef, "foreign-thread solo replay reproduces the event stream");
         if (memcmp(ctl, ref, ss) != 0) {
             const unsigned char *x = static_cast<const unsigned char *>(ctl);
@@ -584,10 +584,10 @@ static void test_engine_instance_independence(void)
         atomic_init(&d.stop, false);
         d.seed = 0x9E3779B97F4A7C15ull + (uint64_t)round;
         anothread_t t;
-        CHECK(ano_thread_create(&t, NULL, det_disturb, &d), "disturber thread starts");
+        CHECK(thread_create(&t, NULL, det_disturb, &d), "disturber thread starts");
         uint64_t hTrial = det_run_span(DET_SEED, DET_BARS, trial);
         atomic_store(&d.stop, true);
-        (void)ano_thread_join(t, NULL);
+        (void)thread_join(t, NULL);
 
         bool streamOk = hTrial == hRef;
         bool snapOk = memcmp(trial, ref, ss) == 0;
@@ -908,19 +908,19 @@ int main(void)
             "pad", "bass", "melody", "counter", "arp", "perc",
         };
         for (uint32_t layer = 0; layer < ANO_MUSIC_LAYER_COUNT; ++layer)
-            CHECK(strcmp(ano_music_layer_name(layer), LAYERS[layer]) == 0,
+            CHECK(strcmp(music_layer_name(layer), LAYERS[layer]) == 0,
                   "layer name keyed by enum");
-        CHECK(strcmp(ano_music_layer_name(99), "unknown") == 0,
+        CHECK(strcmp(music_layer_name(99), "unknown") == 0,
               "invalid layer has a defined name");
-        CHECK(ano_music_patch_name(ANO_PATCH_NONE)[0] == '\0',
+        CHECK(music_patch_name(ANO_PATCH_NONE)[0] == '\0',
               "default patch name is empty");
         for (uint32_t patch = 1; patch < ANO_PATCH_COUNT; ++patch) {
-            const char *name = ano_music_patch_name(patch);
-            CHECK(name[0] != '\0' && ano_music_patch_id(name) == patch,
+            const char *name = music_patch_name(patch);
+            CHECK(name[0] != '\0' && music_patch_id(name) == patch,
                   "patch names round-trip through the typed registry");
         }
-        CHECK(ano_music_patch_id(NULL) == ANO_PATCH_NONE
-              && ano_music_patch_name(99)[0] == '\0',
+        CHECK(music_patch_id(NULL) == ANO_PATCH_NONE
+              && music_patch_name(99)[0] == '\0',
               "invalid patch values fall back to default");
     }
 
@@ -934,15 +934,15 @@ int main(void)
             "mixolydian", "aeolian", "locrian",
         };
         for (int mode = 0; mode < ANO_MODE_COUNT; ++mode)
-            CHECK(strcmp(ano_mode_name((AnoMode)mode), NAMES[mode]) == 0,
+            CHECK(strcmp(mode_name((AnoMode)mode), NAMES[mode]) == 0,
                   "mode name keyed by enum");
-        CHECK(memcmp(ano_mode_intervals(ANO_MODE_DORIAN), DOR, 7) == 0, "dorian intervals");
-        CHECK(memcmp(ano_mode_intervals(ANO_MODE_LOCRIAN), LOC, 7) == 0, "locrian intervals");
-        CHECK(strcmp(ano_mode_name(ANO_MODE_NONE), "ionian") == 0
-              && memcmp(ano_mode_intervals((AnoMode)99), ION, 7) == 0,
+        CHECK(memcmp(mode_intervals(ANO_MODE_DORIAN), DOR, 7) == 0, "dorian intervals");
+        CHECK(memcmp(mode_intervals(ANO_MODE_LOCRIAN), LOC, 7) == 0, "locrian intervals");
+        CHECK(strcmp(mode_name(ANO_MODE_NONE), "ionian") == 0
+              && memcmp(mode_intervals((AnoMode)99), ION, 7) == 0,
               "invalid mode metadata falls back to ionian");
-        CHECK(ano_mode_brightness(ANO_MODE_LYDIAN) == 3
-              && ano_mode_brightness(ANO_MODE_NONE) == -1,
+        CHECK(mode_brightness(ANO_MODE_LYDIAN) == 3
+              && mode_brightness(ANO_MODE_NONE) == -1,
               "mode brightness domain");
         CHECK(ano_scale_pitch_at((AnoScale){ 2, ANO_MODE_DORIAN }, 9, 4) == 76, "pitch_at wrap");
         CHECK(ano_scale_pitch_at((AnoScale){ 0, ANO_MODE_IONIAN }, 1, 4) == 60, "pitch_at C4");
@@ -1275,7 +1275,7 @@ int main(void)
             { 0x1.0000000000000p-1, 0x1.0000000000000p-1, 0x1.0000000000000p-1, 0x1.0000000000000p-1, 0x1.0000000000000p-1, 0x1.0000000000000p-1 },
             { 0x1.8000000000000p+0, -0x1.0000000000000p+0, 0x1.0000000000000p+1, 0x1.0000000000000p+0, 0x0.0p+0, 0x1.0000000000000p+0 },
         };
-        AnoMappingTable t = ano_mapping_table_default();
+        AnoMappingTable t = mapping_table_default();
         for (size_t i = 0; i < sizeof A / sizeof A[0]; ++i) {
             AnoAffect a = { A[i].v, A[i].e, A[i].ten };
             CHECK(feq(ano_map_tempo(a, &t), A[i].tempo), "map tempo");
@@ -1912,7 +1912,7 @@ int main(void)
                   "scheduled clock positions");
         }
 
-        AnoDramaturgConfig dc = ano_dramaturg_config_default();
+        AnoDramaturgConfig dc = dramaturg_config_default();
         AnoLedger led;
         ano_ledger_init(&led);
         for (size_t i = 0; i < sizeof DT / sizeof DT[0]; ++i) {
@@ -3218,9 +3218,9 @@ int main(void)
         {
             AnoEngineConfig cfg = ano_engine_config_default();
             cfg.hasMapper = true;
-            cfg.mapper = ano_mapping_table_default();
+            cfg.mapper = mapping_table_default();
             cfg.hasDramaturg = true;
-            cfg.dramaturg = ano_dramaturg_config_default();
+            cfg.dramaturg = dramaturg_config_default();
             AnoMotif hero = { 0 }, threat = { 0 };
             hero.n = 4; hero.shape = ANO_SHAPE_ARCH;
             {
@@ -3456,9 +3456,9 @@ static const LintVio L4_IMIT[] = { { "imitation", 8 } };
         {
             AnoEngineConfig cfg = ano_engine_config_default();
             cfg.hasMapper = true;
-            cfg.mapper = ano_mapping_table_default();
+            cfg.mapper = mapping_table_default();
             cfg.hasDramaturg = true;
-            cfg.dramaturg = ano_dramaturg_config_default();
+            cfg.dramaturg = dramaturg_config_default();
             AnoMotif hero = { 0 }, threat = { 0 };
             hero.n = 4;
             hero.shape = ANO_SHAPE_ARCH;
@@ -3813,9 +3813,9 @@ static const MatrixRow MATRIX[] = {
 
             AnoEngineConfig cfg = ano_engine_config_default();
             cfg.hasMapper = true;
-            cfg.mapper = ano_mapping_table_default();
+            cfg.mapper = mapping_table_default();
             cfg.hasDramaturg = g->dram != 0;
-            cfg.dramaturg = ano_dramaturg_config_default();
+            cfg.dramaturg = dramaturg_config_default();
             cfg.phraseGroove = true;
             cfg.cadenceRit = 0.02;
             cfg.form.cadential64 = true;
@@ -4156,9 +4156,9 @@ static const LongRow LONG[] = {
 
         AnoEngineConfig cfg = ano_engine_config_default();
         cfg.hasMapper = true;
-        cfg.mapper = ano_mapping_table_default();
+        cfg.mapper = mapping_table_default();
         cfg.hasDramaturg = true;
-        cfg.dramaturg = ano_dramaturg_config_default();
+        cfg.dramaturg = dramaturg_config_default();
         cfg.phraseGroove = true;
         cfg.cadenceRit = 0.02;
         cfg.wanderPhrases = 4;

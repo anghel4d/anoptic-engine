@@ -49,7 +49,7 @@ static bool compute_build(VulkanContext* ctx, RendererState* state,
         VK_SHADER_STAGE_COMPUTE_BIT, module, specialization, &pipelineInfo.stage) &&
         vkCreateComputePipelines(ctx->device, proto->cache, 1, &pipelineInfo, NULL,
             &proto->implementations[implementation].pipeline) == VK_SUCCESS;
-    ano_aligned_free(code.data);
+    aligned_free(code.data);
     vkDestroyShaderModule(ctx->device, module, NULL);
     return built;
 }

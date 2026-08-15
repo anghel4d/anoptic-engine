@@ -47,18 +47,18 @@ static_assert(ano::Data<decltype(kPatchNames)>);
 
 } // namespace
 
-const char *ano::ano_music_layer_name(uint32_t layer)
+const char *ano::music_layer_name(uint32_t layer)
 {
     const auto parsed = Layer::from_raw(layer);
     return parsed ? kLayerNames.values[parsed->index()] : "unknown";
 }
 
-uint32_t ano::ano_music_patch_id(const char *name)
+uint32_t ano::music_patch_id(const char *name)
 {
     return static_cast<uint32_t>(kPatchNames.find(name, ANO_PATCH_NONE));
 }
 
-const char *ano::ano_music_patch_name(uint32_t id)
+const char *ano::music_patch_name(uint32_t id)
 {
     const Patch patch = Patch::from_raw(id).value_or(
         Patch::constant<ANO_PATCH_NONE>());

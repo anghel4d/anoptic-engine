@@ -708,10 +708,10 @@ AnoResourceError plan_asset(
         || previous == nullptr || asset.value > previous->bindingCount
         || previous->bindings[index].state != BindingState::resident
         || previous->bindings[index].sourceType.value != type.value;
-    const auto artifact = ano_resource_epoch_resolve(
+    const auto artifact = resource_epoch_resolve(
         candidate.source, asset, type);
     auto dependencyResult = artifact
-        ? ano_resource_epoch_dependencies(candidate.source, asset)
+        ? resource_epoch_dependencies(candidate.source, asset)
         : ResourceResult<std::span<const AnoResourceDependency>>(
               failure(artifact.error()));
     AnoResourceError result = dependencyResult
@@ -776,11 +776,11 @@ AnoResourceError plan_resident_assets(
     AnoRenderResidency& candidate, const AnoRenderResidency *previous,
     mi_heap_t *heap)
 {
-    const uint64_t changedCount = ano_resource_epoch_changed_count(
+    const uint64_t changedCount = resource_epoch_changed_count(
         candidate.source);
     AnoResourceError result = ANO_RESOURCE_OK;
     for (uint64_t i = 0; i < changedCount && result == ANO_RESOURCE_OK; ++i) {
-        const auto changed = ano_resource_epoch_changed(candidate.source, i);
+        const auto changed = resource_epoch_changed(candidate.source, i);
         result = changed ? ANO_RESOURCE_OK : changed.error();
         if (changed && changed->value != 0
             && changed->value <= candidate.bindingCount)
@@ -788,7 +788,7 @@ AnoResourceError plan_resident_assets(
     }
     for (uint64_t i = 0; i < candidate.bindingCount
                          && result == ANO_RESOURCE_OK; ++i) {
-        const auto asset = ano_resource_epoch_asset(
+        const auto asset = resource_epoch_asset(
             candidate.source, {i + 1});
         result = asset ? ANO_RESOURCE_OK : asset.error();
         if (asset)
@@ -812,7 +812,7 @@ ResourceResult<> realize_planned_asset(
         return target.state == BindingState::resident
             ? ResourceResult<>{} : failure(ANO_RESOURCE_BAD_MANIFEST);
     target.state = BindingState::realizing;
-    auto result = ano_resource_epoch_resolve(
+    auto result = resource_epoch_resolve(
         residency.source, asset, target.sourceType)
         .and_then([&](AnoResourceBytes artifact) {
             schema::RenderResourceContext context = {
@@ -1186,12 +1186,12 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     AnoRenderResidency *created = mi_zalloc_tp(AnoRenderResidency);
     if (created == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    const auto retained = ano_resource_epoch_retain(epoch);
+    const auto retained = resource_epoch_retain(epoch);
     AnoResourceError result = retained ? ANO_RESOURCE_OK : retained.error();
     if (retained)
         created->source = epoch;
     if (result == ANO_RESOURCE_OK)
-        created->bindingCount = ano_resource_epoch_asset_count(created->source);
+        created->bindingCount = resource_epoch_asset_count(created->source);
     if (result == ANO_RESOURCE_OK && created->bindingCount != 0) {
         if (created->bindingCount > SIZE_MAX / sizeof(RenderBinding)
             || created->bindingCount > SIZE_MAX / sizeof(AnoAssetId))
@@ -1209,7 +1209,7 @@ AnoResourceError ano_vk_resource_residency_prepare_from_epoch(
     }
     for (uint64_t i = 0; i < created->bindingCount
                          && result == ANO_RESOURCE_OK; ++i) {
-        const auto asset = ano_resource_epoch_asset(
+        const auto asset = resource_epoch_asset(
             created->source, {i + 1});
         result = asset ? ANO_RESOURCE_OK : asset.error();
         if (asset)
@@ -1303,10 +1303,10 @@ AnoResourceError ano_vk_resource_residency_create(
 {
     if (manager == nullptr || residency == nullptr)
         return ANO_RESOURCE_INVALID_ARGUMENT;
-    mi_heap_t *preparationHeap = ano_heap_create();
+    mi_heap_t *preparationHeap = heap_create();
     if (preparationHeap == nullptr)
         return ANO_RESOURCE_OUT_OF_MEMORY;
-    const auto acquired = ano_resource_epoch_acquire(manager);
+    const auto acquired = resource_epoch_acquire(manager);
     const AnoResidencyEpoch *epoch = acquired.value_or(nullptr);
     AnoResourceError result = acquired ? ANO_RESOURCE_OK : acquired.error();
     if (acquired)
@@ -1322,8 +1322,8 @@ AnoResourceError ano_vk_resource_residency_create(
         ano_vk_resource_residency_destroy(*residency);
         *residency = nullptr;
     }
-    ano_resource_epoch_release(epoch);
-    ano_heap_destroy(preparationHeap);
+    resource_epoch_release(epoch);
+    heap_destroy(preparationHeap);
     return result;
 }
 
@@ -1349,7 +1349,7 @@ void ano_vk_resource_residency_destroy(AnoRenderResidency *residency)
             release_binding(residency->bindings[i]);
     mi_free(residency->scenes);
     mi_free(residency->bindings);
-    ano_resource_epoch_release(residency->source);
+    resource_epoch_release(residency->source);
     mi_free(residency);
 }
 

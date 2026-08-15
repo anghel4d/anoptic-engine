@@ -90,7 +90,7 @@ void sha256_transform_runtime(uint32_t state[8], const uint8_t block[64])
 
 } // namespace ano::detail
 
-const char *ano::ano_resource_error_string(AnoResourceError error)
+const char *ano::resource_error_string(AnoResourceError error)
 {
     static constexpr auto names = ano::reflect_enum_names<AnoResourceError>(
         "ANO_RESOURCE_", ano::EnumNameCase::lower);
@@ -98,7 +98,7 @@ const char *ano::ano_resource_error_string(AnoResourceError error)
     return name == nullptr ? "unknown_resource_error" : *name;
 }
 
-ano::ResourceResult<AnoContentId> ano::ano_resource_content_id(
+ano::ResourceResult<AnoContentId> ano::resource_content_id(
     AnoResourceBytes bytes)
 {
     if (bytes.data == nullptr && bytes.size != 0)

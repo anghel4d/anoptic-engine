@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Fuzzer for lock-free MPSC logger. Producers hammer well-typed ano_log_write; flusher drains randomly.
+// Fuzzer for lock-free MPSC logger. Producers hammer well-typed log_write; flusher drains randomly.
 //   1) CONTENT: "%s" + randstr (span/wrap/full-ring). Random level, occasional NOW, output-dir swap.
 //      Routes FILE-bound for line-count oracle.
 //   2) FORMATTER: fixed (literal-fmt, typed-arg) templates only. Never random fmt + random args.
@@ -74,28 +74,28 @@ static void formatter_case(test_rng *s)
     const char *sv = strs[rng_below(s, sizeof strs / sizeof strs[0])];
 
     switch (rng_below(s, 18)) {
-    case 0:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt d=%d", i); break;
-    case 1:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt u=%u", u); break;
-    case 2:  ano_log_write(ANO_WARN,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt x=%x", u); break;
-    case 3:  ano_log_write(ANO_WARN,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt X=%X", u); break;
-    case 4:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt o=%o", u); break;
-    case 5:  ano_log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt lld=%lld", ll); break;
-    case 6:  ano_log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt llu=%llu", ull); break;
-    case 7:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt f=%.3f", d); break;
-    case 8:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt e=%e", d); break;
-    case 9:  ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt g=%g", d); break;
-    case 10: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt c=%c", ch); break;
-    case 11: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt s=[%s]", sv); break;
-    case 12: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt wd=[%*d]", w, i); break;
-    case 13: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt pf=[%.*f]", pr, d); break;
-    case 14: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt wpf=[%*.*f]", w, pr, d); break;
-    case 15: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt mix=%d/%s/%x", i, sv, u); break;
-    case 16: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt zpd=[%05d]", i); break;
-    case 17: ano_log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt ws=[%-8.3s]", sv); break;
+    case 0:  log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt d=%d", i); break;
+    case 1:  log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt u=%u", u); break;
+    case 2:  log_write(ANO_WARN,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt x=%x", u); break;
+    case 3:  log_write(ANO_WARN,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt X=%X", u); break;
+    case 4:  log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt o=%o", u); break;
+    case 5:  log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt lld=%lld", ll); break;
+    case 6:  log_write(ANO_ERROR, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt llu=%llu", ull); break;
+    case 7:  log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt f=%.3f", d); break;
+    case 8:  log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt e=%e", d); break;
+    case 9:  log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt g=%g", d); break;
+    case 10: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt c=%c", ch); break;
+    case 11: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt s=[%s]", sv); break;
+    case 12: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt wd=[%*d]", w, i); break;
+    case 13: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt pf=[%.*f]", pr, d); break;
+    case 14: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt wpf=[%*.*f]", w, pr, d); break;
+    case 15: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt mix=%d/%s/%x", i, sv, u); break;
+    case 16: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt zpd=[%05d]", i); break;
+    case 17: log_write(ANO_INFO,  ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, "fmt ws=[%-8.3s]", sv); break;
     }
 }
 
-static const ano_loglevel_t LEVELS[] = { ANO_INFO, ANO_WARN, ANO_ERROR };
+static const loglevel_t LEVELS[] = { ANO_INFO, ANO_WARN, ANO_ERROR };
 
 static void *producer(void *arg)
 {
@@ -106,15 +106,15 @@ static void *producer(void *arg)
 
     for (int it = 0; it < g_iters && !atomic_load_explicit(&g_stop, memory_order_relaxed); it++) {
         uint32_t pick = rng_below(&s, 100);
-        ano_loglevel_t lvl = LEVELS[rng_below(&s, sizeof LEVELS / sizeof LEVELS[0])];
+        loglevel_t lvl = LEVELS[rng_below(&s, sizeof LEVELS / sizeof LEVELS[0])];
 
         if (pick < 2) {
             // Occasional DIR_A/DIR_B swap. Enqueues nothing.
-            (void)ano_log_output_dir((rng_next(&s) & 1) ? DIR_A : DIR_B);
+            (void)log_output_dir((rng_next(&s) & 1) ? DIR_A : DIR_B);
         } else if (pick < 5) {
             // Occasional NOW route. FILE named explicitly, so one file line and no echo.
             rng_fill_printable(&s, content, 1, MAX_CONTENT);
-            ano_log_write(lvl, ANO_NOW | ANO_FILE, __FILE_NAME__, __LINE__, "%s", content);
+            log_write(lvl, ANO_NOW | ANO_FILE, __FILE_NAME__, __LINE__, "%s", content);
             local++;
         } else if (pick < 45) {
             // Deferred formatter via fixed literal + typed args.
@@ -123,7 +123,7 @@ static void *producer(void *arg)
         } else {
             // Variable-length random CONTENT, logged safely as "%s".
             rng_fill_printable(&s, content, 1, MAX_CONTENT);
-            if (ano_log_write(lvl, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
+            if (log_write(lvl, ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__,
                               "%s", content) < 0)
                 atomic_fetch_add(&g_worker_fail, 1);   // never expected: 0 or 1 only
             local++;
@@ -137,8 +137,8 @@ static void *flusher(void *arg)
 {
     test_rng s = rng_make(0xBEEF ^ (uint32_t)(intptr_t)arg);
     while (!atomic_load_explicit(&g_stop, memory_order_relaxed)) {
-        ano_log_flush();
-        (void)ano_sleep(50 + rng_below(&s, 400));   // short random interval, 50..449 us
+        log_flush();
+        (void)sleep_us(50 + rng_below(&s, 400));   // short random interval, 50..449 us
     }
     return NULL;
 }
@@ -152,44 +152,44 @@ int main(int argc, char **argv)
     scratch_anchor_to_exe();   // scratch relative to this exe's dir, cross-platform
     scratch_make_dir(DIR_A);
     scratch_make_dir(DIR_B);
-    snprintf(PATH_A, sizeof PATH_A, "%s/%s_ano.log", DIR_A, ano_fs_session_stamp());
-    snprintf(PATH_B, sizeof PATH_B, "%s/%s_ano.log", DIR_B, ano_fs_session_stamp());
+    snprintf(PATH_A, sizeof PATH_A, "%s/%s_ano.log", DIR_A, fs_session_stamp());
+    snprintf(PATH_B, sizeof PATH_B, "%s/%s_ano.log", DIR_B, fs_session_stamp());
     remove(PATH_A);
     remove(PATH_B);
 
-    if (!ano_log_init()) {
-        fprintf(stderr, "logfuzz: ano_log_init failed\n");
+    if (!log_init()) {
+        fprintf(stderr, "logfuzz: log_init failed\n");
         return 1;
     }
-    ano_log_set_level(ANO_INFO);    // gate open: nothing dropped by severity, counts stay exact
-    (void)ano_log_output_dir(DIR_A);
+    log_set_level(ANO_INFO);    // gate open: nothing dropped by severity, counts stay exact
+    (void)log_output_dir(DIR_A);
 
     atomic_store(&g_enqueued, 0);
     atomic_store(&g_worker_fail, 0);
     atomic_store(&g_stop, false);
 
     anothread_t prod[PRODUCERS], flush;
-    (void)ano_thread_create(&flush, NULL, flusher, NULL);
+    (void)thread_create(&flush, NULL, flusher, NULL);
     for (intptr_t i = 0; i < PRODUCERS; i++) {
-        if (!ano_thread_create(&prod[i], NULL, producer, (void *)i)) {
+        if (!thread_create(&prod[i], NULL, producer, (void *)i)) {
             fprintf(stderr, "logfuzz: thread create failed\n");
             return 1;
         }
     }
 
     for (int i = 0; i < PRODUCERS; i++)
-        (void)ano_thread_join(prod[i], NULL);
+        (void)thread_join(prod[i], NULL);
 
     // Producers stopped: stop flusher, final drain, then read back.
     atomic_store(&g_stop, true);
-    (void)ano_thread_join(flush, NULL);
-    ano_log_flush();
+    (void)thread_join(flush, NULL);
+    log_flush();
 
     // Point output away so cleanup's final drain touches neither file.
     uint64_t enq = atomic_load(&g_enqueued);
     int wfail = atomic_load(&g_worker_fail);
 
-    ano_log_cleanup();
+    log_cleanup();
 
     uint64_t lines = scratch_count_lines(PATH_A) + scratch_count_lines(PATH_B);
 

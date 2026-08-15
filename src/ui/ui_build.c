@@ -16,7 +16,7 @@ using namespace ano;
 
 /* Color */
 
-void ano::ano_ui_color_srgb(const float srgba[4], float out[4])
+void ano::ui_color_srgb(const float srgba[4], float out[4])
 {
     for (int i = 0; i < 3; i++)
     {
@@ -30,7 +30,7 @@ void ano::ano_ui_color_srgb(const float srgba[4], float out[4])
 
 /* Builder */
 
-void ano::ano_ui_builder_init(AnoUiBuilder *b,
+void ano::ui_builder_init(AnoUiBuilder *b,
                          AnoUiPrim *prims, uint32_t primCap,
                          AnoUiClip *clips, uint32_t clipCap,
                          AnoUiPaint *paints, uint32_t paintCap,
@@ -46,7 +46,7 @@ void ano::ano_ui_builder_init(AnoUiBuilder *b,
 
 /* Surface Fold */
 
-void ano::ano_ui_prim_scale(AnoUiPrim *p, float s)
+void ano::ui_prim_scale(AnoUiPrim *p, float s)
 {
     p->origin[0] *= s; p->origin[1] *= s;
     p->halfExt[0] *= s;   p->halfExt[1] *= s;
@@ -58,7 +58,7 @@ void ano::ano_ui_prim_scale(AnoUiPrim *p, float s)
         p->param[0] = fmaxf(0.0f, p->param[0] - log2f(s));
 }
 
-void ano::ano_ui_clip_scale(AnoUiClip *c, float s)
+void ano::ui_clip_scale(AnoUiClip *c, float s)
 {
     for (int i = 0; i < 4; i++)
         c->rect[i] *= s;
@@ -68,7 +68,7 @@ void ano::ano_ui_clip_scale(AnoUiClip *c, float s)
         c->rrRadii[i] *= s;
 }
 
-void ano::ano_ui_paint_scale(AnoUiPaint *p, float s)
+void ano::ui_paint_scale(AnoUiPaint *p, float s)
 {
     p->xform[0] /= s; p->xform[1] /= s;
     p->xform[3] /= s; p->xform[4] /= s;
@@ -77,7 +77,7 @@ void ano::ano_ui_paint_scale(AnoUiPaint *p, float s)
 
 /* Primitives */
 
-void ano::ano_ui_builder_curves(AnoUiBuilder *b, uint32_t *curves, uint32_t curveCap)
+void ano::ui_builder_curves(AnoUiBuilder *b, uint32_t *curves, uint32_t curveCap)
 {
     b->curves = curves;
     b->curveCap = curveCap;
@@ -135,7 +135,7 @@ static UiResult<uint32_t> prim_push(
     return idx;
 }
 
-UiResult<uint32_t> ano::ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ui_rrect(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], const float color[4], float borderWidth,
                       uint32_t paintRef, uint32_t clipRef, uint32_t flags)
 {
@@ -154,7 +154,7 @@ UiResult<uint32_t> ano::ano_ui_rrect(AnoUiBuilder *b, const float rectMin[2], co
     return idx;
 }
 
-UiResult<uint32_t> ano::ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ui_shadow(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                        float cornerRadius, float sigma, const float color[4],
                        uint32_t clipRef, uint32_t flags)
 {
@@ -174,7 +174,7 @@ UiResult<uint32_t> ano::ano_ui_shadow(AnoUiBuilder *b, const float rectMin[2], c
     return idx;
 }
 
-UiResult<uint32_t> ano::ano_ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ui_image(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                       const float radii[4], uint32_t texIndex, float lod,
                       const float tint[4], uint32_t clipRef, uint32_t flags)
 {
@@ -194,7 +194,7 @@ UiResult<uint32_t> ano::ano_ui_image(AnoUiBuilder *b, const float rectMin[2], co
     return idx;
 }
 
-UiResult<uint32_t> ano::ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
+UiResult<uint32_t> ano::ui_path(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                      uint32_t curveOffset, uint32_t curveCount, const float color[4],
                      uint32_t paintRef, uint32_t clipRef, uint32_t flags)
 {
@@ -211,7 +211,7 @@ UiResult<uint32_t> ano::ano_ui_path(AnoUiBuilder *b, const float bboxMin[2], con
     return idx;
 }
 
-UiResult<uint32_t> ano::ano_ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
+UiResult<uint32_t> ano::ui_glyphs(AnoUiBuilder *b, const float bboxMin[2], const float bboxMax[2],
                        uint32_t first, uint32_t count, const float tint[4],
                        uint32_t clipRef, uint32_t flags)
 {
@@ -284,20 +284,20 @@ static UiResult<uint32_t> paint_linear_push(
 }
 
 // t = dot(p-p0,d)/|d|^2. Zero-length axis -> t = 0.
-UiResult<uint32_t> ano::ano_ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
+UiResult<uint32_t> ano::ui_paint_linear(AnoUiBuilder *b, const float p0[2], const float p1[2],
                              const AnoUiStop *stops, uint32_t stopCount)
 {
     return paint_linear_push<true>(b, p0, p1, stops, stopCount);
 }
 
-UiResult<uint32_t> ano::ano_ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
+UiResult<uint32_t> ano::ui_paint_linear_sorted(AnoUiBuilder *b, const float p0[2], const float p1[2],
                                     const AnoUiStop *stops, uint32_t stopCount)
 {
     return paint_linear_push<false>(b, p0, p1, stops, stopCount);
 }
 
 // t = |p-center|/radius. radius <= 0 -> t = 0.
-UiResult<uint32_t> ano::ano_ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
+UiResult<uint32_t> ano::ui_paint_radial(AnoUiBuilder *b, const float center[2], float radius,
                              const AnoUiStop *stops, uint32_t stopCount)
 {
     if (!center)
@@ -308,7 +308,7 @@ UiResult<uint32_t> ano::ano_ui_paint_radial(AnoUiBuilder *b, const float center[
 }
 
 // xform rotates startAngle onto g.x.
-UiResult<uint32_t> ano::ano_ui_paint_conic(AnoUiBuilder *b, const float center[2], float startAngle,
+UiResult<uint32_t> ano::ui_paint_conic(AnoUiBuilder *b, const float center[2], float startAngle,
                             const AnoUiStop *stops, uint32_t stopCount)
 {
     if (!center)
@@ -322,7 +322,7 @@ UiResult<uint32_t> ano::ano_ui_paint_conic(AnoUiBuilder *b, const float center[2
 
 /* Clips */
 
-UiResult<uint32_t> ano::ano_ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
+UiResult<uint32_t> ano::ui_clip(AnoUiBuilder *b, const float rectMin[2], const float rectMax[2],
                      const float rrMin[2], const float rrMax[2], const float rrRadii[4])
 {
     if (!b || !rectMin || !rectMax || !b->clips)

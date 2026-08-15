@@ -399,7 +399,7 @@ static void *wasapi_main(void *arg)
                         terminal ? "terminal" : "unrelenting", (unsigned long)hr);
                 break;
             }
-            (void)ano_sleep(10000); // transient: the next period may still land
+            (void)sleep_us(10000); // transient: the next period may still land
             continue;
         }
         refusals = 0;
@@ -467,7 +467,7 @@ static bool wasapi_start(AnoAudioMixer *mx)
 
     mx->deviceState = st;
     atomic_store_explicit(&mx->deviceRun, true, memory_order_release);
-    if (!ano_thread_create(&mx->deviceThread, NULL, wasapi_main, mx))
+    if (!thread_create(&mx->deviceThread, NULL, wasapi_main, mx))
         goto fail;
 
     for (uint32_t waited = 0; waited < 5000u; waited += 5u) {
@@ -476,10 +476,10 @@ static bool wasapi_start(AnoAudioMixer *mx)
             return true;
         if (s == ANO_WIN_INIT_FAILED)
             break;
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
-    (void)ano_thread_join(mx->deviceThread, NULL);
+    (void)thread_join(mx->deviceThread, NULL);
 fail:
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
     mx->deviceState = NULL;
@@ -495,7 +495,7 @@ static void wasapi_stop(AnoAudioMixer *mx)
     if (!st)
         return; // start() failed and already joined/freed
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
-    (void)ano_thread_join(mx->deviceThread, NULL);
+    (void)thread_join(mx->deviceThread, NULL);
     if (st->avrt) FreeLibrary(st->avrt);
     FreeLibrary(st->ole32);
     mi_free(st);
@@ -706,12 +706,12 @@ static void *dsound_main(void *arg)
         if (SUCCEEDED(secondary->v->GetStatus(secondary, &status))
             && dsound_needs_recovery(status)
             && !dsound_recover(secondary, bufferBytes, &writeCursor)) {
-            (void)ano_sleep(10000);   // still down: retry, do not chase a dead cursor
+            (void)sleep_us(10000);   // still down: retry, do not chase a dead cursor
             continue;
         }
         DWORD play = 0;
         if (FAILED(secondary->v->GetCurrentPosition(secondary, &play, NULL))) {
-            (void)ano_sleep(10000);
+            (void)sleep_us(10000);
             continue;
         }
         DWORD writable = (play + bufferBytes - writeCursor) % bufferBytes;
@@ -729,7 +729,7 @@ static void *dsound_main(void *arg)
             wrote = true;
         }
         if (!wrote)
-            (void)ano_sleep(2000);
+            (void)sleep_us(2000);
     }
 
 fail:
@@ -764,7 +764,7 @@ static bool dsound_start(AnoAudioMixer *mx)
 
     mx->deviceState = st;
     atomic_store_explicit(&mx->deviceRun, true, memory_order_release);
-    if (!ano_thread_create(&mx->deviceThread, NULL, dsound_main, mx))
+    if (!thread_create(&mx->deviceThread, NULL, dsound_main, mx))
         goto fail;
     for (uint32_t waited = 0; waited < 5000u; waited += 5u) {
         int s = atomic_load_explicit(&st->init, memory_order_acquire);
@@ -772,10 +772,10 @@ static bool dsound_start(AnoAudioMixer *mx)
             return true;
         if (s == ANO_WIN_INIT_FAILED)
             break;
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
-    (void)ano_thread_join(mx->deviceThread, NULL);
+    (void)thread_join(mx->deviceThread, NULL);
 fail:
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
     mx->deviceState = NULL;
@@ -790,7 +790,7 @@ static void dsound_stop(AnoAudioMixer *mx)
     if (!st)
         return; // start() failed and already joined/freed
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
-    (void)ano_thread_join(mx->deviceThread, NULL);
+    (void)thread_join(mx->deviceThread, NULL);
     FreeLibrary(st->lib);
     mi_free(st);
     mx->deviceState = NULL;

@@ -117,7 +117,7 @@ static float ui_path_sum(const AnoUiScene *s, uint32_t off, uint32_t curveCount,
 
 /* SDF + Shadow */
 
-float ano::ano_ui_ref_sd_rrect(const float p[2], const float half[2], const float radii[4])
+float ano::ui_ref_sd_rrect(const float p[2], const float half[2], const float radii[4])
 {
     // y-down quadrant: x<0,y<0 tl; x>=0,y<0 tr; x>=0,y>=0 br; x<0,y>=0 bl.
     float r = p[0] >= 0.0f ? (p[1] >= 0.0f ? radii[2] : radii[1])
@@ -151,7 +151,7 @@ static float shadow_x(float x, float y, float sigma, float corner, const float h
     return 0.5f * (ui_erf((x + curved) * k) - ui_erf((x - curved) * k));
 }
 
-float ano::ano_ui_ref_shadow(const float p[2], const float half[2], float corner, float sigma)
+float ano::ui_ref_shadow(const float p[2], const float half[2], float corner, float sigma)
 {
     // 4-sample Gaussian quadrature over y offsets intersecting the box, truncated at 3 sigma.
     float low = p[1] - half[1], high = p[1] + half[1];
@@ -178,7 +178,7 @@ static float clip_cov(const AnoUiScene *s, uint32_t ref, float px, float py)
     float cov = ox * oy;
     if (c->rrHalf[0] >= 0.0f) {
         float q[2] = { px + 0.5f - c->rrCenter[0], py + 0.5f - c->rrCenter[1] };
-        cov *= clamp01(0.5f - ano_ui_ref_sd_rrect(q, c->rrHalf, c->rrRadii));
+        cov *= clamp01(0.5f - ui_ref_sd_rrect(q, c->rrHalf, c->rrRadii));
     }
     return cov;
 }
@@ -212,7 +212,7 @@ static void ui_stop_color(const AnoUiScene *s, uint32_t first, uint32_t count, f
     for (int k = 0; k < 4; k++) out[k] = st[last].color[k];
 }
 
-void ano::ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py,
+void ano::ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, float py,
                       const float base[4], float out[4])
 {
     if (paintRef == ANO_UI_REF_NONE) {
@@ -248,7 +248,7 @@ void ano::ano_ui_ref_paint(const AnoUiScene *s, uint32_t paintRef, float px, flo
 
 /* Shade + Eval */
 
-void ano::ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, float out[4])
+void ano::ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float py, float out[4])
 {
     out[0] = out[1] = out[2] = out[3] = 0.0f;
     if (prim >= s->primCount)
@@ -260,7 +260,7 @@ void ano::ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float p
     float cov;
     switch (p->kind) {
     case ANO_UI_RRECT: {
-        float d = ano_ui_ref_sd_rrect(l, p->halfExt, p->radii);
+        float d = ui_ref_sd_rrect(l, p->halfExt, p->radii);
         cov = clamp01(0.5f - d);
         float w = p->param[0];
         if (w > 0.0f)
@@ -268,9 +268,9 @@ void ano::ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float p
         break;
     }
     case ANO_UI_SHADOW: {
-        float a = ano_ui_ref_shadow(l, p->halfExt, p->radii[0], p->param[0]);
+        float a = ui_ref_shadow(l, p->halfExt, p->radii[0], p->param[0]);
         if (p->flags & ANO_UI_FLAG_INNER) {
-            float d = ano_ui_ref_sd_rrect(l, p->halfExt, p->radii);
+            float d = ui_ref_sd_rrect(l, p->halfExt, p->radii);
             a = (1.0f - a) * clamp01(0.5f - d);
         }
         cov = a;
@@ -289,19 +289,19 @@ void ano::ano_ui_ref_shade(const AnoUiScene *s, uint32_t prim, float px, float p
     if (p->clipRef != ANO_UI_REF_NONE)
         cov *= clip_cov(s, p->clipRef, px, py);
     float fill[4];
-    ano_ui_ref_paint(s, p->paintRef, px + 0.5f, py + 0.5f, p->color, fill);
+    ui_ref_paint(s, p->paintRef, px + 0.5f, py + 0.5f, p->color, fill);
     for (int i = 0; i < 4; i++)
         out[i] = fill[i] * cov;
 }
 
 // Painter's-order register blend: ascending index, src-over. ADD accumulates rgb only.
 // Result UNCLAMPED premultiplied linear.
-void ano::ano_ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4])
+void ano::ui_ref_eval(const AnoUiScene *s, float px, float py, float out[4])
 {
     float acc[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     for (uint32_t i = 0; i < s->primCount; i++) {
         float src[4];
-        ano_ui_ref_shade(s, i, px, py, src);
+        ui_ref_shade(s, i, px, py, src);
         if ((s->prims[i].flags & ANO_UI_BLEND_MASK) == ANO_UI_BLEND_ADD) {
             acc[0] += src[0];
             acc[1] += src[1];
@@ -334,20 +334,20 @@ static uint32_t shade_entry(const AnoUiScene *s, uint32_t entry, int32_t px, int
     }
     const AnoUiPrim *p = &s->prims[idx];
     if (!(entry & ANO_UI_ENTRY_SOLID)) {
-        ano_ui_ref_shade(s, idx, (float)px, (float)py, src);
+        ui_ref_shade(s, idx, (float)px, (float)py, src);
         return p->flags & ANO_UI_BLEND_MASK;
     }
     float cov = 1.0f;
     if (p->clipRef != ANO_UI_REF_NONE)
         cov *= clip_cov(s, p->clipRef, (float)px, (float)py);
     float fill[4];
-    ano_ui_ref_paint(s, p->paintRef, px + 0.5f, py + 0.5f, p->color, fill);
+    ui_ref_paint(s, p->paintRef, px + 0.5f, py + 0.5f, p->color, fill);
     for (int k = 0; k < 4; k++)
         src[k] = fill[k] * cov;
     return p->flags & ANO_UI_BLEND_MASK;
 }
 
-void ano::ano_ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
+void ano::ui_ref_eval_tiled(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY, const uint32_t *offsets,
                            const uint32_t *entries, int32_t px, int32_t py, float out[4])
 {

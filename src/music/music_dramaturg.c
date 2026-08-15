@@ -9,7 +9,7 @@
 
 #include "music_dramaturg.h"
 
-AnoDramaturgConfig ano::ano_dramaturg_config_default(void)
+AnoDramaturgConfig ano::dramaturg_config_default(void)
 {
     // static storage zeros padding (snapshot = bytes).
     static const AnoDramaturgConfig k = {

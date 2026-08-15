@@ -140,48 +140,48 @@ int pthread_barrier_destroy(pthread_barrier_t *barrier) {
 
 /* Spinlocks: ano_ wrappers (Darwin) */
 
-ThreadResult<> ano::ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
+ThreadResult<> ano::thread_spin_init(anothread_spinlock_t *lock, int pshared) {
     return result_if(pthread_spin_init(lock, pshared) == 0,
                      ThreadError::platform);
 }
 
-ThreadResult<> ano::ano_thread_spin_destroy(anothread_spinlock_t *lock) {
+ThreadResult<> ano::thread_spin_destroy(anothread_spinlock_t *lock) {
     return result_if(pthread_spin_destroy(lock) == 0, ThreadError::platform);
 }
 
-ThreadResult<> ano::ano_thread_spin_lock(anothread_spinlock_t *lock) {
+ThreadResult<> ano::thread_spin_lock(anothread_spinlock_t *lock) {
     return result_if(pthread_spin_lock(lock) == 0, ThreadError::platform);
 }
 
-ThreadResult<bool> ano::ano_thread_spin_trylock(anothread_spinlock_t *lock) {
+ThreadResult<bool> ano::thread_spin_trylock(anothread_spinlock_t *lock) {
     const int status = pthread_spin_trylock(lock);
     if (status == 0) return true;
     if (status == EBUSY) return false;
     return failure(ThreadError::platform);
 }
 
-ThreadResult<> ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
+ThreadResult<> ano::thread_spin_unlock(anothread_spinlock_t *lock) {
     return result_if(pthread_spin_unlock(lock) == 0, ThreadError::platform);
 }
 
 
 /* Synchronization Barriers: ano_ wrappers (Darwin) */
 
-ThreadResult<> ano::ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
+ThreadResult<> ano::thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
     const int status = pthread_barrier_init(barrier, attr, count);
     if (status == 0) return {};
     return failure(status == EINVAL
         ? ThreadError::invalid_argument : ThreadError::platform);
 }
 
-ThreadResult<BarrierRole> ano::ano_thread_barrier_wait(anothread_barrier_t *barrier) {
+ThreadResult<BarrierRole> ano::thread_barrier_wait(anothread_barrier_t *barrier) {
     const int status = pthread_barrier_wait(barrier);
     if (status == 0) return BarrierRole::participant;
     if (status == PTHREAD_BARRIER_SERIAL_THREAD) return BarrierRole::serial;
     return failure(ThreadError::platform);
 }
 
-ThreadResult<> ano::ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
+ThreadResult<> ano::thread_barrier_destroy(anothread_barrier_t *barrier) {
     return result_if(pthread_barrier_destroy(barrier) == 0,
                      ThreadError::platform);
 }

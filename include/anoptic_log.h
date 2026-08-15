@@ -5,8 +5,8 @@
 /*  == Anoptic Game Engine v0.0000001 == */
 
 // Lock-free MPSC logger: producers capture/format off-ring, publish into a shared ring, one owned consumer drains.
-// ano_log_flush drains inline on the caller. NOW drains then write-through (+ fsync when a file is open).
-// Four macro families over ano_log_write. Severity = how bad, route = where/when.
+// log_flush drains inline on the caller. NOW drains then write-through (+ fsync when a file is open).
+// Four macro families over log_write. Severity = how bad, route = where/when.
 //   ano_log(ANO_WARN, "fmt %d", x);                        level's default route
 //   ano_rlog(ANO_ERROR, ANO_TERM | ANO_NOW, "fmt %d", x);  explicit route
 //   ano_debug_log(...) / ano_debug_rlog(...)               Debug builds only
@@ -31,14 +31,14 @@ namespace ano {
 /* Types */
 
 // Severity ascending.
-enum ano_loglevel_t {
+enum loglevel_t {
     ANO_INFO = 0,
     ANO_WARN,
     ANO_ERROR,
     ANO_FATAL
 };
 
-enum ano_logroute_t {
+enum logroute_t {
     ANO_ROUTE_DEFAULT = 0,           // use the level's configured route
     ANO_FILE = 1 << 0,              // output file (terminal when none open)
     ANO_TERM = 1 << 1,              // stdout, ERROR+ to stderr, ANSI on tty
@@ -57,43 +57,43 @@ using LogResult = Result<Value, LogError>;
 
 /* Lifecycle Functions */
 
-[[nodiscard]] LogResult<> ano_log_init(void);
-void ano_log_cleanup(void);
+[[nodiscard]] LogResult<> log_init(void);
+void log_cleanup(void);
 
 // Scope-bound teardown, ANO_SCOPED_HEAP-style (anoptic_memory.h).
-void ano_log_scope_release(const LogResult<> *initStatus);
-#define ANO_LOG_SCOPE_ATTR __attribute__((__cleanup__(ano_log_scope_release)))
+void log_scope_release(const LogResult<> *initStatus);
+#define ANO_LOG_SCOPE_ATTR __attribute__((__cleanup__(log_scope_release)))
 
 /* Entry Points */
 
-int ano_log_write(ano_loglevel_t level, ano_logroute_t route,
+int log_write(loglevel_t level, logroute_t route,
                   const char* sourceFile, int lineNumber,
                   /* printFormat MUST be a string literal. */
                   const char* printFormat, ...) __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 6)));
 
-int ano_log_vwrite(ano_loglevel_t level, ano_logroute_t route,
+int log_vwrite(loglevel_t level, logroute_t route,
                    const char* sourceFile, int lineNumber,
                    const char* printFormat, va_list args) __attribute__((format(ANO_PRINTF_FORMAT_KIND, 5, 0)));
 
 
 /* Configuration Functions */
 
-// Open dir/<session-stamp>_ano.log (stamp: ano_fs_session_stamp). Failure keeps previous.
-[[nodiscard]] LogResult<> ano_log_output_dir(const char* directoryPath);
+// Open dir/<session-stamp>_ano.log (stamp: fs_session_stamp). Failure keeps previous.
+[[nodiscard]] LogResult<> log_output_dir(const char* directoryPath);
 
 // Runtime severity gate.
-void ano_log_set_level(ano_loglevel_t min);
+void log_set_level(loglevel_t min);
 
 // Replace a level's default route. Must name a sink. Out-of-range ignored.
-void ano_log_set_route(ano_loglevel_t level, ano_logroute_t route);
+void log_set_route(loglevel_t level, logroute_t route);
 
 // Drain all buffered records on the calling thread.
-void ano_log_flush(void);
+void log_flush(void);
 
-[[nodiscard]] constexpr ano_logroute_t operator|(ano_logroute_t left,
-                                                  ano_logroute_t right) noexcept
+[[nodiscard]] constexpr logroute_t operator|(logroute_t left,
+                                                  logroute_t right) noexcept
 {
-    return static_cast<ano_logroute_t>(
+    return static_cast<logroute_t>(
         static_cast<unsigned>(left) | static_cast<unsigned>(right));
 }
 
@@ -104,16 +104,16 @@ void ano_log_flush(void);
 // _rlog : level + route
 // _olog : level + callsite file/line
 // _rolog: level + route + callsite
-#define ano_log(level, ...)                 ano_log_write((level), ANO_ROUTE_DEFAULT, NULL, 0, __VA_ARGS__)
-#define ano_rlog(level, route, ...)         ano_log_write((level), (route), NULL, 0, __VA_ARGS__)
-#define ano_olog(level, ...)                ano_log_write((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, __VA_ARGS__)
-#define ano_rolog(level, route, ...)        ano_log_write((level), (route), __FILE_NAME__, __LINE__, __VA_ARGS__)
+#define ano_log(level, ...)                 log_write((level), ANO_ROUTE_DEFAULT, NULL, 0, __VA_ARGS__)
+#define ano_rlog(level, route, ...)         log_write((level), (route), NULL, 0, __VA_ARGS__)
+#define ano_olog(level, ...)                log_write((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, __VA_ARGS__)
+#define ano_rolog(level, route, ...)        log_write((level), (route), __FILE_NAME__, __LINE__, __VA_ARGS__)
 
 #ifdef DEBUG_BUILD
-#define ano_debug_log(level, ...)           ano_log_write((level), ANO_ROUTE_DEFAULT, NULL, 0, __VA_ARGS__)
-#define ano_debug_rlog(level, route, ...)   ano_log_write((level), (route), NULL, 0, __VA_ARGS__)
-#define ano_debug_olog(level, ...)          ano_log_write((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, __VA_ARGS__)
-#define ano_debug_rolog(level, route, ...)  ano_log_write((level), (route), __FILE_NAME__, __LINE__, __VA_ARGS__)
+#define ano_debug_log(level, ...)           log_write((level), ANO_ROUTE_DEFAULT, NULL, 0, __VA_ARGS__)
+#define ano_debug_rlog(level, route, ...)   log_write((level), (route), NULL, 0, __VA_ARGS__)
+#define ano_debug_olog(level, ...)          log_write((level), ANO_ROUTE_DEFAULT, __FILE_NAME__, __LINE__, __VA_ARGS__)
+#define ano_debug_rolog(level, route, ...)  log_write((level), (route), __FILE_NAME__, __LINE__, __VA_ARGS__)
 #else
 #define ano_debug_log(...)  ((void)0)
 #define ano_debug_rlog(...) ((void)0)

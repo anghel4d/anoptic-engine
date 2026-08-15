@@ -49,7 +49,7 @@ void ano_ts(VkCommandBuffer cmd, uint32_t query) {
 
 // Averaged per-pass GPU times + per-allocator VRAM (shadowAtlas separate). res= = realized swapchain extent.
 static void ano_print_profiling(void) {
-    const char* mn = ano_render_lighting_mode_name(
+    const char* mn = render_lighting_mode_name(
         (AnoLightingMode)rendererState.lightingMode);
     double inv = g_tsFrames ? 1.0 / (double)g_tsFrames : 0.0;
     double up = g_tsAccumMs[ANO_TS_FRAME_BEGIN]    * inv;

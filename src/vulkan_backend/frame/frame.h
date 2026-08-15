@@ -96,7 +96,7 @@ void anoperf_flush(anoperf_accumulator_t* acc);
 // store, one flush per ANO_PERF_WINDOW_FRAMES frames. First call seeds the stamps, uncounted.
 static inline void ano_frame_mark(void) {
     anoperf_accumulator_t* acc = &g_perfAcc;
-    uint64_t now = ano_timestamp_us();
+    uint64_t now = timestamp_us();
     if (acc->prevUs == 0) { acc->prevUs = acc->startUs = now; return; }
     uint64_t dt = now - acc->prevUs;
     acc->prevUs = now;

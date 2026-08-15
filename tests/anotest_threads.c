@@ -63,7 +63,7 @@ static void *watchdog(void *arg)
     (void)arg;
     unsigned long long last = 0;
     for (unsigned stalls = 0; stalls < WATCHDOG_STALLS; ) {
-        (void)ano_sleep(WATCHDOG_POLL_US);
+        (void)sleep_us(WATCHDOG_POLL_US);
         // any section's tally moving counts as progress; a reset between sections reads as a move
         unsigned long long now = (unsigned long long)atomic_load(&arrivals)
                                + atomic_load(&releases) + atomic_load(&serials)
@@ -86,17 +86,17 @@ static void test_barrier_init_domain(void)
 {
     printf("barrier: init domain\n");
     arm_fence();
-    CHECK(has_error(ano_thread_barrier_init(&fenced.bar, NULL, 0),
+    CHECK(has_error(thread_barrier_init(&fenced.bar, NULL, 0),
                     ThreadError::invalid_argument), "count 0 is refused");
-    CHECK(ano_thread_barrier_init(&fenced.bar, NULL, 1), "count 1 is accepted");
-    CHECK(ano_thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
+    CHECK(thread_barrier_init(&fenced.bar, NULL, 1), "count 1 is accepted");
+    CHECK(thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
               == BarrierRole::serial,
           "the lone thread of a count-1 barrier is the serial thread");
-    CHECK(ano_thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
+    CHECK(thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
               == BarrierRole::serial, "a count-1 barrier reuses");
-    CHECK(ano_thread_barrier_destroy(&fenced.bar), "destroy");
-    CHECK(ano_thread_barrier_init(&fenced.bar, NULL, 64), "count 64 is accepted");
-    CHECK(ano_thread_barrier_destroy(&fenced.bar), "destroy");
+    CHECK(thread_barrier_destroy(&fenced.bar), "destroy");
+    CHECK(thread_barrier_init(&fenced.bar, NULL, 64), "count 64 is accepted");
+    CHECK(thread_barrier_destroy(&fenced.bar), "destroy");
     CHECK(fence_intact(), "init wrote only the barrier object");
 }
 
@@ -118,7 +118,7 @@ static void *cohort_thread(void *arg)
     for (unsigned r = 0; r < CROUNDS; ++r) {
         cpayload[id] = r + 1u;
         atomic_fetch_add_explicit(&cwork, 1u, memory_order_seq_cst);
-        if (ano_thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
+        if (thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
             == BarrierRole::serial)
             atomic_fetch_add_explicit(&serials, 1u, memory_order_seq_cst);
         // the whole cohort's round-r writes are visible, and none of round r+1
@@ -126,7 +126,7 @@ static void *cohort_thread(void *arg)
             if (cpayload[j] != r + 1u) atomic_store_explicit(&cbad, 1, memory_order_seq_cst);
         if (atomic_load_explicit(&cwork, memory_order_seq_cst) != (r + 1u) * CN)
             atomic_store_explicit(&cbad, 1, memory_order_seq_cst);
-        if (ano_thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
+        if (thread_barrier_wait(&fenced.bar).value_or(BarrierRole::participant)
             == BarrierRole::serial)
             atomic_fetch_add_explicit(&serials, 1u, memory_order_seq_cst);
     }
@@ -138,20 +138,20 @@ static void test_barrier_cohorts(void)
     printf("barrier: exactly-count cohorts (%u threads, count %u, %u rounds)\n",
            CN, CN, CROUNDS);
     arm_fence();
-    CHECK(ano_thread_barrier_init(&fenced.bar, NULL, CN), "init accepts count 4");
+    CHECK(thread_barrier_init(&fenced.bar, NULL, CN), "init accepts count 4");
     atomic_store(&cwork, 0u); atomic_store(&cbad, 0); atomic_store(&serials, 0u);
 
     anothread_t t[CN];
     for (unsigned i = 0; i < CN; ++i)
-        CHECK(ano_thread_create(&t[i], NULL, cohort_thread, (void *)(uintptr_t)i),
+        CHECK(thread_create(&t[i], NULL, cohort_thread, (void *)(uintptr_t)i),
               "cohort thread spawned");
-    for (unsigned i = 0; i < CN; ++i) (void)ano_thread_join(t[i], NULL);
+    for (unsigned i = 0; i < CN; ++i) (void)thread_join(t[i], NULL);
 
     CHECK(atomic_load(&cbad) == 0, "nobody ran ahead of or behind its cohort");
     CHECK(atomic_load(&cwork) == CROUNDS * CN, "every increment landed");
     CHECK(atomic_load(&serials) == CROUNDS * 2u, "exactly one serial return per cohort");
     CHECK(fence_intact(), "nothing wrote outside the barrier object");
-    (void)ano_thread_barrier_destroy(&fenced.bar);
+    (void)thread_barrier_destroy(&fenced.bar);
 }
 
 
@@ -169,7 +169,7 @@ static void *reuse_thread(void *arg)
     (void)arg;
     while (atomic_fetch_sub_explicit(&budget, 1, memory_order_seq_cst) > 0) {
         atomic_fetch_add_explicit(&arrivals, 1u, memory_order_seq_cst);
-        bool serial = ano_thread_barrier_wait(&fenced.bar).value_or(
+        bool serial = thread_barrier_wait(&fenced.bar).value_or(
             BarrierRole::participant) == BarrierRole::serial;
         unsigned rel = atomic_fetch_add_explicit(&releases, 1u, memory_order_seq_cst) + 1u;
         unsigned arr = atomic_load_explicit(&arrivals, memory_order_seq_cst);
@@ -186,7 +186,7 @@ static void test_barrier_oversubscribed(unsigned n, unsigned m)
     unsigned total = (unsigned)BUDGET - (unsigned)BUDGET % n;
     printf("barrier: %u threads share a count-%u barrier, %u arrivals\n", m, n, total);
     arm_fence();
-    CHECK(ano_thread_barrier_init(&fenced.bar, NULL, n), "init");
+    CHECK(thread_barrier_init(&fenced.bar, NULL, n), "init");
     tcount = n;
     atomic_store(&budget, (int)total);
     atomic_store(&arrivals, 0u); atomic_store(&releases, 0u);
@@ -196,15 +196,15 @@ static void test_barrier_oversubscribed(unsigned n, unsigned m)
     CHECK(t != NULL, "thread table");
     if (t == NULL) return;
     for (unsigned i = 0; i < m; ++i)
-        CHECK(ano_thread_create(&t[i], NULL, reuse_thread, NULL), "reuse thread spawned");
-    for (unsigned i = 0; i < m; ++i) (void)ano_thread_join(t[i], NULL);
+        CHECK(thread_create(&t[i], NULL, reuse_thread, NULL), "reuse thread spawned");
+    for (unsigned i = 0; i < m; ++i) (void)thread_join(t[i], NULL);
     free(t);
 
     CHECK(atomic_load(&early) == 0u, "nobody released before its own cohort filled");
     CHECK(atomic_load(&serials) == total / n, "exactly one serial return per cohort");
     CHECK(atomic_load(&releases) == total, "no arrival was erased");
     CHECK(fence_intact(), "nothing wrote outside the barrier object");
-    (void)ano_thread_barrier_destroy(&fenced.bar);
+    (void)thread_barrier_destroy(&fenced.bar);
 }
 
 
@@ -213,7 +213,7 @@ int main(void)
     setvbuf(stdout, NULL, _IONBF, 0);   // progress must survive a deadlocked barrier
 
     anothread_t wd;
-    if (ano_thread_create(&wd, NULL, watchdog, NULL)) (void)ano_thread_detach(wd);
+    if (thread_create(&wd, NULL, watchdog, NULL)) (void)thread_detach(wd);
 
     test_barrier_init_domain();
     test_barrier_cohorts();

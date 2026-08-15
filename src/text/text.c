@@ -51,12 +51,12 @@ static void *text_ft_realloc(FT_Memory memory, long cur_size, long new_size, voi
     return mi_heap_realloc(static_cast<mi_heap_t *>(memory->user), block, (size_t)new_size);
 }
 
-TextResult<> ano::ano_text_init(void)
+TextResult<> ano::text_init(void)
 {
     if (g_ftLibrary != NULL)
         return {};
 
-    g_textHeap = ano_heap_create();
+    g_textHeap = heap_create();
     if (g_textHeap == NULL)
         return failure(TextError::out_of_memory);
 
@@ -71,7 +71,7 @@ TextResult<> ano::ano_text_init(void)
         const char *msg = FT_Error_String(err);
         ano_log(ANO_ERROR, "text: FT_New_Library failed: %d (%s)", (int)err, msg ? msg : "?");
         g_ftLibrary = NULL;
-        ano_heap_destroy(g_textHeap);
+        heap_destroy(g_textHeap);
         g_textHeap = NULL;
         return failure(TextError::io);
     }
@@ -85,7 +85,7 @@ TextResult<> ano::ano_text_init(void)
 }
 
 // Faces, then library, then heap. Init thread.
-void ano::ano_text_shutdown(void)
+void ano::text_shutdown(void)
 {
     for (uint32_t i = 0; i < ANO_TEXT_MAX_FONTS; i++)
     {
@@ -102,7 +102,7 @@ void ano::ano_text_shutdown(void)
     }
     if (g_textHeap != NULL)
     {
-        ano_heap_destroy(g_textHeap);
+        heap_destroy(g_textHeap);
         g_textHeap = NULL;
     }
 }
@@ -121,7 +121,7 @@ void ano_text_version(int *major, int *minor, int *patch)
 }
 
 // 1-based handle, or 0. Init thread.
-TextResult<AnoFontId> ano::ano_text_font_load(anostr_t path)
+TextResult<AnoFontId> ano::text_font_load(anostr_t path)
 {
     if (g_ftLibrary == NULL || anostr_is_empty(path))
         return failure(TextError::invalid_argument);

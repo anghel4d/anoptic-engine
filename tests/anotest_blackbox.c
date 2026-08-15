@@ -6,9 +6,9 @@
 
 // Coverage for anoptic_log_crash.h on real crashes:
 //   - bb_fmt_dec/hex vs printf oracle
-//   - ano_log_crash_init: 0, resolves <exe>/logs/<stamp>_CRASH.log, creates nothing
+//   - log_crash_init: 0, resolves <exe>/logs/<stamp>_CRASH.log, creates nothing
 //   - one child per scenario (AV r/w/x, abort, illegal insn, div0, CRT raise, non-main,
-//     crash in ano_log_write, producer storm, ring full, stack overflow main/spawned, dual win64)
+//     crash in log_write, producer storm, ring full, stack overflow main/spawned, dual win64)
 //   - Stage 3 hail mary: pre-crash records survive into scratch session log
 //   - deadman: poisoned deferred fmt deadlocks hail mary, watchdog ~5 s
 //   - Stage 4: leftover announce, per-session files, stamp-collision append, prune to newest 4
@@ -47,7 +47,7 @@ using namespace ano;
 #endif
 
 #define LOG_DIR      "anotest_blackbox_scratch"
-#define CRASH_DIR    "logs"                 // ano_fs_logpath under the exe-anchored CWD
+#define CRASH_DIR    "logs"                 // fs_logpath under the exe-anchored CWD
 #define LOG_SUFFIX   "_ano.log"             // session log files: <stamp>_ano.log
 #define CRASH_SUFFIX "_CRASH.log"           // session crash records: <stamp>_CRASH.log
 #define REC_BEGIN "==== ANOPTIC BLACKBOX: we are going down ===="
@@ -133,8 +133,8 @@ static void *segv_thread(void *arg) { (void)arg; *(volatile int *)0 = 1; return 
 static void sc_thread_segv(void)
 {
     anothread_t t;
-    if (!ano_thread_create(&t, NULL, segv_thread, NULL)) exit(41);
-    (void)ano_thread_join(t, NULL);   // never returns: the process dies under the join
+    if (!thread_create(&t, NULL, segv_thread, NULL)) exit(41);
+    (void)thread_join(t, NULL);   // never returns: the process dies under the join
 }
 
 // 32 buffered lines then crash: all must survive hail mary.
@@ -148,7 +148,7 @@ static void sc_hailmary(void)
 static void sc_empty_ring(void)
 {
     ano_log(ANO_INFO, "empty-ring-sentinel");
-    ano_log_flush();                    // ring drained before the crash
+    log_flush();                    // ring drained before the crash
     *(volatile int *)0 = 1;
 }
 
@@ -158,7 +158,7 @@ static void sc_now_path(void)
     *(volatile int *)0 = 1;
 }
 
-// Crash inside ano_log_write: strlen on wild %s.
+// Crash inside log_write: strlen on wild %s.
 static void sc_midwrite(void)
 {
     ano_log(ANO_INFO, "midwrite-sentinel-before");
@@ -179,16 +179,16 @@ static void *spammer(void *arg)
     for (;;) {
         s ^= s << 13; s ^= s >> 17; s ^= s << 5;
         if (huge) {
-            ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, "%s", bigbuf);  // 4000 B entries: the ring pins full
+            log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, "%s", bigbuf);  // 4000 B entries: the ring pins full
         } else {
             int n = (int)(s % 100u) + 8;
             for (int i = 0; i < n; i++) buf[i] = (char)('!' + (int)((s + (uint32_t)i) % 90u));
             buf[n] = 0;
-            ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, "anotest", 1, "%s", buf);
-            ano_log_write(ANO_WARN, ANO_ROUTE_DEFAULT, NULL, 0,
+            log_write(ANO_INFO, ANO_ROUTE_DEFAULT, "anotest", 1, "%s", buf);
+            log_write(ANO_WARN, ANO_ROUTE_DEFAULT, NULL, 0,
                           "mix=%d/%x/%s", (int)s, s, "alpha");
             if ((++it & 63u) == 0)
-                ano_log_write(ANO_ERROR, ANO_NOW | ANO_FILE, NULL, 0, "now-%u", it);  // NOW under storm
+                log_write(ANO_ERROR, ANO_NOW | ANO_FILE, NULL, 0, "now-%u", it);  // NOW under storm
         }
     }
     return NULL;
@@ -198,8 +198,8 @@ static void storm_then_crash(bool huge)
     atomic_store(&g_spamHuge, huge);
     anothread_t t[6];
     for (intptr_t i = 0; i < 6; i++)
-        if (!ano_thread_create(&t[i], NULL, spammer, (void *)i)) exit(41);
-    (void)ano_sleep(100000);      // 100 ms of storm
+        if (!thread_create(&t[i], NULL, spammer, (void *)i)) exit(41);
+    (void)sleep_us(100000);      // 100 ms of storm
     *(volatile int *)0 = 1;
 }
 static void sc_contention(void) { storm_then_crash(false); }
@@ -218,17 +218,17 @@ static void sc_deadman(void)
     if (page == MAP_FAILED) exit(41);
 #endif
     memcpy(page, "poison %d", 10);
-    (void)ano_sleep(5000);        // 5 ms idle: let the drainer park
+    (void)sleep_us(5000);        // 5 ms idle: let the drainer park
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
-    ano_log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, (const char *)page, 7);
+    log_write(ANO_INFO, ANO_ROUTE_DEFAULT, NULL, 0, (const char *)page, 7);
 #pragma GCC diagnostic pop
 #if defined(_WIN32)
     VirtualFree(page, 0, MEM_RELEASE);  // freed while the drainer is still waking
 #else
     munmap(page, 4096);
 #endif
-    (void)ano_sleep(7u * 1000u * 1000u);      // the deadman (5 s) fires first
+    (void)sleep_us(7u * 1000u * 1000u);      // the deadman (5 s) fires first
     exit(42);               // race lost: the drainer rendered before the free. Parent retries.
 }
 
@@ -242,13 +242,13 @@ static uint64_t overflow_rec(uint64_t d)
 }
 static void sc_stack_overflow(void) { (void)overflow_rec(1); }
 
-// Same overflow on spawned thread (ano_thread_create arms crash stack).
+// Same overflow on spawned thread (thread_create arms crash stack).
 static void *overflow_thread(void *arg) { (void)arg; (void)overflow_rec(1); return NULL; }
 static void sc_thread_overflow(void)
 {
     anothread_t t;
-    if (!ano_thread_create(&t, NULL, overflow_thread, NULL)) exit(41);
-    (void)ano_thread_join(t, NULL);   // never returns: the process dies under the join
+    if (!thread_create(&t, NULL, overflow_thread, NULL)) exit(41);
+    (void)thread_join(t, NULL);   // never returns: the process dies under the join
 }
 
 #if defined(_WIN32)
@@ -266,18 +266,18 @@ static void *race_thread(void *arg)
 static void sc_double(void)
 {
     anothread_t a, b;
-    if (!ano_thread_create(&a, NULL, race_thread, NULL)) exit(41);
-    if (!ano_thread_create(&b, NULL, race_thread, NULL)) exit(41);
-    (void)ano_thread_join(a, NULL);
-    (void)ano_thread_join(b, NULL);
+    if (!thread_create(&a, NULL, race_thread, NULL)) exit(41);
+    if (!thread_create(&b, NULL, race_thread, NULL)) exit(41);
+    (void)thread_join(a, NULL);
+    (void)thread_join(b, NULL);
 }
 #endif
 
 static void sc_clean(void)
 {
     ano_log(ANO_INFO, "clean-run-sentinel");
-    ano_log_flush();
-    ano_log_cleanup();
+    log_flush();
+    log_cleanup();
 }
 
 typedef struct { const char *name; void (*fn)(void); } child_t;
@@ -314,14 +314,14 @@ static const child_t CHILDREN[] = {
 static int child_main(const char *name)
 {
     if (strcmp(name, "nolog") == 0) {
-        if (!ano_log_crash_init()) return 41;
+        if (!log_crash_init()) return 41;
         *(volatile int *)0 = 1;
         return 0;
     }
-    if (!ano_log_init()) return 40;
+    if (!log_init()) return 40;
     scratch_make_dir(LOG_DIR);
-    if (!ano_log_output_dir(LOG_DIR)) return 43;
-    if (!ano_log_crash_init()) return 41;
+    if (!log_output_dir(LOG_DIR)) return 43;
+    if (!log_crash_init()) return 41;
     for (size_t i = 0; i < NCHILDREN; i++) {
         if (strcmp(CHILDREN[i].name, name) == 0) {
             CHILDREN[i].fn();
@@ -441,7 +441,7 @@ static unsigned long spawn_child(const char *scenario, unsigned *ms)
     snprintf(cmd, sizeof cmd, "\"%s\" %s", g_exe, scenario);
     STARTUPINFOA si = { .cb = sizeof si };
     PROCESS_INFORMATION pi;
-    uint64_t t0 = ano_timestamp_us();
+    uint64_t t0 = timestamp_us();
     if (!CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         *ms = 0;
         return 0xFFFFFFFEul;
@@ -454,7 +454,7 @@ static unsigned long spawn_child(const char *scenario, unsigned *ms)
     } else {
         GetExitCodeProcess(pi.hProcess, &code);
     }
-    *ms = (unsigned)((ano_timestamp_us() - t0) / 1000u);
+    *ms = (unsigned)((timestamp_us() - t0) / 1000u);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     return code;
@@ -471,7 +471,7 @@ static void death_print(child_status_t code, char *out, size_t cap)
 // Spawn with `scenario`, raw waitpid status (-1 on spawn fail). Hung -> CTest timeout.
 static int spawn_child(const char *scenario, unsigned *ms)
 {
-    uint64_t t0 = ano_timestamp_us();
+    uint64_t t0 = timestamp_us();
     pid_t pid = fork();
     if (pid == 0) {
         execl(g_exe, g_exe, scenario, (char *)NULL);
@@ -480,7 +480,7 @@ static int spawn_child(const char *scenario, unsigned *ms)
     if (pid < 0) { *ms = 0; return -1; }
     int status = 0;
     waitpid(pid, &status, 0);
-    *ms = (unsigned)((ano_timestamp_us() - t0) / 1000u);
+    *ms = (unsigned)((timestamp_us() - t0) / 1000u);
     return status;
 }
 typedef int child_status_t;
@@ -592,17 +592,17 @@ static void test_fmt_helpers(void)
 static void test_init_shape(void)
 {
     remove_all_suffix(CRASH_DIR, CRASH_SUFFIX);
-    CHECK(ano_log_crash_init(), "ano_log_crash_init failed");
+    CHECK(log_crash_init(), "log_crash_init failed");
     char name[MAXPATH];
     CHECK(bb_scan_suffix(CRASH_DIR, CRASH_SUFFIX, name) == 0,
           "init created a crash record on a clean boot");
     size_t n = strlen(bb_crashPath), sl = strlen(CRASH_SUFFIX);
     CHECK(n >= sl && strcmp(bb_crashPath + n - sl, CRASH_SUFFIX) == 0,
           "bb_crashPath \"%s\" does not end in " CRASH_SUFFIX, bb_crashPath);
-    CHECK(strstr(bb_crashPath, ano_fs_session_stamp()) != NULL,
+    CHECK(strstr(bb_crashPath, fs_session_stamp()) != NULL,
           "bb_crashPath \"%s\" does not carry the session stamp %s",
-          bb_crashPath, ano_fs_session_stamp());
-    const ano_fspath gp = ano_fs_gamepath().value_or(ano_fspath{});
+          bb_crashPath, fs_session_stamp());
+    const fspath gp = fs_gamepath().value_or(fspath{});
     if (gp.length > 0)
         CHECK(strncmp(bb_crashPath, gp.str, gp.length) == 0,
               "bb_crashPath \"%s\" not rooted in the exe dir \"%s\"", bb_crashPath, gp.str);
@@ -734,7 +734,7 @@ int main(int argc, char **argv)
     test_fmt_helpers();
     test_init_shape();
 
-    const ano_fspath gp = ano_fs_gamepath().value_or(ano_fspath{});
+    const fspath gp = fs_gamepath().value_or(fspath{});
     if (gp.length == 0) {
         printf("FAIL: cannot resolve the exe path for self-spawning\n");
         return 1;

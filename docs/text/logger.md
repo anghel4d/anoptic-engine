@@ -11,14 +11,14 @@ It is a singleton, one logger per program, owned by `main`. The whole interface 
 ### Severity and Route
 
 ```c
-typedef enum { ANO_INFO, ANO_WARN, ANO_ERROR, ANO_FATAL } ano_loglevel_t;
+typedef enum { ANO_INFO, ANO_WARN, ANO_ERROR, ANO_FATAL } loglevel_t;
 
 typedef enum {
     ANO_FILE = 1 << 0,              // the output file (terminal when none is open)
     ANO_TERM = 1 << 1,              // the terminal: stdout, ERROR+ to stderr; ANSI-colored on a tty
     ANO_BOTH = ANO_FILE | ANO_TERM,
     ANO_NOW  = 1 << 2,              // synchronous: drain, write, fsync on the calling thread
-} ano_logroute_t;
+} logroute_t;
 ```
 
 Severity says how bad. Route says where the line goes. 
@@ -47,36 +47,36 @@ Buffered records ride the lock-free ring; the background thread routes each to i
 ### Lifecycle
 
 ```c
-int ano_log_init(void);     // start up; 0 on success
-int ano_log_cleanup(void);  // shut down; 0 on success
+int log_init(void);     // start up; 0 on success
+int log_cleanup(void);  // shut down; 0 on success
 ```
 
-Call `ano_log_init()` once at startup. It allocates the ring, captures a timestamp anchor, opens the default output file (`<game-dir>/logs/<session-stamp>_ano.log`; one file per session, stamp from `ano_fs_session_stamp()`, truncated at open), and spawns the background drain thread. Until it returns 0, only `NOW`-routed records work (to `stderr`). `ano_log_crash_init` (`anoptic_log_crash.h`, crash superset) prunes `logs/` at boot: newest 4 of each of `*_ano.log` and `*_CRASH.log` survive; the live session's files always kept.
+Call `log_init()` once at startup. It allocates the ring, captures a timestamp anchor, opens the default output file (`<game-dir>/logs/<session-stamp>_ano.log`; one file per session, stamp from `fs_session_stamp()`, truncated at open), and spawns the background drain thread. Until it returns 0, only `NOW`-routed records work (to `stderr`). `log_crash_init` (`anoptic_log_crash.h`, crash superset) prunes `logs/` at boot: newest 4 of each of `*_ano.log` and `*_CRASH.log` survive; the live session's files always kept.
 
-Call `ano_log_cleanup()` once at shutdown. It stops and joins the drain thread, runs one final drain so nothing buffered is lost, then syncs and closes the file.
+Call `log_cleanup()` once at shutdown. It stops and joins the drain thread, runs one final drain so nothing buffered is lost, then syncs and closes the file.
 
 ### Control
 
 ```c
-int  ano_log_output_dir(const char *dir);                        // open dir/<stamp>_ano.log; 0 ok, -1 rejected
-void ano_log_set_level(ano_loglevel_t min);                      // admit only buffered records >= min
-void ano_log_set_route(ano_loglevel_t lvl, ano_logroute_t rt);   // rebind a level's default route
-void ano_log_flush(void);                                        // drain synchronously, right now
+int  log_output_dir(const char *dir);                        // open dir/<stamp>_ano.log; 0 ok, -1 rejected
+void log_set_level(loglevel_t min);                      // admit only buffered records >= min
+void log_set_route(loglevel_t lvl, logroute_t rt);   // rebind a level's default route
+void log_flush(void);                                        // drain synchronously, right now
 ```
 
-`ano_log_output_dir` redirects output to a different directory. A rejected switch (bad or unopenable path) leaves the current file intact and returns `-1`. 
-`ano_log_set_level` is the volume knob, and `NOW` records ignore it. 
-`ano_log_set_route` must name at least one sink. With no output file configured, FILE records still drain to the terminal.
+`log_output_dir` redirects output to a different directory. A rejected switch (bad or unopenable path) leaves the current file intact and returns `-1`. 
+`log_set_level` is the volume knob, and `NOW` records ignore it. 
+`log_set_route` must name at least one sink. With no output file configured, FILE records still drain to the terminal.
 
-`ano_log_flush` you usually do not need; the background thread drains continuously. Use it for durability at a point: once-per-tick checkpoint, or before a risky op. Extra drain on the calling thread; returns when the buffer is empty.
+`log_flush` you usually do not need; the background thread drains continuously. Use it for durability at a point: once-per-tick checkpoint, or before a risky op. Extra drain on the calling thread; returns when the buffer is empty.
 
 ### Raw entry points
 
 The macros expand to one function; call it (or the `va_list` variant, for your own wrappers) directly when the macros don't fit:
 
 ```c
-int ano_log_write (ano_loglevel_t lvl, ano_logroute_t rt, const char *file, int line, const char *fmt, ...);
-int ano_log_vwrite(ano_loglevel_t lvl, ano_logroute_t rt, const char *file, int line, const char *fmt, va_list args);
+int log_write (loglevel_t lvl, logroute_t rt, const char *file, int line, const char *fmt, ...);
+int log_vwrite(loglevel_t lvl, logroute_t rt, const char *file, int line, const char *fmt, va_list args);
 ```
 
 A route of `0` (what `ano_log` passes) inherits the level's default. `file` is nullable: pass `NULL` (and any `line`) to record no call site, which is what `ano_log` / `ano_rlog` do; the origin is neither stored nor printed. The return value is almost always ignored: `0` means written or buffered normally, `1` means a full ring made the call wait for drain room.
@@ -91,20 +91,20 @@ A complete, minimal program shape:
 #include <anoptic_log.h>
 
 int main(void) {
-    ano_log_init();                                 // once, before any logging
-    ano_log_output_dir("mylogs");                   // optional: mylogs/<stamp>_ano.log
-    ano_log_set_route(ANO_WARN, ANO_BOTH);          // optional: warnings on the terminal too
+    log_init();                                 // once, before any logging
+    log_output_dir("mylogs");                   // optional: mylogs/<stamp>_ano.log
+    log_set_route(ANO_WARN, ANO_BOTH);          // optional: warnings on the terminal too
 
     ano_log(ANO_INFO, "engine up, build %s", VERSION);
 
     while (running) {
         // ... worker threads call ano_log freely ...
         tick();
-        ano_log_flush();                            // optional: checkpoint each tick
+        log_flush();                            // optional: checkpoint each tick
     }
 
     // REQUIRED before cleanup: stop your own threads so nothing calls ano_log_* again
-    ano_log_cleanup();                              // once, at the end
+    log_cleanup();                              // once, at the end
     return 0;
 }
 ```
@@ -112,7 +112,7 @@ int main(void) {
 The rules, in full:
 
 1. Initialise before use, clean up after the workers are gone. Those are the only ordering constraints.
-2. Any thread may call `ano_log_*` concurrently, except `ano_log_cleanup`, which is single-owner and requires the producers stopped.
+2. Any thread may call `ano_log_*` concurrently, except `log_cleanup`, which is single-owner and requires the producers stopped.
 3. Format strings are literals. Dynamic text goes through `%s`.
 4. You rarely call `flush`. Reach for it only when you need durability at a specific instant.
 5. Use `ANO_FATAL` (or an explicit `ANO_NOW`) for lines that must survive a crash. Let the ring carry everything else.

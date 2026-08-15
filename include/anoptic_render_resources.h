@@ -26,14 +26,14 @@ enum AnoRenderResourceReloadStatus {
 // Takes ownership of reload. Keep preparationHeap live until poll or cancel
 // consumes the publication.
 [[nodiscard]] ResourceResult<AnoRenderResourcePublication *>
-ano_render_resources_prepare_reload(AnoResourceReload *reload,
+render_resources_prepare_reload(AnoResourceReload *reload,
                                     mi_heap_t *preparationHeap);
 // Polls owner work and commits a ready candidate. A terminal result consumes
 // *publication and sets it to null. Rejection preserves the current epoch.
-AnoRenderResourceReloadStatus ano_render_resources_poll_reload(
+AnoRenderResourceReloadStatus render_resources_poll_reload(
     AnoRenderResourcePublication **publication);
 // Cancels and consumes an unpublished candidate.
-void ano_render_resources_cancel_reload(
+void render_resources_cancel_reload(
     AnoRenderResourcePublication *publication);
 
 namespace asset_schema {

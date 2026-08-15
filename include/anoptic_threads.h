@@ -11,7 +11,7 @@
 #include <pthread.h>
 #include <anoptic_atomic.h>
 #include <anoptic_results.h>
-#include <time.h>     // struct timespec for ano_thread_cond_timedwait
+#include <time.h>     // struct timespec for thread_cond_timedwait
 
 namespace ano {
 
@@ -66,123 +66,123 @@ typedef pthread_key_t anothread_key_t;
 // Engine-thread stack reserve when attr is NULL. Win64: PE --stack sizes those threads and the main thread.
 #define ANO_THREAD_STACK_SIZE ((size_t)8 << 20)
 
-[[nodiscard]] ThreadResult<> ano_thread_create(
+[[nodiscard]] ThreadResult<> thread_create(
     anothread_t *thread, const anothread_attr_t *attr,
     void *(*func)(void *), void *arg);
 
 // Online logical processors, or one when unavailable.
-uint32_t ano_thread_concurrency(void);
+uint32_t thread_concurrency(void);
 
 // Initial-thread stack budget. POSIX: soft RLIMIT_STACK (SIZE_MAX if unlimited). Win64: PE reserve.
-[[nodiscard]] ThreadResult<size_t> ano_thread_main_stack(void);
+[[nodiscard]] ThreadResult<size_t> thread_main_stack(void);
 
-[[nodiscard]] ThreadResult<> ano_thread_join(anothread_t thread, void **res);
+[[nodiscard]] ThreadResult<> thread_join(anothread_t thread, void **res);
 
-void ano_thread_exit(void *res);
+void thread_exit(void *res);
 
-[[nodiscard]] ThreadResult<> ano_thread_detach(anothread_t thread);
+[[nodiscard]] ThreadResult<> thread_detach(anothread_t thread);
 
-anothread_t ano_thread_self(void);
+anothread_t thread_self(void);
 
 
 /* Mutexes */
 
-[[nodiscard]] ThreadResult<> ano_mutex_init(
+[[nodiscard]] ThreadResult<> mutex_init(
     anothread_mutex_t *mutex, const anothread_mutexattr_t *attr);
 
-[[nodiscard]] ThreadResult<> ano_mutex_lock(anothread_mutex_t *mutex);
+[[nodiscard]] ThreadResult<> mutex_lock(anothread_mutex_t *mutex);
 
-[[nodiscard]] ThreadResult<> ano_mutex_unlock(anothread_mutex_t *mutex);
+[[nodiscard]] ThreadResult<> mutex_unlock(anothread_mutex_t *mutex);
 
-[[nodiscard]] ThreadResult<> ano_mutex_destroy(anothread_mutex_t *mutex);
+[[nodiscard]] ThreadResult<> mutex_destroy(anothread_mutex_t *mutex);
 
 
 /* Condition Variables */
 
-[[nodiscard]] ThreadResult<> ano_thread_cond_init(
+[[nodiscard]] ThreadResult<> thread_cond_init(
     anothread_cond_t *conditionVariable, const anothread_condattr_t *attr);
 
-[[nodiscard]] ThreadResult<> ano_thread_cond_wait(
+[[nodiscard]] ThreadResult<> thread_cond_wait(
     anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex);
 
 // Absolute deadline on the cond's clock (default CLOCK_REALTIME). 0 / ETIMEDOUT / errno. Default clock: timespec_get(TIME_UTC).
-[[nodiscard]] ThreadResult<ThreadWait> ano_thread_cond_timedwait(
+[[nodiscard]] ThreadResult<ThreadWait> thread_cond_timedwait(
     anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex,
     const struct timespec *abstime);
 
-[[nodiscard]] ThreadResult<> ano_thread_cond_signal(anothread_cond_t *conditionVariable);
+[[nodiscard]] ThreadResult<> thread_cond_signal(anothread_cond_t *conditionVariable);
 
-[[nodiscard]] ThreadResult<> ano_thread_cond_broadcast(anothread_cond_t *conditionVariable);
+[[nodiscard]] ThreadResult<> thread_cond_broadcast(anothread_cond_t *conditionVariable);
 
-[[nodiscard]] ThreadResult<> ano_thread_cond_destroy(anothread_cond_t *conditionVariable);
+[[nodiscard]] ThreadResult<> thread_cond_destroy(anothread_cond_t *conditionVariable);
 
 
 /* Spinlocks */
 
-[[nodiscard]] ThreadResult<> ano_thread_spin_init(anothread_spinlock_t *lock, int pshared);
+[[nodiscard]] ThreadResult<> thread_spin_init(anothread_spinlock_t *lock, int pshared);
 
-[[nodiscard]] ThreadResult<> ano_thread_spin_destroy(anothread_spinlock_t *lock);
+[[nodiscard]] ThreadResult<> thread_spin_destroy(anothread_spinlock_t *lock);
 
-[[nodiscard]] ThreadResult<> ano_thread_spin_lock(anothread_spinlock_t *lock);
+[[nodiscard]] ThreadResult<> thread_spin_lock(anothread_spinlock_t *lock);
 
-[[nodiscard]] ThreadResult<bool> ano_thread_spin_trylock(anothread_spinlock_t *lock);
+[[nodiscard]] ThreadResult<bool> thread_spin_trylock(anothread_spinlock_t *lock);
 
-[[nodiscard]] ThreadResult<> ano_thread_spin_unlock(anothread_spinlock_t *lock);
+[[nodiscard]] ThreadResult<> thread_spin_unlock(anothread_spinlock_t *lock);
 
 
 /* Read-Write Locks */
 
-[[nodiscard]] ThreadResult<> ano_thread_rwlock_init(
+[[nodiscard]] ThreadResult<> thread_rwlock_init(
     anothread_rwlock_t *rwlock, const anothread_rwlockattr_t *attr);
 
-[[nodiscard]] ThreadResult<> ano_thread_rwlock_rdlock(anothread_rwlock_t *rwlock);
+[[nodiscard]] ThreadResult<> thread_rwlock_rdlock(anothread_rwlock_t *rwlock);
 
-[[nodiscard]] ThreadResult<> ano_thread_rwlock_wrlock(anothread_rwlock_t *rwlock);
+[[nodiscard]] ThreadResult<> thread_rwlock_wrlock(anothread_rwlock_t *rwlock);
 
-[[nodiscard]] ThreadResult<> ano_thread_rwlock_unlock(anothread_rwlock_t *rwlock);
+[[nodiscard]] ThreadResult<> thread_rwlock_unlock(anothread_rwlock_t *rwlock);
 
-[[nodiscard]] ThreadResult<> ano_thread_rwlock_destroy(anothread_rwlock_t *rwlock);
+[[nodiscard]] ThreadResult<> thread_rwlock_destroy(anothread_rwlock_t *rwlock);
 
 
 /* Thread Attributes */
 
-[[nodiscard]] ThreadResult<> ano_thread_attr_init(anothread_attr_t *attr);
+[[nodiscard]] ThreadResult<> thread_attr_init(anothread_attr_t *attr);
 
-[[nodiscard]] ThreadResult<> ano_thread_attr_setdetachstate(anothread_attr_t *attr, int flag);
+[[nodiscard]] ThreadResult<> thread_attr_setdetachstate(anothread_attr_t *attr, int flag);
 
-[[nodiscard]] ThreadResult<> ano_thread_attr_getstacksize(
+[[nodiscard]] ThreadResult<> thread_attr_getstacksize(
     const anothread_attr_t *attr, size_t *size);
 
-[[nodiscard]] ThreadResult<> ano_thread_attr_setstacksize(anothread_attr_t *attr, size_t size);
+[[nodiscard]] ThreadResult<> thread_attr_setstacksize(anothread_attr_t *attr, size_t size);
 
-[[nodiscard]] ThreadResult<> ano_thread_attr_destroy(anothread_attr_t *attr);
+[[nodiscard]] ThreadResult<> thread_attr_destroy(anothread_attr_t *attr);
 
 
 /* Thread-Data */
 
-[[nodiscard]] ThreadResult<> ano_thread_key_create(
+[[nodiscard]] ThreadResult<> thread_key_create(
     anothread_key_t *key, void (*dest)(void *));
 
-[[nodiscard]] ThreadResult<> ano_thread_key_delete(anothread_key_t key);
+[[nodiscard]] ThreadResult<> thread_key_delete(anothread_key_t key);
 
-[[nodiscard]] ThreadResult<> ano_thread_setspecific(
+[[nodiscard]] ThreadResult<> thread_setspecific(
     anothread_key_t key, const void *value);
 
-void* ano_thread_getspecific(anothread_key_t key);
+void* thread_getspecific(anothread_key_t key);
 
 
 /* Synchronization Barriers */
 
 // EINVAL on count 0, and on Darwin past 65535 (arrival half of the state word). An ignored failure leaves the barrier unusable.
-[[nodiscard]] ThreadResult<> ano_thread_barrier_init(
+[[nodiscard]] ThreadResult<> thread_barrier_init(
     anothread_barrier_t *barrier, const anothread_barrierattr_t *attr,
     unsigned int count);
 
 // 0 to every waiter but one. Exactly one waiter per cohort gets a platform-defined
 // non-zero serial return (not exported). Test `!= 0`, never a literal.
-[[nodiscard]] ThreadResult<BarrierRole> ano_thread_barrier_wait(
+[[nodiscard]] ThreadResult<BarrierRole> thread_barrier_wait(
     anothread_barrier_t *barrier);
 
-[[nodiscard]] ThreadResult<> ano_thread_barrier_destroy(anothread_barrier_t *barrier);
+[[nodiscard]] ThreadResult<> thread_barrier_destroy(anothread_barrier_t *barrier);
 
 } // namespace ano

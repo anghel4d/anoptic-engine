@@ -37,7 +37,7 @@ static inline AnoMode scale_mode(AnoScale s)
 
 void ano_scale_pcs(AnoScale s, uint8_t out[7])
 {
-    const uint8_t *iv = ano_mode_intervals(scale_mode(s));
+    const uint8_t *iv = mode_intervals(scale_mode(s));
     const uint8_t tonic = scale_tonic(s);
     for (int i = 0; i < 7; ++i)
         out[i] = (uint8_t)((tonic + iv[i]) % 12);
@@ -71,7 +71,7 @@ int ano_scale_pitch_at(AnoScale s, int degree, int octave)
     int step = pymod(zeroBased, 7);
     int octUp = (zeroBased - step) / 7;
     return (octave + 1 + octUp) * 12 + scale_tonic(s)
-         + ano_mode_intervals(scale_mode(s))[step];
+         + mode_intervals(scale_mode(s))[step];
 }
 
 int ano_snap_to_scale(AnoScale s, int pitch)
@@ -100,7 +100,7 @@ int ano_diatonic_shift(AnoScale s, int pitch, int steps)
 const char *ano_scale_name(AnoScale s, char *buf, uint32_t cap)
 {
     snprintf(buf, cap, "%s %s", TONIC_NAMES[scale_tonic(s)],
-             ano_mode_name(scale_mode(s)));
+             mode_name(scale_mode(s)));
     return buf;
 }
 

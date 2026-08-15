@@ -68,34 +68,34 @@ int main(void)
     scratch_anchor_to_exe();   // scratch relative to this exe's dir, cross-platform
     scratch_make_dir(DIR_CTRL);
     scratch_make_dir(DIR_WIDE);
-    snprintf(PATH_CTRL, sizeof PATH_CTRL, "%s/%s_ano.log", DIR_CTRL, ano_fs_session_stamp());
-    snprintf(PATH_WIDE, sizeof PATH_WIDE, "%s/%s_ano.log", DIR_WIDE, ano_fs_session_stamp());
+    snprintf(PATH_CTRL, sizeof PATH_CTRL, "%s/%s_ano.log", DIR_CTRL, fs_session_stamp());
+    snprintf(PATH_WIDE, sizeof PATH_WIDE, "%s/%s_ano.log", DIR_WIDE, fs_session_stamp());
     remove(PATH_CTRL);
     remove(PATH_WIDE);
 
-    CHECK(ano_log_init(), "logger up");
-    ano_log_set_level(ANO_INFO);
-    CHECK(ano_log_output_dir(DIR_CTRL), "output -> control scratch");
+    CHECK(log_init(), "logger up");
+    log_set_level(ANO_INFO);
+    CHECK(log_output_dir(DIR_CTRL), "output -> control scratch");
 
     // control: narrow deferred burst, rendered ~ stored, nothing lost
     for (int i = 0; i < CTRL_RECORDS; i++)
         ano_log(ANO_INFO, "ctrl %d", i);
-    ano_log_flush();
+    log_flush();
     printf("logflood: control burst drained (%d records)\n", CTRL_RECORDS);
     fflush(stdout);
 
     // trigger: wide deferred burst. Drain must survive before joins return
-    CHECK(ano_log_output_dir(DIR_WIDE), "output -> wide scratch");
+    CHECK(log_output_dir(DIR_WIDE), "output -> wide scratch");
     anothread_t prod[WIDE_PRODUCERS];
     for (intptr_t i = 0; i < WIDE_PRODUCERS; i++)
-        CHECK(ano_thread_create(&prod[i], NULL, wide_producer, (void *)i), "wide producer up");
+        CHECK(thread_create(&prod[i], NULL, wide_producer, (void *)i), "wide producer up");
     for (int i = 0; i < WIDE_PRODUCERS; i++)
-        (void)ano_thread_join(prod[i], NULL);
-    ano_log_flush();
+        (void)thread_join(prod[i], NULL);
+    log_flush();
     printf("logflood: wide burst drained (%d records)\n", WIDE_TOTAL);
     fflush(stdout);
 
-    ano_log_cleanup();
+    log_cleanup();
 
     // oracles on closed files: no loss, and full-width rendering (kills truncate-to-fit fakes)
     uint64_t ctrlLines = scratch_count_lines(PATH_CTRL);

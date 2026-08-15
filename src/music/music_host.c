@@ -45,7 +45,7 @@ static bool cadence_ok(double v)
         && v < static_cast<double>(ANO_CADENCE_COUNT);
 }
 
-AnoMusicConfig ano::ano_music_config_default(void)
+AnoMusicConfig ano::music_config_default(void)
 {
     AnoEngineConfig e = ano_engine_config_default();
     AnoMusicConfig c = {
@@ -151,7 +151,7 @@ static void expand(const AnoMusicConfig *c, AnoEngineConfig *e)
 }
 
 // One allocation; engine stays pointer-free (snapshot = bytes).
-MusicResult<AnoMusicEngine *> ano::ano_music_create(
+MusicResult<AnoMusicEngine *> ano::music_create(
     const AnoMusicConfig *cfg, uint64_t seed)
 {
     AnoMusicEngine *e = mi_malloc_tp(AnoMusicEngine);
@@ -159,7 +159,7 @@ MusicResult<AnoMusicEngine *> ano::ano_music_create(
         return failure(MusicError::out_of_memory);
     AnoMusicConfig def;
     if (!cfg) {
-        def = ano_music_config_default();
+        def = music_config_default();
         cfg = &def;
     }
     AnoEngineConfig full;
@@ -168,25 +168,25 @@ MusicResult<AnoMusicEngine *> ano::ano_music_create(
     return e;
 }
 
-void ano::ano_music_destroy(AnoMusicEngine *e)
+void ano::music_destroy(AnoMusicEngine *e)
 {
     mi_free(e);
 }
 
 /* Control */
 
-void ano::ano_music_set_affect(AnoMusicEngine *e, float valence, float energy,
+void ano::music_set_affect(AnoMusicEngine *e, float valence, float energy,
                           float tension, bool urgent)
 {
     ano_engine_set_affect(e, (double)valence, (double)energy, (double)tension, urgent);
 }
 
-void ano::ano_music_request_key(AnoMusicEngine *e, int tonicPc, bool urgent)
+void ano::music_request_key(AnoMusicEngine *e, int tonicPc, bool urgent)
 {
     ano_engine_request_key(e, tonicPc, urgent);
 }
 
-void ano::ano_music_request_motif(AnoMusicEngine *e, const char *tag)
+void ano::music_request_motif(AnoMusicEngine *e, const char *tag)
 {
     ano_engine_request_motif(e, tag);
 }
@@ -246,7 +246,7 @@ static void override_apply(AnoOverrides *o, int id, bool set, double v)
     }
 }
 
-MusicResult<> ano::ano_music_set_override(
+MusicResult<> ano::music_set_override(
     AnoMusicEngine *e, const char *param, double value)
 {
     if (!e || !param)
@@ -258,7 +258,7 @@ MusicResult<> ano::ano_music_set_override(
     return {};
 }
 
-void ano::ano_music_clear_override(AnoMusicEngine *e, const char *param)
+void ano::music_clear_override(AnoMusicEngine *e, const char *param)
 {
     int id = override_id(param);
     if (id >= 0)
@@ -267,7 +267,7 @@ void ano::ano_music_clear_override(AnoMusicEngine *e, const char *param)
 
 /* Generation */
 
-void ano::ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out)
+void ano::music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out)
 {
     static thread_local AnoBarResult r; // 33 KB: too fat for the audio stack
     int keyBefore = e->scale.tonic;
@@ -301,24 +301,24 @@ void ano::ano_music_advance_bar(AnoMusicEngine *e, AnoMusicBar *out)
         m->motifStated = strcmp(r.events[i].role, "motif") == 0;
 }
 
-double ano::ano_music_bar_quarters(const AnoMusicEngine *e)
+double ano::music_bar_quarters(const AnoMusicEngine *e)
 {
     return ano_meter_bar_quarters(e->config.meter);
 }
 
-int ano::ano_music_next_bar(const AnoMusicEngine *e)
+int ano::music_next_bar(const AnoMusicEngine *e)
 {
     return e->st.bar;
 }
 
 /* Snapshot / restore */
 
-size_t ano::ano_music_snapshot_size(void)
+size_t ano::music_snapshot_size(void)
 {
     return sizeof(AnoMusicEngine);
 }
 
-MusicResult<> ano::ano_music_snapshot(
+MusicResult<> ano::music_snapshot(
     const AnoMusicEngine *e, void *buf, size_t cap)
 {
     if (!e || !buf || cap < sizeof *e)
@@ -327,7 +327,7 @@ MusicResult<> ano::ano_music_snapshot(
     return {};
 }
 
-MusicResult<> ano::ano_music_restore(
+MusicResult<> ano::music_restore(
     AnoMusicEngine *e, const void *buf, size_t len)
 {
     if (!e || !buf || len != sizeof *e)

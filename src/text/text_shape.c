@@ -144,7 +144,7 @@ static bool runs_valid(const AnoTextRun *runs, uint32_t runCount, anostr_t text)
     return sum == anostr_len(text);
 }
 
-TextResult<uint32_t> ano::ano_text_shape(
+TextResult<uint32_t> ano::text_shape(
     const AnoFontBake *bake, anostr_t text, float sizePx,
     const float origin[2], const float color[4], AnoGlyphInstance *out,
     uint32_t cap, float *penOut)
@@ -156,7 +156,7 @@ TextResult<uint32_t> ano::ano_text_shape(
     return shape_core(bake, text, &run, 1, origin, out, cap, penOut, NULL, NULL, NULL);
 }
 
-TextResult<uint32_t> ano::ano_text_shape_runs(
+TextResult<uint32_t> ano::text_shape_runs(
     const AnoFontBake *bake, anostr_t text, const AnoTextRun *runs,
     uint32_t runCount, const float origin[2], AnoGlyphInstance *out,
     uint32_t cap, float *penOut)
@@ -167,7 +167,7 @@ TextResult<uint32_t> ano::ano_text_shape_runs(
                       NULL, NULL, NULL);
 }
 
-TextResult<AnoTextMeasure> ano::ano_text_measure(
+TextResult<AnoTextMeasure> ano::text_measure(
     const AnoFontBake *bake, anostr_t text, float sizePx)
 {
     if (bake == NULL || sizePx <= 0.0f)
@@ -183,7 +183,7 @@ TextResult<AnoTextMeasure> ano::ano_text_measure(
     return AnoTextMeasure{maxW, (float)lines * bake->lineHeight * sizePx};
 }
 
-TextResult<AnoTextMeasure> ano::ano_text_measure_runs(
+TextResult<AnoTextMeasure> ano::text_measure_runs(
     const AnoFontBake *bake, anostr_t text, const AnoTextRun *runs,
     uint32_t runCount)
 {

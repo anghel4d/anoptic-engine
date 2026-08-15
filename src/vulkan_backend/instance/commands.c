@@ -134,7 +134,7 @@ bool updateMeshTransforms(VulkanContext* ctx, RenderEntity* entity, float move)
 {
 	static uint64_t time = 0;
 	static uint64_t oldTime = 0;
-	time = ano_timestamp_us();
+	time = timestamp_us();
 	static float angle = 0.0f;
 	const float pi = 3.14159265359f;
 

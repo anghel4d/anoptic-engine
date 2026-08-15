@@ -251,7 +251,7 @@ static void fuzz(uint32_t iterations)
 {
     test_rng rng = rng_make(0xF0FBEEF5u);
     for (uint32_t it = 0; it < iterations; it++) {
-        mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
+        mi_heap_t *scratch ANO_SCOPED_HEAP = heap_create();
         if (scratch == NULL) { printf("FAIL: fuzz scratch heap\n"); failures++; return; }
         anostr_intern_t *tab = must(anostr_intern_make(scratch));
 
@@ -393,8 +393,8 @@ static void fuzz(uint32_t iterations)
 
 int main(int argc, char **argv)
 {
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+    if (heap == NULL) { printf("FAIL: heap_create\n"); return 1; }
 
 
     uint32_t iterations = 200;

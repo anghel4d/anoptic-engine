@@ -33,14 +33,14 @@ static int failures = 0;
 typedef bool (*telem_pred)(const AnoAudioTelemetry *t);
 static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutMs)
 {
-    uint32_t start = ano_timestamp_ms();
+    uint32_t start = timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
+        if (audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
-        if (ano_timestamp_ms() - start > timeoutMs)
+        if (timestamp_ms() - start > timeoutMs)
             return false;
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
 }
 
@@ -49,8 +49,8 @@ static bool pred_audible(const AnoAudioTelemetry *t)   { return t->masterPeak > 
 
 static void must_submit(AnoAudioBridge *b, const AnoAudioCommand *c)
 {
-    while (!ano_audio_submit(b, c))
-        (void)ano_sleep(1000);
+    while (!audio_submit(b, c))
+        (void)sleep_us(1000);
 }
 
 int main(int argc, char **argv)
@@ -60,20 +60,20 @@ int main(int argc, char **argv)
         seconds = (uint32_t)atoi(argv[1]); // 0 = full piece
 
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
+    AnoSynth *syn = synth_create(&synthDesc).value_or(nullptr);
     CHECK(syn != NULL, "synth world up");
     if (!syn) return 1;
     CHECK(synthfix_load(syn, ANO_FIXTURE_DIR "/journey_s42.anofix"), "journey fixture loads");
 
     AnoAudioBusDesc layout[ANO_SYNTH_CONSOLE_BUSES];
-    uint32_t busCount = ano_synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
+    uint32_t busCount = synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
     CHECK(busCount == ANO_SYNTH_CONSOLE_BUSES, "console layout");
 
     AnoAudioConfig cfg = {
         .sampleRate = RATE, .busCount = busCount, .busLayout = layout,
-        .generator = ano_synth_generator, .generatorUser = syn,
+        .generator = synth_generator, .generatorUser = syn,
     };
-    CHECK(ano_audio_init(&cfg), "audio world up (music console + synth)");
+    CHECK(audio_init(&cfg), "audio world up (music console + synth)");
     AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b) return 1;
@@ -81,8 +81,8 @@ int main(int argc, char **argv)
 
     // Console setup + per-bar automation (score-relative frames).
     static AnoAudioOfflineEvent evts[64u + 80u * 9u];
-    uint32_t evtCount = ano_synth_console_setup(evts, 64);
-    evtCount += ano_synth_console_automation(syn, evts + evtCount,
+    uint32_t evtCount = synth_console_setup(evts, 64);
+    evtCount += synth_console_automation(syn, evts + evtCount,
                                              (uint32_t)(sizeof evts / sizeof *evts) - evtCount);
     CHECK(evtCount > 64u, "automation emitted");
 
@@ -93,11 +93,11 @@ int main(int argc, char **argv)
 
     // Transport a few blocks out; pace automation ~0.5 s ahead.
     AnoAudioTelemetry t;
-    CHECK(ano_audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
+    CHECK(audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
     uint64_t transport = (t.blockIndex + 8u) * t.blockFrames;
-    ano_synth_transport_start(syn, transport);
+    synth_transport_start(syn, transport);
 
-    uint64_t scoreFrames = ano_synth_score_frames(syn, 2.5f);
+    uint64_t scoreFrames = synth_score_frames(syn, 2.5f);
     uint64_t playFrames  = seconds ? (uint64_t)seconds * RATE : scoreFrames;
     if (playFrames > scoreFrames) playFrames = scoreFrames;
 
@@ -105,7 +105,7 @@ int main(int argc, char **argv)
 
     uint32_t lastInfoBar = UINT32_MAX;
     for (;;) {
-        if (!ano_audio_acquire_telemetry(b, &t).value_or(false))
+        if (!audio_acquire_telemetry(b, &t).value_or(false))
             break;
         uint64_t playhead = t.blockIndex * t.blockFrames;
         uint64_t scoreF = playhead > transport ? playhead - transport : 0u;
@@ -115,25 +115,25 @@ int main(int argc, char **argv)
                && evts[cursor].frame <= scoreF + RATE / 2u)
             must_submit(b, &evts[cursor++].cmd);
         uint32_t bar = (uint32_t)((double)scoreF / RATE
-                                  / ano_synth_time_at(syn, 4.0) + 0.001);
+                                  / synth_time_at(syn, 4.0) + 0.001);
         if (bar != lastInfoBar && bar % 8u == 0u) {
             lastInfoBar = bar;
             printf("info: ~bar %u │ peak %.3f │ underruns %u\n",
                    bar + 1u, (double)t.masterPeak, t.underruns);
         }
-        (void)ano_sleep(20000);
+        (void)sleep_us(20000);
     }
 
-    ano_synth_transport_stop(syn);
-    (void)ano_sleep(50000); // stop + tails
+    synth_transport_stop(syn);
+    (void)sleep_us(50000); // stop + tails
 
-    if (ano_audio_acquire_telemetry(b, &t).value_or(false))
+    if (audio_acquire_telemetry(b, &t).value_or(false))
         printf("info: scene 〜 blocks %llu, cpu %llu ns/block, underruns %u, clipped %u, dropped %u\n",
                (unsigned long long)t.blockIndex, (unsigned long long)t.blockCpuNs,
-               t.underruns, t.clippedSamples, ano_synth_dropped(syn));
+               t.underruns, t.clippedSamples, synth_dropped(syn));
 
-    ano_audio_shutdown();
-    ano_synth_destroy(syn);
+    audio_shutdown();
+    synth_destroy(syn);
 
     if (failures) {
         printf("anotest_synthscene: %d FAILURE(S)\n", failures);

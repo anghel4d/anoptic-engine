@@ -27,29 +27,29 @@ using TimeResult = Result<Value, TimeError>;
 #define MAX_BUSYWAIT_NS 1000000000ULL
 
 // Monotonic timestamp in nanoseconds. Excludes time the system spends suspended.
-uint64_t ano_timestamp_raw();
+uint64_t timestamp_raw();
 
 // Raw monotonic hardware counter. No unit conversion.
-// Units: mach ticks (Darwin), TSC/QPC (Windows), ns (Linux). Value or delta. Convert via ano_ticks_to_ns.
-uint64_t ano_timestamp_ticks();
+// Units: mach ticks (Darwin), TSC/QPC (Windows), ns (Linux). Value or delta. Convert via ticks_to_ns.
+uint64_t timestamp_ticks();
 
-// Convert a raw counter value or delta from ano_timestamp_ticks to nanoseconds.
-uint64_t ano_ticks_to_ns(uint64_t ticks);
+// Convert a raw counter value or delta from timestamp_ticks to nanoseconds.
+uint64_t ticks_to_ns(uint64_t ticks);
 
 // Monotonic timestamp in microseconds.
-uint64_t ano_timestamp_us();
+uint64_t timestamp_us();
 
 // Monotonic timestamp in milliseconds.
-uint32_t ano_timestamp_ms();
+uint32_t timestamp_ms();
 
 // Unix UTC timestamp (seconds). Not guaranteed monotonic.
-[[nodiscard]] TimeResult<int64_t> ano_timestamp_unix();
+[[nodiscard]] TimeResult<int64_t> timestamp_unix();
 
 
 /* Civil Time */
 
 // Local civil time. The platform layer wraps localtime_r / localtime_s.
-struct ano_datetime {
+struct datetime {
     int year;    // full year, e.g. 2026
     int month;   // 1-12
     int day;     // 1-31
@@ -59,15 +59,15 @@ struct ano_datetime {
 };
 
 // Unix seconds to local civil time.
-[[nodiscard]] TimeResult<ano_datetime> ano_localtime(int64_t unix_seconds);
+[[nodiscard]] TimeResult<datetime> local_datetime(int64_t unix_seconds);
 
 
 /* Sleep */
 
 // Spin the calling thread for ns nanoseconds. Cap is MAX_BUSYWAIT_NS.
-[[nodiscard]] TimeResult<> ano_busywait(uint64_t ns);
+[[nodiscard]] TimeResult<> busywait(uint64_t ns);
 
 // Sleep for us microseconds. Yields to the scheduler.
-[[nodiscard]] TimeResult<> ano_sleep(uint64_t us);
+[[nodiscard]] TimeResult<> sleep_us(uint64_t us);
 
 } // namespace ano

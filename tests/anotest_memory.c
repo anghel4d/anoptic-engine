@@ -60,8 +60,8 @@ static void test_salloc_and_scope_cleanup(void)
 
 static void test_scoped_heap_aligned(void)
 {
-    // ANO_SCOPED_HEAP: ano_heap_cleanup on scope exit frees all below.
-    mi_heap_t *memHeap ANO_SCOPED_HEAP = ano_heap_create();
+    // ANO_SCOPED_HEAP: heap_cleanup on scope exit frees all below.
+    mi_heap_t *memHeap ANO_SCOPED_HEAP = heap_create();
     CHECK(memHeap != NULL, "first-class heap creation succeeds");
     if (!memHeap) return;
 
@@ -93,7 +93,7 @@ static void test_scoped_heap_aligned(void)
         chariots[i].wheels = (uint8_t)(rand() % 16);
     }
     CHECK(chariots[count - 1].wheels < 16, "tail element intact after fill");
-} // ano_heap_cleanup(&memHeap) runs here
+} // heap_cleanup(&memHeap) runs here
 
 static void test_basic_malloc(void)
 {

@@ -104,7 +104,7 @@ void ano::unInitVulkan()
 	light_registry_destroy(&rendererState.lightRegistry);
 	if (rendererState.renderHeap)
 	{
-		ano_heap_destroy(rendererState.renderHeap);
+		heap_destroy(rendererState.renderHeap);
 		rendererState.renderHeap = NULL;
 	}
 
@@ -685,7 +685,7 @@ RenderResult<> ano::initVulkan(AnoResourceManager *resources)
 		return failure(RenderError::unavailable);
 
 	// Render-owned slot authority plus command/event rings.
-	rendererState.renderHeap = ano_heap_create();
+	rendererState.renderHeap = heap_create();
 	if (!rendererState.renderHeap ||
 	    !render_slots_init(&rendererState.slots, rendererState.renderHeap, maxEntities, MAX_FRAMES_IN_FLIGHT) ||
 	    !ano_render_bridge_init(&rendererState.bridge, rendererState.renderHeap, 4096, 4096))

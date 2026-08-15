@@ -30,12 +30,12 @@ static bool synthfix_load(AnoSynth *s, const char *path)
     if (fscanf(f, "anosynthfix %u meter %lf bars %u events %u tempo %u",
                &version, &meter, &bars, &events, &tempo) != 5 || version != 1u)
         goto out;
-    if (!ano_synth_score_begin(s, meter, bars, tempo, events))
+    if (!synth_score_begin(s, meter, bars, tempo, events))
         goto out;
     for (uint32_t i = 0; i < tempo; ++i) {
         double beat, bpm;
         if (fscanf(f, " t %lf %lf", &beat, &bpm) != 2
-            || !ano_synth_score_tempo(s, beat, bpm))
+            || !synth_score_tempo(s, beat, bpm))
             goto out;
     }
     for (uint32_t i = 0; i < bars; ++i) {
@@ -52,11 +52,11 @@ static bool synthfix_load(AnoSynth *s, const char *path)
             .tempoBpm = bpm, .filterCutoff = cut, .reverbSend = rev,
             .delaySend = dly, .drive = drv, .stereoWidth = wid,
         };
-        p.instruments[ANO_MUSIC_PAD]    = (uint16_t)ano_music_patch_id(pad);
-        p.instruments[ANO_MUSIC_BASS]   = (uint16_t)ano_music_patch_id(bass);
-        p.instruments[ANO_MUSIC_MELODY] = (uint16_t)ano_music_patch_id(melody);
-        p.instruments[ANO_MUSIC_ARP]    = (uint16_t)ano_music_patch_id(arp);
-        if (!ano_synth_score_bar(s, idx, &p, &a))
+        p.instruments[ANO_MUSIC_PAD]    = (uint16_t)music_patch_id(pad);
+        p.instruments[ANO_MUSIC_BASS]   = (uint16_t)music_patch_id(bass);
+        p.instruments[ANO_MUSIC_MELODY] = (uint16_t)music_patch_id(melody);
+        p.instruments[ANO_MUSIC_ARP]    = (uint16_t)music_patch_id(arp);
+        if (!synth_score_bar(s, idx, &p, &a))
             goto out;
     }
     for (uint32_t i = 0; i < events; ++i) {
@@ -67,10 +67,10 @@ static bool synthfix_load(AnoSynth *s, const char *path)
         AnoNoteEvent ev = { .start = start, .dur = dur, .pitch = (uint8_t)pitch,
                             .velocity = (uint8_t)vel, .layer = (uint8_t)layer,
                             .tie = (uint8_t)tie };
-        if (!ano_synth_score_event(s, &ev))
+        if (!synth_score_event(s, &ev))
             goto out;
     }
-    ok = ano_synth_score_end(s).has_value();
+    ok = synth_score_end(s).has_value();
 out:
     if (!ok)
         printf("synthfix: parse failed in %s\n", path);

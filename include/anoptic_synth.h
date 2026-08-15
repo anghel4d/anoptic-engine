@@ -59,11 +59,11 @@ enum AnoSynthPatch {
 };
 
 // Name <-> id. Unknown name -> 0.
-uint32_t    ano_synth_patch_id(const char *name);
-const char *ano_synth_patch_name(uint32_t id);
+uint32_t    synth_patch_id(const char *name);
+const char *synth_patch_name(uint32_t id);
 
 // AnoPatchName (music) -> AnoSynthPatch (this registry). Separate id spaces.
-uint32_t ano_synth_patch_of(uint32_t musicPatch);
+uint32_t synth_patch_of(uint32_t musicPatch);
 
 
 /* Lifecycle */
@@ -76,115 +76,115 @@ struct AnoSynthDesc {
 };
 
 // Own heap: voice pool, wavetable bank, bell sample, shimmer history. Logic thread. NULL desc = defaults.
-[[nodiscard]] SynthResult<AnoSynth *> ano_synth_create(const AnoSynthDesc *desc);
-void      ano_synth_destroy(AnoSynth *s);
+[[nodiscard]] SynthResult<AnoSynth *> synth_create(const AnoSynthDesc *desc);
+void      synth_destroy(AnoSynth *s);
 
 
 /* Score Loading */
 
 // Logic thread, synth idle. Order: begin -> tempo (monotonic) -> bars (ascending) -> events (emission order, ties unmerged) -> end.
 // begin sizes the allocations. end merges ties, builds the tempo map, converts beats to frames, and deadline-sorts (stable seq tiebreaker).
-[[nodiscard]] SynthResult<> ano_synth_score_begin(
+[[nodiscard]] SynthResult<> synth_score_begin(
     AnoSynth *s, double barQuarters, uint32_t barCount,
     uint32_t tempoCount, uint32_t eventCount);
-[[nodiscard]] SynthResult<> ano_synth_score_tempo(
+[[nodiscard]] SynthResult<> synth_score_tempo(
     AnoSynth *s, double beat, double bpm);
-[[nodiscard]] SynthResult<> ano_synth_score_bar(
+[[nodiscard]] SynthResult<> synth_score_bar(
     AnoSynth *s, uint32_t bar, const AnoMusicalParams *p,
     const AnoMusicAffect *a);
-[[nodiscard]] SynthResult<> ano_synth_score_event(
+[[nodiscard]] SynthResult<> synth_score_event(
     AnoSynth *s, const AnoNoteEvent *ev);
-[[nodiscard]] SynthResult<> ano_synth_score_end(AnoSynth *s);
+[[nodiscard]] SynthResult<> synth_score_end(AnoSynth *s);
 
 // Score start -> last note end + tailSeconds. After score_end.
-uint64_t ano_synth_score_frames(const AnoSynth *s, float tailSeconds);
+uint64_t synth_score_frames(const AnoSynth *s, float tailSeconds);
 
 // Score start -> beat via the tempo map (BeatClock time_at). After score_end. Live: pace cmds against the playhead.
-double ano_synth_time_at(const AnoSynth *s, double beat);
+double synth_time_at(const AnoSynth *s, double beat);
 
 
 /* Transport */
 
 // Stage a start at worldFrame. Runtime reset (voices, cursors, smoothers, rngs, shimmer) runs on the rendering thread at its next hook, before the next rendered block. Restarts are legal. Offline: worldFrame 0.
-void ano_synth_transport_start(AnoSynth *s, uint64_t worldFrame);
+void synth_transport_start(AnoSynth *s, uint64_t worldFrame);
 
 // Idle: generator stops at next call. Live mixer: wait one block before reload. Offline: stop immediate.
-void ano_synth_transport_stop(AnoSynth *s);
+void synth_transport_stop(AnoSynth *s);
 
 // AnoAudioGenerator: .generator + .generatorUser. Sample-accurate spans at note onsets and bar edges. Ducks pad and arp under kicks. Feeds shimmer.
-void ano_synth_generator(void *user, float *const *busMix, uint32_t busCount,
+void synth_generator(void *user, float *const *busMix, uint32_t busCount,
                          uint32_t frames, uint64_t startFrame);
 
 // Pool-full drops. Reset by transport.
-uint32_t ano_synth_dropped(const AnoSynth *s);
+uint32_t synth_dropped(const AnoSynth *s);
 
 
 /* Live Scoring */
 
 // Live = the batch schedule one bar at a time on the audio thread; the schedule is a ring. Bit-identical (shared merge/clock/deadline/spans).
-// Append before the playhead reaches the bar. Keep pending >= ANO_SYNTH_LIVE_LOOKAHEAD (a tie out of bar N needs N+1). Late does not corrupt: ties become plain notes; ano_synth_live_late counts them.
+// Append before the playhead reaches the bar. Keep pending >= ANO_SYNTH_LIVE_LOOKAHEAD (a tie out of bar N needs N+1). Late does not corrupt: ties become plain notes; synth_live_late counts them.
 #define ANO_SYNTH_LIVE_LOOKAHEAD 2u
 
 // Idle only. Then LOOKAHEAD bars, then transport_start.
-[[nodiscard]] SynthResult<> ano_synth_live_begin(
+[[nodiscard]] SynthResult<> synth_live_begin(
     AnoSynth *s, double barQuarters);
 
 // One bar: tempo (monotonic absolute beats), params, affect, events (emission order, ties unmerged). Ascending, no gaps. Audio thread only. Shares schedule with generator. Nothing else may touch it.
 // Wrapped drivers calling this before the block-0 hooks see pre-reset state: reset-transparent on a FRESH synth only. Reuse requires an intervening hook.
-[[nodiscard]] SynthResult<> ano_synth_live_bar(AnoSynth *s, uint32_t bar,
+[[nodiscard]] SynthResult<> synth_live_bar(AnoSynth *s, uint32_t bar,
                         const AnoTempoPoint *tempo, uint32_t tempoCount,
                         const AnoMusicalParams *p, const AnoMusicAffect *a,
                         const AnoNoteEvent *events, uint32_t eventCount);
 
 // Bars appended but not yet started at worldFrame. Driver top-up gate.
-uint32_t ano_synth_live_pending(const AnoSynth *s, uint64_t worldFrame);
+uint32_t synth_live_pending(const AnoSynth *s, uint64_t worldFrame);
 
 // Late ties (sounded before extend) and ring-full drops. Zero if LOOKAHEAD held.
-uint32_t ano_synth_live_late(const AnoSynth *s);
-uint32_t ano_synth_live_overflow(const AnoSynth *s);
+uint32_t synth_live_late(const AnoSynth *s);
+uint32_t synth_live_overflow(const AnoSynth *s);
 
 
 /* Music Driver */
 
 // Attach a music engine: the generator tops the schedule to LOOKAHEAD in-thread. Idle only. The engine outlives attach; audio thread only after attach.
 // Mid-piece attach/SEEK rebases the schedule (does not renumber) by a constant beat offset. Same machinery as ACMD_MUSIC_SEEK.
-[[nodiscard]] SynthResult<> ano_synth_attach_music(
+[[nodiscard]] SynthResult<> synth_attach_music(
     AnoSynth *s, AnoMusicEngine *music);
 
 // Idle only. Scheduled bars still play; schedule stops growing.
-void ano_synth_detach_music(AnoSynth *s);
+void synth_detach_music(AnoSynth *s);
 
-// AEVT_MUSIC_BAR at barline when sounding starts (held from composition by LOOKAHEAD). AEVT_MUSIC_SEEKED on seek consume. Mixer drains via ano_synth_poll; undrained past queue drops oldest.
+// AEVT_MUSIC_BAR at barline when sounding starts (held from composition by LOOKAHEAD). AEVT_MUSIC_SEEKED on seek consume. Mixer drains via synth_poll; undrained past queue drops oldest.
 #define ANO_SYNTH_EVENT_QUEUE 16u
 
 // Last / max bar composition cost (us) since transport_start.
-uint32_t ano_synth_music_bar_us(const AnoSynth *s);
-uint32_t ano_synth_music_bar_us_max(const AnoSynth *s);
+uint32_t synth_music_bar_us(const AnoSynth *s);
+uint32_t synth_music_bar_us_max(const AnoSynth *s);
 
 // Generator back-channel (anoptic_audio.h): .generatorControl / .generatorPoll / .generatorStats + .generatorUser. Offline: .generatorControl; no poll/stats.
-void     ano_synth_control(void *user, const AnoAudioCommand *cmd);
-uint32_t ano_synth_poll(void *user, AnoAudioEvent *out, uint32_t cap);
-void     ano_synth_stats(void *user, AnoAudioTelemetry *t);
+void     synth_control(void *user, const AnoAudioCommand *cmd);
+uint32_t synth_poll(void *user, AnoAudioEvent *out, uint32_t cap);
+void     synth_stats(void *user, AnoAudioTelemetry *t);
 
-// .generatorCommands: live console moves at sounding barline. Batch uses ano_synth_console_automation instead.
-uint32_t ano_synth_commands(void *user, AnoAudioCommand *out, uint32_t cap);
+// .generatorCommands: live console moves at sounding barline. Batch uses synth_console_automation instead.
+uint32_t synth_commands(void *user, AnoAudioCommand *out, uint32_t cap);
 
-// ACMD_MUSIC_* on a caller-owned engine (same mapping as ano_synth_control). ACMD_MUSIC_SEEK ignored.
-[[nodiscard]] MusicResult<> ano_music_apply_command(
+// ACMD_MUSIC_* on a caller-owned engine (same mapping as synth_control). ACMD_MUSIC_SEEK ignored.
+[[nodiscard]] MusicResult<> music_apply_command(
     AnoMusicEngine *e, const AnoAudioCommand *cmd);
 
 
 /* Console Helpers */
 
 // ANO_SYNTH_CONSOLE_BUSES bus descriptors. Return count, or 0 if cap too small.
-uint32_t ano_synth_console_layout(AnoAudioBusDesc *out, uint32_t cap);
+uint32_t synth_console_layout(AnoAudioBusDesc *out, uint32_t cap);
 
 // Frame-0 setup: strip EQ, glue makeup, drive trim. Count written, or 0 if cap < 64.
-uint32_t ano_synth_console_setup(AnoAudioOfflineEvent *out, uint32_t cap);
+uint32_t synth_console_setup(AnoAudioOfflineEvent *out, uint32_t cap);
 
-// Per-bar automation from loaded score (sends, pad width, drive, tempo-synced delay). Score-relative frames; live driver adds transport offset ahead of playhead. After score_end. Live piece: ano_synth_commands instead.
+// Per-bar automation from loaded score (sends, pad width, drive, tempo-synced delay). Score-relative frames; live driver adds transport offset ahead of playhead. After score_end. Live piece: synth_commands instead.
 #define ANO_SYNTH_BAR_CMDS (ANO_MUSIC_LAYER_COUNT + 3u)
-uint32_t ano_synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *out,
+uint32_t synth_console_automation(const AnoSynth *s, AnoAudioOfflineEvent *out,
                                       uint32_t cap);
 
 } // namespace ano

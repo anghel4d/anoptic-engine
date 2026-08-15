@@ -30,37 +30,37 @@ struct AnoResourceManifestEntry {
 };
 
 // Copies and fully validates canonical manifest bytes.
-[[nodiscard]] ResourceResult<AnoResourceManifest *> ano_resource_manifest_open(
+[[nodiscard]] ResourceResult<AnoResourceManifest *> resource_manifest_open(
     AnoResourceBytes bytes);
-void ano_resource_manifest_close(AnoResourceManifest *manifest);
-[[nodiscard]] ResourceResult<AnoManifestId> ano_resource_manifest_id(
+void resource_manifest_close(AnoResourceManifest *manifest);
+[[nodiscard]] ResourceResult<AnoManifestId> resource_manifest_id(
     const AnoResourceManifest *manifest);
-uint64_t ano_resource_manifest_entry_count(
+uint64_t resource_manifest_entry_count(
     const AnoResourceManifest *manifest);
-[[nodiscard]] ResourceResult<AnoResourceManifestEntry> ano_resource_manifest_find(
+[[nodiscard]] ResourceResult<AnoResourceManifestEntry> resource_manifest_find(
     const AnoResourceManifest *manifest, AnoAssetId asset);
 [[nodiscard]] ResourceResult<AnoResourceDependency>
-ano_resource_manifest_dependency(const AnoResourceManifest *manifest,
+resource_manifest_dependency(const AnoResourceManifest *manifest,
                                  AnoAssetId asset, uint64_t index);
 
 // Copies the pack and authenticates its manifest and every artifact.
-[[nodiscard]] ResourceResult<AnoResourcePack *> ano_resource_pack_open(
+[[nodiscard]] ResourceResult<AnoResourcePack *> resource_pack_open(
     AnoResourceBytes bytes);
-void ano_resource_pack_close(AnoResourcePack *pack);
-const AnoResourceManifest *ano_resource_pack_manifest(
+void resource_pack_close(AnoResourcePack *pack);
+const AnoResourceManifest *resource_pack_manifest(
     const AnoResourcePack *pack);
 
 // Returns an authenticated immutable range borrowed from the opened pack.
-[[nodiscard]] ResourceResult<AnoResourceBytes> ano_resource_pack_view(
+[[nodiscard]] ResourceResult<AnoResourceBytes> resource_pack_view(
     const AnoResourcePack *pack, AnoAssetId asset);
 // Returns a retained cooked revision over the authenticated pack volume.
 [[nodiscard]] ResourceResult<const AnoCookedRevision *>
-ano_resource_pack_revision(const AnoResourcePack *pack);
+resource_pack_revision(const AnoResourcePack *pack);
 
 // Shipping serialization is explicit; cook does not emit a pack.
 [[nodiscard]] ResourceResult<AnoResourceMutableBytes>
-ano_resource_revision_export_pack(const AnoCookedRevision *revision);
-void ano_resource_exported_pack_release(AnoResourceMutableBytes pack);
+resource_revision_export_pack(const AnoCookedRevision *revision);
+void resource_exported_pack_release(AnoResourceMutableBytes pack);
 
 } // namespace ano
 

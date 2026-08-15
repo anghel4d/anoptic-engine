@@ -19,7 +19,7 @@ using namespace ano;
 
 // Emission order is paint order. Unattached paint table: gradient rrect still emits (paintRef NONE).
 // Unattached curves: path_fill returns NONE.
-UiResult<> ano::ano_ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
+UiResult<> ano::ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
 {
     const float shadow[4]   = PM(0.00f, 0.00f, 0.00f, 0.55f);
     const float plate[4]    = PM(0.086f, 0.098f, 0.117f, 0.96f);
@@ -47,34 +47,34 @@ UiResult<> ano::ano_ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
 #define ADD(...) do { auto added_ = (__VA_ARGS__); if (!added_) return failure(added_.error()); } while (0)
 
     // Panel: drop shadow, plate fill, border ring.
-    ADD(ano_ui_shadow(b, BOX(6, 10, 366, 250), 14.0f, 8.0f, shadow, ANO_UI_REF_NONE, 0));
-    ADD(ano_ui_rrect(b, BOX(0, 0, 360, 240), r14, plate, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-    ADD(ano_ui_rrect(b, BOX(0, 0, 360, 240), r14, rim, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_shadow(b, BOX(6, 10, 366, 250), 14.0f, 8.0f, shadow, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(0, 0, 360, 240), r14, plate, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(0, 0, 360, 240), r14, rim, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 
     // Header accent: linear gradient strip (blue -> teal).
     AnoUiStop gstops[2] = {
         { .color = PM(0.10f, 0.30f, 0.58f, 1.0f), .t = 0.0f },
         { .color = PM(0.14f, 0.56f, 0.52f, 1.0f), .t = 1.0f },
     };
-    auto grad = ano_ui_paint_linear(b, (float[2]){ ox + 16.0f, oy + 20.0f },
+    auto grad = ui_paint_linear(b, (float[2]){ ox + 16.0f, oy + 20.0f },
                                     (float[2]){ ox + 344.0f, oy + 20.0f }, gstops, 2);
     if (!grad) return failure(grad.error());
-    ADD(ano_ui_rrect(b, BOX(16, 20, 344, 40), r6, white, 0.0f, *grad, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(16, 20, 344, 40), r6, white, 0.0f, *grad, ANO_UI_REF_NONE, 0));
 
     // Viewport: rect clip, well, overflow bar, inner shadow, capsules.
-    auto view = ano_ui_clip(b, BOX(16, 48, 344, 148), NULL, NULL, NULL);
+    auto view = ui_clip(b, BOX(16, 48, 344, 148), NULL, NULL, NULL);
     if (!view) return failure(view.error());
-    ADD(ano_ui_rrect(b, BOX(16, 48, 344, 148), r8, well, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-    ADD(ano_ui_rrect(b, BOX(60, 64, 520, 100), r10, bar, 0.0f, ANO_UI_REF_NONE, *view, 0));
-    ADD(ano_ui_shadow(b, BOX(16, 48, 344, 148), 8.0f, 5.0f, inset, ANO_UI_REF_NONE, ANO_UI_FLAG_INNER));
-    ADD(ano_ui_rrect(b, BOX(32, 112, 120, 136), r12, pill, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-    ADD(ano_ui_rrect(b, BOX(132, 112, 220, 136), r12, pillRim, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(16, 48, 344, 148), r8, well, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(60, 64, 520, 100), r10, bar, 0.0f, ANO_UI_REF_NONE, *view, 0));
+    ADD(ui_shadow(b, BOX(16, 48, 344, 148), 8.0f, 5.0f, inset, ANO_UI_REF_NONE, ANO_UI_FLAG_INNER));
+    ADD(ui_rrect(b, BOX(32, 112, 120, 136), r12, pill, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(132, 112, 220, 136), r12, pillRim, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 
     // Buttons: additive glow under primary, ring-only ghost.
-    ADD(ano_ui_shadow(b, BOX(24, 168, 160, 212), 10.0f, 10.0f, glow, ANO_UI_REF_NONE, ANO_UI_BLEND_ADD));
-    ADD(ano_ui_rrect(b, BOX(24, 168, 160, 212), r10, button, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-    ADD(ano_ui_rrect(b, BOX(24, 168, 160, 212), r10, btnRim, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-    ADD(ano_ui_rrect(b, BOX(176, 168, 312, 212), r10, ghost, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_shadow(b, BOX(24, 168, 160, 212), 10.0f, 10.0f, glow, ANO_UI_REF_NONE, ANO_UI_BLEND_ADD));
+    ADD(ui_rrect(b, BOX(24, 168, 160, 212), r10, button, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(24, 168, 160, 212), r10, btnRim, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_rrect(b, BOX(176, 168, 312, 212), r10, ghost, 2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 
     // Play-triangle path icon inside the ghost button.
     AnoUiPathSeg tri[3] = {
@@ -82,12 +82,12 @@ UiResult<> ano::ano_ui_demo_scene(AnoUiBuilder *b, float ox, float oy)
         { ANO_UI_SEG_LINE, { ox + 264.0f, oy + 190.0f, 0.0f, 0.0f } },
         { ANO_UI_SEG_LINE, { ox + 228.0f, oy + 204.0f, 0.0f, 0.0f } },
     };
-    ADD(ano_ui_path_fill(b, tri, 3, icon, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
+    ADD(ui_path_fill(b, tri, 3, icon, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 
     // Footer wash clipped by the panel's rounded silhouette.
-    auto sil = ano_ui_clip(b, BOX(0, 0, 360, 240), BOX(0, 0, 360, 240), r14);
+    auto sil = ui_clip(b, BOX(0, 0, 360, 240), BOX(0, 0, 360, 240), r14);
     if (!sil) return failure(sil.error());
-    ADD(ano_ui_rrect(b, BOX(0, 208, 360, 240), NULL, wash, 0.0f, ANO_UI_REF_NONE, *sil, 0));
+    ADD(ui_rrect(b, BOX(0, 208, 360, 240), NULL, wash, 0.0f, ANO_UI_REF_NONE, *sil, 0));
 
 #undef ADD
 #undef BOX

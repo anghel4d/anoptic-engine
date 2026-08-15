@@ -18,7 +18,7 @@ using namespace ano;
 /* AABB */
 
 // Identity-inv only. Matches ui_box_hits / ui_pending_bounds.
-void ano::ano_ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2])
+void ano::ui_prim_aabb(const AnoUiPrim *p, float outMin[2], float outMax[2])
 {
     float pad = p->kind == ANO_UI_SHADOW ? 3.0f * p->param[0] + 1.0f : 1.0f;
     outMin[0] = p->origin[0] - p->halfExt[0] - pad;
@@ -48,7 +48,7 @@ static bool prim_solid_over(const AnoUiPrim *p, float tx0, float ty0, float tx1,
 
 /* Tile Build */
 
-UiResult<uint32_t> ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
+UiResult<uint32_t> ano::ui_tile_build(const AnoUiScene *s, int32_t ox, int32_t oy,
                            uint32_t tilesX, uint32_t tilesY,
                            uint32_t *offsets, uint32_t offsetsCap,
                            uint32_t *entries, uint32_t entryCap,
@@ -69,7 +69,7 @@ UiResult<uint32_t> ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32
     for (uint32_t i = 0; i < s->primCount; i++)
     {
         float mn[2], mx[2];
-        ano_ui_prim_aabb(&s->prims[i], mn, mx);
+        ui_prim_aabb(&s->prims[i], mn, mx);
         int32_t tx0 = (int32_t)floorf((mn[0] - (float)ox) / 8.0f);
         int32_t tx1 = (int32_t)floorf((mx[0] - (float)ox) / 8.0f);
         int32_t ty0 = (int32_t)floorf((mn[1] - (float)oy) / 8.0f);
@@ -99,7 +99,7 @@ UiResult<uint32_t> ano::ano_ui_tile_build(const AnoUiScene *s, int32_t ox, int32
     {
         const AnoUiPrim *p = &s->prims[i];
         float mn[2], mx[2];
-        ano_ui_prim_aabb(p, mn, mx);
+        ui_prim_aabb(p, mn, mx);
         int32_t tx0 = (int32_t)floorf((mn[0] - (float)ox) / 8.0f);
         int32_t tx1 = (int32_t)floorf((mx[0] - (float)ox) / 8.0f);
         int32_t ty0 = (int32_t)floorf((mn[1] - (float)oy) / 8.0f);

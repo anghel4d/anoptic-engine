@@ -185,7 +185,7 @@ void ano_vk_text_set(RendererState* state, anostr_t text, float sizePx,
     if (!state->textOverlay || state->textPending == NULL || g_textPinned)
         return;
     uint32_t cap = ANO_TEXT_WORLD_FIRST; // the world panel owns the region above
-    uint32_t count = ano_text_shape(
+    uint32_t count = text_shape(
         &state->textBake, text, sizePx, origin, color,
         state->textPending, cap, NULL).value_or(0u);
     state->textOsdCount = count < cap ? count : cap;
@@ -198,7 +198,7 @@ void ano_vk_text_set_runs(RendererState* state, anostr_t text, const AnoTextRun*
     if (!state->textOverlay || state->textPending == NULL || g_textPinned)
         return;
     uint32_t cap = ANO_TEXT_WORLD_FIRST;
-    uint32_t count = ano_text_shape_runs(
+    uint32_t count = text_shape_runs(
         &state->textBake, text, runs, runCount, origin,
         state->textPending, cap, NULL).value_or(0u);
     state->textOsdCount = count < cap ? count : cap;
@@ -371,7 +371,7 @@ static bool text_init_raster_pipeline(VulkanContext* ctx, RendererState* state)
             &state->prototypes[PIPELINE_COMPUTE_TEXTRASTER].implementations[0].pipeline);
         return result == VK_SUCCESS;
     }();
-    ano_aligned_free(code.data);
+    aligned_free(code.data);
     vkDestroyShaderModule(ctx->device, module, NULL);
     return built;
 }
@@ -476,8 +476,8 @@ static bool text_build_blend_pipeline(VulkanContext* ctx, RendererState* state,
         return vkCreateGraphicsPipelines(ctx->device, state->tonemapCache, 1, &pipelineInfo,
                                          NULL, out) == VK_SUCCESS;
     }();
-    ano_aligned_free(vertCode.data);
-    ano_aligned_free(fragCode.data);
+    aligned_free(vertCode.data);
+    aligned_free(fragCode.data);
     vkDestroyShaderModule(ctx->device, vertModule, NULL);
     vkDestroyShaderModule(ctx->device, fragModule, NULL);
     return built;
@@ -520,12 +520,12 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         return true;
 
     // CPU side: bake blobs live on textHeap.
-    state->textHeap = ano_heap_create();
-    const ano_fspath game = ano_fs_gamepath().value_or(ano_fspath{});
+    state->textHeap = heap_create();
+    const fspath game = fs_gamepath().value_or(fspath{});
     char fontPath[512];
     snprintf(fontPath, sizeof fontPath, "%s/%s", game.str, ANO_TEXT_FONT_REL);
-    const auto initialized = ano_text_init();
-    const auto loaded = ano_text_font_load(
+    const auto initialized = text_init();
+    const auto loaded = text_font_load(
         anostr_view(fontPath, strlen(fontPath)));
     if (state->textHeap == NULL || !initialized || !loaded)
     {
@@ -541,13 +541,13 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
     // disjoint. A missing auxiliary font degrades to the remaining ranges.
     char runePath[512], greekPath[512];
     snprintf(runePath, sizeof runePath, "%s/%s", game.str, ANO_TEXT_RUNE_FONT_REL);
-    const auto rune = ano_text_font_load(
+    const auto rune = text_font_load(
         anostr_view(runePath, strlen(runePath)));
     const AnoFontId runeFont = rune.value_or(0);
     if (!rune)
         ano_log(ANO_WARN, "Text overlay: rune font missing ('%s'); Runic will not render.", runePath);
     snprintf(greekPath, sizeof greekPath, "%s/%s", game.str, ANO_TEXT_GREEK_FONT_REL);
-    const auto greek = ano_text_font_load(
+    const auto greek = text_font_load(
         anostr_view(greekPath, strlen(greekPath)));
     const AnoFontId greekFont = greek.value_or(0);
     if (!greek)
@@ -563,7 +563,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         ranges[rangeCount++] = (AnoBakeRange){ .font = runeFont, .first = 0x16A0, .last = 0x16F8 }; // Runic (Elder Futhark+)
     if (greekFont != 0)
         ranges[rangeCount++] = (AnoBakeRange){ .font = greekFont, .first = 0x1F00, .last = 0x1FFF }; // Greek Extended (polytonic)
-    const auto baked = ano_text_font_bake_ranges(
+    const auto baked = text_font_bake_ranges(
         ranges, rangeCount, state->textHeap);
     if (!baked)
     {
@@ -640,7 +640,7 @@ bool ano_vk_text_init(VulkanContext* ctx, RendererState* state)
         {
             AnoGlyphInstance* dst = (AnoGlyphInstance*)state->frames[i].textFrameMapped
                                   + ANO_TEXT_WORLD_FIRST;
-            count = ano_text_shape_runs(
+            count = text_shape_runs(
                 &state->textBake, worldText, worldRuns,
                 (uint32_t)(sizeof worldRuns / sizeof worldRuns[0]),
                 worldOrigin, dst, worldCap, NULL).value_or(0u);
@@ -1092,10 +1092,10 @@ void ano_vk_text_destroy(VulkanContext* ctx, RendererState* state)
         mi_free((void*)state->textBlocks[i].blk);
     state->textBlockCount = 0;
     // CPU side: FreeType down, bake blobs die with the heap.
-    ano_text_shutdown();
+    text_shutdown();
     if (state->textHeap != NULL)
     {
-        ano_heap_destroy(state->textHeap);
+        heap_destroy(state->textHeap);
         state->textHeap = NULL;
     }
 }

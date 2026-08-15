@@ -198,7 +198,7 @@ struct ano::AnoSynth
     uint32_t      evtHead, evtTail; // absolute; head - tail = depth
 
 #define ANO_SYNTH_CMD_QUEUE 32u
-    // Live: console moves at sounding barline. Batch stamps via ano_synth_console_automation.
+    // Live: console moves at sounding barline. Batch stamps via synth_console_automation.
     AnoAudioCommand cmdQueue[ANO_SYNTH_CMD_QUEUE];
     uint32_t        cmdHead, cmdTail;
 

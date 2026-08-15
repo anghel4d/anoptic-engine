@@ -104,8 +104,8 @@ int main(int argc, char **argv)
     uint32_t pairs = PAIRS_DEFAULT;
     if (argc > 1) pairs = (uint32_t)strtoul(argv[1], NULL, 10);
 
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-    if (heap == NULL) { printf("ano_heap_create failed\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+    if (heap == NULL) { printf("heap_create failed\n"); return 1; }
 
     test_rng rng = rng_make(0xBE5C0123u);
     pair_t *inl = mi_heap_mallocn_tp(pair_t, heap, pairs);

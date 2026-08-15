@@ -29,7 +29,7 @@ static uint32_t pack_pt(double x, double y)
     return (uint32_t)ano_half_pack((float)x) | ((uint32_t)ano_half_pack((float)y) << 16);
 }
 
-void ano::ano_ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, float s)
+void ano::ui_curves_scale(const uint32_t *in, uint32_t *out, uint32_t count, float s)
 {
     for (uint32_t i = 0; i < count; i++)
     {
@@ -65,7 +65,7 @@ static bool emit_quad(uint32_t *curves, uint32_t *w, uint32_t cap, uint32_t *seg
 
 /* Path Fill */
 
-UiResult<uint32_t> ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
+UiResult<uint32_t> ano::ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *segs, uint32_t segCount,
                           const float color[4], uint32_t paintRef, uint32_t clipRef,
                           uint32_t flags)
 {
@@ -208,5 +208,5 @@ UiResult<uint32_t> ano::ano_ui_path_fill(AnoUiBuilder *b, const AnoUiPathSeg *se
 
     b->curveCount = w;
     float mn[2] = { (float)minx, (float)miny }, mx[2] = { (float)maxx, (float)maxy };
-    return ano_ui_path(b, mn, mx, base, curveSegs, color, paintRef, clipRef, flags);
+    return ui_path(b, mn, mx, base, curveSegs, color, paintRef, clipRef, flags);
 }

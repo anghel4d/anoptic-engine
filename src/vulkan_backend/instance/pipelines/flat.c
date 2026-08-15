@@ -62,7 +62,7 @@ static bool flat_init_with_cull(VulkanContext* ctx, RendererState* state, Pipeli
 
 	// Load shaders: mesh shader on capable devices, vertex shader on the fallback.
 	// Depth pre-pass variant (index 2) uses the ANO_DEPTH_ONLY compile of the same source.
-	// Paths are exe-relative; loadFile resolves them against ano_fs_gamepath().
+	// Paths are exe-relative; loadFile resolves them against fs_gamepath().
 	// Unwind idiom: every buffer and module is inert at declaration, so any arm past this point
 	// returns from a build lambda, then discharges whatever is live. loadFile leaves its buffer
 	// indeterminate when it refuses, so a refused load re-inerts before unwinding.
@@ -286,9 +286,9 @@ static bool flat_init_with_cull(VulkanContext* ctx, RendererState* state, Pipeli
 	}();
 
 	// Both paths, unconditional. Pipelines and the layout stay for ano_pipeline_flat_cleanup.
-	ano_aligned_free(geomShaderCode.data);
-	ano_aligned_free(depthGeomShaderCode.data);
-	ano_aligned_free(fragShaderCode.data);
+	aligned_free(geomShaderCode.data);
+	aligned_free(depthGeomShaderCode.data);
+	aligned_free(fragShaderCode.data);
 	vkDestroyShaderModule(ctx->device, geomShaderModule, NULL);
 	vkDestroyShaderModule(ctx->device, depthGeomShaderModule, NULL);
 	vkDestroyShaderModule(ctx->device, fragShaderModule, NULL);

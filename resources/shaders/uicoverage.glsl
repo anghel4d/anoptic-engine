@@ -79,7 +79,7 @@ const uint UI_ENTRY_SOLID      = 0x80000000u;
 const uint UI_ENTRY_INDEX_MASK = 0x7FFFFFFFu;
 
 // Exact signed distance to the rounded box (per-corner radii, y-down quadrant select).
-// p relative to the box center. Mirrors ano_ui_ref_sd_rrect.
+// p relative to the box center. Mirrors ui_ref_sd_rrect.
 float ui_sd_rrect(vec2 p, vec2 halfExt, vec4 radii)
 {
     float r = p.x >= 0.0 ? (p.y >= 0.0 ? radii.z : radii.y)
@@ -112,7 +112,7 @@ float ui_shadow_x(float x, float y, float sigma, float corner, vec2 halfExt)
 }
 
 // Gaussian-blurred rounded box at p (relative to center): erf along x, 4-sample
-// quadrature along y truncated at 3 sigma. Mirrors ano_ui_ref_shadow.
+// quadrature along y truncated at 3 sigma. Mirrors ui_ref_shadow.
 float ui_shadow(vec2 p, vec2 halfExt, float corner, float sigma)
 {
     float low = p.y - halfExt.y, high = p.y + halfExt.y;
@@ -166,7 +166,7 @@ vec4 ui_stop_color(uint first, uint count, float t)
 }
 
 // Resolved fill at overlay pixel px modulated by base. NONE returns base; an out-of-
-// range paint/stop range fails CLOSED. Mirrors ano_ui_ref_paint.
+// range paint/stop range fails CLOSED. Mirrors ui_ref_paint.
 vec4 ui_paint_eval(uint paintRef, uint paintCount, vec2 px, vec4 base)
 {
     if (paintRef == UI_REF_NONE)
@@ -212,7 +212,7 @@ float ui_path_sum(uint off, uint curveCount, vec2 wpos, vec2 wdim)
 }
 
 // Premultiplied contribution of prim idx over the unit window at pxTL. Mirrors
-// ano_ui_ref_shade for RRECT/SHADOW/PATH. IMAGE also samples the bindless array,
+// ui_ref_shade for RRECT/SHADOW/PATH. IMAGE also samples the bindless array,
 // GLYPHS walks its own range. paintCount bounds the gradient fail-closed.
 vec4 ui_shade(uint idx, vec2 pxTL, uint clipCount, uint paintCount)
 {

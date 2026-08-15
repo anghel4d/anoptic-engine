@@ -38,9 +38,9 @@ static void engine_config(AnoEngineConfig *cfg)
 {
     *cfg = ano_engine_config_default();
     cfg->hasMapper = true;
-    cfg->mapper = ano_mapping_table_default();
+    cfg->mapper = mapping_table_default();
     cfg->hasDramaturg = true;
-    cfg->dramaturg = ano_dramaturg_config_default();
+    cfg->dramaturg = dramaturg_config_default();
     cfg->phraseGroove = true;
     cfg->cadenceRit = 0.02;
     cfg->form.cadential64 = cfg->form.periods = cfg->form.hypermeter = true;
@@ -89,11 +89,11 @@ typedef struct LiveDriver
 static void top_up(LiveDriver *d, uint64_t startFrame)
 {
     while (d->nextBar < d->maxBars
-           && ano_synth_live_pending(d->synth, startFrame) < d->lookahead) {
+           && synth_live_pending(d->synth, startFrame) < d->lookahead) {
         ano_engine_advance_bar(&d->engine, &d->result);
         BarFeed f;
         capture(&d->result, &f);
-        (void)ano_synth_live_bar(d->synth, d->nextBar, f.tempo, f.tempoCount,
+        (void)synth_live_bar(d->synth, d->nextBar, f.tempo, f.tempoCount,
                                  &f.params, &f.affect, f.events, f.eventCount);
         d->nextBar++;
     }
@@ -106,13 +106,13 @@ static void live_generator(void *user, float *const *busMix, uint32_t busCount,
     if (!d->stall || d->blocks % d->stall == 0u)
         top_up(d, startFrame); // schedule ahead, then render
     d->blocks++;
-    ano_synth_generator(d->synth, busMix, busCount, frames, startFrame);
+    synth_generator(d->synth, busMix, busCount, frames, startFrame);
 }
 
 int main(void)
 {
     AnoAudioBusDesc buses[ANO_SYNTH_CONSOLE_BUSES];
-    uint32_t busCount = ano_synth_console_layout(buses, ANO_SYNTH_CONSOLE_BUSES);
+    uint32_t busCount = synth_console_layout(buses, ANO_SYNTH_CONSOLE_BUSES);
     CHECK(busCount == ANO_SYNTH_CONSOLE_BUSES, "console layout");
 
     AnoSynthDesc sd = { .sampleRate = RATE, .maxVoices = 64 };
@@ -134,26 +134,26 @@ int main(void)
     CHECK(totalEvents > 200u, "the piece has substance");
 
     // --- A: batch path ---
-    AnoSynth *batch = ano_synth_create(&sd).value_or(nullptr);
+    AnoSynth *batch = synth_create(&sd).value_or(nullptr);
     CHECK(batch != NULL, "batch synth");
-    CHECK(ano_synth_score_begin(batch, 4.0, BARS, totalTempo, totalEvents),
+    CHECK(synth_score_begin(batch, 4.0, BARS, totalTempo, totalEvents),
           "score_begin");
     for (uint32_t b = 0; b < BARS; ++b)
         for (uint32_t i = 0; i < feed[b].tempoCount; ++i)
-            CHECK(ano_synth_score_tempo(batch, feed[b].tempo[i].beat,
+            CHECK(synth_score_tempo(batch, feed[b].tempo[i].beat,
                                         feed[b].tempo[i].bpm),
                   "score_tempo");
     for (uint32_t b = 0; b < BARS; ++b)
-        CHECK(ano_synth_score_bar(batch, b, &feed[b].params, &feed[b].affect),
+        CHECK(synth_score_bar(batch, b, &feed[b].params, &feed[b].affect),
               "score_bar");
     for (uint32_t b = 0; b < BARS; ++b)
         for (uint32_t i = 0; i < feed[b].eventCount; ++i)
-            CHECK(ano_synth_score_event(batch, &feed[b].events[i]), "score_event");
-    CHECK(ano_synth_score_end(batch), "score_end");
+            CHECK(synth_score_event(batch, &feed[b].events[i]), "score_event");
+    CHECK(synth_score_end(batch), "score_end");
 
-    uint64_t frames = ano_synth_score_frames(batch, TAIL);
+    uint64_t frames = synth_score_frames(batch, TAIL);
     CHECK(frames > RATE, "score has length");
-    ano_synth_transport_start(batch, 0);
+    synth_transport_start(batch, 0);
 
     float *bufA = static_cast<float *>(
         calloc((size_t)frames * ANO_AUDIO_CHANNELS, sizeof *bufA));
@@ -166,14 +166,14 @@ int main(void)
         .blockFrames = 512,
         .busCount = busCount,
         .busLayout = buses,
-        .generator = ano_synth_generator,
+        .generator = synth_generator,
         .generatorUser = batch,
     };
-    CHECK(ano_audio_render_offline(&od, bufA, frames), "batch render");
-    CHECK(ano_synth_dropped(batch) == 0u, "batch dropped no voices");
+    CHECK(audio_render_offline(&od, bufA, frames), "batch render");
+    CHECK(synth_dropped(batch) == 0u, "batch dropped no voices");
 
     // --- B: live path from the block loop ---
-    AnoSynth *live = ano_synth_create(&sd).value_or(nullptr);
+    AnoSynth *live = synth_create(&sd).value_or(nullptr);
     CHECK(live != NULL, "live synth");
     static LiveDriver drv;
     drv.synth = live;
@@ -184,28 +184,28 @@ int main(void)
     drv.blocks = 0;
     ano_engine_init(&drv.engine, 42, &cfg); // same seed
 
-    CHECK(ano_synth_live_begin(live, 4.0), "live_begin");
+    CHECK(synth_live_begin(live, 4.0), "live_begin");
     // Prime lookahead before transport start.
     while (drv.nextBar < ANO_SYNTH_LIVE_LOOKAHEAD) {
         ano_engine_advance_bar(&drv.engine, &drv.result);
         BarFeed f;
         capture(&drv.result, &f);
-        CHECK(ano_synth_live_bar(live, drv.nextBar, f.tempo, f.tempoCount, &f.params,
+        CHECK(synth_live_bar(live, drv.nextBar, f.tempo, f.tempoCount, &f.params,
                                  &f.affect, f.events, f.eventCount),
               "live_bar prime");
         drv.nextBar++;
     }
-    ano_synth_transport_start(live, 0);
+    synth_transport_start(live, 0);
 
     AnoAudioOfflineDesc ol = od;
     ol.generator = live_generator;
     ol.generatorUser = &drv;
-    CHECK(ano_audio_render_offline(&ol, bufB, frames), "live render");
+    CHECK(audio_render_offline(&ol, bufB, frames), "live render");
 
     CHECK(drv.nextBar == BARS, "live streamed every bar");
-    CHECK(ano_synth_live_late(live) == 0u, "no tie arrived late");
-    CHECK(ano_synth_live_overflow(live) == 0u, "no note overflowed the ring");
-    CHECK(ano_synth_dropped(live) == 0u, "live dropped no voices");
+    CHECK(synth_live_late(live) == 0u, "no tie arrived late");
+    CHECK(synth_live_overflow(live) == 0u, "no note overflowed the ring");
+    CHECK(synth_dropped(live) == 0u, "live dropped no voices");
 
     // --- equivalence ---
     size_t samples = (size_t)frames * ANO_AUDIO_CHANNELS;
@@ -232,7 +232,7 @@ int main(void)
 
     // --- starved driver: late counter fires ---
     // stall=900 (~9.6 s) > 2 pending bars (~4.8 s): schedule runs dry, late > 0.
-    AnoSynth *starved = ano_synth_create(&sd).value_or(nullptr);
+    AnoSynth *starved = synth_create(&sd).value_or(nullptr);
     static LiveDriver sd2;
     sd2.synth = starved;
     sd2.nextBar = 0;
@@ -241,27 +241,27 @@ int main(void)
     sd2.stall = 900u;  // ~9.6 s: longer than the 2 pending bars (~4.8 s)
     sd2.blocks = 0;
     ano_engine_init(&sd2.engine, 42, &cfg);
-    CHECK(ano_synth_live_begin(starved, 4.0), "starved live_begin");
+    CHECK(synth_live_begin(starved, 4.0), "starved live_begin");
     ano_engine_advance_bar(&sd2.engine, &sd2.result);
     BarFeed f0;
     capture(&sd2.result, &f0);
-    CHECK(ano_synth_live_bar(starved, 0, f0.tempo, f0.tempoCount, &f0.params,
+    CHECK(synth_live_bar(starved, 0, f0.tempo, f0.tempoCount, &f0.params,
                              &f0.affect, f0.events, f0.eventCount),
           "starved first bar");
     sd2.nextBar = 1;
-    ano_synth_transport_start(starved, 0);
+    synth_transport_start(starved, 0);
     AnoAudioOfflineDesc os = od;
     os.generator = live_generator;
     os.generatorUser = &sd2;
-    CHECK(ano_audio_render_offline(&os, bufB, frames), "starved render");
-    CHECK(ano_synth_live_late(starved) > 0u,
+    CHECK(audio_render_offline(&os, bufB, frames), "starved render");
+    CHECK(synth_live_late(starved) > 0u,
           "a starved driver is reported, not silently wrong");
 
     free(bufA);
     free(bufB);
-    ano_synth_destroy(batch);
-    ano_synth_destroy(live);
-    ano_synth_destroy(starved);
+    synth_destroy(batch);
+    synth_destroy(live);
+    synth_destroy(starved);
 
     if (failures) {
         printf("anotest_synthlive: %d FAILURE(S)\n", failures);

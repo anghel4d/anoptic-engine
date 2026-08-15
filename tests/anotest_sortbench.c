@@ -119,8 +119,8 @@ int main(int argc, char **argv)
     if (argc > 1) count = strtoul(argv[1], NULL, 10);
     if (count < 2) count = 2;
 
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+    if (heap == NULL) { printf("FAIL: heap_create\n"); return 1; }
 
     // Build the inventory: pool of distinct names, drawn with replacement.
     test_rng rng = rng_make(0x1BADB002u);
@@ -213,7 +213,7 @@ int main(int argc, char **argv)
 
     uint64_t t0 = bench_begin();
     anostr_sym_sort(tbl, syms, count);
-    uint64_t coldNs = ano_ticks_to_ns(bench_end(t0));
+    uint64_t coldNs = ticks_to_ns(bench_end(t0));
 
     bench_lat_init(&lat, ticks, REPS);
     for (int r = 0; r < REPS; r++) {
@@ -250,7 +250,7 @@ int main(int argc, char **argv)
     uint64_t sink = 0;
     for (size_t k = 0; k < count; k++)
         sink += anostr_collate_prefix(items[k]);
-    uint64_t ns = ano_ticks_to_ns(bench_end(t0));
+    uint64_t ns = ticks_to_ns(bench_end(t0));
     printf("collate_prefix: %.0f ns/string (%.1f M strings/s)%s\n",
            (double)ns / (double)count, bench_ops_per_sec(count, ns) / 1e6,
            sink == 42 ? "!" : "");   // keep the loop un-elidable
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
     t0 = bench_begin();
     for (size_t k = 0; k < count; k++)
         (void)anostr_collate_key(heap, items[k]);
-    ns = ano_ticks_to_ns(bench_end(t0));
+    ns = ticks_to_ns(bench_end(t0));
     printf("collate_key:    %.0f ns/string (full 3-level key + tiebreak)\n",
            (double)ns / (double)count);
 
@@ -271,21 +271,21 @@ int main(int argc, char **argv)
 
     t0 = bench_begin();
     anostr_t rep = must(anostr_replace_all(heap, doc, anostr_lit("the"), anostr_lit("THE")));
-    ns = ano_ticks_to_ns(bench_end(t0));
+    ns = ticks_to_ns(bench_end(t0));
     printf("replace_all:    %.2f GB/s over %u bytes (%zu-byte result)\n",
            (double)anostr_len(doc) / (double)ns, doc.len, anostr_len(rep));
 
     t0 = bench_begin();
     anostr_t culled = must(anostr_cull(
         heap, doc, ANOSTR_CULL_WHITESPACE | ANOSTR_CULL_PUNCT));
-    ns = ano_ticks_to_ns(bench_end(t0));
+    ns = ticks_to_ns(bench_end(t0));
     printf("cull ws+punct:  %.2f GB/s over %u bytes (%zu-byte result)\n",
            (double)anostr_len(doc) / (double)ns, doc.len, anostr_len(culled));
 
     t0 = bench_begin();
     for (size_t k = 0; k < count; k++)
         (void)anostr_rune_sort(heap, items[k]);
-    ns = ano_ticks_to_ns(bench_end(t0));
+    ns = ticks_to_ns(bench_end(t0));
     printf("rune_sort:      %.0f ns/string\n", (double)ns / (double)count);
 
     return wrong == 0 ? 0 : 1;

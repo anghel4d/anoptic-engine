@@ -99,7 +99,7 @@ static void ui_compose(RendererState* state)
             AnoUiPrim p = blk->prims[i];
             p.origin[0] += sx;
             p.origin[1] += sy;
-            ano_ui_prim_scale(&p, s);
+            ui_prim_scale(&p, s);
             if (p.clipRef != ANO_UI_REF_NONE)
                 p.clipRef += nc;
             if (p.paintRef != ANO_UI_REF_NONE)
@@ -117,7 +117,7 @@ static void ui_compose(RendererState* state)
             c.rect[2] += sx; c.rect[3] += sy;
             c.rrCenter[0] += sx;
             c.rrCenter[1] += sy;
-            ano_ui_clip_scale(&c, s);
+            ui_clip_scale(&c, s);
             state->uiPendingClips[nc++] = c;
         }
         for (uint32_t i = 0; i < blk->paintCount; i++)
@@ -127,12 +127,12 @@ static void ui_compose(RendererState* state)
             // Scroll: shift paint xform origin with content.
             pa.xform[2] -= pa.xform[0] * sx + pa.xform[1] * sy;
             pa.xform[5] -= pa.xform[3] * sx + pa.xform[4] * sy;
-            ano_ui_paint_scale(&pa, s);
+            ui_paint_scale(&pa, s);
             state->uiPendingPaints[na++] = pa;
         }
         memcpy(&state->uiPendingStops[ns], blk->stops, (size_t)blk->stopCount * sizeof(AnoUiStop));
         ns += blk->stopCount;
-        ano_ui_curves_scale(blk->curves, &state->uiPendingCurves[ncw], blk->curveCount, s);
+        ui_curves_scale(blk->curves, &state->uiPendingCurves[ncw], blk->curveCount, s);
         ncw += blk->curveCount;
         for (uint32_t i = 0; i < blk->glyphCount; i++)
         {
@@ -158,17 +158,17 @@ static void ui_compose(RendererState* state)
 static void ui_compose_demo(RendererState* state, bool selftest)
 {
     AnoUiBuilder b;
-    ano_ui_builder_init(&b, state->uiPendingPrims, 32, state->uiPendingClips, 4,
+    ui_builder_init(&b, state->uiPendingPrims, 32, state->uiPendingClips, 4,
                         state->uiPendingPaints, ANO_UI_MAX_PAINTS,
                         state->uiPendingStops, ANO_UI_MAX_STOPS);
-    ano_ui_builder_curves(&b, state->uiPendingCurves, ANO_UI_MAX_CURVE_WORDS);
-    if (!ano_ui_demo_scene(&b, 48.0f, 120.0f))
+    ui_builder_curves(&b, state->uiPendingCurves, ANO_UI_MAX_CURVE_WORDS);
+    if (!ui_demo_scene(&b, 48.0f, 120.0f))
         return;
     if (!selftest)
     {
         float r12[4] = { 12, 12, 12, 12 };
         float white[4] = { 1, 1, 1, 1 };
-        if (!ano_ui_image(
+        if (!ui_image(
                 &b, (float[2]){ 428.0f, 120.0f },
                 (float[2]){ 568.0f, 225.0f }, r12,
                 0, 0.0f, white, ANO_UI_REF_NONE, 0))
@@ -378,7 +378,7 @@ bool ano_vk_ui_build_tiles(RendererState* state, uint32_t frameIndex)
                      NULL, 0, NULL, 0, NULL, 0, NULL, 0 };
     uint32_t* offsets = state->uiTileScratch;
     uint32_t* entries = state->uiTileScratch + ANO_UI_TILE_OFFSET_WORDS;
-    const auto built = ano_ui_tile_build(
+    const auto built = ui_tile_build(
         &s, ox, oy, gx, gy, offsets, ANO_UI_TILE_OFFSET_WORDS,
         entries, ANO_UI_MAX_TILE_ENTRIES, state->uiTileCursor);
     if (!built)

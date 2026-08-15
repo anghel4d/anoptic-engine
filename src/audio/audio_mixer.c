@@ -552,24 +552,24 @@ void *ano_audio_mixer_main(void *arg)
             }
             if (stalledUs < stallUs) {
                 stalledUs += ANO_AUDIO_PACE_US;
-                (void)ano_sleep(ANO_AUDIO_PACE_US);
+                (void)sleep_us(ANO_AUDIO_PACE_US);
                 continue;
             }
             publish_stats(mx, 0u); // no consumer: the lane stays live, blockIndex frozen
-            (void)ano_sleep(idleUs);
+            (void)sleep_us(idleUs);
             continue;
         }
 
-        uint64_t t0 = ano_timestamp_ticks();
+        uint64_t t0 = timestamp_ticks();
         ano_audio_render_block(mx, mx->blockScratch);
-        uint64_t t1 = ano_timestamp_ticks();
+        uint64_t t1 = timestamp_ticks();
         (void)mx->blockRing.push(mx->blockScratch); // sole producer; space checked above
-        publish_stats(mx, ano_ticks_to_ns(t1 - t0));
+        publish_stats(mx, ticks_to_ns(t1 - t0));
     }
     return NULL;
 }
 
-AudioResult<> ano::ano_audio_render_offline(
+AudioResult<> ano::audio_render_offline(
     const AnoAudioOfflineDesc *desc, float *out, uint64_t frames)
 {
     if (!out)
@@ -588,7 +588,7 @@ AudioResult<> ano::ano_audio_render_offline(
     if (buses > ANO_AUDIO_MAX_BUSES)
         return failure(AudioError::invalid_argument);
 
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
     if (!heap)
         return failure(AudioError::out_of_memory);
     AnoAudioMixer *mx = static_cast<AnoAudioMixer *>(

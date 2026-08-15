@@ -77,38 +77,38 @@ static bool append_json_whitespace(const char *path)
 static bool revision_payloads_equal(const AnoCookedRevision *left,
                                     const AnoCookedRevision *right)
 {
-    const auto leftBytes = ano_resource_revision_export_pack(left);
-    const auto rightBytes = ano_resource_revision_export_pack(right);
+    const auto leftBytes = resource_revision_export_pack(left);
+    const auto rightBytes = resource_revision_export_pack(right);
     auto leftOpened = leftBytes
-        ? ano_resource_pack_open({leftBytes->data, leftBytes->size})
+        ? resource_pack_open({leftBytes->data, leftBytes->size})
         : ResourceResult<AnoResourcePack *>(failure(leftBytes.error()));
     auto rightOpened = rightBytes
-        ? ano_resource_pack_open({rightBytes->data, rightBytes->size})
+        ? resource_pack_open({rightBytes->data, rightBytes->size})
         : ResourceResult<AnoResourcePack *>(failure(rightBytes.error()));
     AnoResourcePack *leftPack = leftOpened.value_or(nullptr);
     AnoResourcePack *rightPack = rightOpened.value_or(nullptr);
     bool equal = leftPack && rightPack;
     const AnoResourceManifest *leftManifest = equal
-        ? ano_resource_pack_manifest(leftPack) : nullptr;
+        ? resource_pack_manifest(leftPack) : nullptr;
     const AnoResourceManifest *rightManifest = equal
-        ? ano_resource_pack_manifest(rightPack) : nullptr;
+        ? resource_pack_manifest(rightPack) : nullptr;
     const uint64_t count = equal
-        ? ano_resource_manifest_entry_count(leftManifest) : 0;
+        ? resource_manifest_entry_count(leftManifest) : 0;
     equal = equal
-        && count == ano_resource_manifest_entry_count(rightManifest);
+        && count == resource_manifest_entry_count(rightManifest);
     for (uint64_t asset = 1; asset <= count && equal; ++asset) {
-        const auto lhs = ano_resource_manifest_find(leftManifest, {asset});
-        const auto rhs = ano_resource_manifest_find(rightManifest, {asset});
+        const auto lhs = resource_manifest_find(leftManifest, {asset});
+        const auto rhs = resource_manifest_find(rightManifest, {asset});
         equal = lhs && rhs && lhs->type.value == rhs->type.value
             && lhs->byteSize == rhs->byteSize
-            && ano_resource_content_id_equal(lhs->content, rhs->content);
+            && resource_content_id_equal(lhs->content, rhs->content);
     }
-    ano_resource_pack_close(rightPack);
-    ano_resource_pack_close(leftPack);
+    resource_pack_close(rightPack);
+    resource_pack_close(leftPack);
     if (rightBytes)
-        ano_resource_exported_pack_release(*rightBytes);
+        resource_exported_pack_release(*rightBytes);
     if (leftBytes)
-        ano_resource_exported_pack_release(*leftBytes);
+        resource_exported_pack_release(*leftBytes);
     return equal;
 }
 
@@ -137,13 +137,13 @@ static void test_incremental_external_image(void)
     if (!staged)
         return;
 
-    const auto created = ano_resource_cooker_create(
+    const auto created = resource_cooker_create(
         {.firstDerivedAsset = {2}});
     AnoResourceCooker *cooker = created.value_or(nullptr);
     ResourceResult<> result = created
         ? ResourceResult<>{} : ResourceResult<>(failure(created.error()));
     const auto publish = [&](const AnoCookedRevision *&revision) {
-        const auto cooked = ano_resource_cook(cooker);
+        const auto cooked = resource_cook(cooker);
         if (!cooked)
             return ResourceResult<>(failure(cooked.error()));
         revision = *cooked;
@@ -151,20 +151,20 @@ static void test_incremental_external_image(void)
     };
     const AnoResourceImportRequest request = {{1}, {1}, {1}};
     if (result)
-        result = ano_resource_source_bind(cooker, {1}, gltf);
+        result = resource_source_bind(cooker, {1}, gltf);
     if (result)
-        result = ano_resource_import(cooker, request);
+        result = resource_import(cooker, request);
     const AnoCookedRevision *first = nullptr;
     if (result)
         result = publish(first);
 
     if (result)
-        result = ano_resource_cooker_begin(cooker);
+        result = resource_cooker_begin(cooker);
     if (result
         && !copy_file(ANO_TEST_SOURCE_DIR "/assets/cursed.png", image))
         result = failure(ANO_RESOURCE_IO_ERROR);
     if (result)
-        result = ano_resource_import(cooker, request);
+        result = resource_import(cooker, request);
     const AnoCookedRevision *second = nullptr;
     if (result)
         result = publish(second);
@@ -172,11 +172,11 @@ static void test_incremental_external_image(void)
           "an external image edit changes the cooked public artifacts");
 
     if (result)
-        result = ano_resource_cooker_begin(cooker);
+        result = resource_cooker_begin(cooker);
     if (result && !append_json_whitespace(gltf))
         result = failure(ANO_RESOURCE_IO_ERROR);
     if (result)
-        result = ano_resource_import(cooker, request);
+        result = resource_import(cooker, request);
     const AnoCookedRevision *equivalent = nullptr;
     if (result)
         result = publish(equivalent);
@@ -184,9 +184,9 @@ static void test_incremental_external_image(void)
           "source-only JSON changes preserve equivalent artifact payloads");
 
     if (result)
-        result = ano_resource_cooker_begin(cooker);
+        result = resource_cooker_begin(cooker);
     if (result)
-        result = ano_resource_import(cooker, request);
+        result = resource_import(cooker, request);
     const AnoCookedRevision *unchanged = nullptr;
     if (result)
         result = publish(unchanged);
@@ -215,23 +215,23 @@ static void test_incremental_external_image(void)
             || !copy_file(cursed, relocatedCursed)))
         result = failure(ANO_RESOURCE_IO_ERROR);
     if (result)
-        result = ano_resource_cooker_begin(cooker);
+        result = resource_cooker_begin(cooker);
     if (result)
-        result = ano_resource_source_bind(cooker, {1}, relocatedGltf);
+        result = resource_source_bind(cooker, {1}, relocatedGltf);
     if (result)
-        result = ano_resource_import(cooker, request);
+        result = resource_import(cooker, request);
     const AnoCookedRevision *relocated = nullptr;
     if (result)
         result = publish(relocated);
     CHECK(result && revision_payloads_equal(unchanged, relocated),
           "source-handle relocation preserves equal public artifacts");
 
-    ano_resource_revision_release(relocated);
-    ano_resource_revision_release(unchanged);
-    ano_resource_revision_release(equivalent);
-    ano_resource_revision_release(second);
-    ano_resource_revision_release(first);
-    ano_resource_cooker_destroy(cooker);
+    resource_revision_release(relocated);
+    resource_revision_release(unchanged);
+    resource_revision_release(equivalent);
+    resource_revision_release(second);
+    resource_revision_release(first);
+    resource_cooker_destroy(cooker);
     (void)remove(image);
     (void)remove(cursed);
     (void)remove(binary);
@@ -257,7 +257,7 @@ static bool import_sources(const char *const *relativePaths,
         return false;
     char paths[8][1024] = {};
 
-    const auto created = ano_resource_cooker_create(
+    const auto created = resource_cooker_create(
         {.firstDerivedAsset = {sourceCount + 1}});
     if (!created)
         return false;
@@ -268,17 +268,17 @@ static bool import_sources(const char *const *relativePaths,
             paths[source], sizeof(paths[source]), "%s/%s",
             ANO_TEST_SOURCE_DIR, relativePaths[source]);
         if (written < 0 || (size_t)written >= sizeof(paths[source])) {
-            ano_resource_cooker_destroy(cooker);
+            resource_cooker_destroy(cooker);
             return false;
         }
-        result = ano_resource_source_bind(
+        result = resource_source_bind(
             cooker, {source + 1},
             ANO_TEST_SOURCE_DIR "/assets/viking_room.glb");
         if (result)
-            result = ano_resource_source_bind(
+            result = resource_source_bind(
                 cooker, {source + 1}, paths[source]);
         if (!result) {
-            ano_resource_cooker_destroy(cooker);
+            resource_cooker_destroy(cooker);
             return false;
         }
         const AnoResourceImportRequest request = {
@@ -286,40 +286,40 @@ static bool import_sources(const char *const *relativePaths,
             .rootAsset = {source + 1},
             .commitGroup = {source + 1},
         };
-        result = ano_resource_import(cooker, request);
+        result = resource_import(cooker, request);
         if (!result) {
             fprintf(stderr, "import %s: %s\n", relativePaths[source],
-                    ano_resource_error_string(result.error()));
-            ano_resource_cooker_destroy(cooker);
+                    resource_error_string(result.error()));
+            resource_cooker_destroy(cooker);
             return false;
         }
     }
 
-    const auto revisionResult = ano_resource_cook(cooker);
+    const auto revisionResult = resource_cook(cooker);
     const AnoCookedRevision *revision = revisionResult.value_or(nullptr);
     const auto cooked = revision
-        ? ano_resource_revision_export_pack(revision)
+        ? resource_revision_export_pack(revision)
         : ResourceResult<AnoResourceMutableBytes>(
               failure(revisionResult.error()));
-    ano_resource_revision_release(revision);
-    ano_resource_cooker_destroy(cooker);
+    resource_revision_release(revision);
+    resource_cooker_destroy(cooker);
     if (!cooked) {
         return false;
     }
 
-    const auto opened = ano_resource_pack_open(
+    const auto opened = resource_pack_open(
         {cooked->data, cooked->size});
-    ano_resource_exported_pack_release(*cooked);
+    resource_exported_pack_release(*cooked);
     if (!opened)
         return false;
     AnoResourcePack *pack = *opened;
 
-    const AnoResourceManifest *manifest = ano_resource_pack_manifest(pack);
-    const uint64_t entryCount = ano_resource_manifest_entry_count(manifest);
+    const AnoResourceManifest *manifest = resource_pack_manifest(pack);
+    const uint64_t entryCount = resource_manifest_entry_count(manifest);
     for (uint64_t asset = 1; asset <= entryCount; ++asset) {
-        const auto entry = ano_resource_manifest_find(manifest, {asset});
+        const auto entry = resource_manifest_find(manifest, {asset});
         if (!entry) {
-            ano_resource_pack_close(pack);
+            resource_pack_close(pack);
             return false;
         }
         if (entry->type.value == ano::resource_type_id<Texture>().value)
@@ -333,7 +333,7 @@ static bool import_sources(const char *const *relativePaths,
     }
 
     for (uint32_t source = 0; source < sourceCount && result; ++source) {
-        const auto sceneBytes = ano_resource_pack_view(pack, {source + 1});
+        const auto sceneBytes = resource_pack_view(pack, {source + 1});
         if (!sceneBytes || sceneBytes->size == 0) {
             result = sceneBytes
                 ? ResourceResult<>(failure(ANO_RESOURCE_NON_CANONICAL))
@@ -361,7 +361,7 @@ static bool import_sources(const char *const *relativePaths,
                 result = failure(ANO_RESOURCE_NON_CANONICAL);
         free(renderables);
     }
-    ano_resource_pack_close(pack);
+    resource_pack_close(pack);
     return result.has_value();
 }
 

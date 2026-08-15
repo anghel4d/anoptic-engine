@@ -4,7 +4,7 @@
  * Anoptic targets ISO C++26. */
 /*  == Anoptic Game Engine v0.0000001 == */
 
-// Composer in the audio callback (ano_synth_attach_music): sample-identical to batch over shared bars.
+// Composer in the audio callback (synth_attach_music): sample-identical to batch over shared bars.
 // Also: endless compose past score, meaning on downbeat, ACMD_MUSIC_* steering, seek rebase.
 // Exit 0 == pass.
 
@@ -40,11 +40,11 @@ static int failures = 0;
 // Everything-on schedule (ties, cadence rits, elisions).
 static void public_config(AnoMusicConfig *c)
 {
-    *c = ano_music_config_default();
+    *c = music_config_default();
     c->hasMapper = true;
-    c->mapper = ano_mapping_table_default();
+    c->mapper = mapping_table_default();
     c->hasDramaturg = true;
-    c->dramaturg = ano_dramaturg_config_default();
+    c->dramaturg = dramaturg_config_default();
     c->phraseGroove = true;
     c->cadenceRit = 0.02;
     c->wanderPhrases = 4;
@@ -71,10 +71,10 @@ static void drive_generator(void *user, float *const *busMix, uint32_t busCount,
                             uint32_t frames, uint64_t startFrame)
 {
     Drive *d = static_cast<Drive *>(user);
-    ano_synth_generator(d->synth, busMix, busCount, frames, startFrame);
+    synth_generator(d->synth, busMix, busCount, frames, startFrame);
 
     AnoAudioEvent e[8];
-    uint32_t n = ano_synth_poll(d->synth, e, 8);
+    uint32_t n = synth_poll(d->synth, e, 8);
     for (uint32_t i = 0; i < n && d->gotCount < 64; ++i) {
         d->gotAt[d->gotCount] = startFrame;
         d->got[d->gotCount++] = e[i];
@@ -85,7 +85,7 @@ static void drive_generator(void *user, float *const *busMix, uint32_t busCount,
 static void drive_control(void *user, const AnoAudioCommand *cmd)
 {
     Drive *d = static_cast<Drive *>(user);
-    ano_synth_control(d->synth, cmd);
+    synth_control(d->synth, cmd);
 }
 
 // Driven render: fresh synth + engine. cmds = ACMD_MUSIC_* at frame stamps.
@@ -97,14 +97,14 @@ static void render_driven_from(const AnoMusicConfig *cfg, const AnoAudioOfflineD
 {
     AnoSynthDesc sd = { .sampleRate = RATE, .maxVoices = 64 };
     memset(d, 0, sizeof *d);
-    d->synth = ano_synth_create(&sd).value_or(nullptr);
-    d->music = ano_music_create(cfg, 42).value_or(nullptr);
+    d->synth = synth_create(&sd).value_or(nullptr);
+    d->music = music_create(cfg, 42).value_or(nullptr);
     for (uint32_t b = 0; b < startBar; ++b) { // off-thread seek half
         static AnoMusicBar skip;
-        ano_music_advance_bar(d->music, &skip);
+        music_advance_bar(d->music, &skip);
     }
-    CHECK(ano_synth_attach_music(d->synth, d->music), "attach");
-    ano_synth_transport_start(d->synth, 0);
+    CHECK(synth_attach_music(d->synth, d->music), "attach");
+    synth_transport_start(d->synth, 0);
 
     AnoAudioOfflineDesc od  = *base;
     od.generator            = drive_generator;
@@ -112,7 +112,7 @@ static void render_driven_from(const AnoMusicConfig *cfg, const AnoAudioOfflineD
     od.events               = cmds;
     od.eventCount           = cmdCount;
     od.generatorControl     = wireControl ? drive_control : NULL;
-    CHECK(ano_audio_render_offline(&od, buf, frames), "driven render");
+    CHECK(audio_render_offline(&od, buf, frames), "driven render");
 }
 
 static void render_driven(const AnoMusicConfig *cfg, const AnoAudioOfflineDesc *base,
@@ -124,14 +124,14 @@ static void render_driven(const AnoMusicConfig *cfg, const AnoAudioOfflineDesc *
 
 static void drive_free(Drive *d)
 {
-    ano_synth_destroy(d->synth);
-    ano_music_destroy(d->music);
+    synth_destroy(d->synth);
+    music_destroy(d->music);
 }
 
 int main(void)
 {
     AnoAudioBusDesc buses[ANO_SYNTH_CONSOLE_BUSES];
-    uint32_t busCount = ano_synth_console_layout(buses, ANO_SYNTH_CONSOLE_BUSES);
+    uint32_t busCount = synth_console_layout(buses, ANO_SYNTH_CONSOLE_BUSES);
     CHECK(busCount == ANO_SYNTH_CONSOLE_BUSES, "console layout");
 
     AnoSynthDesc sd = { .sampleRate = RATE, .maxVoices = 64 };
@@ -141,36 +141,36 @@ int main(void)
     // --- batch reference capture ---
     static AnoMusicBar feed[SCORE_BARS];
     uint32_t totalEvents = 0, totalTempo = 0;
-    AnoMusicEngine *capture = ano_music_create(&cfg, 42).value_or(nullptr);
+    AnoMusicEngine *capture = music_create(&cfg, 42).value_or(nullptr);
     CHECK(capture != NULL, "music engine");
     for (uint32_t b = 0; b < SCORE_BARS; ++b) {
-        ano_music_advance_bar(capture, &feed[b]);
+        music_advance_bar(capture, &feed[b]);
         totalEvents += feed[b].eventCount;
         totalTempo += feed[b].tempoCount;
     }
-    ano_music_destroy(capture);
+    music_destroy(capture);
     CHECK(totalEvents > 200u, "the piece has substance");
 
     // --- A: batch path (whole score idle) ---
-    AnoSynth *batch = ano_synth_create(&sd).value_or(nullptr);
-    CHECK(ano_synth_score_begin(batch, BQ, SCORE_BARS, totalTempo, totalEvents),
+    AnoSynth *batch = synth_create(&sd).value_or(nullptr);
+    CHECK(synth_score_begin(batch, BQ, SCORE_BARS, totalTempo, totalEvents),
           "score_begin");
     for (uint32_t b = 0; b < SCORE_BARS; ++b)
         for (uint32_t i = 0; i < feed[b].tempoCount; ++i)
-            CHECK(ano_synth_score_tempo(batch, feed[b].tempo[i].beat,
+            CHECK(synth_score_tempo(batch, feed[b].tempo[i].beat,
                                         feed[b].tempo[i].bpm),
                   "score_tempo");
     for (uint32_t b = 0; b < SCORE_BARS; ++b)
-        CHECK(ano_synth_score_bar(batch, b, &feed[b].params, &feed[b].affect),
+        CHECK(synth_score_bar(batch, b, &feed[b].params, &feed[b].affect),
               "score_bar");
     for (uint32_t b = 0; b < SCORE_BARS; ++b)
         for (uint32_t i = 0; i < feed[b].eventCount; ++i)
-            CHECK(ano_synth_score_event(batch, &feed[b].events[i]), "score_event");
-    CHECK(ano_synth_score_end(batch), "score_end");
+            CHECK(synth_score_event(batch, &feed[b].events[i]), "score_event");
+    CHECK(synth_score_end(batch), "score_end");
 
-    uint64_t frames = ano_synth_score_frames(batch, TAIL);
+    uint64_t frames = synth_score_frames(batch, TAIL);
     CHECK(frames > RATE, "score has length");
-    ano_synth_transport_start(batch, 0);
+    synth_transport_start(batch, 0);
 
     float *bufA = static_cast<float *>(
         calloc((size_t)frames * ANO_AUDIO_CHANNELS, sizeof *bufA));
@@ -183,10 +183,10 @@ int main(void)
         .blockFrames = BLOCK,
         .busCount = busCount,
         .busLayout = buses,
-        .generator = ano_synth_generator,
+        .generator = synth_generator,
         .generatorUser = batch,
     };
-    CHECK(ano_audio_render_offline(&od, bufA, frames), "batch render");
+    CHECK(audio_render_offline(&od, bufA, frames), "batch render");
 
     // --- B: composer in the callback ---
     static Drive drv;
@@ -194,12 +194,12 @@ int main(void)
     AnoSynth       *drivenSynth = drv.synth;
     AnoMusicEngine *music       = drv.music;
 
-    CHECK(ano_synth_live_late(drivenSynth) == 0u, "no tie arrived late");
-    CHECK(ano_synth_live_overflow(drivenSynth) == 0u, "no note overflowed the ring");
-    CHECK(ano_synth_dropped(drivenSynth) == 0u, "no voice was dropped");
+    CHECK(synth_live_late(drivenSynth) == 0u, "no tie arrived late");
+    CHECK(synth_live_overflow(drivenSynth) == 0u, "no note overflowed the ring");
+    CHECK(synth_dropped(drivenSynth) == 0u, "no voice was dropped");
 
     // --- equivalence over shared bars (cut at BARS; SCORE_BARS has lookahead) ---
-    uint64_t cut = (uint64_t)(ano_synth_time_at(batch, (double)BARS * BQ) * RATE);
+    uint64_t cut = (uint64_t)(synth_time_at(batch, (double)BARS * BQ) * RATE);
     CHECK(cut > 0 && cut <= frames, "the shared span is the score");
 
     size_t samples = (size_t)cut * ANO_AUDIO_CHANNELS;
@@ -230,7 +230,7 @@ int main(void)
     CHECK(sqrt(rms / (double)samples) > 0.01, "and it is audible");
 
     // --- piece does not end ---
-    CHECK(ano_music_next_bar(music) > (int)SCORE_BARS, "the composer ran past the score");
+    CHECK(music_next_bar(music) > (int)SCORE_BARS, "the composer ran past the score");
 
     // --- meaning lands on its own downbeat ---
     CHECK(drv.gotCount >= BARS, "every bar reported its meaning");
@@ -240,7 +240,7 @@ int main(void)
             ordered = false;
         if (k < BARS) {
             uint64_t downbeat =
-                (uint64_t)(ano_synth_time_at(batch, (double)k * BQ) * RATE);
+                (uint64_t)(synth_time_at(batch, (double)k * BQ) * RATE);
             // Composed up to LOOKAHEAD earlier; surfaced in the block that crosses its downbeat.
             if (!(downbeat >= drv.gotAt[k] && downbeat < drv.gotAt[k] + BLOCK))
                 timely = false;
@@ -256,20 +256,20 @@ int main(void)
 
     // --- callback cost vs block budget ---
     uint32_t blockUs = (uint32_t)((uint64_t)BLOCK * 1000000u / RATE);
-    uint32_t worstUs = ano_synth_music_bar_us_max(drivenSynth);
+    uint32_t worstUs = synth_music_bar_us_max(drivenSynth);
     printf("  bar composition: worst %u us of the %u us block (%.1f%%)\n", worstUs,
            blockUs, 100.0 * (double)worstUs / (double)blockUs);
     CHECK(worstUs < blockUs, "composing a bar fits inside one block");
 
     // Same number in telemetry.
     AnoAudioTelemetry tel = { 0 };
-    ano_synth_stats(drivenSynth, &tel);
+    synth_stats(drivenSynth, &tel);
     CHECK(tel.genUsMax == worstUs, "the composer's cost reaches the telemetry frame");
     CHECK(tel.genLate == 0u && tel.genDropped == 0u, "and it reports nothing lost");
 
     // Wrong user ptr refused (hooks share one ptr).
     AnoAudioEvent spill[4];
-    CHECK(ano_synth_poll(&drv, spill, 4) == 0u, "a user pointer that is not a synth is refused");
+    CHECK(synth_poll(&drv, spill, 4) == 0u, "a user pointer that is not a synth is refused");
 
     // --- control plane: ACMD_MUSIC_* via offline command list ---
     {
@@ -337,11 +337,11 @@ int main(void)
 
         // Producer: fast-forward + snapshot.
         static AnoMusicBar skip;
-        void *snap = malloc(ano_music_snapshot_size());
-        AnoMusicEngine *off = ano_music_create(&cfg, 42).value_or(nullptr);
+        void *snap = malloc(music_snapshot_size());
+        AnoMusicEngine *off = music_create(&cfg, 42).value_or(nullptr);
         for (uint32_t b = 0; b < SEEK_TO; ++b)
-            ano_music_advance_bar(off, &skip);
-        CHECK(ano_music_snapshot(off, snap, ano_music_snapshot_size()), "snapshot");
+            music_advance_bar(off, &skip);
+        CHECK(music_snapshot(off, snap, music_snapshot_size()), "snapshot");
 
         AnoAudioOfflineEvent seekAt0[] = {
             { .frame = 0, .cmd = { .kind = ACMD_MUSIC_SEEK, .block = snap } },
@@ -365,16 +365,16 @@ int main(void)
                 || seeked.got[k].u.music.bar != (int)(SEEK_TO + k - 1u))
                 numbered = false;
         CHECK(numbered, "the bars keep counting from where the engine was");
-        CHECK(ano_synth_live_late(seeked.synth) == 0u
-                  && ano_synth_live_overflow(seeked.synth) == 0u
-                  && ano_synth_dropped(seeked.synth) == 0u,
+        CHECK(synth_live_late(seeked.synth) == 0u
+                  && synth_live_overflow(seeked.synth) == 0u
+                  && synth_dropped(seeked.synth) == 0u,
               "the seek cost nothing: no lateness, no overflow, no dropped voice");
 
         // --- mid-flight: pre-seek audio untouched ---
         static Drive jumped;
         float *bufG = static_cast<float *>(
             calloc((size_t)frames * ANO_AUDIO_CHANNELS, sizeof *bufG));
-        uint64_t at = (uint64_t)(ano_synth_time_at(batch, 6.0 * BQ) * RATE) - BLOCK;
+        uint64_t at = (uint64_t)(synth_time_at(batch, 6.0 * BQ) * RATE) - BLOCK;
         AnoAudioOfflineEvent seekMid[] = {
             { .frame = at, .cmd = { .kind = ACMD_MUSIC_SEEK, .block = snap } },
         };
@@ -395,11 +395,11 @@ int main(void)
               "and the one before it was still the old piece");
 
         // First seeked bar on the old schedule's barline; after that, new tempo map.
-        uint64_t barline = (uint64_t)(ano_synth_time_at(batch, (double)jump * BQ) * RATE);
+        uint64_t barline = (uint64_t)(synth_time_at(batch, (double)jump * BQ) * RATE);
         CHECK(barline >= jumped.gotAt[jump + 1] && barline < jumped.gotAt[jump + 1] + BLOCK,
               "the seeked bar lands on the barline the old schedule had already fixed");
-        CHECK(ano_synth_live_late(jumped.synth) == 0u
-                  && ano_synth_dropped(jumped.synth) == 0u,
+        CHECK(synth_live_late(jumped.synth) == 0u
+                  && synth_dropped(jumped.synth) == 0u,
               "the mid-flight seek dropped nothing either");
 
         // --- other meter refused; running music untouched ---
@@ -408,9 +408,9 @@ int main(void)
             calloc((size_t)frames * ANO_AUDIO_CHANNELS, sizeof *bufH));
         AnoMusicConfig waltz = cfg;
         waltz.meter = (AnoMeter){ 3, 4 };
-        AnoMusicEngine *w = ano_music_create(&waltz, 42).value_or(nullptr);
-        void *snapW = malloc(ano_music_snapshot_size());
-        CHECK(ano_music_snapshot(w, snapW, ano_music_snapshot_size()), "waltz snapshot");
+        AnoMusicEngine *w = music_create(&waltz, 42).value_or(nullptr);
+        void *snapW = malloc(music_snapshot_size());
+        CHECK(music_snapshot(w, snapW, music_snapshot_size()), "waltz snapshot");
         AnoAudioOfflineEvent seekWaltz[] = {
             { .frame = at, .cmd = { .kind = ACMD_MUSIC_SEEK, .block = snapW } },
         };
@@ -426,14 +426,14 @@ int main(void)
 
         free(bufH);
         free(snapW);
-        ano_music_destroy(w);
+        music_destroy(w);
         drive_free(&kept);
 
         free(bufE);
         free(bufF);
         free(bufG);
         free(snap);
-        ano_music_destroy(off);
+        music_destroy(off);
         drive_free(&seeked);
         drive_free(&direct);
         drive_free(&jumped);
@@ -441,7 +441,7 @@ int main(void)
 
     free(bufA);
     free(bufB);
-    ano_synth_destroy(batch);
+    synth_destroy(batch);
     drive_free(&drv);
 
     if (failures) {

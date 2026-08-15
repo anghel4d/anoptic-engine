@@ -65,7 +65,7 @@ static int8_t maybe_borrow(int degree, AnoMode mode, double valence,
 {
     if (degree != 4 && degree != 6 && degree != 7)
         return ANO_MODE_NONE;
-    if (ano_mode_brightness(mode) <= ano_mode_brightness(ANO_MODE_AEOLIAN))
+    if (mode_brightness(mode) <= mode_brightness(ANO_MODE_AEOLIAN))
         return ANO_MODE_NONE;
     double neg = -valence > 0.0 ? -valence : 0.0;
     if (ano_music_random(rng) < cfg->borrowProbMax * neg)

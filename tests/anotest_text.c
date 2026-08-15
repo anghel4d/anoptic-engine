@@ -48,8 +48,8 @@ static void expect_version_zero(const char *when)
 static void test_lifecycle(void)
 {
     expect_version_zero("before init");
-    CHECK(ano_text_init(), "ano_text_init succeeds");
-    CHECK(ano_text_init(), "second init is an idempotent success");
+    CHECK(text_init(), "text_init succeeds");
+    CHECK(text_init(), "second init is an idempotent success");
 
     int maj = 0, min = 0, pat = 0;
     ano_text_version(&maj, &min, &pat);
@@ -58,14 +58,14 @@ static void test_lifecycle(void)
     CHECK(min >= 13, "FreeType minor version is >= 13 (vendored submodule generation)");
     ano_text_version(NULL, NULL, NULL); // NULL outs are a no-op
 
-    ano_text_shutdown();
+    text_shutdown();
     expect_version_zero("after shutdown");
-    ano_text_shutdown(); // double shutdown harmless
+    text_shutdown(); // double shutdown harmless
 
-    CHECK(ano_text_init(), "re-init after shutdown succeeds");
+    CHECK(text_init(), "re-init after shutdown succeeds");
     ano_text_version(&maj, &min, &pat);
     CHECK(maj == 2 && min >= 13, "re-initialized backend reports the same FreeType");
-    ano_text_shutdown();
+    text_shutdown();
 }
 
 /* White-box: binary16 */
@@ -693,7 +693,7 @@ static void test_shaper(const AnoFontBake *b)
     lineAB += b->glyphs['B' - 32].advance * S;
     CHECK(measured.width == lineAB, "measure width is the widest line (kerned)");
     CHECK(measured.height == (2.0f * b->lineHeight) * S, "measure height covers both lines");
-    measured = must(ano_text_measure(b, anostr_empty(), S));
+    measured = must(text_measure(b, anostr_empty(), S));
     CHECK(measured.width == 0.0f && measured.height == 0.0f, "empty text measures zero");
 }
 
@@ -782,7 +782,7 @@ static void test_shaper_runs(const AnoFontBake *b)
     CHECK(styled[1].color[2] == 1.0f && styled[1].inv[0] == 1.0f / (2.0f * S),
           "the next codepoint takes the next run's style");
 
-    // Count/cap/validation mirror ano_text_shape.
+    // Count/cap/validation mirror text_shape.
     CHECK(must(ano_text_shape_runs_lit(
               b, "AV LT", split, 3, org, NULL, 0, NULL)) == n,
           "count mode needs no buffer");
@@ -800,7 +800,7 @@ static void test_shaper_runs(const AnoFontBake *b)
                            TextError::invalid_argument),
           "zero size, NULL runs, zero count, run-sum/length mismatch all reject");
 
-    // measure_runs: max kerned line width; height = sum of per-line steps. Uniform == ano_text_measure.
+    // measure_runs: max kerned line width; height = sum of per-line steps. Uniform == text_measure.
     const AnoTextRun mixed[2] = {
         { 3, S, { 1.0f, 0.0f, 0.0f, 1.0f } },          // "AB\n"
         { 1, 2.0f * S, { 0.0f, 0.0f, 1.0f, 1.0f } },   // "A"
@@ -817,9 +817,9 @@ static void test_shaper_runs(const AnoFontBake *b)
     const AnoTextMeasure plainMeasure = must(ano_text_measure_lit(b, "AB\nA", S));
     measured = must(ano_text_measure_runs_lit(b, "AB\nA", uni, 1));
     CHECK(measured.width == plainMeasure.width,
-          "uniform-run width is bit-identical to ano_text_measure");
+          "uniform-run width is bit-identical to text_measure");
     const AnoTextRun none[1] = { { 0, S, { 1.0f, 1.0f, 1.0f, 1.0f } } };
-    measured = must(ano_text_measure_runs(b, anostr_empty(), none, 1));
+    measured = must(text_measure_runs(b, anostr_empty(), none, 1));
     CHECK(measured.width == 0.0f && measured.height == 0.0f,
           "empty runs measure zero");
 }
@@ -833,14 +833,14 @@ static void test_measure_runs_noop(void)
     const anostr_t text = anostr_lit("AA");   // two single-line, out-of-bake codepoints
 
     AnoTextRun single[1] = { { .byteCount = 2, .sizePx = 32.0f, .color = { 0 } } };
-    const AnoTextMeasure singleMeasure = must(ano_text_measure_runs(&bake, text, single, 1));
+    const AnoTextMeasure singleMeasure = must(text_measure_runs(&bake, text, single, 1));
     CHECK(singleMeasure.height == 32.0f, "single run: one line measures lineHeight * sizePx");
 
     AnoTextRun lead[2] = {
         { .byteCount = 0, .sizePx = 64.0f, .color = { 0 } },
         { .byteCount = 2, .sizePx = 32.0f, .color = { 0 } },
     };
-    const AnoTextMeasure leadMeasure = must(ano_text_measure_runs(&bake, text, lead, 2));
+    const AnoTextMeasure leadMeasure = must(text_measure_runs(&bake, text, lead, 2));
     CHECK(leadMeasure.height == singleMeasure.height,
           "leading no-op run does not change measured height");
     CHECK(leadMeasure.width == singleMeasure.width,
@@ -851,7 +851,7 @@ static void test_measure_runs_noop(void)
         { .byteCount = 2, .sizePx = 32.0f, .color = { 0 } },
         { .byteCount = 0, .sizePx = 64.0f, .color = { 0 } },
     };
-    const AnoTextMeasure trailMeasure = must(ano_text_measure_runs(&bake, text, trail, 2));
+    const AnoTextMeasure trailMeasure = must(text_measure_runs(&bake, text, trail, 2));
     CHECK(trailMeasure.width == singleMeasure.width,
           "trailing no-op run does not change measured width");
     CHECK(trailMeasure.height == singleMeasure.height,
@@ -868,7 +868,7 @@ static void test_runic_bake(AnoFontId geist, AnoFontId runic, mi_heap_t *heap)
         { .font = geist, .first = 0x0020, .last = 0x007E },
         { .font = runic, .first = 0x16A0, .last = 0x16F8 },
     };
-    const auto baked = ano_text_font_bake_ranges(ranges, 2, heap);
+    const auto baked = text_font_bake_ranges(ranges, 2, heap);
     CHECK(baked, "two-face bake succeeds");
     const AnoFontBake b = baked.value_or(AnoFontBake{});
     CHECK(b.rangeCount == 2 && b.glyphCount == 95 + 89, "slots cover both ranges");
@@ -913,9 +913,9 @@ static void test_runic_bake(AnoFontId geist, AnoFontId runic, mi_heap_t *heap)
         { .font = geist, .first = 0x0020, .last = 0x007E },
         { .font = geist, .first = 0x0070, .last = 0x00FF },
     };
-    CHECK(ano::has_error(ano_text_font_bake_ranges(unsorted, 2, heap), TextError::invalid_argument),
+    CHECK(ano::has_error(text_font_bake_ranges(unsorted, 2, heap), TextError::invalid_argument),
           "unsorted ranges reject");
-    CHECK(ano::has_error(ano_text_font_bake_ranges(overlap, 2, heap), TextError::invalid_argument),
+    CHECK(ano::has_error(text_font_bake_ranges(overlap, 2, heap), TextError::invalid_argument),
           "overlapping ranges reject");
 }
 
@@ -928,12 +928,12 @@ int main(void)
     test_cubic();
     test_gpos_synthetic();
 
-    CHECK(ano_fs_chdir_gamepath(), "chdir to the exe directory (staged font root)");
-    CHECK(ano_text_init(), "init for bake tests");
+    CHECK(fs_chdir_gamepath(), "chdir to the exe directory (staged font root)");
+    CHECK(text_init(), "init for bake tests");
 
     CHECK(!ano_text_font_load_lit("resources/fonts/does-not-exist.ttf"),
           "loading a missing file fails cleanly");
-    CHECK(!ano_text_font_load(anostr_empty()), "an empty path fails cleanly");
+    CHECK(!text_font_load(anostr_empty()), "an empty path fails cleanly");
     const auto loadedGeist = ano_text_font_load_lit(FONT_PATH);
     CHECK(loadedGeist, "Geist-Regular loads");
     const AnoFontId geist = loadedGeist.value_or(0);
@@ -941,15 +941,15 @@ int main(void)
     CHECK(loadedRunic, "Noto Sans Runic loads");
     const AnoFontId runic = loadedRunic.value_or(0);
 
-    mi_heap_t *heapA ANO_SCOPED_HEAP = ano_heap_create();
-    mi_heap_t *heapB ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t *heapA ANO_SCOPED_HEAP = heap_create();
+    mi_heap_t *heapB ANO_SCOPED_HEAP = heap_create();
     CHECK(heapA != NULL && heapB != NULL, "bake heaps");
 
-    CHECK(ano::has_error(ano_text_font_bake(0, 32, 126, heapA), TextError::invalid_argument), "bad handle rejected");
-    CHECK(ano::has_error(ano_text_font_bake(geist, 126, 32, heapA), TextError::invalid_argument), "reversed range rejected");
-    CHECK(ano::has_error(ano_text_font_bake(geist, 32, 126, NULL), TextError::invalid_argument), "NULL heap rejected");
+    CHECK(ano::has_error(text_font_bake(0, 32, 126, heapA), TextError::invalid_argument), "bad handle rejected");
+    CHECK(ano::has_error(text_font_bake(geist, 126, 32, heapA), TextError::invalid_argument), "reversed range rejected");
+    CHECK(ano::has_error(text_font_bake(geist, 32, 126, NULL), TextError::invalid_argument), "NULL heap rejected");
 
-    const auto baked = ano_text_font_bake(geist, 32, 126, heapA);
+    const auto baked = text_font_bake(geist, 32, 126, heapA);
     CHECK(baked, "ASCII bake succeeds");
     const AnoFontBake bake = baked.value_or(AnoFontBake{});
     validate_bake(&bake);
@@ -962,7 +962,7 @@ int main(void)
     test_runic_bake(geist, runic, heapA);
 
     // Determinism: second bake bit-identical.
-    const auto bakedAgain = ano_text_font_bake(geist, 32, 126, heapB);
+    const auto bakedAgain = text_font_bake(geist, 32, 126, heapB);
     CHECK(bakedAgain, "second bake succeeds");
     const AnoFontBake again = bakedAgain.value_or(AnoFontBake{});
     CHECK(again.pointCount == bake.pointCount && again.glyphCount == bake.glyphCount
@@ -979,7 +979,7 @@ int main(void)
               "kern tables are bit-identical");
     }
 
-    ano_text_shutdown();
+    text_shutdown();
 
     if (failures == 0)
         printf("anotest_text: all checks passed\n");

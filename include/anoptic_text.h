@@ -31,10 +31,10 @@ template<class Value = void>
 using TextResult = Result<Value, TextError>;
 
 // Idempotent.
-[[nodiscard]] TextResult<> ano_text_init(void);
+[[nodiscard]] TextResult<> text_init(void);
 
 // Teardown including fonts. Safe if never init'd.
-void ano_text_shutdown(void);
+void text_shutdown(void);
 
 
 /* Fonts */
@@ -43,10 +43,10 @@ void ano_text_shutdown(void);
 typedef uint32_t AnoFontId;
 
 // Load a scalable outline face.
-[[nodiscard]] TextResult<AnoFontId> ano_text_font_load(anostr_t path);
+[[nodiscard]] TextResult<AnoFontId> text_font_load(anostr_t path);
 
-// ano_text_font_load over a path literal.
-#define ano_text_font_load_lit(pathlit) ano_text_font_load(anostr_lit(pathlit))
+// text_font_load over a path literal.
+#define ano_text_font_load_lit(pathlit) text_font_load(anostr_lit(pathlit))
 
 
 /* GPU bake */
@@ -91,11 +91,11 @@ struct AnoFontBake {
 };
 
 // Bake ranges -> GPU blobs on heap. Ranges sorted ascending + disjoint, 4096 slots max. Metrics from ranges[0]. Missing -> blank. Kern never bridges faces; skipped entirely above 1024 slots.
-[[nodiscard]] TextResult<AnoFontBake> ano_text_font_bake_ranges(
+[[nodiscard]] TextResult<AnoFontBake> text_font_bake_ranges(
     const AnoBakeRange *ranges, uint32_t rangeCount, mi_heap_t *heap);
 
-// Single-range convenience over ano_text_font_bake_ranges.
-[[nodiscard]] TextResult<AnoFontBake> ano_text_font_bake(
+// Single-range convenience over text_font_bake_ranges.
+[[nodiscard]] TextResult<AnoFontBake> text_font_bake(
     AnoFontId font, uint32_t firstCodepoint, uint32_t lastCodepoint,
     mi_heap_t *heap);
 
@@ -134,23 +134,23 @@ struct AnoTextMeasure {
 };
 
 // Shape UTF-8 at sizePx from origin (screen px, y-down baseline). Writes <=cap, returns total need (out=NULL, cap=0 sizes). Blank advances without emit. '\n' resets penX to origin[0] and penY += lineHeight*sizePx. '\r' ignored. Out-of-bake codepoints (incl. U+FFFD from bad UTF-8) advance half-em. Adjacent in-range glyphs kern; newline/gap resets the chain. penOut is the optional final pen. Kern does not bridge calls.
-[[nodiscard]] TextResult<uint32_t> ano_text_shape(
+[[nodiscard]] TextResult<uint32_t> text_shape(
     const AnoFontBake *bake, anostr_t text, float sizePx,
     const float origin[2], const float color[4], AnoGlyphInstance *out,
     uint32_t cap, float *penOut);
 
 // Measure in px. Width = max line pen. Height = started lines * lineHeight * sizePx (trailing '\n' starts a line).
-[[nodiscard]] TextResult<AnoTextMeasure> ano_text_measure(
+[[nodiscard]] TextResult<AnoTextMeasure> text_measure(
     const AnoFontBake *bake, anostr_t text, float sizePx);
 
-// Shape with style runs. One pen: same-size runs bit-identical to unsplit (kern bridges). SIZE change resets chain. '\n' steps by lineHeight * that run's sizePx. Rejects sizePx<=0 or byteCount sum != len. Else same as ano_text_shape.
-[[nodiscard]] TextResult<uint32_t> ano_text_shape_runs(
+// Shape with style runs. One pen: same-size runs bit-identical to unsplit (kern bridges). SIZE change resets chain. '\n' steps by lineHeight * that run's sizePx. Rejects sizePx<=0 or byteCount sum != len. Else same as text_shape.
+[[nodiscard]] TextResult<uint32_t> text_shape_runs(
     const AnoFontBake *bake, anostr_t text, const AnoTextRun *runs,
     uint32_t runCount, const float origin[2], AnoGlyphInstance *out,
     uint32_t cap, float *penOut);
 
 // Measure over runs. Width = max line pen. Height = sum of newline steps (lineHeight * that run's sizePx) + final lineHeight * sizePx of the last run that styled a codepoint.
-[[nodiscard]] TextResult<AnoTextMeasure> ano_text_measure_runs(
+[[nodiscard]] TextResult<AnoTextMeasure> text_measure_runs(
     const AnoFontBake *bake, anostr_t text, const AnoTextRun *runs,
     uint32_t runCount);
 
@@ -160,16 +160,16 @@ struct AnoTextMeasure {
 // String-literal face macros wrapping anostr_lit, length folded at compile time.
 
 #define ano_text_shape_lit(bake, textlit, sizePx, origin, color, out, cap, penOut) \
-    ano_text_shape((bake), anostr_lit(textlit), (sizePx), (origin), (color), (out), (cap), (penOut))
+    text_shape((bake), anostr_lit(textlit), (sizePx), (origin), (color), (out), (cap), (penOut))
 
 #define ano_text_measure_lit(bake, textlit, sizePx) \
-    ano_text_measure((bake), anostr_lit(textlit), (sizePx))
+    text_measure((bake), anostr_lit(textlit), (sizePx))
 
 #define ano_text_shape_runs_lit(bake, textlit, runs, runCount, origin, out, cap, penOut) \
-    ano_text_shape_runs((bake), anostr_lit(textlit), (runs), (runCount), (origin), (out), (cap), \
+    text_shape_runs((bake), anostr_lit(textlit), (runs), (runCount), (origin), (out), (cap), \
                         (penOut))
 
 #define ano_text_measure_runs_lit(bake, textlit, runs, runCount) \
-    ano_text_measure_runs((bake), anostr_lit(textlit), (runs), (runCount))
+    text_measure_runs((bake), anostr_lit(textlit), (runs), (runCount))
 
 } // namespace ano

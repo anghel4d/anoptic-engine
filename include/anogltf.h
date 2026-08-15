@@ -235,7 +235,7 @@ using AnoGltfAnimationChannelIndex = AnoGltfIndex<AnoGltfAnimationChannelTag>;
 using AnoGltfVariantIndex = AnoGltfIndex<AnoGltfVariantTag>;
 
 template<class Tag>
-constexpr bool ano_gltf_has_index(AnoGltfIndex<Tag> index)
+constexpr bool gltf_has_index(AnoGltfIndex<Tag> index)
 {
     return index.value != ANO_GLTF_NO_INDEX;
 }
@@ -850,7 +850,7 @@ static_assert(AnoGltfPlainData<AnoGltfAnimation>);
 static_assert(AnoGltfPlainData<AnoGltfData>);
 
 template<class T>
-[[nodiscard]] auto ano_gltf_index_of(const T* objects, uint32_t count, const T* object)
+[[nodiscard]] auto gltf_index_of(const T* objects, uint32_t count, const T* object)
 {
     static constexpr auto annotations = std::define_static_array(
         std::meta::annotations_of_with_type(^^T, ^^AnoGltfIndexKind));
@@ -873,57 +873,57 @@ template<class T>
 }
 
 static_assert(std::is_same_v<
-    decltype(ano_gltf_index_of<AnoGltfMesh>(nullptr, 0, nullptr)), AnoGltfMeshIndex>);
+    decltype(gltf_index_of<AnoGltfMesh>(nullptr, 0, nullptr)), AnoGltfMeshIndex>);
 static_assert(std::is_same_v<
-    decltype(ano_gltf_index_of<AnoGltfAnimationChannel>(nullptr, 0, nullptr)),
+    decltype(gltf_index_of<AnoGltfAnimationChannel>(nullptr, 0, nullptr)),
     AnoGltfAnimationChannelIndex>);
 
-[[nodiscard]] GltfResult<AnoGltfData*> ano_gltf_parse_memory(
+[[nodiscard]] GltfResult<AnoGltfData*> gltf_parse_memory(
     const void* bytes, size_t byteCount, const AnoGltfOptions* options);
-[[nodiscard]] GltfResult<AnoGltfData*> ano_gltf_parse_file(
+[[nodiscard]] GltfResult<AnoGltfData*> gltf_parse_file(
     const char* path, const AnoGltfOptions* options);
-[[nodiscard]] GltfResult<> ano_gltf_load_buffers(
+[[nodiscard]] GltfResult<> gltf_load_buffers(
     AnoGltfData* data, const char* gltfPath, const AnoGltfOptions* options);
-[[nodiscard]] GltfResult<void*> ano_gltf_load_buffer_base64(
+[[nodiscard]] GltfResult<void*> gltf_load_buffer_base64(
     const AnoGltfOptions* options, size_t byteCount, const char* base64);
-[[nodiscard]] GltfResult<> ano_gltf_bind_buffer(
+[[nodiscard]] GltfResult<> gltf_bind_buffer(
     AnoGltfData* data, AnoGltfBufferIndex buffer, const void* bytes, size_t byteCount);
-[[nodiscard]] GltfResult<> ano_gltf_bind_buffer_view(
+[[nodiscard]] GltfResult<> gltf_bind_buffer_view(
     AnoGltfData* data, AnoGltfBufferViewIndex view, const void* bytes, size_t byteCount);
-[[nodiscard]] GltfResult<> ano_gltf_validate_loaded_data(const AnoGltfData* data);
-void ano_gltf_free(AnoGltfData* data);
-[[nodiscard]] const char* ano_gltf_result_string(AnoGltfResult result);
+[[nodiscard]] GltfResult<> gltf_validate_loaded_data(const AnoGltfData* data);
+void gltf_free(AnoGltfData* data);
+[[nodiscard]] const char* gltf_result_string(AnoGltfResult result);
 
-[[nodiscard]] size_t ano_gltf_decode_string(char* string);
-[[nodiscard]] size_t ano_gltf_decode_uri(char* uri);
-[[nodiscard]] GltfResult<size_t> ano_gltf_copy_extras_json(
+[[nodiscard]] size_t gltf_decode_string(char* string);
+[[nodiscard]] size_t gltf_decode_uri(char* uri);
+[[nodiscard]] GltfResult<size_t> gltf_copy_extras_json(
     const AnoGltfExtras* extras, char* destination, size_t capacity);
-[[nodiscard]] uint32_t ano_gltf_component_count(AnoGltfAccessorType type);
-[[nodiscard]] uint32_t ano_gltf_component_size(AnoGltfComponentType type);
-[[nodiscard]] uint32_t ano_gltf_element_size(
+[[nodiscard]] uint32_t gltf_component_count(AnoGltfAccessorType type);
+[[nodiscard]] uint32_t gltf_component_size(AnoGltfComponentType type);
+[[nodiscard]] uint32_t gltf_element_size(
     AnoGltfAccessorType type, AnoGltfComponentType componentType);
-[[nodiscard]] GltfResult<const uint8_t*> ano_gltf_buffer_view_data(
+[[nodiscard]] GltfResult<const uint8_t*> gltf_buffer_view_data(
     const AnoGltfData* data, AnoGltfBufferViewIndex view);
-[[nodiscard]] const AnoGltfAccessor* ano_gltf_find_accessor(
+[[nodiscard]] const AnoGltfAccessor* gltf_find_accessor(
     const AnoGltfData* data, const AnoGltfPrimitive* primitive,
     AnoGltfAttributeType type, int32_t set);
-[[nodiscard]] GltfResult<> ano_gltf_accessor_read_float(
+[[nodiscard]] GltfResult<> gltf_accessor_read_float(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, float* output, size_t outputCount);
-[[nodiscard]] GltfResult<> ano_gltf_accessor_read_uint(
+[[nodiscard]] GltfResult<> gltf_accessor_read_uint(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, uint32_t* output, size_t outputCount);
-[[nodiscard]] GltfResult<uint32_t> ano_gltf_accessor_read_index(
+[[nodiscard]] GltfResult<uint32_t> gltf_accessor_read_index(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index);
-[[nodiscard]] GltfResult<uint64_t> ano_gltf_accessor_unpack_floats(
+[[nodiscard]] GltfResult<uint64_t> gltf_accessor_unpack_floats(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     float* output, uint64_t outputCount);
-[[nodiscard]] GltfResult<uint64_t> ano_gltf_accessor_unpack_indices(
+[[nodiscard]] GltfResult<uint64_t> gltf_accessor_unpack_indices(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     void* output, size_t outputComponentSize, uint64_t outputCount);
-void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16]);
-[[nodiscard]] GltfResult<> ano_gltf_node_transform_world(
+void gltf_node_transform_local(const AnoGltfNode* node, float output[16]);
+[[nodiscard]] GltfResult<> gltf_node_transform_world(
     const AnoGltfData* data, AnoGltfNodeIndex node, float output[16]);
 
 } // namespace ano
@@ -2568,8 +2568,8 @@ static AnoGltfResult validate_sparse(
     if (sparse.count == 0)
         return AnoGltfResult::success;
     if (sparse.count > accessor.count
-        || !ano_gltf_has_index(sparse.indices.bufferView)
-        || !ano_gltf_has_index(sparse.values.bufferView)
+        || !gltf_has_index(sparse.indices.bufferView)
+        || !gltf_has_index(sparse.values.bufferView)
         || sparse.indices.bufferView.value >= root.bufferViews.count
         || sparse.values.bufferView.value >= root.bufferViews.count)
         return AnoGltfResult::invalid_gltf;
@@ -2600,13 +2600,13 @@ static AnoGltfResult validate_sparse(
 template<class Tag>
 static bool valid_optional_index(AnoGltfIndex<Tag> index, uint32_t count)
 {
-    return !ano_gltf_has_index(index) || index.value < count;
+    return !gltf_has_index(index) || index.value < count;
 }
 
 template<class Tag>
 static bool valid_required_index(AnoGltfIndex<Tag> index, uint32_t count)
 {
-    return ano_gltf_has_index(index) && index.value < count;
+    return gltf_has_index(index) && index.value < count;
 }
 
 static bool valid_filter(AnoGltfFilter filter)
@@ -2962,7 +2962,7 @@ static AnoGltfResult validate_attribute_map(
         const AnoGltfAccessor& accessor = root.accessors.data[attribute.accessor.value];
         if (!attribute_accessor_valid(attribute, accessor, domain, quantized))
             return AnoGltfResult::invalid_gltf;
-        if (ano_gltf_has_index(accessor.bufferView)) {
+        if (gltf_has_index(accessor.bufferView)) {
             const AnoGltfBufferView& view = root.bufferViews.data[accessor.bufferView.value];
             const uint32_t stride = view.byteStride
                 ? view.byteStride : element_size(accessor.componentType, accessor.type);
@@ -3068,7 +3068,7 @@ static AnoGltfResult derive_node_parents(RootSchema* root, uint8_t* marks)
         for (uint32_t i = 0; i < children.count; ++i) {
             const AnoGltfNodeIndex child = children.data[i];
             if (!valid_required_index(child, root->nodes.count) || child.value == parent
-                || ano_gltf_has_index(root->nodes.data[child.value].parent))
+                || gltf_has_index(root->nodes.data[child.value].parent))
                 return AnoGltfResult::invalid_gltf;
             root->nodes.data[child.value].parent.value = parent;
         }
@@ -3079,7 +3079,7 @@ static AnoGltfResult derive_node_parents(RootSchema* root, uint8_t* marks)
         while (node < root->nodes.count && marks[node] == 0) {
             marks[node] = 1;
             const AnoGltfNodeIndex parent = root->nodes.data[node].parent;
-            node = ano_gltf_has_index(parent) ? parent.value : root->nodes.count;
+            node = gltf_has_index(parent) ? parent.value : root->nodes.count;
         }
         if (node < root->nodes.count && marks[node] == 1)
             return AnoGltfResult::invalid_gltf;
@@ -3087,7 +3087,7 @@ static AnoGltfResult derive_node_parents(RootSchema* root, uint8_t* marks)
         while (node < root->nodes.count && marks[node] == 1) {
             marks[node] = 2;
             const AnoGltfNodeIndex parent = root->nodes.data[node].parent;
-            node = ano_gltf_has_index(parent) ? parent.value : root->nodes.count;
+            node = gltf_has_index(parent) ? parent.value : root->nodes.count;
         }
     }
     return AnoGltfResult::success;
@@ -3101,7 +3101,7 @@ static bool accessor_is_draco_placeholder(const RootSchema& root, uint32_t acces
             const AnoGltfPrimitive& primitive = primitives.data[primitiveIndex];
             if (!primitive.extensions.known.KHR_draco_mesh_compression.present)
                 continue;
-            if (ano_gltf_has_index(primitive.indices)
+            if (gltf_has_index(primitive.indices)
                 && primitive.indices.value == accessorIndex)
                 return true;
             for (uint32_t attribute = 0; attribute < primitive.attributes.values.count; ++attribute) {
@@ -3153,7 +3153,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
 
     for (uint32_t i = 0; i < root.bufferViews.count; ++i) {
         const AnoGltfBufferView& view = root.bufferViews.data[i];
-        if (!ano_gltf_has_index(view.buffer) || view.buffer.value >= root.buffers.count
+        if (!gltf_has_index(view.buffer) || view.buffer.value >= root.buffers.count
             || view.byteLength == 0 || view.byteOffset % 4 != 0 || !valid_target(view.target))
             return AnoGltfResult::invalid_gltf;
         if (view.byteStride != 0
@@ -3199,7 +3199,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
             }
         }
 
-        if (ano_gltf_has_index(accessor.bufferView)) {
+        if (gltf_has_index(accessor.bufferView)) {
             if (accessor.bufferView.value >= root.bufferViews.count)
                 return AnoGltfResult::invalid_gltf;
             const AnoGltfBufferView& view = root.bufferViews.data[accessor.bufferView.value];
@@ -3219,7 +3219,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
     for (uint32_t i = 0; i < root.images.count; ++i) {
         const AnoGltfImage& image = root.images.data[i];
         const bool hasUri = image.uri.length != 0;
-        const bool hasView = ano_gltf_has_index(image.bufferView);
+        const bool hasView = gltf_has_index(image.bufferView);
         if (hasUri == hasView || !valid_optional_index(image.bufferView, root.bufferViews.count)
             || (hasView && image.mimeType.length == 0))
             return AnoGltfResult::invalid_gltf;
@@ -3235,7 +3235,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
         if (!valid_optional_index(texture.sampler, root.samplers.count)
             || !valid_optional_index(texture.source, root.images.count))
             return AnoGltfResult::invalid_gltf;
-        bool hasSource = ano_gltf_has_index(texture.source);
+        bool hasSource = gltf_has_index(texture.source);
         if (texture.extensions.known.KHR_texture_basisu.present) {
             const AnoGltfImageIndex source = texture.extensions.known.KHR_texture_basisu.value.source;
             if (!valid_required_index(source, root.images.count))
@@ -3316,7 +3316,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
                 }
             }
             uint64_t elementCount = vertexCount;
-            if (ano_gltf_has_index(primitive.indices)) {
+            if (gltf_has_index(primitive.indices)) {
                 const AnoGltfAccessor& indices = root.accessors.data[primitive.indices.value];
                 elementCount = indices.count;
                 if (indices.type != AnoGltfAccessorType::scalar
@@ -3324,7 +3324,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
                         && indices.componentType != AnoGltfComponentType::unsigned_short
                         && indices.componentType != AnoGltfComponentType::unsigned_int))
                     return AnoGltfResult::invalid_gltf;
-                if (ano_gltf_has_index(indices.bufferView)) {
+                if (gltf_has_index(indices.bufferView)) {
                     const AnoGltfBufferView& view = root.bufferViews.data[indices.bufferView.value];
                     const uint32_t stride = view.byteStride
                         ? view.byteStride : component_size(indices.componentType);
@@ -3410,7 +3410,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
                     return AnoGltfResult::invalid_gltf;
             }
         }
-        if (ano_gltf_has_index(skin.inverseBindMatrices)) {
+        if (gltf_has_index(skin.inverseBindMatrices)) {
             const AnoGltfAccessor& matrices =
                 root.accessors.data[skin.inverseBindMatrices.value];
             if (matrices.type != AnoGltfAccessorType::mat4
@@ -3471,7 +3471,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
         if (!valid_optional_index(node.camera, root.cameras.count)
             || !valid_optional_index(node.skin, root.skins.count)
             || !valid_optional_index(node.mesh, root.meshes.count)
-            || (ano_gltf_has_index(node.skin) && !ano_gltf_has_index(node.mesh))
+            || (gltf_has_index(node.skin) && !gltf_has_index(node.mesh))
             || (node.matrix.present && (node.rotation.present || node.scale.present || node.translation.present)))
             return AnoGltfResult::invalid_gltf;
         if (node.rotation.present) {
@@ -3481,7 +3481,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
             }
         }
         if (node.weights.count != 0) {
-            if (!ano_gltf_has_index(node.mesh))
+            if (!gltf_has_index(node.mesh))
                 return AnoGltfResult::invalid_gltf;
             const AnoGltfMesh& mesh = root.meshes.data[node.mesh.value];
             if (mesh.primitives.count != 0
@@ -3494,7 +3494,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
                 return AnoGltfResult::invalid_gltf;
         }
         if (node.extensions.known.EXT_mesh_gpu_instancing.present) {
-            if (!ano_gltf_has_index(node.mesh))
+            if (!gltf_has_index(node.mesh))
                 return AnoGltfResult::invalid_gltf;
             const AnoGltfAttributeMap& attributes =
                 node.extensions.known.EXT_mesh_gpu_instancing.value.attributes;
@@ -3518,7 +3518,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
         const AnoGltfScene& scene = root.scenes.data[i];
         for (uint32_t node = 0; node < scene.nodes.count; ++node) {
             if (!valid_required_index(scene.nodes.data[node], root.nodes.count)
-                || ano_gltf_has_index(root.nodes.data[scene.nodes.data[node].value].parent))
+                || gltf_has_index(root.nodes.data[scene.nodes.data[node].value].parent))
                 return AnoGltfResult::invalid_gltf;
             for (uint32_t previous = 0; previous < node; ++previous) {
                 if (scene.nodes.data[previous].value == scene.nodes.data[node].value)
@@ -3554,12 +3554,12 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
                 || !valid_optional_index(channel.target.node, root.nodes.count)
                 || !enum_value_valid(channel.target.path))
                 return AnoGltfResult::invalid_gltf;
-            if (!ano_gltf_has_index(channel.target.node))
+            if (!gltf_has_index(channel.target.node))
                 continue;
             for (uint32_t previous = 0; previous < channelIndex; ++previous) {
                 const AnoGltfAnimationTarget& target =
                     animation.channels.data[previous].target;
-                if (ano_gltf_has_index(target.node)
+                if (gltf_has_index(target.node)
                     && target.node.value == channel.target.node.value
                     && target.path == channel.target.path)
                     return AnoGltfResult::invalid_gltf;
@@ -3572,7 +3572,7 @@ static AnoGltfResult validate_schema(const Input& input, const RootSchema& root)
                 return AnoGltfResult::invalid_gltf;
             uint64_t components = 1;
             if (channel.target.path == AnoGltfAnimationPath::weights) {
-                if (!ano_gltf_has_index(targetNode.mesh)
+                if (!gltf_has_index(targetNode.mesh)
                     || root.meshes.data[targetNode.mesh.value].primitives.count == 0)
                     return AnoGltfResult::invalid_gltf;
                 components =
@@ -3875,7 +3875,7 @@ static void clear_storage_bindings(AnoGltfData* data, const void* storage, size_
 static AnoGltfResult bind_buffer(
     AnoGltfData* data, AnoGltfBufferIndex buffer, const void* bytes, size_t byteCount)
 {
-    if (!data || !ano_gltf_has_index(buffer) || buffer.value >= data->buffersCount)
+    if (!data || !gltf_has_index(buffer) || buffer.value >= data->buffersCount)
         return AnoGltfResult::invalid_options;
     AnoGltfBuffer& destination = data->buffers[buffer.value];
     if ((!bytes && byteCount != 0) || byteCount < destination.byteLength)
@@ -3888,7 +3888,7 @@ static AnoGltfResult bind_buffer(
 static AnoGltfResult bind_buffer_view(
     AnoGltfData* data, AnoGltfBufferViewIndex view, const void* bytes, size_t byteCount)
 {
-    if (!data || !ano_gltf_has_index(view) || view.value >= data->bufferViewsCount)
+    if (!data || !gltf_has_index(view) || view.value >= data->bufferViewsCount)
         return AnoGltfResult::invalid_options;
     AnoGltfBufferView& destination = data->bufferViews[view.value];
     if ((!bytes && byteCount != 0) || byteCount < destination.byteLength)
@@ -4057,12 +4057,12 @@ static AnoGltfResult load_buffers(
 static const uint8_t* buffer_view_data(
     const AnoGltfData* data, AnoGltfBufferViewIndex viewIndex)
 {
-    if (!data || !ano_gltf_has_index(viewIndex) || viewIndex.value >= data->bufferViewsCount)
+    if (!data || !gltf_has_index(viewIndex) || viewIndex.value >= data->bufferViewsCount)
         return nullptr;
     const AnoGltfBufferView& view = data->bufferViews[viewIndex.value];
     if (view.decodedData)
         return view.decodedDataSize >= view.byteLength ? view.decodedData : nullptr;
-    if (!ano_gltf_has_index(view.buffer) || view.buffer.value >= data->buffersCount)
+    if (!gltf_has_index(view.buffer) || view.buffer.value >= data->buffersCount)
         return nullptr;
     const AnoGltfBuffer& buffer = data->buffers[view.buffer.value];
     uint64_t end = 0;
@@ -4075,7 +4075,7 @@ static const uint8_t* buffer_view_data(
 static uint32_t accessor_stride(const AnoGltfData* data, const AnoGltfAccessor* accessor)
 {
     const uint32_t packed = element_size(accessor->componentType, accessor->type);
-    if (!ano_gltf_has_index(accessor->bufferView))
+    if (!gltf_has_index(accessor->bufferView))
         return packed;
     if (!data || accessor->bufferView.value >= data->bufferViewsCount)
         return 0;
@@ -4203,7 +4203,7 @@ static bool accessor_base_element(
     uint64_t index, const uint8_t** output)
 {
     *output = nullptr;
-    if (!ano_gltf_has_index(accessor->bufferView))
+    if (!gltf_has_index(accessor->bufferView))
         return true;
     if (accessor->bufferView.value >= data->bufferViewsCount)
         return false;
@@ -4419,10 +4419,10 @@ static AnoGltfResult validate_loaded_data(const AnoGltfData* data)
         const AnoGltfMesh& mesh = data->meshes[meshIndex];
         for (uint32_t primitiveIndex = 0; primitiveIndex < mesh.primitives.count; ++primitiveIndex) {
             const AnoGltfPrimitive& primitive = mesh.primitives.data[primitiveIndex];
-            if (!ano_gltf_has_index(primitive.indices))
+            if (!gltf_has_index(primitive.indices))
                 continue;
             const AnoGltfAccessor& indices = data->accessors[primitive.indices.value];
-            if (ano_gltf_has_index(indices.bufferView)) {
+            if (gltf_has_index(indices.bufferView)) {
                 const AnoGltfBufferView& view = data->bufferViews[indices.bufferView.value];
                 if (view_uses_meshopt(view) && !view.decodedData)
                     continue;
@@ -4446,7 +4446,7 @@ static AnoGltfResult validate_loaded_data(const AnoGltfData* data)
     }
     for (uint32_t skinIndex = 0; skinIndex < data->skinsCount; ++skinIndex) {
         const AnoGltfSkin& skin = data->skins[skinIndex];
-        if (!ano_gltf_has_index(skin.inverseBindMatrices))
+        if (!gltf_has_index(skin.inverseBindMatrices))
             continue;
         const AnoGltfAccessor& matrices = data->accessors[skin.inverseBindMatrices.value];
         for (uint64_t matrixIndex = 0; matrixIndex < matrices.count; ++matrixIndex) {
@@ -4523,13 +4523,13 @@ static void node_transform_local(const AnoGltfNode* node, float output[16])
 static bool node_transform_world(
     const AnoGltfData* data, AnoGltfNodeIndex nodeIndex, float output[16])
 {
-    if (!data || !output || !ano_gltf_has_index(nodeIndex) || nodeIndex.value >= data->nodesCount)
+    if (!data || !output || !gltf_has_index(nodeIndex) || nodeIndex.value >= data->nodesCount)
         return false;
     const AnoGltfNode* node = &data->nodes[nodeIndex.value];
     node_transform_local(node, output);
     AnoGltfNodeIndex parent = node->parent;
     uint32_t remaining = data->nodesCount;
-    while (ano_gltf_has_index(parent)) {
+    while (gltf_has_index(parent)) {
         if (parent.value >= data->nodesCount || remaining-- == 0)
             return false;
         float parentMatrix[16];
@@ -4552,7 +4552,7 @@ static bool node_transform_world(
 
 } // namespace anogltf_detail
 
-GltfResult<AnoGltfData*> ano_gltf_parse_memory(
+GltfResult<AnoGltfData*> gltf_parse_memory(
     const void* bytes, size_t byteCount, const AnoGltfOptions* options)
 {
     AnoGltfData* data = nullptr;
@@ -4561,7 +4561,7 @@ GltfResult<AnoGltfData*> ano_gltf_parse_memory(
     return result_if(status == AnoGltfResult::success, data, status);
 }
 
-GltfResult<AnoGltfData*> ano_gltf_parse_file(
+GltfResult<AnoGltfData*> gltf_parse_file(
     const char* path, const AnoGltfOptions* options)
 {
     AnoGltfData* data = nullptr;
@@ -4570,13 +4570,13 @@ GltfResult<AnoGltfData*> ano_gltf_parse_file(
     return result_if(status == AnoGltfResult::success, data, status);
 }
 
-GltfResult<> ano_gltf_load_buffers(
+GltfResult<> gltf_load_buffers(
     AnoGltfData* data, const char* gltfPath, const AnoGltfOptions* options)
 {
     return gltf_status(anogltf_detail::load_buffers(data, gltfPath, options));
 }
 
-GltfResult<void*> ano_gltf_load_buffer_base64(
+GltfResult<void*> gltf_load_buffer_base64(
     const AnoGltfOptions* sourceOptions, size_t byteCount, const char* base64)
 {
     if (!base64 && byteCount != 0)
@@ -4610,26 +4610,26 @@ GltfResult<void*> ano_gltf_load_buffer_base64(
     return allocation;
 }
 
-GltfResult<> ano_gltf_bind_buffer(
+GltfResult<> gltf_bind_buffer(
     AnoGltfData* data, AnoGltfBufferIndex buffer, const void* bytes, size_t byteCount)
 {
     return gltf_status(anogltf_detail::bind_buffer(
         data, buffer, bytes, byteCount));
 }
 
-GltfResult<> ano_gltf_bind_buffer_view(
+GltfResult<> gltf_bind_buffer_view(
     AnoGltfData* data, AnoGltfBufferViewIndex view, const void* bytes, size_t byteCount)
 {
     return gltf_status(anogltf_detail::bind_buffer_view(
         data, view, bytes, byteCount));
 }
 
-GltfResult<> ano_gltf_validate_loaded_data(const AnoGltfData* data)
+GltfResult<> gltf_validate_loaded_data(const AnoGltfData* data)
 {
     return gltf_status(anogltf_detail::validate_loaded_data(data));
 }
 
-void ano_gltf_free(AnoGltfData* data)
+void gltf_free(AnoGltfData* data)
 {
     if (!data)
         return;
@@ -4641,17 +4641,17 @@ void ano_gltf_free(AnoGltfData* data)
         data->arenaFree(data->allocatorUser, data);
 }
 
-size_t ano_gltf_decode_string(char* string)
+size_t gltf_decode_string(char* string)
 {
     return anogltf_detail::decode_string(string);
 }
 
-size_t ano_gltf_decode_uri(char* uri)
+size_t gltf_decode_uri(char* uri)
 {
     return anogltf_detail::decode_uri(uri);
 }
 
-GltfResult<size_t> ano_gltf_copy_extras_json(
+GltfResult<size_t> gltf_copy_extras_json(
     const AnoGltfExtras* extras, char* destination, size_t capacity)
 {
     if (!extras || (extras->json.length != 0 && !extras->json.data))
@@ -4667,22 +4667,22 @@ GltfResult<size_t> ano_gltf_copy_extras_json(
     return required;
 }
 
-uint32_t ano_gltf_component_count(AnoGltfAccessorType type)
+uint32_t gltf_component_count(AnoGltfAccessorType type)
 {
     return anogltf_detail::component_count(type);
 }
 
-uint32_t ano_gltf_component_size(AnoGltfComponentType type)
+uint32_t gltf_component_size(AnoGltfComponentType type)
 {
     return anogltf_detail::component_size(type);
 }
 
-uint32_t ano_gltf_element_size(AnoGltfAccessorType type, AnoGltfComponentType componentType)
+uint32_t gltf_element_size(AnoGltfAccessorType type, AnoGltfComponentType componentType)
 {
     return anogltf_detail::element_size(componentType, type);
 }
 
-GltfResult<const uint8_t*> ano_gltf_buffer_view_data(
+GltfResult<const uint8_t*> gltf_buffer_view_data(
     const AnoGltfData* data, AnoGltfBufferViewIndex view)
 {
     const uint8_t* bytes = anogltf_detail::buffer_view_data(data, view);
@@ -4691,7 +4691,7 @@ GltfResult<const uint8_t*> ano_gltf_buffer_view_data(
                           : AnoGltfResult::invalid_options);
 }
 
-const AnoGltfAccessor* ano_gltf_find_accessor(
+const AnoGltfAccessor* gltf_find_accessor(
     const AnoGltfData* data, const AnoGltfPrimitive* primitive,
     AnoGltfAttributeType type, int32_t set)
 {
@@ -4700,14 +4700,14 @@ const AnoGltfAccessor* ano_gltf_find_accessor(
     for (uint32_t i = 0; i < primitive->attributes.values.count; ++i) {
         const AnoGltfAttribute& attribute = primitive->attributes.values.data[i];
         if (attribute.type == type && attribute.set == set
-            && ano_gltf_has_index(attribute.accessor)
+            && gltf_has_index(attribute.accessor)
             && attribute.accessor.value < data->accessorsCount)
             return &data->accessors[attribute.accessor.value];
     }
     return nullptr;
 }
 
-GltfResult<> ano_gltf_accessor_read_float(
+GltfResult<> gltf_accessor_read_float(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, float* output, size_t outputCount)
 {
@@ -4716,7 +4716,7 @@ GltfResult<> ano_gltf_accessor_read_float(
         AnoGltfResult::invalid_gltf);
 }
 
-GltfResult<> ano_gltf_accessor_read_uint(
+GltfResult<> gltf_accessor_read_uint(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index, uint32_t* output, size_t outputCount)
 {
@@ -4725,7 +4725,7 @@ GltfResult<> ano_gltf_accessor_read_uint(
         AnoGltfResult::invalid_gltf);
 }
 
-GltfResult<uint32_t> ano_gltf_accessor_read_index(
+GltfResult<uint32_t> gltf_accessor_read_index(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     uint64_t index)
 {
@@ -4735,7 +4735,7 @@ GltfResult<uint32_t> ano_gltf_accessor_read_index(
         AnoGltfResult::invalid_gltf);
 }
 
-GltfResult<uint64_t> ano_gltf_accessor_unpack_floats(
+GltfResult<uint64_t> gltf_accessor_unpack_floats(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     float* output, uint64_t outputCount)
 {
@@ -4756,7 +4756,7 @@ GltfResult<uint64_t> ano_gltf_accessor_unpack_floats(
                      AnoGltfResult::invalid_gltf);
 }
 
-GltfResult<uint64_t> ano_gltf_accessor_unpack_indices(
+GltfResult<uint64_t> gltf_accessor_unpack_indices(
     const AnoGltfData* data, const AnoGltfAccessor* accessor,
     void* output, size_t outputComponentSize, uint64_t outputCount)
 {
@@ -4777,19 +4777,19 @@ GltfResult<uint64_t> ano_gltf_accessor_unpack_indices(
                      AnoGltfResult::invalid_gltf);
 }
 
-void ano_gltf_node_transform_local(const AnoGltfNode* node, float output[16])
+void gltf_node_transform_local(const AnoGltfNode* node, float output[16])
 {
     anogltf_detail::node_transform_local(node, output);
 }
 
-GltfResult<> ano_gltf_node_transform_world(
+GltfResult<> gltf_node_transform_world(
     const AnoGltfData* data, AnoGltfNodeIndex node, float output[16])
 {
     return result_if(anogltf_detail::node_transform_world(data, node, output),
                      AnoGltfResult::invalid_gltf);
 }
 
-const char* ano_gltf_result_string(AnoGltfResult result)
+const char* gltf_result_string(AnoGltfResult result)
 {
     using enum AnoGltfResult;
     switch (result) {

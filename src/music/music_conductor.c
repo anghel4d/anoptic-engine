@@ -1482,7 +1482,7 @@ void ano_engine_advance_bar(AnoMusicEngine *e, AnoBarResult *out)
             uint32_t cl = ano_default_chain(layer, cfg->performChains, chain);
             if (cl) {
                 AnoMusicRng r;
-                eng_stream3(e, &r, "mod", ano_music_layer_name(layer), bar);
+                eng_stream3(e, &r, "mod", music_layer_name(layer), bar);
                 n = ano_apply_chain(chain, cl, buf, n, ANO_BAR_MAX_EVENTS, &ctx,
                                     cfg->meter, &params, &r);
             }

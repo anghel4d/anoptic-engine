@@ -208,8 +208,8 @@ static inline int clock_mode(void) {
 
 #endif // ANO_TSC_ARCH
 
-// rdtsc vs anchor, or QPC. Conversion is in ano_ticks_to_ns.
-uint64_t ano::ano_timestamp_ticks() {
+// rdtsc vs anchor, or QPC. Conversion is in ticks_to_ns.
+uint64_t ano::timestamp_ticks() {
 #ifdef ANO_TSC_ARCH
     if (clock_mode() == CLOCK_TSC) {
         for (;;) {
@@ -228,7 +228,7 @@ uint64_t ano::ano_timestamp_ticks() {
     return qpc_now();
 }
 
-uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
+uint64_t ano::ticks_to_ns(uint64_t ticks) {
 
     uint64_t freq;
 #ifdef ANO_TSC_ARCH
@@ -246,22 +246,22 @@ uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
     return remainder + (seconds * 1000000000ULL);
 }
 
-uint64_t ano::ano_timestamp_raw() {
-    return ano_ticks_to_ns(ano_timestamp_ticks());
+uint64_t ano::timestamp_raw() {
+    return ticks_to_ns(timestamp_ticks());
 }
 
-uint64_t ano::ano_timestamp_us() {
-    return ano_timestamp_raw() / 1000;
+uint64_t ano::timestamp_us() {
+    return timestamp_raw() / 1000;
 }
 
-uint32_t ano::ano_timestamp_ms() {
-    return (uint32_t)(ano_timestamp_raw() / 1000000LL);
+uint32_t ano::timestamp_ms() {
+    return (uint32_t)(timestamp_raw() / 1000000LL);
 }
 
 
 /* Generic Date-Time Stamps */
 
-TimeResult<int64_t> ano::ano_timestamp_unix() {
+TimeResult<int64_t> ano::timestamp_unix() {
 
     time_t currentTime;
     currentTime = time(NULL);
@@ -273,14 +273,14 @@ TimeResult<int64_t> ano::ano_timestamp_unix() {
     return (int64_t)currentTime;
 }
 
-TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
+TimeResult<datetime> ano::local_datetime(int64_t unix_seconds) {
 
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_s(&tm, &t) != 0)
         return failure(TimeError::invalid_argument);
 
-    return (ano_datetime){
+    return (datetime){
         .year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday,
         .hour = tm.tm_hour, .minute = tm.tm_min, .second = tm.tm_sec,
     };
@@ -289,17 +289,17 @@ TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-TimeResult<> ano::ano_busywait(uint64_t ns) {
+TimeResult<> ano::busywait(uint64_t ns) {
 
     if (ns > MAX_BUSYWAIT_NS) {
         return failure(TimeError::invalid_argument);
     }
 
-    uint64_t startTime = ano_timestamp_raw();
+    uint64_t startTime = timestamp_raw();
     uint64_t endTime;
 
     do {
-        endTime = ano_timestamp_raw();
+        endTime = timestamp_raw();
     } while (endTime - startTime < ns);
 
     return {};
@@ -310,7 +310,7 @@ TimeResult<> ano::ano_busywait(uint64_t ns) {
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-// Spin the last 1ms on ano_busywait; waitable-timer wakeups slop ~0.5-1ms.
+// Spin the last 1ms on busywait; waitable-timer wakeups slop ~0.5-1ms.
 #define ANO_SLEEP_SPIN_TAIL_NS 1000000ULL
 
 // Per-thread waitable timer. NULL = unset, INVALID_HANDLE_VALUE = unsupported.
@@ -349,7 +349,7 @@ static HANDLE ano_sleep_timer(void) {
 }
 
 // Waitable timer + busywait tail. Yields. Returns 0, or positive errno-ish (Unix parity).
-TimeResult<> ano::ano_sleep(uint64_t us) {
+TimeResult<> ano::sleep_us(uint64_t us) {
 
     if (us == 0)
         return {};   // nothing to wait on, matches a zero-length nanosleep
@@ -357,7 +357,7 @@ TimeResult<> ano::ano_sleep(uint64_t us) {
     if (us > UINT64_MAX / 1000ULL)
         return failure(TimeError::overflow);
     uint64_t target_ns = us * 1000ULL;
-    uint64_t start = ano_timestamp_raw();
+    uint64_t start = timestamp_raw();
 
     // Coarse yield, leaving the spin tail.
     {
@@ -393,11 +393,11 @@ TimeResult<> ano::ano_sleep(uint64_t us) {
 
     // Spin stage: remaining time in <=MAX_BUSYWAIT_NS chunks.
     for (;;) {
-        uint64_t elapsed = ano_timestamp_raw() - start;
+        uint64_t elapsed = timestamp_raw() - start;
         if (elapsed >= target_ns)
             break;
         uint64_t remaining = target_ns - elapsed;
-        (void)ano_busywait(remaining > MAX_BUSYWAIT_NS ? MAX_BUSYWAIT_NS : remaining);
+        (void)busywait(remaining > MAX_BUSYWAIT_NS ? MAX_BUSYWAIT_NS : remaining);
     }
 
     return {};

@@ -122,7 +122,7 @@ void ano_optimize_vertex_cache(uint32_t* destination, const uint32_t* indices, s
     if (index_count == 0 || vertex_count == 0) return;
 
     // Pass-local scratch; scoped heap is the only discharge.
-    mi_heap_t* pass ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t* pass ANO_SCOPED_HEAP = heap_create();
     if (!pass) return;
 
     const uint32_t* src_indices = indices;
@@ -682,7 +682,7 @@ size_t ano_simplify_ex(uint32_t* destination, const uint32_t* indices, size_t in
     size_t weldCap = ano_ceil_pow2(vertex_count * 2 + 16);
     size_t ecap    = ano_ceil_pow2(tri0 * 4 + 16);
 
-    mi_heap_t* pass ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t* pass ANO_SCOPED_HEAP = heap_create();
     if (!pass) {
         if (destination != indices) memcpy(destination, indices, ic * sizeof(uint32_t));
         return ic;

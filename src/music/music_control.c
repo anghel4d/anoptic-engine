@@ -119,7 +119,7 @@ AnoAffect ano_affect_clamped(AnoAffect a)
     };
 }
 
-AnoMappingTable ano::ano_mapping_table_default(void)
+AnoMappingTable ano::mapping_table_default(void)
 {
     AnoMappingTable z;
     memset(&z, 0, sizeof z); // padding is part of the engine's snapshot
@@ -164,10 +164,10 @@ AnoMappingTable ano::ano_mapping_table_default(void)
     return z;
 }
 
-AnoMappingTable ano::ano_mapping_table_electronic(void)
+AnoMappingTable ano::mapping_table_electronic(void)
 {
     // Timbres may cross layer grain.
-    AnoMappingTable t = ano_mapping_table_default();
+    AnoMappingTable t = mapping_table_default();
     t.instrumentRows[0] = (AnoInstrumentRow){
         ANO_MUSIC_PAD, 2, { { ANO_PATCH_WARM, 0.0 }, { ANO_PATCH_BRIGHT, 0.60 } } };
     t.instrumentRows[1] = (AnoInstrumentRow){

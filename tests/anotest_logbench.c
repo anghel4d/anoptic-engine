@@ -55,7 +55,7 @@ typedef struct {
 } logger_api;
 
 // Adapter to ring write surface. DEBUG folds into INFO.
-static ano_loglevel_t map_level(log_types_t t)
+static loglevel_t map_level(log_types_t t)
 {
     switch (t) {
     case LOG_DEBUG:
@@ -71,15 +71,15 @@ __attribute__((format(printf, 4, 5)))
 static int ring_enqueue(log_types_t level, const char *file, int line, const char *fmt, ...)
 {
     va_list ap; va_start(ap, fmt);
-    int r = ano_log_vwrite(map_level(level), ANO_ROUTE_DEFAULT, file, line, fmt, ap);
+    int r = log_vwrite(map_level(level), ANO_ROUTE_DEFAULT, file, line, fmt, ap);
     va_end(ap);
     return r;
 }
 
 static const logger_api RING  = {
-    "ring  (lock-free MPSC)", [] { return ano_log_init() ? 0 : -1; },
-    ring_enqueue, ano_log_flush, [] { ano_log_cleanup(); return 0; },
-    [](const char *path) { return ano_log_output_dir(path) ? 0 : -1; }
+    "ring  (lock-free MPSC)", [] { return log_init() ? 0 : -1; },
+    ring_enqueue, log_flush, [] { log_cleanup(); return 0; },
+    [](const char *path) { return log_output_dir(path) ? 0 : -1; }
 };
 static const logger_api MUTEX = {
     "mutex (baseline)",       mtxlog_init,  mtxlog_enqueue,  mtxlog_flush,  mtxlog_cleanup,  mtxlog_output_dir
@@ -99,10 +99,10 @@ static double run_latency(const logger_api *api)
     uint64_t total = 0;
     long     ops   = 0;
     for (int r = 0; r < LAT_ROUNDS; r++) {
-        uint64_t start = ano_timestamp_raw();
+        uint64_t start = timestamp_raw();
         for (int i = 0; i < LAT_BURST; i++)            // burst fits the buffer: pure enqueue, no drain
             api->enqueue(LOG_INFO, __FILE_NAME__, __LINE__, "bench message number %d payload", i);
-        total += ano_timestamp_raw() - start;
+        total += timestamp_raw() - start;
         ops   += LAT_BURST;
         api->flush();                                  // untimed: empty the buffer for the next round
     }
@@ -133,7 +133,7 @@ static void *flusher(void *p)
     const logger_api *api = ((flush_arg *)p)->api;
     while (!atomic_load(&g_flusher_stop)) {
         api->flush();
-        (void)ano_sleep(200);   // 0.2 ms between drain passes
+        (void)sleep_us(200);   // 0.2 ms between drain passes
     }
     return NULL;
 }
@@ -143,22 +143,22 @@ static double run_throughput(const logger_api *api, int producers)
     atomic_store(&g_flusher_stop, false);
     anothread_t fl;
     flush_arg fa = { api };
-    (void)ano_thread_create(&fl, NULL, flusher, &fa);
+    (void)thread_create(&fl, NULL, flusher, &fa);
 
     anothread_t prod[MAXP];
     prod_arg    args[MAXP];
 
-    uint64_t t0 = ano_timestamp_raw();
+    uint64_t t0 = timestamp_raw();
     for (int i = 0; i < producers; i++) {
         args[i] = (prod_arg){ api, TP_MSGS, i };
-        (void)ano_thread_create(&prod[i], NULL, producer, &args[i]);
+        (void)thread_create(&prod[i], NULL, producer, &args[i]);
     }
     for (int i = 0; i < producers; i++)
-        (void)ano_thread_join(prod[i], NULL);
-    uint64_t t1 = ano_timestamp_raw();
+        (void)thread_join(prod[i], NULL);
+    uint64_t t1 = timestamp_raw();
 
     atomic_store(&g_flusher_stop, true);
-    (void)ano_thread_join(fl, NULL);
+    (void)thread_join(fl, NULL);
     api->flush();   // drain the tail
 
     double secs = (double)(t1 - t0) / 1e9;
@@ -214,22 +214,22 @@ static double run_var_throughput(const logger_api *api, int producers,
     atomic_store(&g_flusher_stop, false);
     anothread_t fl;
     flush_arg fa = { api };
-    (void)ano_thread_create(&fl, NULL, flusher, &fa);
+    (void)thread_create(&fl, NULL, flusher, &fa);
 
     anothread_t prod[MAXP];
     prod_arg    args[MAXP];
 
-    uint64_t t0 = ano_timestamp_raw();
+    uint64_t t0 = timestamp_raw();
     for (int i = 0; i < producers; i++) {
         args[i] = (prod_arg){ api, g_var_msgs, i };
-        (void)ano_thread_create(&prod[i], NULL, prod_fn, &args[i]);
+        (void)thread_create(&prod[i], NULL, prod_fn, &args[i]);
     }
     for (int i = 0; i < producers; i++)
-        (void)ano_thread_join(prod[i], NULL);
-    uint64_t t1 = ano_timestamp_raw();
+        (void)thread_join(prod[i], NULL);
+    uint64_t t1 = timestamp_raw();
 
     atomic_store(&g_flusher_stop, true);
-    (void)ano_thread_join(fl, NULL);
+    (void)thread_join(fl, NULL);
     api->flush();
 
     double secs = (double)(t1 - t0) / 1e9;
@@ -325,7 +325,7 @@ int main(void)
 
     // Tidy throwaway files.
     char ringLog[96];
-    snprintf(ringLog, sizeof ringLog, "%s/%s_ano.log", BENCH_DIR, ano_fs_session_stamp());
+    snprintf(ringLog, sizeof ringLog, "%s/%s_ano.log", BENCH_DIR, fs_session_stamp());
     remove(ringLog);
     remove(BENCH_DIR "/anoptic_mtx.log");
     scratch_remove_dir(BENCH_DIR);

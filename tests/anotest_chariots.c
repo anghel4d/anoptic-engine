@@ -14,7 +14,7 @@
  *
  *  It IS load-bearing trivia: the __cleanup__ destructors really do fire on
  *  their own (intCleanup prints at the inner-scope exit; ANO_SCOPED_HEAP's
- *  ano_heap_cleanup frees the heap at function exit). The maintained, asserted
+ *  heap_cleanup frees the heap at function exit). The maintained, asserted
  *  version of all this is tests/anotest_memory.c -- THIS file is the museum copy.
  *
  *  Optional: built so it can't rot, but DISABLED in ctest. Run it by hand:
@@ -77,7 +77,7 @@ int autoStringTest() {
 
     // Supposedly scope-local and thread-local Heap
     if (true) {
-        mi_heap_t *memHeap ANO_SCOPED_HEAP = ano_heap_create();
+        mi_heap_t *memHeap ANO_SCOPED_HEAP = heap_create();
 
         mem_chariot_t *memChariots = static_cast<mem_chariot_t *>(
             mi_heap_zalloc_aligned(memHeap, 4096 * 8192 * sizeof(mem_chariot_t),
@@ -148,7 +148,7 @@ int main(void) {
  *                                    TLB-free
  *  _BitInt(128) -> 32 B records      2-per-cache-line, SIMD-aligned ECS layout
  *  union {2x u64 <-> u128}           128-bit IDs as halves or whole, zero-copy
- *  ano_heap_create + ANO_SCOPED_HEAP   scoped lifetime group, bulk free at the
+ *  heap_create + ANO_SCOPED_HEAP   scoped lifetime group, bulk free at the
  *                                    brace (no per-block mi_free)
  *  __cleanup__ probe (intVar)        the RAII mechanism the arena leans on works
  *  someBytes[1024] / ano_salloc(42)  stack/alloca + byte-boundary scaffolding

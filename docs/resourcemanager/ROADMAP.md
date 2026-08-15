@@ -116,11 +116,11 @@ one all-purpose manager interface:
 
 | Header | Required public entry points |
 |---|---|
-| `anoptic_resources.h` | `ano_resource_error_string`, content identity, ID comparison and formatting |
+| `anoptic_resources.h` | `resource_error_string`, content identity, ID comparison and formatting |
 | `anoptic_resources_revision.h` | Revision retain/release, identity, typed cell resolution, dependencies, selected provenance, and navigation views |
-| `anoptic_resources_cook.h` | `ano_resource_cooker_create`, `ano_resource_cooker_destroy`, `ano_resource_import`, `ano_resource_cook`, `ano_resource_cooker_cancel` |
-| `anoptic_resources_pack.h` | `ano_resource_manifest_open`, `ano_resource_manifest_close`, `ano_resource_manifest_find`, `ano_resource_pack_open`, `ano_resource_pack_read`, `ano_resource_pack_close` |
-| `anoptic_resources_runtime.h` | `ano_resource_manager_create`, `ano_resource_manager_destroy`, `ano_resource_goal_set`, `ano_resource_goal_remove`, `ano_resource_reconcile`, transactional typed-cell edit and reload prepare/commit/abort, `ano_resource_epoch_acquire`, `ano_resource_epoch_resolve`, `ano_resource_epoch_release` |
+| `anoptic_resources_cook.h` | `resource_cooker_create`, `resource_cooker_destroy`, `resource_import`, `resource_cook`, `resource_cooker_cancel` |
+| `anoptic_resources_pack.h` | `resource_manifest_open`, `resource_manifest_close`, `resource_manifest_find`, `resource_pack_open`, `ano_resource_pack_read`, `resource_pack_close` |
+| `anoptic_resources_runtime.h` | `resource_manager_create`, `resource_manager_destroy`, `resource_goal_set`, `resource_goal_remove`, `resource_reconcile`, transactional typed-cell edit and reload prepare/commit/abort, `resource_epoch_acquire`, `resource_epoch_resolve`, `resource_epoch_release` |
 | `anoptic_resources_ecs.h` | Demand-delta submission, reflected component registration, world-cell instantiation, and coordinated epoch publication |
 | Owner extensions | Concrete connect/disconnect and owner-boundary functions for render, audio, and text; no generic user callback table |
 

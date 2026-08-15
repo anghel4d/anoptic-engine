@@ -108,13 +108,13 @@ static void test_builder(void)
     AnoUiPrim prims[4];
     AnoUiClip clips[2];
     AnoUiBuilder b;
-    ano_ui_builder_init(&b, prims, 4, clips, 2, NULL, 0, NULL, 0);
+    ui_builder_init(&b, prims, 4, clips, 2, NULL, 0, NULL, 0);
     CHECK(b.primCount == 0 && b.clipCount == 0 && b.paintCap == 0, "builder init zeroes");
 
     // Packing + radii clamp (neg->0, over-cap->min(half)=20).
     float rad[4] = { -5.0f, 50.0f, 10.0f, 3.0f };
     float red[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
-    uint32_t i0 = ano_ui_rrect(&b, (float[2]){ 10, 20 }, (float[2]){ 50, 60 }, rad, red,
+    uint32_t i0 = ui_rrect(&b, (float[2]){ 10, 20 }, (float[2]){ 50, 60 }, rad, red,
                                -2.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     CHECK(i0 == 0 && b.primCount == 1, "rrect claims slot 0");
     CHECK(prims[0].origin[0] == 30.0f && prims[0].origin[1] == 40.0f
@@ -129,42 +129,42 @@ static void test_builder(void)
     CHECK(prims[0].kind == ANO_UI_RRECT && prims[0].paintRef == ANO_UI_REF_NONE, "kind + refs");
 
     // Shadow: sigma floor, uniform corner capped at min(half)=10.
-    uint32_t i1 = ano_ui_shadow(&b, (float[2]){ 0, 0 }, (float[2]){ 60, 20 }, 999.0f, 0.0f,
+    uint32_t i1 = ui_shadow(&b, (float[2]){ 0, 0 }, (float[2]){ 60, 20 }, 999.0f, 0.0f,
                                 red, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     CHECK(i1 == 1 && prims[1].kind == ANO_UI_SHADOW, "shadow claims slot 1");
     CHECK(prims[1].radii[0] == 10.0f && prims[1].radii[3] == 10.0f, "shadow corner capped, uniform");
     CHECK(prims[1].param[0] == 1e-3f, "sigma floor");
 
     // Image + glyphs aux.
-    uint32_t i2 = ano_ui_image(&b, (float[2]){ 0, 0 }, (float[2]){ 32, 32 }, NULL, 7, -1.0f,
+    uint32_t i2 = ui_image(&b, (float[2]){ 0, 0 }, (float[2]){ 32, 32 }, NULL, 7, -1.0f,
                                red, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     CHECK(i2 == 2 && prims[2].aux0 == 7 && prims[2].param[0] == 0.0f, "image tex index + lod clamp");
-    uint32_t i3 = ano_ui_glyphs(&b, (float[2]){ 0, 0 }, (float[2]){ 100, 20 }, 40, 12, red,
+    uint32_t i3 = ui_glyphs(&b, (float[2]){ 0, 0 }, (float[2]){ 100, 20 }, 40, 12, red,
                                 ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     CHECK(i3 == 3 && prims[3].aux0 == 40 && prims[3].aux1 == 12, "glyphs range packing");
 
     // Full prim array: refuse, no mutation.
     AnoUiPrim before = prims[3];
-    uint32_t iFull = ano_ui_path(&b, (float[2]){ 0, 0 }, (float[2]){ 1, 1 }, 0, 0, red,
+    uint32_t iFull = ui_path(&b, (float[2]){ 0, 0 }, (float[2]){ 1, 1 }, 0, 0, red,
                                  ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     CHECK(iFull == ANO_UI_REF_NONE && b.primCount == 4, "full prim array refused");
     CHECK(memcmp(&before, &prims[3], sizeof before) == 0, "refusal mutates nothing");
 
     // Clips: rect-only sentinel, rounded packs + clamps.
-    uint32_t c0 = ano_ui_clip(&b, (float[2]){ 5, 5 }, (float[2]){ 95, 45 }, NULL, NULL, NULL)
+    uint32_t c0 = ui_clip(&b, (float[2]){ 5, 5 }, (float[2]){ 95, 45 }, NULL, NULL, NULL)
         .value_or(ANO_UI_REF_NONE);
     CHECK(c0 == 0 && clips[0].rrHalf[0] < 0.0f, "rect-only clip sentinel");
     float crad[4] = { 4, 4, 4, 4 };
-    uint32_t c1 = ano_ui_clip(&b, (float[2]){ 0, 0 }, (float[2]){ 10, 10 },
+    uint32_t c1 = ui_clip(&b, (float[2]){ 0, 0 }, (float[2]){ 10, 10 },
                               (float[2]){ 2, 2 }, (float[2]){ 8, 8 }, crad)
         .value_or(ANO_UI_REF_NONE);
     CHECK(c1 == 1 && clips[1].rrHalf[0] == 3.0f && clips[1].rrRadii[0] == 3.0f,
           "rounded clip packs + clamps radii to min(half)");
-    CHECK(has_error(ano_ui_clip(&b, (float[2]){ 0, 0 }, (float[2]){ 1, 1 }, NULL, NULL, NULL),
+    CHECK(has_error(ui_clip(&b, (float[2]){ 0, 0 }, (float[2]){ 1, 1 }, NULL, NULL, NULL),
                     UiError::capacity),
           "full clip array refused");
 
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     CHECK(s.primCount == 4 && s.clipCount == 2, "scene view counts");
 }
 
@@ -181,9 +181,9 @@ static void test_sdf(uint32_t soak)
 
     for (int k = 0; k < 4; k++) {
         float t = (float[]){ -5.0f, 0.0f, 3.0f, 17.0f }[k];
-        float d = ano_ui_ref_sd_rrect((float[2]){ 30.0f + t, 0.0f }, half, radii);
+        float d = ui_ref_sd_rrect((float[2]){ 30.0f + t, 0.0f }, half, radii);
         CHECK(fabsf(d - t) < 1e-4f, "right-edge ray d == t");
-        d = ano_ui_ref_sd_rrect((float[2]){ 0.0f, -20.0f - t }, half, radii);
+        d = ui_ref_sd_rrect((float[2]){ 0.0f, -20.0f - t }, half, radii);
         CHECK(fabsf(d - t) < 1e-4f, "top-edge ray d == t");
     }
     // br corner-arc ray (r=12), circle center (18, 8).
@@ -191,12 +191,12 @@ static void test_sdf(uint32_t soak)
         float t = (float[]){ -6.0f, -2.0f, 0.0f, 4.0f, 15.0f }[k];
         float s = 0.70710678f;
         float p[2] = { 18.0f + s * (12.0f + t), 8.0f + s * (12.0f + t) };
-        float d = ano_ui_ref_sd_rrect(p, half, radii);
+        float d = ui_ref_sd_rrect(p, half, radii);
         CHECK(fabsf(d - t) < 1e-3f, "br corner-arc ray d == t");
     }
     // Sharp tl corner (r=0): Euclidean distance to the point.
     {
-        float d = ano_ui_ref_sd_rrect((float[2]){ -33.0f, -24.0f }, half, radii);
+        float d = ui_ref_sd_rrect((float[2]){ -33.0f, -24.0f }, half, radii);
         CHECK(fabsf(d - 5.0f) < 1e-4f, "sharp-corner point distance");
     }
     // Jittered sign sweep vs predicate.
@@ -207,7 +207,7 @@ static void test_sdf(uint32_t soak)
             for (double x = -36.0; x <= 36.0; x += 0.5) {
                 double jx = x + (rng_below(&rng, 1000) / 1000.0 - 0.5) * 0.25;
                 double jy = y + (rng_below(&rng, 1000) / 1000.0 - 0.5) * 0.25;
-                float d = ano_ui_ref_sd_rrect((float[2]){ (float)jx, (float)jy }, half, radii);
+                float d = ui_ref_sd_rrect((float[2]){ (float)jx, (float)jy }, half, radii);
                 if (fabsf(d) < 5e-3f) {
                     skipped++;
                     continue;
@@ -266,7 +266,7 @@ static void cov_canvas(const AnoUiScene *s, truth_fn truth, void *u, double cx, 
     for (int py = y0; py < y1; py++) {
         for (int px = x0; px < x1; px++) {
             float out[4];
-            ano_ui_ref_eval(s, (float)px, (float)py, out);
+            ui_ref_eval(s, (float)px, (float)py, out);
             double err = fabs(out[3] - truth(u, px, py)); // alpha carries coverage (color a=1)
             double wx = px + 0.5 - cx, wy = py + 0.5 - cy;
             bool corner = false;
@@ -314,11 +314,11 @@ static void test_coverage(void)
           4e-3, 0.20 },
     };
     for (size_t c = 0; c < sizeof cases / sizeof cases[0]; c++) {
-        ano_ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
-        (void)ano_ui_rrect(&b, cases[c].min, cases[c].max, cases[c].radii,
+        ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
+        (void)ui_rrect(&b, cases[c].min, cases[c].max, cases[c].radii,
                            white, cases[c].border, ANO_UI_REF_NONE,
                            ANO_UI_REF_NONE, 0);
-        AnoUiScene s = ano_ui_scene(&b);
+        AnoUiScene s = ui_scene(&b);
         double cx = prims[0].origin[0], cy = prims[0].origin[1];
         double half[2] = { prims[0].halfExt[0], prims[0].halfExt[1] };
         double radii[4] = { prims[0].radii[0], prims[0].radii[1], prims[0].radii[2],
@@ -346,19 +346,19 @@ static void test_clip(void)
     AnoUiClip clips[1];
     AnoUiBuilder b;
     float white[4] = { 1, 1, 1, 1 };
-    ano_ui_builder_init(&b, prims, 1, clips, 1, NULL, 0, NULL, 0);
-    uint32_t clip = ano_ui_clip(&b, (float[2]){ 20.4f, 15.6f }, (float[2]){ 60.7f, 45.3f },
+    ui_builder_init(&b, prims, 1, clips, 1, NULL, 0, NULL, 0);
+    uint32_t clip = ui_clip(&b, (float[2]){ 20.4f, 15.6f }, (float[2]){ 60.7f, 45.3f },
                                 NULL, NULL, NULL).value_or(ANO_UI_REF_NONE);
-    (void)ano_ui_rrect(&b, (float[2]){ 10, 10 }, (float[2]){ 70, 50 },
+    (void)ui_rrect(&b, (float[2]){ 10, 10 }, (float[2]){ 70, 50 },
                        NULL, white, 0.0f, ANO_UI_REF_NONE, clip, 0);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     // Rows on clip edges away from corners: truth = window/clip overlap.
     RectTruth rt = { 20.4, 15.6, 60.7, 45.3 };
     double worst = 0.0;
     for (int py = 25; py < 35; py++)
         for (int px = 15; px < 66; px++) {
             float out[4];
-            ano_ui_ref_eval(&s, (float)px, (float)py, out);
+            ui_ref_eval(&s, (float)px, (float)py, out);
             worst = fmax(worst, fabs(out[3] - truth_rect(&rt, px, py)));
         }
     printf("  clip rect interior rows worst %.7f\n", worst);
@@ -387,7 +387,7 @@ static void test_consteval_styles(void)
         };
         const float source[4] = { barrier[0], barrier[1], barrier[2], barrier[3] };
         float runtime[4];
-        ano_ui_color_srgb(source, runtime);
+        ui_color_srgb(source, runtime);
         CHECK(memcmp(runtime, color.baked.rgba, sizeof runtime) == 0,
               "consteval/runtime sRGB bytes match");
     }
@@ -401,7 +401,7 @@ static void test_consteval_styles(void)
     AnoUiPaint paints[1];
     AnoUiStop stops[3];
     AnoUiBuilder builder;
-    ano_ui_builder_init(&builder, NULL, 0, NULL, 0, paints, 1, stops, 3);
+    ui_builder_init(&builder, NULL, 0, NULL, 0, paints, 1, stops, 3);
     const float p0[2] = { 0.0f, 0.0f }, p1[2] = { 1.0f, 0.0f };
     CHECK(ano::ui_paint_linear(&builder, p0, p1, sorted) == 0u,
           "constexpr sorted stops build a paint");
@@ -431,60 +431,60 @@ static void test_scale(void)
     AnoUiPaint paints[1];
     AnoUiStop stops[2], in[2];
     AnoUiBuilder b;
-    ano_ui_builder_init(&b, prims, 4, clips, 2, paints, 1, stops, 2);
+    ui_builder_init(&b, prims, 4, clips, 2, paints, 1, stops, 2);
     float white[4] = { 1, 1, 1, 1 };
     float r4[4] = { 4, 4, 4, 4 };
 
     // RRECT: geometry + border are lengths.
-    uint32_t pi = ano_ui_rrect(&b, (float[2]){ 10, 20 }, (float[2]){ 50, 40 }, r4, white,
+    uint32_t pi = ui_rrect(&b, (float[2]){ 10, 20 }, (float[2]){ 50, 40 }, r4, white,
                                3.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     AnoUiPrim p = prims[pi];
-    ano_ui_prim_scale(&p, s);
+    ui_prim_scale(&p, s);
     CHECK(p.origin[0] == 30.0f * s && p.origin[1] == 30.0f * s, "prim fold: origin");
     CHECK(p.halfExt[0] == 20.0f * s && p.halfExt[1] == 10.0f * s, "prim fold: half");
     CHECK(p.radii[0] == 4.0f * s && p.radii[3] == 4.0f * s, "prim fold: radii");
     CHECK(p.param[0] == 3.0f * s, "prim fold: border width");
 
     // SHADOW: sigma scales. IMAGE: lod -= log2(s), clamped at 0.
-    uint32_t sh = ano_ui_shadow(&b, (float[2]){ 0, 0 }, (float[2]){ 20, 20 }, 5.0f, 6.0f,
+    uint32_t sh = ui_shadow(&b, (float[2]){ 0, 0 }, (float[2]){ 20, 20 }, 5.0f, 6.0f,
                                 white, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     p = prims[sh];
-    ano_ui_prim_scale(&p, s);
+    ui_prim_scale(&p, s);
     CHECK(p.param[0] == 6.0f * s, "prim fold: sigma");
-    uint32_t im = ano_ui_image(&b, (float[2]){ 0, 0 }, (float[2]){ 20, 20 }, r4, 0, 2.0f,
+    uint32_t im = ui_image(&b, (float[2]){ 0, 0 }, (float[2]){ 20, 20 }, r4, 0, 2.0f,
                                white, ANO_UI_REF_NONE, 0).value_or(ANO_UI_REF_NONE);
     p = prims[im];
-    ano_ui_prim_scale(&p, 2.0f);
+    ui_prim_scale(&p, 2.0f);
     CHECK(p.param[0] == 1.0f, "prim fold: image lod shifts by -log2(s)");
-    ano_ui_prim_scale(&p, 4.0f);
+    ui_prim_scale(&p, 4.0f);
     CHECK(p.param[0] == 0.0f, "prim fold: image lod clamps at 0");
 
     // Clip: rect + rounded scale, rect-only sentinel stays negative.
-    uint32_t cr = ano_ui_clip(&b, (float[2]){ 8, 8 }, (float[2]){ 40, 24 },
+    uint32_t cr = ui_clip(&b, (float[2]){ 8, 8 }, (float[2]){ 40, 24 },
                               (float[2]){ 8, 8 }, (float[2]){ 40, 24 }, r4)
         .value_or(ANO_UI_REF_NONE);
     AnoUiClip c = clips[cr];
-    ano_ui_clip_scale(&c, s);
+    ui_clip_scale(&c, s);
     CHECK(c.rect[0] == 8.0f * s && c.rect[3] == 24.0f * s, "clip fold: rect");
     CHECK(c.rrCenter[0] == 24.0f * s && c.rrHalf[1] == 8.0f * s && c.rrRadii[2] == 4.0f * s,
           "clip fold: rounded term");
-    uint32_t co = ano_ui_clip(&b, (float[2]){ 0, 0 }, (float[2]){ 10, 10 }, NULL, NULL, NULL)
+    uint32_t co = ui_clip(&b, (float[2]){ 0, 0 }, (float[2]){ 10, 10 }, NULL, NULL, NULL)
         .value_or(ANO_UI_REF_NONE);
     c = clips[co];
-    ano_ui_clip_scale(&c, s);
+    ui_clip_scale(&c, s);
     CHECK(c.rrHalf[0] < 0.0f, "clip fold: rect-only sentinel survives");
 
     // Paint: folded gradient reads authored t at scaled pixel.
     for (int k = 0; k < 4; k++) { in[0].color[k] = 0.0f; in[1].color[k] = 1.0f; }
     in[0].color[3] = 1.0f; in[1].color[3] = 1.0f;
     in[0].t = 0.0f; in[1].t = 1.0f;
-    uint32_t pr = ano_ui_paint_linear(&b, (float[2]){ 10, 10 }, (float[2]){ 30, 10 }, in, 2)
+    uint32_t pr = ui_paint_linear(&b, (float[2]){ 10, 10 }, (float[2]){ 30, 10 }, in, 2)
         .value_or(ANO_UI_REF_NONE);
-    AnoUiScene sc = ano_ui_scene(&b);
+    AnoUiScene sc = ui_scene(&b);
     float atL[4], atD[4];
-    ano_ui_ref_paint(&sc, pr, 15.0f, 10.0f, white, atL); // authored space, t = 0.25
-    ano_ui_paint_scale(&paints[pr], s);
-    ano_ui_ref_paint(&sc, pr, 15.0f * s, 10.0f * s, white, atD);
+    ui_ref_paint(&sc, pr, 15.0f, 10.0f, white, atL); // authored space, t = 0.25
+    ui_paint_scale(&paints[pr], s);
+    ui_ref_paint(&sc, pr, 15.0f * s, 10.0f * s, white, atD);
     for (int k = 0; k < 4; k++)
         CHECK(fabsf(atL[k] - atD[k]) < 1e-6f, "paint fold: t invariant at the scaled pixel");
 
@@ -493,37 +493,37 @@ static void test_scale(void)
         AnoUiPrim pp[1];
         uint32_t words[128], scaled[128], same[128];
         AnoUiBuilder pb;
-        ano_ui_builder_init(&pb, pp, 1, NULL, 0, NULL, 0, NULL, 0);
-        ano_ui_builder_curves(&pb, words, 128);
+        ui_builder_init(&pb, pp, 1, NULL, 0, NULL, 0, NULL, 0);
+        ui_builder_curves(&pb, words, 128);
         AnoUiPathSeg rect[] = {
             { ANO_UI_SEG_MOVE, { 20, 20, 0, 0 } },
             { ANO_UI_SEG_LINE, { 60, 20, 0, 0 } },
             { ANO_UI_SEG_LINE, { 60, 40, 0, 0 } },
             { ANO_UI_SEG_LINE, { 20, 40, 0, 0 } },
         };
-        CHECK(ano_ui_path_fill(&pb, rect, 4, white, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0) == 0u,
+        CHECK(ui_path_fill(&pb, rect, 4, white, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0) == 0u,
               "scale: path prim emitted");
-        ano_ui_curves_scale(words, same, pb.curveCount, 1.0f);
+        ui_curves_scale(words, same, pb.curveCount, 1.0f);
         CHECK(memcmp(same, words, (size_t)pb.curveCount * 4u) == 0,
               "curve fold: s = 1 is bit-identical");
-        ano_ui_prim_scale(&pp[0], 2.0f);
-        ano_ui_curves_scale(words, scaled, pb.curveCount, 2.0f);
+        ui_prim_scale(&pp[0], 2.0f);
+        ui_curves_scale(words, scaled, pb.curveCount, 2.0f);
         AnoUiScene ps = { pp, 1, NULL, 0, NULL, 0, NULL, 0, scaled, pb.curveCount };
         float out[4];
-        ano_ui_ref_eval(&ps, 80.0f, 60.0f, out); // device center of the 2x rect (40..120, 40..80)
+        ui_ref_eval(&ps, 80.0f, 60.0f, out); // device center of the 2x rect (40..120, 40..80)
         CHECK(fabsf(out[3] - 1.0f) < 1e-6f, "path fold: interior stays covered");
-        ano_ui_ref_eval(&ps, 20.0f, 60.0f, out); // the logical-space point is vacated
+        ui_ref_eval(&ps, 20.0f, 60.0f, out); // the logical-space point is vacated
         CHECK(out[3] == 0.0f, "path fold: device space, logical point vacated");
         float e0[4], e1[4];
-        ano_ui_ref_eval(&ps, 39.0f, 60.0f, e0);
-        ano_ui_ref_eval(&ps, 40.0f, 60.0f, e1);
+        ui_ref_eval(&ps, 39.0f, 60.0f, e0);
+        ui_ref_eval(&ps, 40.0f, 60.0f, e1);
         CHECK(e0[3] == 0.0f && fabsf(e1[3] - 1.0f) < 1e-6f,
               "path fold: straight edges land exactly on device px");
     }
 
     // Contour sentinel survives any scale.
     uint32_t sw = 0x7C007C00u, swOut = 0;
-    ano_ui_curves_scale(&sw, &swOut, 1, s);
+    ui_curves_scale(&sw, &swOut, 1, s);
     CHECK(swOut == 0x7C007C00u, "curve fold: contour sentinel survives");
 }
 
@@ -551,27 +551,27 @@ static void test_gradient(void)
         { "conic",  2, { 70, 60 }, 0, 0.0f },  // center (70,60), start angle 0
     };
     for (size_t c = 0; c < sizeof cases / sizeof cases[0]; c++) {
-        ano_ui_builder_init(&b, prims, 1, NULL, 0, paints, 1, stops, 2);
+        ui_builder_init(&b, prims, 1, NULL, 0, paints, 1, stops, 2);
         uint32_t g = ANO_UI_REF_NONE;
         if (cases[c].kind == 0)
-            g = ano_ui_paint_linear(&b, (float[2]){ cases[c].a[0], 0 },
+            g = ui_paint_linear(&b, (float[2]){ cases[c].a[0], 0 },
                                     (float[2]){ cases[c].a[1], 0 }, in, 2)
                     .value_or(ANO_UI_REF_NONE);
         else if (cases[c].kind == 1)
-            g = ano_ui_paint_radial(&b, cases[c].a, cases[c].b2, in, 2)
+            g = ui_paint_radial(&b, cases[c].a, cases[c].b2, in, 2)
                     .value_or(ANO_UI_REF_NONE);
         else
-            g = ano_ui_paint_conic(&b, cases[c].a, cases[c].ang, in, 2)
+            g = ui_paint_conic(&b, cases[c].a, cases[c].ang, in, 2)
                     .value_or(ANO_UI_REF_NONE);
         CHECK(g == 0u, "gradient paint pushed at index 0");
-        (void)ano_ui_rrect(&b, mn, mx, r10, white, 0.0f, g,
+        (void)ui_rrect(&b, mn, mx, r10, white, 0.0f, g,
                            ANO_UI_REF_NONE, 0);
-        AnoUiScene s = ano_ui_scene(&b);
+        AnoUiScene s = ui_scene(&b);
         double worst = 0.0;
         for (int py = iy0; py < iy1; py++)
             for (int px = ix0; px < ix1; px++) {
                 float out[4], want[4];
-                ano_ui_ref_eval(&s, (float)px, (float)py, out);
+                ui_ref_eval(&s, (float)px, (float)py, out);
                 double gx = px + 0.5, gy = py + 0.5, t;
                 if (cases[c].kind == 0)
                     t = (gx - cases[c].a[0]) / (cases[c].a[1] - cases[c].a[0]);
@@ -589,18 +589,18 @@ static void test_gradient(void)
     }
 
     // Base modulation: tint scales resolved paint component-wise.
-    ano_ui_builder_init(&b, prims, 1, NULL, 0, paints, 1, stops, 2);
-    uint32_t g = ano_ui_paint_linear(&b, (float[2]){ 30, 0 }, (float[2]){ 110, 0 }, in, 2)
+    ui_builder_init(&b, prims, 1, NULL, 0, paints, 1, stops, 2);
+    uint32_t g = ui_paint_linear(&b, (float[2]){ 30, 0 }, (float[2]){ 110, 0 }, in, 2)
                      .value_or(ANO_UI_REF_NONE);
     float tint[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
-    (void)ano_ui_rrect(&b, mn, mx, r10, tint, 0.0f, g,
+    (void)ui_rrect(&b, mn, mx, r10, tint, 0.0f, g,
                        ANO_UI_REF_NONE, 0);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     double mworst = 0.0;
     for (int py = iy0; py < iy1; py++)
         for (int px = ix0; px < ix1; px++) {
             float out[4], want[4];
-            ano_ui_ref_eval(&s, (float)px, (float)py, out);
+            ui_ref_eval(&s, (float)px, (float)py, out);
             grad2_truth(c0, c1, (px + 0.5 - 30) / 80.0, want);
             for (int k = 0; k < 4; k++)
                 mworst = fmax(mworst, fabs(out[k] - want[k] * 0.5f));
@@ -611,7 +611,7 @@ static void test_gradient(void)
     // Fail-closed: paintRef past the table -> transparent.
     prims[0].paintRef = 7u; // paintCount is 1
     float out[4];
-    ano_ui_ref_eval(&s, 70.0f, 60.0f, out);
+    ui_ref_eval(&s, 70.0f, 60.0f, out);
     CHECK(out[0] == 0.0f && out[3] == 0.0f, "out-of-range paint fails closed");
 }
 
@@ -636,24 +636,24 @@ static void test_path(void)
         { ANO_UI_SEG_LINE, { 100, 80, 0, 0 } },
         { ANO_UI_SEG_LINE, { 20, 80, 0, 0 } },
     };
-    ano_ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
-    ano_ui_builder_curves(&b, curves, 512);
-    uint32_t idx = ano_ui_path_fill(&b, cw, 4, white, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0)
+    ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
+    ui_builder_curves(&b, curves, 512);
+    uint32_t idx = ui_path_fill(&b, cw, 4, white, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0)
                        .value_or(ANO_UI_REF_NONE);
     CHECK(idx == 0u, "path prim emitted");
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     double iworst = 0.0, eworst = 0.0;
     for (int py = 30; py < 70; py++)
         for (int px = 30; px < 90; px++) {
             float out[4];
-            ano_ui_ref_eval(&s, (float)px, (float)py, out);
+            ui_ref_eval(&s, (float)px, (float)py, out);
             iworst = fmax(iworst, fabs(out[3] - 1.0));
         }
     // Edge windows away from corners: exact box coverage.
     for (int px = 30; px < 90; px++) {
         float top[4], bot[4];
-        ano_ui_ref_eval(&s, (float)px, 19.0f, top); // straddles y=20
-        ano_ui_ref_eval(&s, (float)px, 80.0f, bot); // straddles y=80
+        ui_ref_eval(&s, (float)px, 19.0f, top); // straddles y=20
+        ui_ref_eval(&s, (float)px, 80.0f, bot); // straddles y=80
         eworst = fmax(eworst, fabs(top[3] - truth_rect(&rt, px, 19)));
         eworst = fmax(eworst, fabs(bot[3] - truth_rect(&rt, px, 80)));
     }
@@ -669,13 +669,13 @@ static void test_path(void)
         { ANO_UI_SEG_LINE, { 100, 80, 0, 0 } },
         { ANO_UI_SEG_LINE, { 100, 20, 0, 0 } },
     };
-    ano_ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
-    ano_ui_builder_curves(&b, curves, 512);
-    (void)ano_ui_path_fill(&b, ccw, 4, white, ANO_UI_REF_NONE,
+    ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
+    ui_builder_curves(&b, curves, 512);
+    (void)ui_path_fill(&b, ccw, 4, white, ANO_UI_REF_NONE,
                            ANO_UI_REF_NONE, 0);
-    AnoUiScene s2 = ano_ui_scene(&b);
+    AnoUiScene s2 = ui_scene(&b);
     float c[4];
-    ano_ui_ref_eval(&s2, 60.0f, 50.0f, c);
+    ui_ref_eval(&s2, 60.0f, 50.0f, c);
     CHECK(fabs(c[3] - 1.0) <= 2e-3, "reversed winding still fills");
 
     // Hole: outer CW + opposite inner -> covered between, empty inside.
@@ -689,14 +689,14 @@ static void test_path(void)
         { ANO_UI_SEG_LINE, { 75, 62, 0, 0 } },
         { ANO_UI_SEG_LINE, { 75, 38, 0, 0 } },
     };
-    ano_ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
-    ano_ui_builder_curves(&b, curves, 512);
-    (void)ano_ui_path_fill(&b, holed, 8, white, ANO_UI_REF_NONE,
+    ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
+    ui_builder_curves(&b, curves, 512);
+    (void)ui_path_fill(&b, holed, 8, white, ANO_UI_REF_NONE,
                            ANO_UI_REF_NONE, 0);
-    AnoUiScene s3 = ano_ui_scene(&b);
+    AnoUiScene s3 = ui_scene(&b);
     float between[4], inside[4];
-    ano_ui_ref_eval(&s3, 28.0f, 50.0f, between); // in the ring
-    ano_ui_ref_eval(&s3, 60.0f, 50.0f, inside);   // in the hole
+    ui_ref_eval(&s3, 28.0f, 50.0f, between); // in the ring
+    ui_ref_eval(&s3, 60.0f, 50.0f, inside);   // in the hole
     printf("  path hole ring %.4f  hole %.4f\n", between[3], inside[3]);
     CHECK(fabs(between[3] - 1.0) <= 2e-3, "filled between outer and hole");
     CHECK(inside[3] <= 2e-3, "inner contour punches a hole");
@@ -760,7 +760,7 @@ static void shadow_case(const char *name, double hw, double hh, double corner, d
                 for (int sx = 0; sx < ss; sx++)
                     truth += mask[(size_t)(py * ss + sy) * sw + px * ss + sx];
             truth /= ss * ss;
-            float v = ano_ui_ref_shadow((float[2]){ (float)(px + 0.5 - cx),
+            float v = ui_ref_shadow((float[2]){ (float)(px + 0.5 - cx),
                                                     (float)(py + 0.5 - cy) },
                                         (float[2]){ (float)hw, (float)hh }, (float)corner,
                                         (float)sigma);
@@ -790,17 +790,17 @@ static void test_shadow(void)
     AnoUiPrim prims[1];
     AnoUiBuilder b;
     float ink[4] = { 0, 0, 0, 1 };
-    ano_ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
-    (void)ano_ui_shadow(&b, (float[2]){ 0, 0 }, (float[2]){ 60, 40 },
+    ui_builder_init(&b, prims, 1, NULL, 0, NULL, 0, NULL, 0);
+    (void)ui_shadow(&b, (float[2]){ 0, 0 }, (float[2]){ 60, 40 },
                         4.0f, 3.0f, ink, ANO_UI_REF_NONE,
                         ANO_UI_FLAG_INNER);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     float out[4];
-    ano_ui_ref_eval(&s, 80.0f, 20.0f, out);
+    ui_ref_eval(&s, 80.0f, 20.0f, out);
     CHECK(out[3] < 1e-4f, "inner shadow zero outside");
-    ano_ui_ref_eval(&s, 29.5f, 19.5f, out);
+    ui_ref_eval(&s, 29.5f, 19.5f, out);
     CHECK(out[3] < 2e-2f, "inner shadow near zero deep inside (3-sigma truncation residue)");
-    ano_ui_ref_eval(&s, 1.5f, 19.5f, out);
+    ui_ref_eval(&s, 1.5f, 19.5f, out);
     CHECK(out[3] > 0.2f, "inner shadow positive at the rim");
 }
 
@@ -814,32 +814,32 @@ static void test_blend(void)
     AnoUiPrim prims[4];
     AnoUiBuilder b;
     float red[4] = { 1, 0, 0, 1 }, green[4] = { 0, 1, 0, 1 }, glow[4] = { 0.4f, 0.2f, 0, 0.4f };
-    ano_ui_builder_init(&b, prims, 4, NULL, 0, NULL, 0, NULL, 0);
-    (void)ano_ui_rrect(&b, (float[2]){ 0, 0 }, (float[2]){ 40, 40 },
+    ui_builder_init(&b, prims, 4, NULL, 0, NULL, 0, NULL, 0);
+    (void)ui_rrect(&b, (float[2]){ 0, 0 }, (float[2]){ 40, 40 },
                        NULL, red, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0);
-    (void)ano_ui_rrect(&b, (float[2]){ 20, 20 }, (float[2]){ 60, 60 },
+    (void)ui_rrect(&b, (float[2]){ 20, 20 }, (float[2]){ 60, 60 },
                        NULL, green, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     float base[4], out[4];
-    ano_ui_ref_eval(&s, 30.0f, 30.0f, base); // deep inside both
+    ui_ref_eval(&s, 30.0f, 30.0f, base); // deep inside both
     CHECK(base[0] == 0.0f && base[1] == 1.0f && base[3] == 1.0f, "painter's order: later on top");
-    ano_ui_ref_eval(&s, 10.0f, 10.0f, out); // only the first
+    ui_ref_eval(&s, 10.0f, 10.0f, out); // only the first
     CHECK(out[0] == 1.0f && out[1] == 0.0f, "painter's order: base visible outside overlap");
 
     // ADD lights rgb without occluding. PATH/GLYPHS contribute zero here.
-    (void)ano_ui_shadow(&b, (float[2]){ 10, 10 }, (float[2]){ 50, 50 },
+    (void)ui_shadow(&b, (float[2]){ 10, 10 }, (float[2]){ 50, 50 },
                         4.0f, 3.0f, glow, ANO_UI_REF_NONE, ANO_UI_BLEND_ADD);
-    (void)ano_ui_glyphs(&b, (float[2]){ 0, 0 }, (float[2]){ 60, 60 },
+    (void)ui_glyphs(&b, (float[2]){ 0, 0 }, (float[2]){ 60, 60 },
                         0, 8, red, ANO_UI_REF_NONE, 0);
-    s = ano_ui_scene(&b);
+    s = ui_scene(&b);
     float lit[4];
-    ano_ui_ref_eval(&s, 30.0f, 30.0f, lit);
+    ui_ref_eval(&s, 30.0f, 30.0f, lit);
     CHECK(lit[0] > base[0] + 0.3f && lit[1] > base[1] + 0.15f && lit[3] == base[3],
           "ADD accumulates rgb, alpha untouched, GLYPHS skipped");
 
     // Purity: identical inputs -> identical bits.
     float again[4];
-    ano_ui_ref_eval(&s, 30.0f, 30.0f, again);
+    ui_ref_eval(&s, 30.0f, 30.0f, again);
     CHECK(memcmp(lit, again, sizeof lit) == 0, "evaluation purity");
 }
 
@@ -857,7 +857,7 @@ static double tiles_check(const AnoUiScene *s, const char *name)
     float lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
     for (uint32_t i = 0; i < s->primCount; i++) {
         float mn[2], mx[2];
-        ano_ui_prim_aabb(&s->prims[i], mn, mx);
+        ui_prim_aabb(&s->prims[i], mn, mx);
         lo[0] = fminf(lo[0], mn[0]); lo[1] = fminf(lo[1], mn[1]);
         hi[0] = fmaxf(hi[0], mx[0]); hi[1] = fmaxf(hi[1], mx[1]);
     }
@@ -869,7 +869,7 @@ static double tiles_check(const AnoUiScene *s, const char *name)
     uint32_t *cursor = static_cast<uint32_t *>(malloc((size_t)nTiles * 4));
     uint32_t entryCap = 1u << 20;
     uint32_t *entries = static_cast<uint32_t *>(malloc((size_t)entryCap * 4));
-    auto built = ano_ui_tile_build(s, ox, oy, tilesX, tilesY, offsets, nTiles + 1,
+    auto built = ui_tile_build(s, ox, oy, tilesX, tilesY, offsets, nTiles + 1,
                                    entries, entryCap, cursor);
     CHECK(built, "tile build fits caps");
     uint32_t nEntries = built.value_or(0);
@@ -880,8 +880,8 @@ static double tiles_check(const AnoUiScene *s, const char *name)
     for (int32_t py = oy - 4; py < oy + (int32_t)tilesY * 8 + 4; py++)
         for (int32_t px = ox - 4; px < ox + (int32_t)tilesX * 8 + 4; px++) {
             float a[4], t[4];
-            ano_ui_ref_eval(s, (float)px, (float)py, a);
-            ano_ui_ref_eval_tiled(s, ox, oy, tilesX, tilesY, offsets, entries, px, py, t);
+            ui_ref_eval(s, (float)px, (float)py, a);
+            ui_ref_eval_tiled(s, ox, oy, tilesX, tilesY, offsets, entries, px, py, t);
             for (int k = 0; k < 4; k++)
                 worst = fmax(worst, fabs((double)a[k] - (double)t[k]));
         }
@@ -901,7 +901,7 @@ static void test_tiles(uint32_t soak)
     uint32_t curves[256];
     AnoUiBuilder b;
     demo_build(prims, clips, paints, stops, curves, &b);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     // Tiled clips shadows at 3-sigma AABB. Brute keeps the Gaussian tail.
     CHECK(tiles_check(&s, "demo") <= 2e-3, "demo tiled matches brute within the shadow-cull tail");
 
@@ -910,7 +910,7 @@ static void test_tiles(uint32_t soak)
     for (uint32_t it = 0; it < 1u + soak; it++) {
         AnoUiPrim rp[24];
         AnoUiBuilder rb;
-        ano_ui_builder_init(&rb, rp, 24, NULL, 0, NULL, 0, NULL, 0);
+        ui_builder_init(&rb, rp, 24, NULL, 0, NULL, 0, NULL, 0);
         uint32_t n = 6 + rng_below(&rng, 14);
         for (uint32_t i = 0; i < n; i++) {
             float x = 20.0f + (float)rng_below(&rng, 2000) * 0.1f;
@@ -920,13 +920,13 @@ static void test_tiles(uint32_t soak)
             float rr = (float)rng_below(&rng, 12);
             float col[4] = { 0.5f, 0.4f, 0.6f, 0.3f + (float)rng_below(&rng, 70) * 0.01f };
             float radii[4] = { rr, rr, rr, rr };
-            (void)ano_ui_rrect(&rb, (float[2]){ x, y },
+            (void)ui_rrect(&rb, (float[2]){ x, y },
                                (float[2]){ x + w, y + h }, radii, col,
                                rng_below(&rng, 4) == 0 ? 2.0f : 0.0f,
                                ANO_UI_REF_NONE, ANO_UI_REF_NONE,
                                rng_below(&rng, 3) == 0 ? ANO_UI_BLEND_ADD : 0u);
         }
-        AnoUiScene rs = ano_ui_scene(&rb);
+        AnoUiScene rs = ui_scene(&rb);
         if (tiles_check(&rs, "random") != 0.0)
             CHECK(false, "random rrects tiled == brute (bit-identical)");
     }
@@ -955,7 +955,7 @@ static void test_paint_stop_overflow(void)
     AnoUiPaint paints[4];
     AnoUiStop stops[STOP_CAP];
     AnoUiBuilder b;
-    ano_ui_builder_init(&b, NULL, 0, NULL, 0, paints, 4, stops, STOP_CAP);
+    ui_builder_init(&b, NULL, 0, NULL, 0, paints, 4, stops, STOP_CAP);
 
     const float p0[2] = { 0.0f, 0.0f }, p1[2] = { 8.0f, 0.0f };
 
@@ -963,7 +963,7 @@ static void test_paint_stop_overflow(void)
     AnoUiStop src[8];
     for (int i = 0; i < 8; i++)
         src[i] = make_stop((float)(7 - i) / 7.0f);
-    uint32_t idx = ano_ui_paint_linear(&b, p0, p1, src, 8).value_or(ANO_UI_REF_NONE);
+    uint32_t idx = ui_paint_linear(&b, p0, p1, src, 8).value_or(ANO_UI_REF_NONE);
     CHECK(idx == 0, "first gradient lands at paint 0");
     CHECK(b.stopCount == 8, "8 stops resident");
     for (int i = 1; i < 8; i++)
@@ -973,12 +973,12 @@ static void test_paint_stop_overflow(void)
     AnoUiStop big[16];
     for (int i = 0; i < 16; i++)
         big[i] = make_stop((float)i / 15.0f);
-    CHECK(has_error(ano_ui_paint_linear(&b, p0, p1, big, 16), UiError::capacity),
+    CHECK(has_error(ui_paint_linear(&b, p0, p1, big, 16), UiError::capacity),
           "honest overflow reports capacity");
     CHECK(b.stopCount == 8 && b.paintCount == 1, "refused push mutates nothing");
 
     // 8 + (2^32 - 5) is 3 in uint32, under stopCap 16
-    CHECK(has_error(ano_ui_paint_linear(&b, p0, p1, src, UINT32_MAX - 4u),
+    CHECK(has_error(ui_paint_linear(&b, p0, p1, src, UINT32_MAX - 4u),
                     UiError::capacity),
           "wrapping stopCount reports capacity");
     CHECK(b.stopCount == 8 && b.paintCount == 1, "wrapping stopCount mutates nothing");
@@ -993,8 +993,8 @@ static void test_path_contour_bound(void)
     AnoUiPrim prims[4];
     uint32_t curves[256];
     AnoUiBuilder b;
-    ano_ui_builder_init(&b, prims, 4, NULL, 0, NULL, 0, NULL, 0);
-    ano_ui_builder_curves(&b, curves, 256);
+    ui_builder_init(&b, prims, 4, NULL, 0, NULL, 0, NULL, 0);
+    ui_builder_curves(&b, curves, 256);
 
     const float red[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
 
@@ -1004,15 +1004,15 @@ static void test_path_contour_bound(void)
         { ANO_UI_SEG_LINE, { 12.0f, 12.0f } },
         { ANO_UI_SEG_LINE, { 2.0f, 12.0f } },   // auto-closes to (2,2)
     };
-    uint32_t sq = ano_ui_path_fill(&b, square, 4, red, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0)
+    uint32_t sq = ui_path_fill(&b, square, 4, red, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0)
                       .value_or(ANO_UI_REF_NONE);
     CHECK(sq == 0, "square path accepted as prim 0");
     CHECK(b.primCount == 1, "square committed exactly one prim");
     CHECK(b.curveCount == 9, "square stream is start word + 4 curve pairs");
     if (b.primCount == 1) {
-        AnoUiScene s = ano_ui_scene(&b);
+        AnoUiScene s = ui_scene(&b);
         float px[4];
-        ano_ui_ref_eval(&s, 6.0f, 6.0f, px);
+        ui_ref_eval(&s, 6.0f, 6.0f, px);
         CHECK(fabsf(px[3] - 1.0f) < 1e-3f, "square interior evaluates opaque");
     }
 
@@ -1021,7 +1021,7 @@ static void test_path_contour_bound(void)
     zig[0] = (AnoUiPathSeg){ ANO_UI_SEG_MOVE, { 0.0f, 0.0f } };
     for (uint32_t i = 1; i <= (uint32_t)ZIG_LINES; i++)
         zig[i] = (AnoUiPathSeg){ ANO_UI_SEG_LINE, { (float)i, (float)(i & 1u) } };
-    CHECK(has_error(ano_ui_path_fill(&b, zig, ZIG_LINES + 1, red, ANO_UI_REF_NONE,
+    CHECK(has_error(ui_path_fill(&b, zig, ZIG_LINES + 1, red, ANO_UI_REF_NONE,
                                      ANO_UI_REF_NONE, 0),
                     UiError::capacity),
           "over-budget quad count rejected");
@@ -1041,7 +1041,7 @@ static void test_path_contour_bound(void)
             segs[4 + i] = (AnoUiPathSeg){ ANO_UI_SEG_MOVE,
                                           { (float)(i & 7u), (float)((i >> 3) & 7u) } };
         fflush(stdout);
-        auto mv = ano_ui_path_fill(&b, segs, nseg, red,
+        auto mv = ui_path_fill(&b, segs, nseg, red,
                                    ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0);
         // any non-corrupting outcome is acceptable: reject, or a committed prim
         CHECK(!mv || b.primCount >= 1, "empty contours returned without corruption");
@@ -1058,13 +1058,13 @@ static void test_path_contour_bound(void)
     for (uint32_t k = CRASH_K_LO; k <= (uint32_t)CRASH_K_HI; k++) {
         AnoUiPrim prims2[4];
         AnoUiBuilder b2;
-        ano_ui_builder_init(&b2, prims2, 4, NULL, 0, NULL, 0, NULL, 0);
-        ano_ui_builder_curves(&b2, bigCurves, BIG_CURVE_CAP);
+        ui_builder_init(&b2, prims2, 4, NULL, 0, NULL, 0, NULL, 0);
+        ui_builder_curves(&b2, bigCurves, BIG_CURVE_CAP);
         for (uint32_t i = 0; i < k; i++)
             segs2[4 + i] = (AnoUiPathSeg){ ANO_UI_SEG_MOVE,
                                            { (float)(i & 7u), (float)((i >> 3) & 7u) } };
         fflush(stdout);
-        auto mv2 = ano_ui_path_fill(&b2, segs2, 4u + k, red,
+        auto mv2 = ui_path_fill(&b2, segs2, 4u + k, red,
                                     ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0);
         CHECK(!mv2 || b2.primCount >= 1,
               "contour count at the boundary returned without corruption");
@@ -1094,31 +1094,31 @@ static void test_paint_ref_stop_window(void)
     float out[4];
 
     AnoUiScene s = stopwin_scene(0, 2);
-    ano_ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
+    ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
     CHECK(fabsf(out[0] - 0.5f) < 1e-4f && fabsf(out[1] - 0.5f) < 1e-4f
           && fabsf(out[2] - 0.5f) < 1e-4f && fabsf(out[3] - 1.0f) < 1e-4f,
           "valid stop window interpolates mid-gradient");
 
-    ano_ui_ref_paint(&s, ANO_UI_REF_NONE, 0.5f, 0.0f, base, out);
+    ui_ref_paint(&s, ANO_UI_REF_NONE, 0.5f, 0.0f, base, out);
     CHECK(out[0] == 1.0f && out[1] == 1.0f && out[2] == 1.0f && out[3] == 1.0f,
           "paintRef NONE returns base");
 
-    ano_ui_ref_paint(&s, 7, 0.5f, 0.0f, base, out);
+    ui_ref_paint(&s, 7, 0.5f, 0.0f, base, out);
     CHECK(is_transparent(out), "out-of-range paintRef fails closed");
 
     // window 1000..1001 of a 2-stop table: out of range without wrapping
     s = stopwin_scene(1000u, 2);
-    ano_ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
+    ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
     CHECK(is_transparent(out), "plain out-of-range stop window fails closed");
 
     s = stopwin_scene(0, 0);
-    ano_ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
+    ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
     CHECK(is_transparent(out), "stopCount 0 fails closed");
 
     // stopFirst UINT32_MAX with stopCount 2 wraps first + count to 1, inside a 2-stop table
     s = stopwin_scene(UINT32_MAX, 2);
     out[0] = out[1] = out[2] = out[3] = -1.0f;
-    ano_ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
+    ui_ref_paint(&s, 0, 0.5f, 0.0f, base, out);
     CHECK(is_transparent(out), "wrapping stop window fails closed");
 }
 
@@ -1137,21 +1137,21 @@ static const float ENTRY_COLOR_D[4] = { 0.05f, 0.35f, 0.15f, 0.60f };
 static AnoUiScene entry_scene(void)
 {
     AnoUiBuilder b;
-    ano_ui_builder_init(&b, g_entry_prims, 4, NULL, 0, NULL, 0, NULL, 0);
+    ui_builder_init(&b, g_entry_prims, 4, NULL, 0, NULL, 0, NULL, 0);
     const float r0[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    (void)ano_ui_rrect(&b, (float[2]){ 0.0f, 0.0f }, (float[2]){ 64.0f, 64.0f }, r0,
+    (void)ui_rrect(&b, (float[2]){ 0.0f, 0.0f }, (float[2]){ 64.0f, 64.0f }, r0,
                        ENTRY_COLOR_A, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE,
                        ANO_UI_BLEND_OVER);
-    (void)ano_ui_rrect(&b, (float[2]){ 16.0f, 16.0f }, (float[2]){ 48.0f, 48.0f }, r0,
+    (void)ui_rrect(&b, (float[2]){ 16.0f, 16.0f }, (float[2]){ 48.0f, 48.0f }, r0,
                        ENTRY_COLOR_B, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE,
                        ANO_UI_BLEND_OVER);
-    (void)ano_ui_rrect(&b, (float[2]){ 8.0f, 40.0f }, (float[2]){ 56.0f, 60.0f }, r0,
+    (void)ui_rrect(&b, (float[2]){ 8.0f, 40.0f }, (float[2]){ 56.0f, 60.0f }, r0,
                        ENTRY_COLOR_C, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE,
                        ANO_UI_BLEND_ADD);
-    (void)ano_ui_rrect(&b, (float[2]){ 24.0f, 4.0f }, (float[2]){ 40.0f, 60.0f }, r0,
+    (void)ui_rrect(&b, (float[2]){ 24.0f, 4.0f }, (float[2]){ 40.0f, 60.0f }, r0,
                        ENTRY_COLOR_D, 0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE,
                        ANO_UI_BLEND_OVER);
-    return ano_ui_scene(&b);
+    return ui_scene(&b);
 }
 
 // One tile at (ox,oy) holding n caller-supplied entry words, evaluated at (px,py).
@@ -1159,7 +1159,7 @@ static void eval_one_tile(const AnoUiScene *s, int32_t ox, int32_t oy, const uin
                           uint32_t n, int32_t px, int32_t py, float out[4])
 {
     const uint32_t offsets[2] = { 0u, n };
-    ano_ui_ref_eval_tiled(s, ox, oy, 1, 1, offsets, entries, px, py, out);
+    ui_ref_eval_tiled(s, ox, oy, 1, 1, offsets, entries, px, py, out);
 }
 
 // Tile entry domain: OOR index fail-closed; built stream == brute; solid flat-fill; ADD accumulates.
@@ -1171,7 +1171,7 @@ static void test_tile_entry_domain(void)
     uint32_t offsets[ENTRY_GRID_TILES * ENTRY_GRID_TILES + 1] = { 0 };
     uint32_t cursor[ENTRY_GRID_TILES * ENTRY_GRID_TILES] = { 0 };
     uint32_t entries[512] = { 0 };
-    auto built = ano_ui_tile_build(&s, 0, 0, ENTRY_GRID_TILES, ENTRY_GRID_TILES, offsets,
+    auto built = ui_tile_build(&s, 0, 0, ENTRY_GRID_TILES, ENTRY_GRID_TILES, offsets,
                                    ENTRY_GRID_TILES * ENTRY_GRID_TILES + 1, entries, 512,
                                    cursor);
     CHECK(built, "tile build fits the caps");
@@ -1184,8 +1184,8 @@ static void test_tile_entry_domain(void)
         for (int32_t py = 0; py < ENTRY_GRID_PX; py++)
             for (int32_t px = 0; px < ENTRY_GRID_PX; px++) {
                 float brute[4], tiled[4];
-                ano_ui_ref_eval(&s, (float)px, (float)py, brute);
-                ano_ui_ref_eval_tiled(&s, 0, 0, ENTRY_GRID_TILES, ENTRY_GRID_TILES, offsets,
+                ui_ref_eval(&s, (float)px, (float)py, brute);
+                ui_ref_eval_tiled(&s, 0, 0, ENTRY_GRID_TILES, ENTRY_GRID_TILES, offsets,
                                       entries, px, py, tiled);
                 if (memcmp(brute, tiled, sizeof brute) != 0)
                     bad++;
@@ -1206,8 +1206,8 @@ static void test_tile_entry_domain(void)
     {
         const uint32_t e[2] = { 0u, 2u };
         float src0[4], src2[4], want[4], out[4];
-        ano_ui_ref_shade(&s, 0, 28.0f, 48.0f, src0);
-        ano_ui_ref_shade(&s, 2, 28.0f, 48.0f, src2);
+        ui_ref_shade(&s, 0, 28.0f, 48.0f, src0);
+        ui_ref_shade(&s, 2, 28.0f, 48.0f, src2);
         for (int k = 0; k < 4; k++) want[k] = src0[k];
         for (int k = 0; k < 3; k++) want[k] += src2[k];
         eval_one_tile(&s, 24, 44, e, 2, 28, 48, out);
@@ -1231,7 +1231,7 @@ static void test_tile_entry_domain(void)
             "idx == INDEX_MASK (solid set) contributes nothing",
         };
         float want[4];
-        ano_ui_ref_shade(&s, 0, 4.0f, 4.0f, want);
+        ui_ref_shade(&s, 0, 4.0f, 4.0f, want);
         for (int i = 0; i < 4; i++) {
             const uint32_t e[2] = { 0u, bad[i] };
             float out[4] = { -1.0f, -1.0f, -1.0f, -1.0f };
@@ -1252,8 +1252,8 @@ static void test_tile_entry_domain(void)
         AnoUiScene s1 = s;
         s1.primCount = 1;
         float want[4], out[4];
-        ano_ui_ref_eval(&s1, 28.0f, 28.0f, want);
-        ano_ui_ref_eval_tiled(&s1, 0, 0, ENTRY_GRID_TILES, ENTRY_GRID_TILES, offsets, entries,
+        ui_ref_eval(&s1, 28.0f, 28.0f, want);
+        ui_ref_eval_tiled(&s1, 0, 0, ENTRY_GRID_TILES, ENTRY_GRID_TILES, offsets, entries,
                               28, 28, out);
         CHECK(memcmp(out, want, sizeof out) == 0, "stale entries past primCount fail closed");
     }
@@ -1266,7 +1266,7 @@ static void test_tile_build_grid_caps(void)
 
     {
         uint32_t offsets[5] = { 0 }, entries[4] = { 0 }, cursor[4] = { 0 };
-        auto built = ano_ui_tile_build(&s, 0, 0, 2, 2, offsets, 5, entries, 4, cursor);
+        auto built = ui_tile_build(&s, 0, 0, 2, 2, offsets, 5, entries, 4, cursor);
         CHECK(built, "2x2 grid with exact caps reports ok");
         uint32_t n = built.value_or(UINT32_MAX);
         CHECK(n == 0, "empty scene emits no entries");
@@ -1275,7 +1275,7 @@ static void test_tile_build_grid_caps(void)
 
     {
         uint32_t offsets[4] = { 0 }, entries[4] = { 0 }, cursor[4] = { 0 };
-        CHECK(has_error(ano_ui_tile_build(&s, 0, 0, 2, 2, offsets, 4, entries, 4, cursor),
+        CHECK(has_error(ui_tile_build(&s, 0, 0, 2, 2, offsets, 4, entries, 4, cursor),
                         UiError::capacity),
               "2x2 grid needs offsetsCap 5, cap 4 must refuse");
     }
@@ -1283,7 +1283,7 @@ static void test_tile_build_grid_caps(void)
     // 65536 x 65536 is 2^32 tiles, which wraps the tile count to 0
     {
         uint32_t offsets[8] = { 0 }, entries[4] = { 0 }, cursor[4] = { 0 };
-        CHECK(has_error(ano_ui_tile_build(&s, 0, 0, 65536u, 65536u, offsets, 8, entries, 4,
+        CHECK(has_error(ui_tile_build(&s, 0, 0, 65536u, 65536u, offsets, 8, entries, 4,
                                           cursor),
                         UiError::capacity),
               "2^32-tile request must report capacity");
@@ -1302,9 +1302,9 @@ static void test_tile_build_grid_caps(void)
 static void demo_build(AnoUiPrim *prims, AnoUiClip *clips, AnoUiPaint *paints,
                        AnoUiStop *stops, uint32_t *curves, AnoUiBuilder *b)
 {
-    ano_ui_builder_init(b, prims, 32, clips, 4, paints, 8, stops, 16);
-    ano_ui_builder_curves(b, curves, 256);
-    (void)ano_ui_demo_scene(b, DEMO_ORIGIN_X, DEMO_ORIGIN_Y);
+    ui_builder_init(b, prims, 32, clips, 4, paints, 8, stops, 16);
+    ui_builder_curves(b, curves, 256);
+    (void)ui_demo_scene(b, DEMO_ORIGIN_X, DEMO_ORIGIN_Y);
 }
 
 static void test_demo(void)
@@ -1340,7 +1340,7 @@ static void test_demo(void)
 static void demo_pixel(const AnoUiScene *s, int px, int py, uint8_t out[3])
 {
     float acc[4];
-    ano_ui_ref_eval(s, (float)px, (float)py, acc);
+    ui_ref_eval(s, (float)px, (float)py, acc);
     for (int c = 0; c < 3; c++) {
         float lin = fminf(fmaxf(acc[c], 0.0f), 1.0f);
         lin = roundf(lin * 255.0f) / 255.0f;
@@ -1364,7 +1364,7 @@ static int demo_dump(int argc, char **argv)
     uint32_t curves[256];
     AnoUiBuilder b;
     demo_build(prims, clips, paints, stops, curves, &b);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     FILE *f = fopen(argv[4], "wb");
     if (!f)
         return 2;
@@ -1426,7 +1426,7 @@ static int demo_compare(int argc, char **argv)
     uint32_t curves[256];
     AnoUiBuilder b;
     demo_build(prims, clips, paints, stops, curves, &b);
-    AnoUiScene s = ano_ui_scene(&b);
+    AnoUiScene s = ui_scene(&b);
     uint8_t *row = static_cast<uint8_t *>(malloc((size_t)w * 3));
     double sum2 = 0.0;
     int worst = 0, wx = 0, wy = 0;

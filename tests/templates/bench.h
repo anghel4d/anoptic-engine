@@ -20,8 +20,8 @@ using namespace ano;
 #include <string.h>
 
 // Timed section: t0 = bench_begin(); ...work...; bench_lat_add(&lat, bench_end(t0));
-static inline uint64_t bench_begin(void)          { return ano_timestamp_ticks(); }
-static inline uint64_t bench_end(uint64_t t0)     { return ano_timestamp_ticks() - t0; }
+static inline uint64_t bench_begin(void)          { return timestamp_ticks(); }
+static inline uint64_t bench_end(uint64_t t0)     { return timestamp_ticks() - t0; }
 
 // Sample recorder over a caller-owned buffer. Overflow drops the sample and counts it.
 typedef struct {
@@ -90,10 +90,10 @@ static inline bench_stats bench_lat_stats_with(bench_lat *l, uint64_t (*toNs)(ui
     return s;
 }
 
-// The common case: samples are ano_timestamp_ticks deltas.
+// The common case: samples are timestamp_ticks deltas.
 static inline bench_stats bench_lat_stats(bench_lat *l)
 {
-    return bench_lat_stats_with(l, ano_ticks_to_ns);
+    return bench_lat_stats_with(l, ticks_to_ns);
 }
 
 // Aligned table: header once, one row per series. All values ns.

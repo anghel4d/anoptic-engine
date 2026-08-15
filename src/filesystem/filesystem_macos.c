@@ -26,9 +26,9 @@ using namespace ano;
 /* Paths */
 
 // _NSGetExecutablePath + realpath. Hand-rolled split: dirname() is not portably reentrant.
-FilesystemResult<ano_fspath> ano::ano_fs_gamepath(void)
+FilesystemResult<fspath> ano::fs_gamepath(void)
 {
-    ano_fspath result = {0};
+    fspath result = {0};
 
     char raw[PATH_MAX];
     uint32_t size = sizeof(raw);
@@ -54,9 +54,9 @@ FilesystemResult<ano_fspath> ano::ano_fs_gamepath(void)
 }
 
 // ~/Library/Application Support/anoptic, created if absent. Parent always exists on macOS.
-FilesystemResult<ano_fspath> ano::ano_fs_userpath(void)
+FilesystemResult<fspath> ano::fs_userpath(void)
 {
-    ano_fspath result = {0};
+    fspath result = {0};
 
     const char *home = getenv("HOME");
     if (home == NULL || home[0] == '\0')
@@ -73,9 +73,9 @@ FilesystemResult<ano_fspath> ano::ano_fs_userpath(void)
     return result;
 }
 
-FilesystemResult<> ano::ano_fs_chdir_gamepath(void)
+FilesystemResult<> ano::fs_chdir_gamepath(void)
 {
-    const auto dir = ano_fs_gamepath();
+    const auto dir = fs_gamepath();
     if (!dir)
         return failure(dir.error());
     return result_if(chdir(dir->str) == 0, FilesystemError::io);
@@ -96,11 +96,11 @@ int fs_mkdir(const char *path)
 
 /* Append-Only File */
 
-struct ano::ano_file {
+struct ano::fs_file {
     int fd;
 };
 
-static FilesystemResult<ano_file*> open_file(const char *path, int flags)
+static FilesystemResult<fs_file*> open_file(const char *path, int flags)
 {
     if (path == NULL)
         return failure(FilesystemError::invalid_argument);
@@ -109,7 +109,7 @@ static FilesystemResult<ano_file*> open_file(const char *path, int flags)
     if (fd < 0)
         return failure(FilesystemError::io);
 
-    ano_file *file = mi_malloc_tp(ano_file);
+    fs_file *file = mi_malloc_tp(fs_file);
     if (file == NULL) {
         close(fd);
         return failure(FilesystemError::out_of_memory);
@@ -118,19 +118,19 @@ static FilesystemResult<ano_file*> open_file(const char *path, int flags)
     return file;
 }
 
-FilesystemResult<ano_file*> ano::ano_fs_open_append(const char *path)
+FilesystemResult<fs_file*> ano::fs_open_append(const char *path)
 {
     return open_file(path, O_WRONLY | O_CREAT | O_APPEND);
 }
 
-FilesystemResult<ano_file*> ano::ano_fs_open_trunc(const char *path)
+FilesystemResult<fs_file*> ano::fs_open_trunc(const char *path)
 {
     return open_file(path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND);
 }
 
 // 0 once all bytes are written. Loops past short writes and EINTR.
-FilesystemResult<> ano::ano_fs_write(
-    ano_file *file, const void *data, size_t length)
+FilesystemResult<> ano::fs_write(
+    fs_file *file, const void *data, size_t length)
 {
     if (file == NULL || (data == NULL && length != 0))
         return failure(FilesystemError::invalid_argument);
@@ -150,7 +150,7 @@ FilesystemResult<> ano::ano_fs_write(
     return {};
 }
 
-FilesystemResult<> ano::ano_fs_sync(ano_file *file)
+FilesystemResult<> ano::fs_sync(fs_file *file)
 {
     if (file == NULL)
         return failure(FilesystemError::invalid_argument);
@@ -158,7 +158,7 @@ FilesystemResult<> ano::ano_fs_sync(ano_file *file)
 }
 
 // Handle freed either way.
-FilesystemResult<> ano::ano_fs_close(ano_file *file)
+FilesystemResult<> ano::fs_close(fs_file *file)
 {
     if (file == NULL)
         return failure(FilesystemError::invalid_argument);

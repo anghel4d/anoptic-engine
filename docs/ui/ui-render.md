@@ -320,7 +320,7 @@ pixels of outline-evaluated shapes. The ladder, each step gated on measurement:
 
 ### 3.9 Bridge protocol and API boundary
 
-Clone the text verbs: `RCMD_UI_SET`/`RCMD_UI_CLEAR`, `ano_render_ui_set(bridge, ui_id, blob)`
+Clone the text verbs: `RCMD_UI_SET`/`RCMD_UI_CLEAR`, `render_ui_set(bridge, ui_id, blob)`
 packing header + prim array + side tables in one allocation, `bulk_owned`, registry adoption
 (`ANO_UI_MAX_BLOCKS` ≈ 64), full-replace semantics, compose + version bump + per-slot refresh.
 Both verbs answer `AnoRenderSubmitResult`, same domain as the text endpoints.
@@ -329,13 +329,13 @@ BACKPRESSURE: the ring was full; the packed block was released and nothing was
 enqueued; retry next tick. OOM: the allocation itself was refused; shed it
 rather than retry at tick rate. INVALID: the block violates the contract and
 can never land unchanged, so the caller retires it. A non-NULL builder holding
-no prims tail-forwards to `ano_render_ui_clear` and returns that clear's
+no prims tail-forwards to `render_ui_clear` and returns that clear's
 answer. A NULL builder is INVALID, not a silent clear; an absent block is
 spelled by calling clear, so a caller that lost its builder learns about it
 instead of quietly erasing a live block. INVALID also covers per-block caps
 exceeded, glyphCount > 0 with NULL glyphs, out-of-range clip/paint/glyph
 references, and a UI_PATH whose curve walk would read past the stream.
-`ano_render_ui_clear` allocates nothing and validates nothing, so its domain
+`render_ui_clear` allocates nothing and validates nothing, so its domain
 is ACCEPTED or BACKPRESSURE alone. Callers inspect `result.code` only;
 ACCEPTED is 0, so `if (result)` inverts success, and an exhaustive switch with
 no `default` turns a future fifth code into a compile-time diagnostic at every
@@ -343,7 +343,7 @@ policy site.
 Block header carries the layer byte and a scroll offset (applied CPU-side at compose v0; a
 GPU-side per-block offset later makes scrolling re-compose-free). Logic side gets a thin pure
 prim-builder API in `include/anoptic_ui.h` (push_rrect/push_shadow/push_image/push_text/
-push_path into a caller buffer, mirroring `ano_text_shape`'s purity; callable any thread,
+push_path into a caller buffer, mirroring `text_shape`'s purity; callable any thread,
 zero allocation); widget/layout/hit-test logic lives above it in game code and is explicitly
 not the renderer's business. Text-on-UI: the builder calls the existing shaper and emits a
 UI_GLYPHS prim referencing the shaped range, so labels ride the same block and the same z.
@@ -358,7 +358,7 @@ construction. Out of v0 scope; the include split is designed in from step 1.
 
 ### 3.11 Logical units and surfaces (2026-07-08)
 
-Block coordinates are logical units of the block's surface. A surface owns the mapping from logical units to device pixels, and the renderer folds that mapping into the composed tables exactly once, at compose, next to the scroll fold (`ano_ui_prim_scale` / `ano_ui_clip_scale` / `ano_ui_paint_scale` / `ano_ui_curves_scale` in src/ui; glyph instances fold origin by s and the px->em inv by 1/s). Everything downstream of compose; pending bounds, tile lists, the dispatch, both evaluators; is device pixels, so the analytic machinery of §3.3-§3.5 is untouched and the AA window stays the exact 1 px box filter. Sharpness holds by construction: the fold scales geometry before evaluation, curves and glyphs rasterize at full device resolution, and nothing is ever resampled.
+Block coordinates are logical units of the block's surface. A surface owns the mapping from logical units to device pixels, and the renderer folds that mapping into the composed tables exactly once, at compose, next to the scroll fold (`ui_prim_scale` / `ui_clip_scale` / `ui_paint_scale` / `ui_curves_scale` in src/ui; glyph instances fold origin by s and the px->em inv by 1/s). Everything downstream of compose; pending bounds, tile lists, the dispatch, both evaluators; is device pixels, so the analytic machinery of §3.3-§3.5 is untouched and the AA window stays the exact 1 px box filter. Sharpness holds by construction: the fold scales geometry before evaluation, curves and glyphs rasterize at full device resolution, and nothing is ever resampled.
 
 v0 defines one surface, the screen overlay (`ANO_UI_SURFACE_OVERLAY`, a `RenderUiBlock` header field). Its scale is the platform content scale (2.0 on Retina, fractional on Wayland, 1.0 where window and framebuffer coincide), owned render-side as `rendererState.uiScale`; window.c seeds it at window creation and tracks `glfwSetWindowContentScaleCallback`; a change re-folds the retained registry blocks through `ano_vk_ui_rescale` / `ano_vk_text_rescale` with zero logic traffic, because the registry holds logical content. The `RenderSnapshot` publishes `uiWidth`/`uiHeight` (framebuffer / uiScale, fractional under fractional scaling) and `uiScale`; cursor events arrive in the same logical space, so logic-side layout and hit-testing are a direct compare and never see a pixel. Render-internal consumers keep device px: the picking readback samples the id image at the framebuffer-px cursor, and the profiling OSD and the pinned demo/self-test canvases compose unscaled, which keeps the screenshot gates bitwise-stable.
 
@@ -545,7 +545,7 @@ async, self-test gates at every step.
    submission, on-device render, layering.
    (Done 2026-07-07; INTENT-COMPLETE, HW-verified interactively. Protocol: RenderUiBlock
    (layer, scroll, five counted tables packed in ONE adopted allocation, block-LOCAL
-   clip/paint/glyph refs), ano_render_ui_set validates producer-side and answers INVALID
+   clip/paint/glyph refs), render_ui_set validates producer-side and answers INVALID
    for a dropped block, with one warning; backpressure retry loops still never spin on
    bad input, because INVALID is distinct from ring-full and the loop retires the block.
    Render side: 64-entry id-keyed
@@ -567,14 +567,14 @@ async, self-test gates at every step.
    (RMS 0.0384/255, max 13/255, same pixel). Found + fixed along the way: SHADER_INCLUDES
    in the root lists file was missing textcoverage.glsl/uicoverage.glsl, so include-only
    shader edits never recompiled their .spv; a latent build bug the text lane had been
-   masking by co-editing textraster.comp. sRGB authoring helper ano_ui_color_srgb landed
+   masking by co-editing textraster.comp. sRGB authoring helper ui_color_srgb landed
    with the demo. Suite 19/19, release+debug clean.)
 6. Gradients + clip table + dither + UI_PATH (runtime monotone-quad bake through the text
    bake's split machinery, importer orientation-fix). Reference gates extend per feature.
    (Done 2026-07-07; HW-verified. Gradients: linear/radial/conic paint verbs
    (ano_ui_paint_*), stop interpolation in premultiplied linear with CSS-pad clamp,
    paint fill routed through the RRECT/PATH tail (base-tint modulate), scroll-compensated
-   xform at compose; ano_ui_ref_paint + ui_paint_eval twins; oracle vs independent
+   xform at compose; ui_ref_paint + ui_paint_eval twins; oracle vs independent
    analytic t worst ~1e-7. Dither: interleaved-gradient-noise 1 LSB at the imageStore
    quantize (overlay is UNORM8 linear), gated off by ANO_TEXT_RASTER_NODITHER so the
    exact self-test compare survives. UI_PATH: src/ui/ui_path.c bakes arbitrary
@@ -601,8 +601,8 @@ async, self-test gates at every step.
    tile's prim list via gl_WorkGroupID + gl_NumWorkGroups instead of the CHUNK-64 brute
    scan of every prim; danger case (a)), plus interior classification (a "solid" entry
    bit, set when the prim provably covers the whole tile, lets the GPU skip the SDF and
-   take the flat fill; danger case (b)). Reference-first: pure ano_ui_tile_build
-   (counting-sort scatter, src/ui/ui_tiles.c) + ano_ui_ref_eval_tiled, unit-proved
+   take the flat fill; danger case (b)). Reference-first: pure ui_tile_build
+   (counting-sort scatter, src/ui/ui_tiles.c) + ui_ref_eval_tiled, unit-proved
    BIT-IDENTICAL to the brute painter's-order eval (shadow-free scenes exact; the only
    delta is a shadow's Gaussian tail beyond its 3-sigma AABB, which the GPU brute cull
    clips the same way). GPU: tiles built heap-side (the mapped regions can be write-

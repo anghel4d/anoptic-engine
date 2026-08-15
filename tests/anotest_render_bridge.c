@@ -20,8 +20,8 @@
 
 using namespace ano;
 #include "anoptic_threads.h"
-#include "anoptic_time.h" // ano_sleep
-#include "anoptic_log.h"  // ano_log_set_route
+#include "anoptic_time.h" // sleep_us
+#include "anoptic_log.h"  // log_set_route
 
 #include "templates/sanopts.h"   // ASan alt-stack opt-out; see header
 
@@ -57,7 +57,7 @@ static void *producer_fn(void *arg)
         c.fields         = RFIELD_MESH_MAT;
         c.mesh_index     = mesh_of(i);
         c.material_index = material_of(i);
-        while (!ano_render_submit(b, &c)) { /* ring full: spin */ }
+        while (!render_submit(b, &c)) { /* ring full: spin */ }
     }
     return NULL;
 }
@@ -248,7 +248,7 @@ static void test_accepted(mi_heap_t *heap)
 
     AnoGlyphInstance inst[4];
     fill_glyphs(inst, 4u);
-    r = ano_render_text_set(&b, 7u, inst, 4u);
+    r = render_text_set(&b, 7u, inst, 4u);
     CHECK(r.has_value(), "text_set: ACCEPTED");
     CHECK(cmd_depth(&b) == 1u, "text_set: exactly one command enqueued");
     if (ano_render_next_command(&b, &c) && c.text != NULL) {
@@ -264,7 +264,7 @@ static void test_accepted(mi_heap_t *heap)
         ano_render_command_release(&c);
     } else CHECK(false, "text_set: command with block popped");
 
-    r = ano_render_text_clear(&b, 7u);
+    r = render_text_clear(&b, 7u);
     CHECK(r.has_value(), "text_clear: ACCEPTED");
     CHECK(ano_render_next_command(&b, &c) && c.kind == RCMD_TEXT_CLEAR && c.text_id == 7u
           && !c.bulk_owned, "text_clear: RCMD_TEXT_CLEAR, nothing owned");
@@ -273,7 +273,7 @@ static void test_accepted(mi_heap_t *heap)
     ui_fixture_init(&uf);
     AnoGlyphInstance uglyph[UI_GLYPHS_N];
     fill_glyphs(uglyph, UI_GLYPHS_N);
-    r = ano_render_ui_set(&b, 3u, 9u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 3u, 9u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(r.has_value(), "ui_set: ACCEPTED");
     CHECK(cmd_depth(&b) == 1u, "ui_set: exactly one command enqueued");
     if (ano_render_next_command(&b, &c) && c.ui != NULL) {
@@ -303,14 +303,14 @@ static void test_accepted(mi_heap_t *heap)
         ano_render_command_release(&c);
     } else CHECK(false, "ui_set: command with block popped");
 
-    r = ano_render_ui_clear(&b, 3u);
+    r = render_ui_clear(&b, 3u);
     CHECK(r.has_value(), "ui_clear: ACCEPTED");
     CHECK(ano_render_next_command(&b, &c) && c.kind == RCMD_UI_CLEAR && c.ui_id == 3u
           && !c.bulk_owned, "ui_clear: RCMD_UI_CLEAR, nothing owned");
 
     BulkFixture bf;
     bulk_fixture_init(&bf);
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(r.has_value(), "bulk_update: ACCEPTED");
     CHECK(cmd_depth(&b) == 1u, "bulk_update: exactly one command enqueued");
     if (ano_render_next_command(&b, &c) && c.update != NULL) {
@@ -335,7 +335,7 @@ static void test_accepted(mi_heap_t *heap)
         ano_render_command_release(&c);
     } else CHECK(false, "bulk_update: command with block popped");
 
-    r = ano_render_submit_bulk_destroy(&b, bf.ids, BULK_N);
+    r = render_submit_bulk_destroy(&b, bf.ids, BULK_N);
     CHECK(r.has_value(), "bulk_destroy: ACCEPTED");
     CHECK(cmd_depth(&b) == 1u, "bulk_destroy: exactly one command enqueued");
     if (ano_render_next_command(&b, &c) && c.destroy != NULL) {
@@ -360,10 +360,10 @@ static void test_backpressure(mi_heap_t *heap)
     AnoRenderBridge b;
     CHECK(ano_render_bridge_init(&b, heap, 2, 2), "backpressure: bridge init (cap 2)");
     RenderCommand fill = { .kind = RCMD_UPDATE, .render_id = 1u };
-    CHECK(ano_render_submit(&b, &fill), "backpressure: fill 1");
+    CHECK(render_submit(&b, &fill), "backpressure: fill 1");
     fill.render_id = 2u;
-    CHECK(ano_render_submit(&b, &fill), "backpressure: fill 2");
-    CHECK(!ano_render_submit(&b, &fill), "backpressure: ring is full");
+    CHECK(render_submit(&b, &fill), "backpressure: fill 2");
+    CHECK(!render_submit(&b, &fill), "backpressure: ring is full");
 
     AnoGlyphInstance inst[2];
     fill_glyphs(inst, 2u);
@@ -375,17 +375,17 @@ static void test_backpressure(mi_heap_t *heap)
     bulk_fixture_init(&bf);
     RenderResult<> r;
 
-    r = ano_render_text_set(&b, 1u, inst, 2u);
+    r = render_text_set(&b, 1u, inst, 2u);
     CHECK(has_error(r, RenderError::backpressure), "text_set: BACKPRESSURE on a full ring");
-    r = ano_render_text_clear(&b, 1u);
+    r = render_text_clear(&b, 1u);
     CHECK(has_error(r, RenderError::backpressure), "text_clear: BACKPRESSURE on a full ring");
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::backpressure), "ui_set: BACKPRESSURE on a full ring");
-    r = ano_render_ui_clear(&b, 1u);
+    r = render_ui_clear(&b, 1u);
     CHECK(has_error(r, RenderError::backpressure), "ui_clear: BACKPRESSURE on a full ring");
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::backpressure), "bulk_update: BACKPRESSURE on a full ring");
-    r = ano_render_submit_bulk_destroy(&b, bf.ids, BULK_N);
+    r = render_submit_bulk_destroy(&b, bf.ids, BULK_N);
     CHECK(has_error(r, RenderError::backpressure), "bulk_destroy: BACKPRESSURE on a full ring");
     CHECK(cmd_depth(&b) == 2u, "backpressure: ring depth unchanged");
 
@@ -411,96 +411,96 @@ static void test_invalid(mi_heap_t *heap)
     BulkFixture bf;
     RenderResult<> r;
 
-    r = ano_render_text_set(&b, 1u, NULL, 3u);
+    r = render_text_set(&b, 1u, NULL, 3u);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "text_set: a count without instances is INVALID, nothing enqueued");
 
-    r = ano_render_ui_set(&b, 1u, 0u, NULL, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, NULL, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: a NULL builder is INVALID, never a silent clear");
 
     ui_fixture_init(&uf);
     uf.b.primCount = ANO_RENDER_UI_MAX_PRIMS + 1u;
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: primCount over its per-block cap is INVALID, nothing enqueued");
 
     ui_fixture_init(&uf);
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, NULL, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, NULL, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: a glyphCount without glyphs is INVALID, nothing enqueued");
 
     ui_fixture_init(&uf);
     uf.b.clipCount = 0u; // prim 0 still names clip 0
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: an out-of-range clipRef is INVALID, nothing enqueued");
 
     ui_fixture_init(&uf);
     uf.b.paintCount = 0u; // prim 0 still names paint 0
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: an out-of-range paintRef is INVALID, nothing enqueued");
 
     ui_fixture_init(&uf);
     uf.paints[0].stopFirst = 1u; // stop window leaves the two-entry table
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: a paint whose stop window leaves the table is INVALID, nothing enqueued");
 
     ui_fixture_init(&uf);
     uf.prims[2].aux1 = UI_GLYPHS_N + 1u;
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: a GLYPHS window past the array is INVALID, nothing enqueued");
 
     ui_fixture_init(&uf);
     uf.b.curveCount = 2u; // PATH end word off the stream
-    r = ano_render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 1u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "ui_set: a PATH walk overrunning the curve stream is INVALID, nothing enqueued");
 
-    r = ano_render_submit_bulk_update(&b, NULL);
+    r = render_submit_bulk_update(&b, NULL);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: a NULL batch is INVALID, nothing enqueued");
 
     bulk_fixture_init(&bf);
     bf.batch.render_ids = NULL;
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: NULL render_ids is INVALID, nothing enqueued");
 
     bulk_fixture_init(&bf);
     bf.batch.transforms = NULL;
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: RFIELD_TRANSFORM without transforms is INVALID, nothing enqueued");
 
     bulk_fixture_init(&bf);
     bf.batch.motion = NULL;
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: RFIELD_ANIM without motion is INVALID, nothing enqueued");
 
     bulk_fixture_init(&bf);
     bf.batch.mesh = NULL;
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: RFIELD_MESH_MAT without mesh is INVALID, nothing enqueued");
 
     bulk_fixture_init(&bf);
     bf.batch.material = NULL;
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: RFIELD_MESH_MAT without material is INVALID, nothing enqueued");
 
     bulk_fixture_init(&bf);
     bf.batch.instance_data = NULL;
-    r = ano_render_submit_bulk_update(&b, &bf.batch);
+    r = render_submit_bulk_update(&b, &bf.batch);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_update: RFIELD_USERDATA without instance_data is INVALID, nothing enqueued");
 
-    r = ano_render_submit_bulk_destroy(&b, NULL, BULK_N);
+    r = render_submit_bulk_destroy(&b, NULL, BULK_N);
     CHECK(has_error(r, RenderError::invalid_argument) && cmd_depth(&b) == 0u,
           "bulk_destroy: a count without render_ids is INVALID, nothing enqueued");
 
@@ -521,12 +521,12 @@ static void test_delegation(mi_heap_t *heap)
     AnoGlyphInstance uglyph[UI_GLYPHS_N];
     fill_glyphs(uglyph, UI_GLYPHS_N);
 
-    RenderResult<> r = ano_render_text_set(&b, 5u, NULL, 0u);
+    RenderResult<> r = render_text_set(&b, 5u, NULL, 0u);
     CHECK(r.has_value(), "text_set(count 0): ACCEPTED through clear");
     CHECK(ano_render_next_command(&b, &c) && c.kind == RCMD_TEXT_CLEAR && c.text_id == 5u
           && !c.bulk_owned, "text_set(count 0): enqueues RCMD_TEXT_CLEAR, not TEXT_SET");
 
-    r = ano_render_ui_set(&b, 6u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&b, 6u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(r.has_value(), "ui_set(primCount 0): ACCEPTED through clear");
     CHECK(ano_render_next_command(&b, &c) && c.kind == RCMD_UI_CLEAR && c.ui_id == 6u
           && !c.bulk_owned, "ui_set(primCount 0): enqueues RCMD_UI_CLEAR, not UI_SET");
@@ -537,11 +537,11 @@ static void test_delegation(mi_heap_t *heap)
     AnoRenderBridge full;
     CHECK(ano_render_bridge_init(&full, heap, 2, 2), "delegation: bridge init (cap 2)");
     RenderCommand fill = { .kind = RCMD_UPDATE };
-    CHECK(ano_render_submit(&full, &fill) && ano_render_submit(&full, &fill), "delegation: ring filled");
-    r = ano_render_text_set(&full, 5u, NULL, 0u);
+    CHECK(render_submit(&full, &fill) && render_submit(&full, &fill), "delegation: ring filled");
+    r = render_text_set(&full, 5u, NULL, 0u);
     CHECK(has_error(r, RenderError::backpressure),
           "text_set(count 0) on a full ring: BACKPRESSURE, not ACCEPTED");
-    r = ano_render_ui_set(&full, 6u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
+    r = render_ui_set(&full, 6u, 0u, &uf.b, uglyph, UI_GLYPHS_N);
     CHECK(has_error(r, RenderError::backpressure),
           "ui_set(primCount 0) on a full ring: BACKPRESSURE, not ACCEPTED");
     CHECK(cmd_depth(&full) == 2u, "delegation: full ring unchanged");
@@ -554,10 +554,10 @@ static void test_bulk_zero(mi_heap_t *heap)
     AnoRenderBridge b;
     CHECK(ano_render_bridge_init(&b, heap, 16, 2), "bulk zero: bridge init");
     RenderUpdateBatch empty = { .count = 0u, .fields = RFIELD_TRANSFORM }; // every array absent
-    RenderResult<> r = ano_render_submit_bulk_update(&b, &empty);
+    RenderResult<> r = render_submit_bulk_update(&b, &empty);
     CHECK(r.has_value(), "bulk_update(count 0): ACCEPTED");
     CHECK(cmd_depth(&b) == 0u, "bulk_update(count 0): nothing enqueued");
-    r = ano_render_submit_bulk_destroy(&b, NULL, 0u);
+    r = render_submit_bulk_destroy(&b, NULL, 0u);
     CHECK(r.has_value(), "bulk_destroy(count 0): ACCEPTED");
     CHECK(cmd_depth(&b) == 0u, "bulk_destroy(count 0): nothing enqueued");
     ano_render_bridge_destroy(&b);
@@ -583,7 +583,7 @@ static void test_bulk_alignment(mi_heap_t *heap)
             .motion = motion,
             .instance_data = inst,
         };
-        RenderResult<> r = ano_render_submit_bulk_update(&b, &batch);
+        RenderResult<> r = render_submit_bulk_update(&b, &batch);
         CHECK(r.has_value(), "bulk align: ACCEPTED");
         RenderCommand c;
         if (!b.commands.pop(c)) { CHECK(false, "bulk align: command popped"); continue; }
@@ -640,7 +640,7 @@ static void *spin_fn(void *arg)
 {
     SpinCtx *ctx = static_cast<SpinCtx *>(arg);
     for (;;) {
-        RenderResult<> r = ano_render_text_set(ctx->b, 1u, ctx->inst, 2u);
+        RenderResult<> r = render_text_set(ctx->b, 1u, ctx->inst, 2u);
         ctx->attempts++;
         if (r || !has_error(r, RenderError::backpressure)) {
             ctx->code = r;
@@ -648,7 +648,7 @@ static void *spin_fn(void *arg)
         }
         atomic_store(&ctx->backpressured, true);
         if (atomic_load(&ctx->stop)) { ctx->code = r; return NULL; }
-        (void)ano_sleep(1000);
+        (void)sleep_us(1000);
     }
 }
 
@@ -657,12 +657,12 @@ static void test_shutdown_during_backpressure(mi_heap_t *heap)
     AnoRenderBridge b;
     CHECK(ano_render_bridge_init(&b, heap, 2, 2), "shutdown: bridge init (cap 2)");
     RenderCommand fill = { .kind = RCMD_UPDATE };
-    CHECK(ano_render_submit(&b, &fill) && ano_render_submit(&b, &fill), "shutdown: ring filled");
+    CHECK(render_submit(&b, &fill) && render_submit(&b, &fill), "shutdown: ring filled");
 
     SpinCtx ctx = { .b = &b };
     fill_glyphs(ctx.inst, 2u);
     anothread_t t;
-    const bool spawned = ano_thread_create(&t, NULL, spin_fn, &ctx).has_value();
+    const bool spawned = thread_create(&t, NULL, spin_fn, &ctx).has_value();
     CHECK(spawned, "shutdown: spawn the parked producer");
     if (!spawned) {
         ano_render_bridge_destroy(&b);
@@ -670,11 +670,11 @@ static void test_shutdown_during_backpressure(mi_heap_t *heap)
     }
     for (uint32_t waits = 0; waits < 1000u
          && !atomic_load(&ctx.backpressured); ++waits)
-        (void)ano_sleep(1000);
+        (void)sleep_us(1000);
     CHECK(atomic_load(&ctx.backpressured),
           "shutdown: producer reached backpressure");
     atomic_store(&ctx.stop, true);
-    (void)ano_thread_join(t, NULL);
+    (void)thread_join(t, NULL);
 
     CHECK(has_error(ctx.code, RenderError::backpressure), "shutdown: the wait ends on BACKPRESSURE");
     CHECK(ctx.attempts >= 2u, "shutdown: the producer retried before the flag was set");
@@ -684,13 +684,13 @@ static void test_shutdown_during_backpressure(mi_heap_t *heap)
 
 int main(void)
 {
-    mi_heap_t *heap = ano_heap_create();
+    mi_heap_t *heap = heap_create();
     CHECK(heap != NULL, "heap creation");
 
     test_single_threaded(heap);
 
     // ui_set drop WARN -> stderr NOW (no logger init).
-    ano_log_set_route(ANO_WARN, ANO_TERM | ANO_NOW);
+    log_set_route(ANO_WARN, ANO_TERM | ANO_NOW);
 
     test_accepted(heap);
     test_backpressure(heap);
@@ -707,20 +707,20 @@ int main(void)
 
     ConsumerCtx ctx = { .b = &bridge };
     anothread_t tp, tc;
-    CHECK(ano_thread_create(&tp, NULL, producer_fn, &bridge), "spawn producer");
-    CHECK(ano_thread_create(&tc, NULL, consumer_fn, &ctx), "spawn consumer");
+    CHECK(thread_create(&tp, NULL, producer_fn, &bridge), "spawn producer");
+    CHECK(thread_create(&tc, NULL, consumer_fn, &ctx), "spawn consumer");
 
     // Main thread is the sole consumer of the events ring.
     uint32_t evt_order_err = 0;
     for (uint32_t next = 0; next < ITEMS; ) {
         RenderEvent e;
-        if (!ano_render_poll_event(&bridge, &e).value_or(false)) continue;
+        if (!render_poll_event(&bridge, &e).value_or(false)) continue;
         if (e.u.render_id != next) evt_order_err++;
         next++;
     }
 
-    (void)ano_thread_join(tp, NULL);
-    (void)ano_thread_join(tc, NULL);
+    (void)thread_join(tp, NULL);
+    (void)thread_join(tc, NULL);
 
     CHECK(ctx.received == ITEMS, "consumer received every command");
     CHECK(ctx.order_err == 0, "commands arrived in FIFO order");
@@ -728,7 +728,7 @@ int main(void)
     CHECK(evt_order_err == 0, "events arrived in FIFO order");
 
     ano_render_bridge_destroy(&bridge);
-    ano_heap_destroy(heap);
+    heap_destroy(heap);
 
     if (failures == 0) { printf("anotest_render_bridge: all checks passed\n"); return 0; }
     printf("anotest_render_bridge: %d check(s) failed\n", failures);

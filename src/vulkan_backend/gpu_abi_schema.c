@@ -120,29 +120,29 @@ struct AnoGpuCursor final
     }
 };
 
-static constexpr char ano_gpu_abi_glsl[] = {
+static constexpr char gpu_abi_glsl[] = {
 #embed "../../resources/shaders/gpu_abi.glsl"
 , 0
 };
 
-static constexpr char ano_text_abi_glsl[] = {
+static constexpr char text_abi_glsl[] = {
 #embed "../../resources/shaders/textcoverage.glsl"
 , 0
 };
 
-static constexpr char ano_ui_abi_glsl[] = {
+static constexpr char ui_abi_glsl[] = {
 #embed "../../resources/shaders/uicoverage.glsl"
 , 0
 };
 
-consteval uint32_t ano_gpu_align_up(uint32_t value, uint32_t alignment)
+consteval uint32_t gpu_align_up(uint32_t value, uint32_t alignment)
 {
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
-consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view name, AnoGpuLayout layout);
+consteval AnoGpuStruct gpu_parse(std::string_view source, std::string_view name, AnoGpuLayout layout);
 
-consteval AnoGpuType ano_gpu_type(std::string_view source, std::string_view name, AnoGpuLayout layout)
+consteval AnoGpuType gpu_type(std::string_view source, std::string_view name, AnoGpuLayout layout)
 {
     if (name == "float") return { AnoGpuScalar::f32, 1u, 4u, 4u };
     if (name == "int")   return { AnoGpuScalar::i32, 1u, 4u, 4u };
@@ -157,7 +157,7 @@ consteval AnoGpuType ano_gpu_type(std::string_view source, std::string_view name
     if (name == "ivec4") return { AnoGpuScalar::i32, 4u, 16u, 16u };
     if (name == "uvec4") return { AnoGpuScalar::u32, 4u, 16u, 16u };
     if (name == "mat4")  return { AnoGpuScalar::f32, 16u, 16u, 64u };
-    const AnoGpuStruct nested = ano_gpu_parse(source, name, layout);
+    const AnoGpuStruct nested = gpu_parse(source, name, layout);
     if (!nested.valid || !nested.count)
         return {};
     AnoGpuScalar scalar = nested.fields[0].scalar;
@@ -170,7 +170,7 @@ consteval AnoGpuType ano_gpu_type(std::string_view source, std::string_view name
     return { scalar, components, nested.alignment, nested.size };
 }
 
-consteval size_t ano_gpu_struct_body(std::string_view source, std::string_view wanted)
+consteval size_t gpu_struct_body(std::string_view source, std::string_view wanted)
 {
     AnoGpuCursor cursor = { source, 0 };
     while (cursor.at < source.size()) {
@@ -187,10 +187,10 @@ consteval size_t ano_gpu_struct_body(std::string_view source, std::string_view w
     return std::string_view::npos;
 }
 
-consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view name, AnoGpuLayout layout)
+consteval AnoGpuStruct gpu_parse(std::string_view source, std::string_view name, AnoGpuLayout layout)
 {
     AnoGpuStruct result = {};
-    const size_t body = ano_gpu_struct_body(source, name);
+    const size_t body = gpu_struct_body(source, name);
     if (body == std::string_view::npos)
         return result;
 
@@ -204,7 +204,7 @@ consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view n
         if (result.count == static_cast<uint32_t>(sizeof(result.fields) / sizeof(result.fields[0])))
             return result;
 
-        const AnoGpuType type = ano_gpu_type(source, cursor.identifier(), layout);
+        const AnoGpuType type = gpu_type(source, cursor.identifier(), layout);
         const std::string_view fieldName = cursor.identifier();
         if (type.scalar == AnoGpuScalar::invalid || fieldName.empty())
             return result;
@@ -225,9 +225,9 @@ consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view n
         if (array) {
             if (layout == AnoGpuLayout::std140 && alignment < 16u)
                 alignment = 16u;
-            fieldSize = ano_gpu_align_up(type.size, alignment) * count;
+            fieldSize = gpu_align_up(type.size, alignment) * count;
         }
-        offset = ano_gpu_align_up(offset, alignment);
+        offset = gpu_align_up(offset, alignment);
         result.fields[result.count++] = {
             fieldName, type.scalar, type.components * count, offset, fieldSize
         };
@@ -237,13 +237,13 @@ consteval AnoGpuStruct ano_gpu_parse(std::string_view source, std::string_view n
     }
 
     result.alignment = structAlignment;
-    result.size = ano_gpu_align_up(offset, structAlignment);
+    result.size = gpu_align_up(offset, structAlignment);
     result.valid = cursor.take(';');
     return result;
 }
 
 template<class T>
-consteval AnoGpuType ano_gpu_cpp_type()
+consteval AnoGpuType gpu_cpp_type()
 {
     using U = std::remove_cv_t<T>;
     if constexpr (std::is_same_v<U, float>)
@@ -259,7 +259,7 @@ consteval AnoGpuType ano_gpu_cpp_type()
     else if constexpr (std::is_same_v<U, Vector4>)
         return { AnoGpuScalar::f32, 4u, alignof(U), sizeof(U) };
     else if constexpr (std::is_array_v<U>) {
-        constexpr AnoGpuType element = ano_gpu_cpp_type<std::remove_extent_t<U>>();
+        constexpr AnoGpuType element = gpu_cpp_type<std::remove_extent_t<U>>();
         return {
             element.scalar,
             element.components * static_cast<uint32_t>(std::extent_v<U>),
@@ -274,7 +274,7 @@ consteval AnoGpuType ano_gpu_cpp_type()
         bool valid = true;
         template for (constexpr std::meta::info member : members) {
             using Member = [:std::meta::type_of(member):];
-            constexpr AnoGpuType field = ano_gpu_cpp_type<Member>();
+            constexpr AnoGpuType field = gpu_cpp_type<Member>();
             if (scalar == AnoGpuScalar::invalid)
                 scalar = field.scalar;
             valid = valid && field.scalar != AnoGpuScalar::invalid && field.scalar == scalar;
@@ -287,7 +287,7 @@ consteval AnoGpuType ano_gpu_cpp_type()
 }
 
 template<class T>
-consteval bool ano_gpu_schema_matches(std::string_view source, std::string_view name,
+consteval bool gpu_schema_matches(std::string_view source, std::string_view name,
                                       AnoGpuLayout layout = AnoGpuLayout::std430)
 {
     if (!std::is_standard_layout_v<T> || !std::is_trivially_copyable_v<T> || std::is_polymorphic_v<T>)
@@ -295,7 +295,7 @@ consteval bool ano_gpu_schema_matches(std::string_view source, std::string_view 
 
     static constexpr auto members = std::define_static_array(
         std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked()));
-    const AnoGpuStruct gpu = ano_gpu_parse(source, name, layout);
+    const AnoGpuStruct gpu = gpu_parse(source, name, layout);
     if (!gpu.valid || gpu.count != members.size() || gpu.size != sizeof(T))
         return false;
 
@@ -303,7 +303,7 @@ consteval bool ano_gpu_schema_matches(std::string_view source, std::string_view 
     bool valid = true;
     template for (constexpr std::meta::info member : members) {
         using Member = [:std::meta::type_of(member):];
-        constexpr AnoGpuType cpu = ano_gpu_cpp_type<Member>();
+        constexpr AnoGpuType cpu = gpu_cpp_type<Member>();
         const AnoGpuField field = gpu.fields[index++];
         valid = valid &&
             std::meta::identifier_of(member) == field.name &&
@@ -315,47 +315,47 @@ consteval bool ano_gpu_schema_matches(std::string_view source, std::string_view 
     return valid;
 }
 
-static_assert(ano_gpu_schema_matches<Vertex>(ano_gpu_abi_glsl, "PackedVertex"),
+static_assert(gpu_schema_matches<Vertex>(gpu_abi_glsl, "PackedVertex"),
               "GPU ABI drift: Vertex <-> PackedVertex");
-static_assert(ano_gpu_schema_matches<GpuEntityInfo>(ano_gpu_abi_glsl, "EntityInfo"),
+static_assert(gpu_schema_matches<GpuEntityInfo>(gpu_abi_glsl, "EntityInfo"),
               "GPU ABI drift: GpuEntityInfo <-> EntityInfo");
-static_assert(ano_gpu_schema_matches<GpuMeshData>(ano_gpu_abi_glsl, "MeshData"),
+static_assert(gpu_schema_matches<GpuMeshData>(gpu_abi_glsl, "MeshData"),
               "GPU ABI drift: GpuMeshData <-> MeshData");
-static_assert(ano_gpu_schema_matches<MaterialData>(ano_gpu_abi_glsl, "MaterialData"),
+static_assert(gpu_schema_matches<MaterialData>(gpu_abi_glsl, "MaterialData"),
               "GPU ABI drift: MaterialData");
-static_assert(ano_gpu_schema_matches<GlobalUBO>(
-    ano_gpu_abi_glsl, "GlobalData", AnoGpuLayout::std140), "GPU ABI drift: GlobalUBO <-> GlobalData");
-static_assert(ano_gpu_schema_matches<CullView>(ano_gpu_abi_glsl, "CullView"),
+static_assert(gpu_schema_matches<GlobalUBO>(
+    gpu_abi_glsl, "GlobalData", AnoGpuLayout::std140), "GPU ABI drift: GlobalUBO <-> GlobalData");
+static_assert(gpu_schema_matches<CullView>(gpu_abi_glsl, "CullView"),
               "GPU ABI drift: CullView");
-static_assert(ano_gpu_schema_matches<CullUBO>(
-    ano_gpu_abi_glsl, "CullData", AnoGpuLayout::std140), "GPU ABI drift: CullUBO <-> CullData");
-static_assert(ano_gpu_schema_matches<LightData>(ano_gpu_abi_glsl, "LightData"),
+static_assert(gpu_schema_matches<CullUBO>(
+    gpu_abi_glsl, "CullData", AnoGpuLayout::std140), "GPU ABI drift: CullUBO <-> CullData");
+static_assert(gpu_schema_matches<LightData>(gpu_abi_glsl, "LightData"),
               "GPU ABI drift: LightData");
-static_assert(ano_gpu_schema_matches<GpuLightRuntime>(ano_gpu_abi_glsl, "LightRuntime"),
+static_assert(gpu_schema_matches<GpuLightRuntime>(gpu_abi_glsl, "LightRuntime"),
               "GPU ABI drift: GpuLightRuntime <-> LightRuntime");
-static_assert(ano_gpu_schema_matches<AnoInstanceData>(ano_gpu_abi_glsl, "InstanceData"),
+static_assert(gpu_schema_matches<AnoInstanceData>(gpu_abi_glsl, "InstanceData"),
               "GPU ABI drift: AnoInstanceData <-> InstanceData");
-static_assert(ano_gpu_schema_matches<ShadowLightInfo>(ano_gpu_abi_glsl, "ShadowLightInfo"),
+static_assert(gpu_schema_matches<ShadowLightInfo>(gpu_abi_glsl, "ShadowLightInfo"),
               "GPU ABI drift: ShadowLightInfo");
-static_assert(ano_gpu_schema_matches<ShadowFrustumConfig>(ano_gpu_abi_glsl, "ShadowFrustumConfig"),
+static_assert(gpu_schema_matches<ShadowFrustumConfig>(gpu_abi_glsl, "ShadowFrustumConfig"),
               "GPU ABI drift: ShadowFrustumConfig");
-static_assert(ano_gpu_schema_matches<AnoMotionDescriptor>(ano_gpu_abi_glsl, "MotionDescriptor"),
+static_assert(gpu_schema_matches<AnoMotionDescriptor>(gpu_abi_glsl, "MotionDescriptor"),
               "GPU ABI drift: AnoMotionDescriptor <-> MotionDescriptor");
-static_assert(ano_gpu_schema_matches<DecalRecord>(ano_gpu_abi_glsl, "DecalRecord"),
+static_assert(gpu_schema_matches<DecalRecord>(gpu_abi_glsl, "DecalRecord"),
               "GPU ABI drift: DecalRecord");
-static_assert(ano_gpu_schema_matches<SkinInstanceState>(ano_gpu_abi_glsl, "SkinInstanceState"),
+static_assert(gpu_schema_matches<SkinInstanceState>(gpu_abi_glsl, "SkinInstanceState"),
               "GPU ABI drift: SkinInstanceState");
-static_assert(ano_gpu_schema_matches<AnoGlyphEntry>(ano_text_abi_glsl, "GlyphEntry"),
+static_assert(gpu_schema_matches<AnoGlyphEntry>(text_abi_glsl, "GlyphEntry"),
               "GPU ABI drift: AnoGlyphEntry <-> GlyphEntry");
-static_assert(ano_gpu_schema_matches<AnoGlyphInstance>(ano_text_abi_glsl, "GlyphInstance"),
+static_assert(gpu_schema_matches<AnoGlyphInstance>(text_abi_glsl, "GlyphInstance"),
               "GPU ABI drift: AnoGlyphInstance <-> GlyphInstance");
-static_assert(ano_gpu_schema_matches<AnoUiPrim>(ano_ui_abi_glsl, "UiPrim"),
+static_assert(gpu_schema_matches<AnoUiPrim>(ui_abi_glsl, "UiPrim"),
               "GPU ABI drift: AnoUiPrim <-> UiPrim");
-static_assert(ano_gpu_schema_matches<AnoUiClip>(ano_ui_abi_glsl, "UiClip"),
+static_assert(gpu_schema_matches<AnoUiClip>(ui_abi_glsl, "UiClip"),
               "GPU ABI drift: AnoUiClip <-> UiClip");
-static_assert(ano_gpu_schema_matches<AnoUiPaint>(ano_ui_abi_glsl, "UiPaint"),
+static_assert(gpu_schema_matches<AnoUiPaint>(ui_abi_glsl, "UiPaint"),
               "GPU ABI drift: AnoUiPaint <-> UiPaint");
-static_assert(ano_gpu_schema_matches<AnoUiStop>(ano_ui_abi_glsl, "UiStop"),
+static_assert(gpu_schema_matches<AnoUiStop>(ui_abi_glsl, "UiStop"),
               "GPU ABI drift: AnoUiStop <-> UiStop");
 
 }

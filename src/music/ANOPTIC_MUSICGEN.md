@@ -148,7 +148,7 @@ firing. The form machinery quietly died around bar 510 and nothing noticed, beca
 music kept being *plausible*. The long-run golden (1200 bars, per-bar digests from bar
 1000, diffed against CPython) exists to make that failure loud.
 
-The engine is **pointer-free by construction**. Its state is its bytes: `ano_music_snapshot`
+The engine is **pointer-free by construction**. Its state is its bytes: `music_snapshot`
 is a `memcpy`, and two engines built from the same config and seed and advanced to the same
 bar are byte-identical, padding included. Config constructors return `static const` objects:
 C leaves padding indeterminate under an initializer, and stack garbage in the padding would
@@ -158,7 +158,7 @@ make a snapshot meaningless.
 
 A bar costs ~150-500 µs to compose. A block at 512 frames / 48 kHz is 10.6 ms. So the
 composer runs *inside the callback*, two bars ahead of the playhead: no producer thread,
-no queue, no ahead-of-time generation. `ano_synth_attach_music` wires it, and the generator
+no queue, no ahead-of-time generation. `synth_attach_music` wires it, and the generator
 tops itself up every block.
 
 The control plane is `ACMD_MUSIC_*` over the audio bridge, forwarded by the mixer (which
@@ -214,8 +214,8 @@ Things that cost time, so that they cost it once:
   order and therefore loses the music. It collapses to a bitmask only at the synth boundary,
   where nothing asks in what order the generators ran.
 - Two id spaces for patches (see the top). The composer names timbres.
-- `ano_mapping_table_default()` is oracle-bound: the parity golden is generated from it. A
-  new palette is a new table (`ano_mapping_table_electronic` is one), not an edit to that
+- `mapping_table_default()` is oracle-bound: the parity golden is generated from it. A
+  new palette is a new table (`mapping_table_electronic` is one), not an edit to that
   one.
 
 ## Deferred

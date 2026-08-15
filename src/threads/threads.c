@@ -15,7 +15,7 @@ using namespace ano;
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>    // PE header walk for ano_thread_main_stack
+#include <windows.h>    // PE header walk for thread_main_stack
 #else
 #include <sys/resource.h>
 #include <unistd.h>
@@ -42,7 +42,7 @@ static constexpr ThreadResult<> thread_status(int status)
 
 /* Thread Management */
 
-// Spawn shim: arms crash stack before user code. Cleanup disarms on return / pthread_exit / ano_thread_exit.
+// Spawn shim: arms crash stack before user code. Cleanup disarms on return / pthread_exit / thread_exit.
 typedef struct {
     void *(*func)(void *);
     void   *arg;
@@ -51,14 +51,14 @@ typedef struct {
 static void tramp_disarm(void *unused)
 {
     (void)unused;
-    ano_log_crash_thread_disarm();
+    log_crash_thread_disarm();
 }
 
 static void *thread_trampoline(void *p)
 {
     thread_tramp_t t = *(thread_tramp_t *)p;
     mi_free(p);
-    (void)ano_log_crash_thread_arm();   // best effort: an unarmed thread still runs
+    (void)log_crash_thread_arm();   // best effort: an unarmed thread still runs
     void *ret;
     pthread_cleanup_push(tramp_disarm, NULL);
     ret = t.func(t.arg);
@@ -66,7 +66,7 @@ static void *thread_trampoline(void *p)
     return ret;
 }
 
-ThreadResult<> ano::ano_thread_create(
+ThreadResult<> ano::thread_create(
     anothread_t *thread, const anothread_attr_t *attr,
     void *(*func)(void *), void *arg) {
     // NULL attr: ANO_THREAD_STACK_SIZE, lazily committed. Win64 uses PE --stack instead.
@@ -101,7 +101,7 @@ ThreadResult<> ano::ano_thread_create(
     return thread_status(rc);
 }
 
-uint32_t ano::ano_thread_concurrency(void) {
+uint32_t ano::thread_concurrency(void) {
 
 #if defined(_WIN32)
     const DWORD count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
@@ -112,23 +112,23 @@ uint32_t ano::ano_thread_concurrency(void) {
 #endif
 }
 
-ThreadResult<> ano::ano_thread_join(anothread_t thread, void **res) {
+ThreadResult<> ano::thread_join(anothread_t thread, void **res) {
     return thread_status(pthread_join(thread, res));
 }
 
-void ano::ano_thread_exit(void *res) {
+void ano::thread_exit(void *res) {
     pthread_exit(res);
 }
 
-ThreadResult<> ano::ano_thread_detach(anothread_t thread) {
+ThreadResult<> ano::thread_detach(anothread_t thread) {
     return thread_status(pthread_detach(thread));
 }
 
-anothread_t ano::ano_thread_self(void) {
+anothread_t ano::thread_self(void) {
     return pthread_self();
 }
 
-ThreadResult<size_t> ano::ano_thread_main_stack(void) {
+ThreadResult<size_t> ano::thread_main_stack(void) {
 
 #if defined(_WIN32)
     const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)GetModuleHandleW(NULL);
@@ -147,34 +147,34 @@ ThreadResult<size_t> ano::ano_thread_main_stack(void) {
 
 /* Mutexes */
 
-ThreadResult<> ano::ano_mutex_init(anothread_mutex_t *mutex, const anothread_mutexattr_t *attr) {
+ThreadResult<> ano::mutex_init(anothread_mutex_t *mutex, const anothread_mutexattr_t *attr) {
     return thread_status(pthread_mutex_init(mutex, attr));
 }
 
-ThreadResult<> ano::ano_mutex_lock(anothread_mutex_t *mutex) {
+ThreadResult<> ano::mutex_lock(anothread_mutex_t *mutex) {
     return thread_status(pthread_mutex_lock(mutex));
 }
 
-ThreadResult<> ano::ano_mutex_unlock(anothread_mutex_t *mutex) {
+ThreadResult<> ano::mutex_unlock(anothread_mutex_t *mutex) {
     return thread_status(pthread_mutex_unlock(mutex));
 }
 
-ThreadResult<> ano::ano_mutex_destroy(anothread_mutex_t *mutex) {
+ThreadResult<> ano::mutex_destroy(anothread_mutex_t *mutex) {
     return thread_status(pthread_mutex_destroy(mutex));
 }
 
 
 /* Condition Variables */
 
-ThreadResult<> ano::ano_thread_cond_init(anothread_cond_t *conditionVariable, const anothread_condattr_t *attr) {
+ThreadResult<> ano::thread_cond_init(anothread_cond_t *conditionVariable, const anothread_condattr_t *attr) {
     return thread_status(pthread_cond_init(conditionVariable, attr));
 }
 
-ThreadResult<> ano::ano_thread_cond_wait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex) {
+ThreadResult<> ano::thread_cond_wait(anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex) {
     return thread_status(pthread_cond_wait(conditionVariable, external_mutex));
 }
 
-ThreadResult<ThreadWait> ano::ano_thread_cond_timedwait(
+ThreadResult<ThreadWait> ano::thread_cond_timedwait(
     anothread_cond_t *conditionVariable, anothread_mutex_t *external_mutex,
     const struct timespec *abstime) {
     const int status = pthread_cond_timedwait(conditionVariable, external_mutex, abstime);
@@ -183,15 +183,15 @@ ThreadResult<ThreadWait> ano::ano_thread_cond_timedwait(
     return failure(thread_error(status));
 }
 
-ThreadResult<> ano::ano_thread_cond_signal(anothread_cond_t *conditionVariable) {
+ThreadResult<> ano::thread_cond_signal(anothread_cond_t *conditionVariable) {
     return thread_status(pthread_cond_signal(conditionVariable));
 }
 
-ThreadResult<> ano::ano_thread_cond_broadcast(anothread_cond_t *conditionVariable) {
+ThreadResult<> ano::thread_cond_broadcast(anothread_cond_t *conditionVariable) {
     return thread_status(pthread_cond_broadcast(conditionVariable));
 }
 
-ThreadResult<> ano::ano_thread_cond_destroy(anothread_cond_t *conditionVariable) {
+ThreadResult<> ano::thread_cond_destroy(anothread_cond_t *conditionVariable) {
     return thread_status(pthread_cond_destroy(conditionVariable));
 }
 
@@ -199,26 +199,26 @@ ThreadResult<> ano::ano_thread_cond_destroy(anothread_cond_t *conditionVariable)
 /* Spinlocks */
 
 #if !defined(__APPLE__)   // macOS: provided by threads_macos.c
-ThreadResult<> ano::ano_thread_spin_init(anothread_spinlock_t *lock, int pshared) {
+ThreadResult<> ano::thread_spin_init(anothread_spinlock_t *lock, int pshared) {
     return thread_status(pthread_spin_init(lock, pshared));
 }
 
-ThreadResult<> ano::ano_thread_spin_destroy(anothread_spinlock_t *lock) {
+ThreadResult<> ano::thread_spin_destroy(anothread_spinlock_t *lock) {
     return thread_status(pthread_spin_destroy(lock));
 }
 
-ThreadResult<> ano::ano_thread_spin_lock(anothread_spinlock_t *lock) {
+ThreadResult<> ano::thread_spin_lock(anothread_spinlock_t *lock) {
     return thread_status(pthread_spin_lock(lock));
 }
 
-ThreadResult<bool> ano::ano_thread_spin_trylock(anothread_spinlock_t *lock) {
+ThreadResult<bool> ano::thread_spin_trylock(anothread_spinlock_t *lock) {
     const int status = pthread_spin_trylock(lock);
     if (status == 0) return true;
     if (status == EBUSY) return false;
     return failure(thread_error(status));
 }
 
-ThreadResult<> ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
+ThreadResult<> ano::thread_spin_unlock(anothread_spinlock_t *lock) {
     return thread_status(pthread_spin_unlock(lock));
 }
 #endif
@@ -226,65 +226,65 @@ ThreadResult<> ano::ano_thread_spin_unlock(anothread_spinlock_t *lock) {
 
 /* Read-Write Locks */
 
-ThreadResult<> ano::ano_thread_rwlock_init(anothread_rwlock_t *rwlock, const anothread_rwlockattr_t *attr) {
+ThreadResult<> ano::thread_rwlock_init(anothread_rwlock_t *rwlock, const anothread_rwlockattr_t *attr) {
     return thread_status(pthread_rwlock_init(rwlock, attr));
 }
 
-ThreadResult<> ano::ano_thread_rwlock_rdlock(anothread_rwlock_t *rwlock) {
+ThreadResult<> ano::thread_rwlock_rdlock(anothread_rwlock_t *rwlock) {
     return thread_status(pthread_rwlock_rdlock(rwlock));
 }
 
-ThreadResult<> ano::ano_thread_rwlock_wrlock(anothread_rwlock_t *rwlock) {
+ThreadResult<> ano::thread_rwlock_wrlock(anothread_rwlock_t *rwlock) {
     return thread_status(pthread_rwlock_wrlock(rwlock));
 }
 
-ThreadResult<> ano::ano_thread_rwlock_unlock(anothread_rwlock_t *rwlock) {
+ThreadResult<> ano::thread_rwlock_unlock(anothread_rwlock_t *rwlock) {
     return thread_status(pthread_rwlock_unlock(rwlock));
 }
 
-ThreadResult<> ano::ano_thread_rwlock_destroy(anothread_rwlock_t *rwlock) {
+ThreadResult<> ano::thread_rwlock_destroy(anothread_rwlock_t *rwlock) {
     return thread_status(pthread_rwlock_destroy(rwlock));
 }
 
 
 /* Thread Attributes */
 
-ThreadResult<> ano::ano_thread_attr_init(anothread_attr_t *attr) {
+ThreadResult<> ano::thread_attr_init(anothread_attr_t *attr) {
     return thread_status(pthread_attr_init(attr));
 }
 
-ThreadResult<> ano::ano_thread_attr_setdetachstate(anothread_attr_t *attr, int flag) {
+ThreadResult<> ano::thread_attr_setdetachstate(anothread_attr_t *attr, int flag) {
     return thread_status(pthread_attr_setdetachstate(attr, flag));
 }
 
-ThreadResult<> ano::ano_thread_attr_getstacksize(const anothread_attr_t *attr, size_t *size) {
+ThreadResult<> ano::thread_attr_getstacksize(const anothread_attr_t *attr, size_t *size) {
     return thread_status(pthread_attr_getstacksize(attr, size));
 }
 
-ThreadResult<> ano::ano_thread_attr_setstacksize(anothread_attr_t *attr, size_t size) {
+ThreadResult<> ano::thread_attr_setstacksize(anothread_attr_t *attr, size_t size) {
     return thread_status(pthread_attr_setstacksize(attr, size));
 }
 
-ThreadResult<> ano::ano_thread_attr_destroy(anothread_attr_t *attr) {
+ThreadResult<> ano::thread_attr_destroy(anothread_attr_t *attr) {
     return thread_status(pthread_attr_destroy(attr));
 }
 
 
 /* Thread-Data */
 
-ThreadResult<> ano::ano_thread_key_create(anothread_key_t *key, void (*dest)(void *)) {
+ThreadResult<> ano::thread_key_create(anothread_key_t *key, void (*dest)(void *)) {
     return thread_status(pthread_key_create(key, dest));
 }
 
-ThreadResult<> ano::ano_thread_key_delete(anothread_key_t key) {
+ThreadResult<> ano::thread_key_delete(anothread_key_t key) {
     return thread_status(pthread_key_delete(key));
 }
 
-ThreadResult<> ano::ano_thread_setspecific(anothread_key_t key, const void *value) {
+ThreadResult<> ano::thread_setspecific(anothread_key_t key, const void *value) {
     return thread_status(pthread_setspecific(key, value));
 }
 
-void* ano::ano_thread_getspecific(anothread_key_t key) {
+void* ano::thread_getspecific(anothread_key_t key) {
     return pthread_getspecific(key);
 }
 
@@ -293,18 +293,18 @@ void* ano::ano_thread_getspecific(anothread_key_t key) {
 
 #if !defined(__APPLE__)   // macOS: provided by threads_macos.c
 
-ThreadResult<> ano::ano_thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
+ThreadResult<> ano::thread_barrier_init(anothread_barrier_t *barrier, const anothread_barrierattr_t *attr, unsigned int count) {
     return thread_status(pthread_barrier_init(barrier, attr, count));
 }
 
-ThreadResult<BarrierRole> ano::ano_thread_barrier_wait(anothread_barrier_t *barrier) {
+ThreadResult<BarrierRole> ano::thread_barrier_wait(anothread_barrier_t *barrier) {
     const int status = pthread_barrier_wait(barrier);
     if (status == 0) return BarrierRole::participant;
     if (status == PTHREAD_BARRIER_SERIAL_THREAD) return BarrierRole::serial;
     return failure(thread_error(status));
 }
 
-ThreadResult<> ano::ano_thread_barrier_destroy(anothread_barrier_t *barrier) {
+ThreadResult<> ano::thread_barrier_destroy(anothread_barrier_t *barrier) {
     return thread_status(pthread_barrier_destroy(barrier));
 }
 #endif

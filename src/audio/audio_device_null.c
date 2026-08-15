@@ -23,7 +23,7 @@ static void *null_device_main(void *arg)
             started = true;
         else if (started)
             atomic_fetch_add_explicit(&mx->underruns, 1u, memory_order_relaxed);
-        (void)ano_sleep(periodUs);
+        (void)sleep_us(periodUs);
     }
     return NULL;
 }
@@ -31,13 +31,13 @@ static void *null_device_main(void *arg)
 static bool null_device_start(AnoAudioMixer *mx)
 {
     atomic_store_explicit(&mx->deviceRun, true, memory_order_release);
-    return ano_thread_create(&mx->deviceThread, NULL, null_device_main, mx).has_value();
+    return thread_create(&mx->deviceThread, NULL, null_device_main, mx).has_value();
 }
 
 static void null_device_stop(AnoAudioMixer *mx)
 {
     atomic_store_explicit(&mx->deviceRun, false, memory_order_release);
-    (void)ano_thread_join(mx->deviceThread, NULL);
+    (void)thread_join(mx->deviceThread, NULL);
 }
 
 const AnoAudioDeviceApi *ano_audio_device_null(void)

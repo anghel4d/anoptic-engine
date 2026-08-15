@@ -12,7 +12,7 @@ Ancient Greek or Elder Futhark in a C string literal renders as anti-aliased vec
  UTF-8 string literal (main.c / text_raster.c: Greek and runes typed verbatim)
         │
         ▼
- ano_text_shape / ano_text_shape_runs          src/text/text_shape.c   (any thread)
+ text_shape / text_shape_runs          src/text/text_shape.c   (any thread)
    codepoint → bake slot → kerned pen walk
         │  emits AnoGlyphInstance[] (48 B GPU ABI: inverse 2×2, color, pen origin, slot)
         ▼
@@ -40,7 +40,7 @@ One bake serves every lane, assembled at init in `ano_vk_text_init` (`src/vulkan
 | Noto Sans Regular | Greek & Coptic `0370–03FF`, Greek Extended `1F00–1FFF` | Geist has ~no Greek. Extended carries Homer's polytonic accents |
 | Noto Sans Runic | Runic `16A0–16F8` | Elder Futhark and friends |
 
-The contract (`ano_text_font_bake_ranges`, `include/anoptic_text.h`): ranges are codepoint-sorted and disjoint, slots assigned range by range in input order. The range list interleaves faces: Greek between Latin-1 and Cyrillic by codepoint order. A missing auxiliary font fails soft: its ranges are skipped, never a dead overlay.
+The contract (`text_font_bake_ranges`, `include/anoptic_text.h`): ranges are codepoint-sorted and disjoint, slots assigned range by range in input order. The range list interleaves faces: Greek between Latin-1 and Cyrillic by codepoint order. A missing auxiliary font fails soft: its ranges are skipped, never a dead overlay.
 
 Two flavors of "not there", both graceful. A codepoint outside every baked range advances the pen a fixed half-em gap. A codepoint inside a range the face doesn't cover bakes as a blank `ANO_GLYPH_MISSING` entry and shapes to nothing. Neither draws tofu.
 
@@ -62,7 +62,7 @@ The shaper decodes the bytes as UTF-8 (`anostr_rune_next`, malformed bytes becom
 
 ## Styled runs and the byte-count refactor
 
-`ano_text_shape_runs` styles one text with consecutive `AnoTextRun` spans:
+`text_shape_runs` styles one text with consecutive `AnoTextRun` spans:
 
 ```c
 typedef struct AnoTextRun {
@@ -102,7 +102,7 @@ Two conventions the world table demonstrates, keep them when editing:
 
 ## The two lanes and what the demo shows
 
-**Screen overlay (HUD).** Instance region `[0, 8192)`. The renderer's OSD occupies the front, logic-thread blocks (`ano_render_text_set` / `_clear` over the bridge) append after it in registry order. The demo blocks in `src/engine/main.c`:
+**Screen overlay (HUD).** Instance region `[0, 8192)`. The renderer's OSD occupies the front, logic-thread blocks (`render_text_set` / `_clear` over the bridge) append after it in registry order. The demo blocks in `src/engine/main.c`:
 
 | Block | Content |
 |---|---|

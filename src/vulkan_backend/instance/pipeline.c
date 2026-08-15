@@ -28,10 +28,10 @@ using namespace ano;
 
 // TODO: add a generalized function to loop over
 
-// Open a shipped engine file resolved against ano_fs_gamepath()
+// Open a shipped engine file resolved against fs_gamepath()
 static FILE* openEngineFile(const char* relative)
 {
-	const auto dir = ano_fs_gamepath();
+	const auto dir = fs_gamepath();
 	if (!dir)
 		return NULL;
 
@@ -60,7 +60,7 @@ bool loadFile(const char* filename, struct Buffer* buffer)
 	fseek(file, 0, SEEK_SET);
 
 
-	buffer->data = static_cast<char*>(ano_aligned_malloc(size, alignof(uint32_t)));
+	buffer->data = static_cast<char*>(aligned_malloc(size, alignof(uint32_t)));
 	if (buffer->data == NULL)
 	{
 		ano_log(ANO_ERROR, "Failed to allocate memory for file: %s", filename);
@@ -71,7 +71,7 @@ bool loadFile(const char* filename, struct Buffer* buffer)
 	if (fread(buffer->data, 1, size, file) != size)
 	{
 		ano_log(ANO_ERROR, "Failed to read file: %s", filename);
-		ano_aligned_free(buffer->data);
+		aligned_free(buffer->data);
 		buffer->data = NULL;
 		fclose(file);
 		return false;
@@ -133,7 +133,7 @@ bool ano_pipeline_task_stage(VulkanContext* ctx, VkBool32 shadowPass, VkBool32 c
 	struct Buffer code;
 	if (!loadFile("resources/shaders/flat.task.spv", &code)) return false;
 	*outModule = createShaderModule(ctx->device, &code);
-	ano_aligned_free(code.data);
+	aligned_free(code.data);
 	if (*outModule == NULL) return false;
 
 	store->entries[0] = (VkSpecializationMapEntry){ .constantID = 0, .offset = 0, .size = sizeof(VkBool32) };

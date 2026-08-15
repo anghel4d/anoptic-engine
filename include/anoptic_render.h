@@ -47,7 +47,7 @@ void drawFrame(void);
 
 // Copy the next fully composited swapchain image to a binary PPM at path.
 // The path is copied.
-[[nodiscard]] RenderResult<> ano_render_capture_next_frame(const char *path);
+[[nodiscard]] RenderResult<> render_capture_next_frame(const char *path);
 
 // true once the window has been asked to close.
 bool anoShouldClose(void);
@@ -81,8 +81,8 @@ struct AnoRenderableDesc {
 uint32_t anoRenderFallbackMesh(void);
 uint32_t anoRenderDefaultMaterial(void);
 
-// Baked font for logic-side shaping (ano_text_shape/_runs). Immutable; any thread.
-// Ship instances via ano_render_text_set. Available after successful renderer text init.
+// Baked font for logic-side shaping (text_shape/_runs). Immutable; any thread.
+// Ship instances via render_text_set. Available after successful renderer text init.
 [[nodiscard]] RenderResult<const AnoFontBake *> anoRenderTextBake(void);
 
 // Rows [0, anoRenderStaticLightBase()) are STATIC scene lights (RCMD_CREATE + light_index).
@@ -119,7 +119,7 @@ struct RenderLightParams {
     // (0,0,0) -> parent -Z. Point: ignored.
     float           localDir[3];
     // 1 allocates a shadow frustum (silent if the budget is full). dir/spot = 1, point = 6.
-    // Toggle via ano_render_light_update_fields + ANO_LIGHT_FIELD_CAST.
+    // Toggle via render_light_update_fields + ANO_LIGHT_FIELD_CAST.
     // STATIC row: CREATE-only grant; UPDATE 1 refreshes owned volumes; UPDATE 0 revokes.
     uint32_t        castsShadow;
 };
@@ -133,7 +133,7 @@ struct AnoSceneLightDesc {
 [[nodiscard]] RenderResult<uint32_t> anoRenderAssetLights(
     AnoAssetId asset, const mat4 root, AnoSceneLightDesc *out, uint32_t cap);
 
-// Field mask for ano_render_light_update_fields. Unnamed fields preserved. ALL = full overwrite.
+// Field mask for render_light_update_fields. Unnamed fields preserved. ALL = full overwrite.
 enum {
     ANO_LIGHT_FIELD_COLOR     = 1 << 0,
     ANO_LIGHT_FIELD_INTENSITY = 1 << 1,
@@ -244,7 +244,7 @@ struct RenderCreateBatch {
 
 // Mass field change (RCMD_BULK_UPDATE): one shared `fields` mask across a render_id array.
 // Only flagged arrays are read (rest may be NULL). RFIELD_LIGHT is not bulk.
-// Submit via ano_render_submit_bulk_update (copies; caller arrays live until return).
+// Submit via render_submit_bulk_update (copies; caller arrays live until return).
 struct RenderUpdateBatch {
     uint32_t        count;
     uint32_t        fields;       // RenderFieldBits shared by every entry
@@ -256,7 +256,7 @@ struct RenderUpdateBatch {
     const AnoInstanceData *instance_data [[=AnoRenderFieldUse{RFIELD_USERDATA, 1u << RCMD_BULK_UPDATE}]];
 };
 
-// Mass despawn (RCMD_BULK_DESTROY). Submit via ano_render_submit_bulk_destroy (copies until return).
+// Mass despawn (RCMD_BULK_DESTROY). Submit via render_submit_bulk_destroy (copies until return).
 struct RenderDestroyBatch {
     uint32_t        count;
     const uint32_t *render_ids;  // [count]; unresolved ids are skipped
@@ -267,7 +267,7 @@ struct RenderDestroyBatch {
 
 // Screen-text block (RCMD_TEXT_SET): shaped glyphs, addressed by producer text_id.
 // SET replaces; CLEAR removes. Shape against anoRenderTextBake(); origins/sizes in overlay logical units.
-// Submit via ano_render_text_set (copies until return).
+// Submit via render_text_set (copies until return).
 struct RenderTextBlock {
     uint32_t                count;
     const AnoGlyphInstance *instances;  // [count] shaped glyphs (48-byte GPU ABI)
@@ -288,7 +288,7 @@ struct RenderTextBlock {
 // UI block (RCMD_UI_SET): z-ordered prims + tables + glyphs, addressed by producer ui_id.
 // SET replaces; CLEAR removes. Compose by (layer, creation order); prim index = paint order.
 // Refs are block-local; rebased at compose. scroll adds to positions before surface fold (0 today).
-// Submit via ano_render_ui_set.
+// Submit via render_ui_set.
 struct RenderUiBlock {
     uint32_t layer;
     uint32_t surface;  // ANO_UI_SURFACE_*; overlay only today
@@ -314,7 +314,7 @@ struct AnoStreamRegion {
     uint32_t *ids;       // [capacity] streamed render_ids
     mat4     *xforms;    // [capacity] live world transforms (initialTransform space)
     uint32_t  capacity;  // entries this slice holds
-    uint64_t  token;     // opaque slice identity; pass back to ano_render_stream_commit
+    uint64_t  token;     // opaque slice identity; pass back to render_stream_commit
 };
 
 // POD, fixed-size, copied by value through the ring. Fat (mat4) but CREATE needs it;
@@ -351,58 +351,58 @@ struct RenderCommand {
 };
 
 // Enqueue one command. Backpressure retains caller ownership for a safe retry.
-[[nodiscard]] RenderResult<> ano_render_submit(
+[[nodiscard]] RenderResult<> render_submit(
     AnoRenderBridge *bridge, const RenderCommand *cmd);
 
 // Bulk endpoints. Each copies into one render-owned block; caller arrays live until return.
 // zero count = ACCEPTED no-op
 // INVALID = NULL batch; NULL render_ids with nonzero count; NULL array for a named field; packed size > size_t
-[[nodiscard]] RenderResult<> ano_render_submit_bulk_update(
+[[nodiscard]] RenderResult<> render_submit_bulk_update(
     AnoRenderBridge *bridge, const RenderUpdateBatch *batch);
-[[nodiscard]] RenderResult<> ano_render_submit_bulk_destroy(
+[[nodiscard]] RenderResult<> render_submit_bulk_destroy(
     AnoRenderBridge *bridge, const uint32_t *render_ids, uint32_t count);
 
 // Streamed-transform lane (ANO_MOTION_STREAMED). Backpressure drops the tick;
 // the last published slice repeats. Fill ids/xforms, then commit.
 // Single-producer; valid after init.
-[[nodiscard]] RenderResult<AnoStreamRegion> ano_render_stream_begin(void);
-[[nodiscard]] RenderResult<> ano_render_stream_commit(
+[[nodiscard]] RenderResult<AnoStreamRegion> render_stream_begin(void);
+[[nodiscard]] RenderResult<> render_stream_commit(
     const AnoStreamRegion *region, uint32_t count);
 
 // Runtime lights on a parent renderable (producer light_id; model-space offset). Same backpressure as submit.
 // Parent DESTROY detaches implicitly. attach: light_id unmapped; parent CREATE first in ring order.
 // update: full params + offset. detach: idempotent.
-[[nodiscard]] RenderResult<> ano_render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_t parent_render_id,
+[[nodiscard]] RenderResult<> render_light_attach(AnoRenderBridge *bridge, uint32_t light_id, uint32_t parent_render_id,
         const RenderLightParams *params, float ox, float oy, float oz);
 
-[[nodiscard]] RenderResult<> ano_render_light_update(AnoRenderBridge *bridge, uint32_t light_id,
+[[nodiscard]] RenderResult<> render_light_update(AnoRenderBridge *bridge, uint32_t light_id,
         const RenderLightParams *params, float ox, float oy, float oz);
 
 // Partial update: only fields named in `fields` written. Same backpressure contract.
-[[nodiscard]] RenderResult<> ano_render_light_update_fields(AnoRenderBridge *bridge, uint32_t light_id,
+[[nodiscard]] RenderResult<> render_light_update_fields(AnoRenderBridge *bridge, uint32_t light_id,
         const RenderLightParams *params, float ox, float oy, float oz, uint32_t fields);
 
-[[nodiscard]] RenderResult<> ano_render_light_detach(
+[[nodiscard]] RenderResult<> render_light_detach(
     AnoRenderBridge *bridge, uint32_t light_id);
 
 // Screen-text blocks. set copies/replaces block text_id (count capped at ANO_RENDER_TEXT_MAX, still ACCEPTED).
 // clear idempotent. count 0 set -> clear. INVALID: count > 0 with NULL instances.
 // clear: ACCEPTED or BACKPRESSURE only. Retry BACKPRESSURE if one-shot must not miss.
-[[nodiscard]] RenderResult<> ano_render_text_set(AnoRenderBridge *bridge, uint32_t text_id,
+[[nodiscard]] RenderResult<> render_text_set(AnoRenderBridge *bridge, uint32_t text_id,
         const AnoGlyphInstance *instances, uint32_t count);
 
-[[nodiscard]] RenderResult<> ano_render_text_clear(
+[[nodiscard]] RenderResult<> render_text_clear(
     AnoRenderBridge *bridge, uint32_t text_id);
 
 // UI blocks (docs/ui/ui-render.md §3.9). set packs/replaces block ui_id; caller arrays live until return.
 // clear: idempotent; ACCEPTED or BACKPRESSURE only.
 // empty builder -> clear. NULL builder = INVALID.
 // INVALID also: per-block caps; glyphCount > 0 with NULL glyphs; bad refs; UI_PATH walk past stream.
-[[nodiscard]] RenderResult<> ano_render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id, uint32_t layer,
+[[nodiscard]] RenderResult<> render_ui_set(AnoRenderBridge *bridge, uint32_t ui_id, uint32_t layer,
         const AnoUiBuilder *ui,
         const AnoGlyphInstance *glyphs, uint32_t glyphCount);
 
-[[nodiscard]] RenderResult<> ano_render_ui_clear(
+[[nodiscard]] RenderResult<> render_ui_clear(
     AnoRenderBridge *bridge, uint32_t ui_id);
 
 // ---------------------------------------------------------------------------
@@ -459,7 +459,7 @@ struct AnoInputEvent {
 enum class AnoRenderEventPayloadKind : uint8_t { none, render_id, input, pick_render_id, batch_token };
 struct AnoRenderEventContract final { AnoRenderEventPayloadKind payload; };
 
-// Render->logic events. Render master sole producer; logic sole consumer (ano_render_poll_event).
+// Render->logic events. Render master sole producer; logic sole consumer (render_poll_event).
 enum RenderEventKind {
     REVENT_SLOT_RETIRED [[=AnoRenderEventContract{AnoRenderEventPayloadKind::render_id}]],
     REVENT_CAPACITY [[=AnoRenderEventContract{AnoRenderEventPayloadKind::none}]],
@@ -510,48 +510,48 @@ struct AnoViewState {
 // Logic master endpoints. Publish/consume counterparts are private in src/render_bridge/.
 
 // Dequeue next render->logic event. false if none. Drain every tick.
-[[nodiscard]] RenderResult<bool> ano_render_poll_event(
+[[nodiscard]] RenderResult<bool> render_poll_event(
     AnoRenderBridge *bridge, RenderEvent *out);
 
 // Copy latest RenderSnapshot into `out`. false if no frame published yet.
-[[nodiscard]] RenderResult<bool> ano_render_acquire_snapshot(
+[[nodiscard]] RenderResult<bool> render_acquire_snapshot(
     AnoRenderBridge *bridge, RenderSnapshot *out);
 
 // Publish view-0 camera for the next recorded frame. Latest-wins; at most once per logic tick.
 // Degenerate pose rejected (previous stands; warn once). Before any accept: built-in camera.
-[[nodiscard]] RenderResult<> ano_render_publish_view(
+[[nodiscard]] RenderResult<> render_publish_view(
     AnoRenderBridge *bridge, const AnoViewState *view);
 
 // Occlusion model from next recorded frame. Render thread only. L key cycles. Out-of-range ignored.
-[[nodiscard]] RenderResult<> ano_render_set_lighting_mode(AnoLightingMode mode);
-AnoLightingMode ano_render_get_lighting_mode(void);
-const char     *ano_render_lighting_mode_name(AnoLightingMode mode);
+[[nodiscard]] RenderResult<> render_set_lighting_mode(AnoLightingMode mode);
+AnoLightingMode render_get_lighting_mode(void);
+const char     *render_lighting_mode_name(AnoLightingMode mode);
 
 // Per-view screen-area cull (projected bounding-sphere radius, px). Below threshold: no draw.
 // 0 disables; negative clamps to 0; bad view ignored. Next recorded frame; render thread.
-[[nodiscard]] RenderResult<> ano_render_set_view_cull_threshold(
+[[nodiscard]] RenderResult<> render_set_view_cull_threshold(
     uint32_t view, float pixels);
-[[nodiscard]] RenderResult<float> ano_render_get_view_cull_threshold(uint32_t view);
+[[nodiscard]] RenderResult<float> render_get_view_cull_threshold(uint32_t view);
 
 // Per-view LOD threshold (projected bounding-sphere radius, px). Halving size drops one LOD level.
 // 0 = always finest; negative clamps to 0. Inert without LOD chains. Next frame; render thread.
-[[nodiscard]] RenderResult<> ano_render_set_view_lod_threshold(
+[[nodiscard]] RenderResult<> render_set_view_lod_threshold(
     uint32_t view, float pixels);
-[[nodiscard]] RenderResult<float> ano_render_get_view_lod_threshold(uint32_t view);
+[[nodiscard]] RenderResult<float> render_get_view_lod_threshold(uint32_t view);
 
 // Global LOD-level bias added to auto-selected level (clamped per mesh). Next frame; render thread.
-void    ano_render_set_lod_bias(int32_t bias);
-int32_t ano_render_get_lod_bias(void);
+void    render_set_lod_bias(int32_t bias);
+int32_t render_get_lod_bias(void);
 
 // Shadow caster LOD bias (global; no per-caster screen metric). Clamped [0, max LOD]. Next frame; render thread.
-void    ano_render_set_shadow_lod_bias(int32_t bias);
-int32_t ano_render_get_shadow_lod_bias(void);
+void    render_set_shadow_lod_bias(int32_t bias);
+int32_t render_get_shadow_lod_bias(void);
 
 // Per-view GPU Hi-Z occlusion cull (previous-frame depth; ~1 frame latency). Off by default.
 // Next frame; render thread. Bad view ignored.
-[[nodiscard]] RenderResult<> ano_render_set_view_hiz_enable(
+[[nodiscard]] RenderResult<> render_set_view_hiz_enable(
     uint32_t view, bool enable);
-[[nodiscard]] RenderResult<bool> ano_render_get_view_hiz_enable(uint32_t view);
+[[nodiscard]] RenderResult<bool> render_get_view_hiz_enable(uint32_t view);
 
 
 } // namespace ano

@@ -287,8 +287,8 @@ static void test_mesh_canonical_artifact(void)
           && memcmp(encoded, repeated, *encodedResult) == 0,
           "canonical encoding ignores destination history and native padding");
 
-    const auto firstContent = ano_resource_content_id(artifact);
-    const auto secondContent = ano_resource_content_id(
+    const auto firstContent = resource_content_id(artifact);
+    const auto secondContent = resource_content_id(
         {repeated, repeatedResult ? *repeatedResult : 0});
     CHECK(firstContent && secondContent
           && memcmp(firstContent->bytes, secondContent->bytes,
@@ -384,26 +384,26 @@ static void test_generated_artifact_dispatch(void)
           "dispatch fixture encodes");
 
     constexpr AnoResourceTypeId materialType = ano::resource_type_id<Material>();
-    const auto schema = ano_resource_artifact_schema(materialType);
+    const auto schema = resource_artifact_schema(materialType);
     CHECK(schema && schema->type.value == materialType.value
           && schema->fixedSize == ano::fixed_wire_size<Material>()
           && fingerprint_equal(schema->fingerprint,
                                ano::schema_fingerprint<Material>()),
           "reflected universe generates schema dispatch");
-    CHECK(ano::has_error(ano_resource_artifact_schema({UINT64_MAX}),
+    CHECK(ano::has_error(resource_artifact_schema({UINT64_MAX}),
                          ANO_RESOURCE_TYPE_MISMATCH),
           "schema dispatch rejects an unknown reflected type");
 
     const AnoResourceBytes bytes = {encoded, result ? *result : 0};
-    CHECK(ano_resource_validate_artifact(materialType, bytes).has_value(),
+    CHECK(resource_validate_artifact(materialType, bytes).has_value(),
           "reflected universe generates validation dispatch");
     CHECK(ano::has_error(
-              ano_resource_validate_artifact({UINT64_MAX}, bytes),
+              resource_validate_artifact({UINT64_MAX}, bytes),
               ANO_RESOURCE_TYPE_MISMATCH),
           "validation dispatch rejects an unknown reflected type");
 
     AnoResourceDependency dependencies[2] = {};
-    const auto dependencyCount = ano_resource_artifact_dependencies(
+    const auto dependencyCount = resource_artifact_dependencies(
         materialType, bytes, dependencies, 2);
     CHECK(dependencyCount && *dependencyCount == 2
           && dependencies[0].asset.value == 11
@@ -411,7 +411,7 @@ static void test_generated_artifact_dispatch(void)
           && dependencies[0].type.value == ano::resource_type_id<Texture>().value
           && dependencies[1].type.value == ano::resource_type_id<Texture>().value,
           "reflected universe generates dependency dispatch");
-    const auto measured = ano_resource_artifact_dependencies(
+    const auto measured = resource_artifact_dependencies(
         materialType, bytes, nullptr, 0);
     CHECK(measured && *measured == 2,
           "dependency dispatch reports required capacity");
@@ -425,13 +425,13 @@ static void test_sha256(void)
         0xb0, 0x03, 0x61, 0xa3, 0x96, 0x17, 0x7a, 0x9c,
         0xb4, 0x10, 0xff, 0x61, 0xf2, 0x00, 0x15, 0xad,
     };
-    auto content = ano_resource_content_id({abcBytes, sizeof(abcBytes)});
+    auto content = resource_content_id({abcBytes, sizeof(abcBytes)});
     CHECK(content
           && memcmp(content->bytes, expected, sizeof(expected)) == 0,
           "content identity matches the published SHA-256 abc vector");
     bool runtimeMatchesConstexpr = true;
     for (uint32_t i = 0; i < 10; ++i) {
-        content = ano_resource_content_id(
+        content = resource_content_id(
             {shaPattern.bytes, shaLengths[i]});
         runtimeMatchesConstexpr = runtimeMatchesConstexpr && content
             && memcmp(content->bytes, shaCases.values[i].bytes,
@@ -439,7 +439,7 @@ static void test_sha256(void)
     }
     CHECK(runtimeMatchesConstexpr,
           "runtime SHA-256 matches constexpr across block boundaries");
-    CHECK(strcmp(ano_resource_error_string(ANO_RESOURCE_SCHEMA_MISMATCH),
+    CHECK(strcmp(resource_error_string(ANO_RESOURCE_SCHEMA_MISMATCH),
                  "schema_mismatch") == 0,
           "resource error names come from the reflected enum");
 }

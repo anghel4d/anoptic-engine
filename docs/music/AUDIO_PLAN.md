@@ -26,9 +26,9 @@ Distilled from TECH_SPEC §11–§12 and the prototype:
 - No audio code yet: no `include/anoptic_audio.h`, no `src/audio/`, no build-sequence slot in docs/TODO.md. First audio module.
 - Render bridge is the shipped bridge template (`src/render_bridge/render_bridge.h`): bounded lock-free SPSC ring (`AnoSpscRing`, cursors `alignas(ANO_THREAD_LINE)`), latest-wins seqlock (`ano_seqpub_store/load`), copy-at-submit for plain-data commands, owned `mi_malloc` blocks for fat payloads, backpressure retry on command overflow, and best-effort capacity advisory on the event ring. Discrete lossless facts use command/event rings; continuous latest-wins state uses a published double buffer.
 - `include/anoptic_collections.h` is an empty stub; generic lock-free collections not landed. Render bridge keeps private ring/seqlock copies with a migrate-later note. Audio bridge does the same; second consumer. Promote both into `anoptic_collections.h` later.
-- Memory exposes first-class lifetime heaps (`ano_heap_create` + `ANO_SCOPED_HEAP`) and explicitly contiguous immutable regions, alongside aligned allocation and hardware-interference constants. Render and audio own dedicated heaps and build their fixed pools on top.
-- Threads: `ano_thread_create/join` wrap pthreads (winpthreads on win64, shim on macOS). Runtime today: three threads (main/render, logic via `anoLogicThreadMain` ~2 ms tick / sole render-command producer, logger drain). Audio mixer is the fourth, spawned/joined like the logic thread, shut down before its bridge is destroyed.
-- Time: `ano_timestamp_ticks` + `ano_ticks_to_ns` for hot-path block timing, `ano_sleep` for pacing. Logging: `ano_log` enqueue is lock-free and audio-thread-safe; `ANO_NOW` (synchronous flush) is not.
+- Memory exposes first-class lifetime heaps (`heap_create` + `ANO_SCOPED_HEAP`) and explicitly contiguous immutable regions, alongside aligned allocation and hardware-interference constants. Render and audio own dedicated heaps and build their fixed pools on top.
+- Threads: `thread_create/join` wrap pthreads (winpthreads on win64, shim on macOS). Runtime today: three threads (main/render, logic via `anoLogicThreadMain` ~2 ms tick / sole render-command producer, logger drain). Audio mixer is the fourth, spawned/joined like the logic thread, shut down before its bridge is destroyed.
+- Time: `timestamp_ticks` + `ticks_to_ns` for hot-path block timing, `sleep_us` for pacing. Logging: `ano_log` enqueue is lock-free and audio-thread-safe; `ANO_NOW` (synchronous flush) is not.
 
 ### 1.3 Backend landscape (verified July 2026)
 
@@ -68,9 +68,9 @@ AnoAudioBridge                          -> schedule NoteEvents (synth)         �
   telemetry seqlock ◀───────        6. push cooked block ─────────────────▶  │  counter on underrun)
 ```
 
-- Mixer thread is engine-owned (`ano_thread_create`), runs the block loop, sole owner of every audio data structure. Spawned by `ano_audio_init`, joined by `ano_audio_shutdown`, before the bridge dies.
+- Mixer thread is engine-owned (`thread_create`), runs the block loop, sole owner of every audio data structure. Spawned by `audio_init`, joined by `audio_shutdown`, before the bridge dies.
 - Device backends only touch the cooked-block SPSC ring (3–4 blocks of f32 stereo, ~4 KiB each). Normalizes all backends behind one shape, isolates OS callback quirks from the graph, makes headless/offline the same code minus the device. Cost: one block of latency (TECH_SPEC §11.4 shape).
-- Pacing: mixer produces when the block ring has space; `ano_sleep` ~1 ms when full. Lock-free, no condvar. If wakeup latency matters, copy the logger's condvar drainer pattern.
+- Pacing: mixer produces when the block ring has space; `sleep_us` ~1 ms when full. Lock-free, no condvar. If wakeup latency matters, copy the logger's condvar drainer pattern.
 - Musicgen conductor runs on the audio thread at bar edges from the block loop. Generation is µs/bar vs 11 ms budget; one thread generates, schedules, and renders (prototype contract, roles renamed). No cross-thread event shipping for bar placement. Pull-based generation core: hoist to another thread later is a driver change only.
 - End-to-end SFX latency: logic tick (≤2 ms) + next block boundary (≤11 ms) + block ring (1–2 blocks) + OS period ≈ 25–45 ms typical. Acceptable for game SFX; block 256 is the shrink lever if needed.
 - Allocation: all pools (voices, sources, buses, rings, per-bar arena) preallocated at init from a dedicated `mi_heap_t` audio heap. Block-loop steady state: zero allocation. Rare control-path exceptions, documented: freeing an adopted config blob after applying it at a bar edge (render-bridge consumer-frees rule).
@@ -116,7 +116,7 @@ Negotiation policy: request f32 interleaved stereo 48 kHz, 512-frame period; acc
 - Sources: preallocated pool (e.g. 256) of sampler-style players: buffer, frame cursor, rate (pitch), gain, pan or world position, loop flag, bus. One-shot SFX = source that auto-retires; ambient loops = same source looping. Every audible parameter retargets through a one-pole.
 - Directional audio v0: world-position sources panned constant-power from listener-relative azimuth, attenuated by clamped inverse-distance (per-source rolloff/min/max), optional one-pole air-absorption lowpass by distance. Listener pose via seqlock, sampled once per block, smoothed. Hooks reserved, not shipped in v0: per-source rate = doppler seam; pan stage = HRTF seam.
 - Effects/filters: per-bus insert slots running the shared DSP library (§3.3), parameter-addressable from the bridge via field-masked `ACMD_BUS_SET`. Send levels per source and per bus.
-- Telemetry per block into the seqlock: per-bus peak/RMS, block render time (`ano_timestamp_ticks`), underrun count, granted device period. Finding 3 diagnostics; kept out of offline renders by default (§12.7).
+- Telemetry per block into the seqlock: per-bus peak/RMS, block render time (`timestamp_ticks`), underrun count, granted device period. Finding 3 diagnostics; kept out of offline renders by default (§12.7).
 
 ### 3.3 The DSP primitive library
 
@@ -132,18 +132,18 @@ Negotiation policy: request f32 interleaved stereo 48 kHz, 512-frame period; acc
 
 ```c
 // include/anoptic_audio.h: platform-agnostic, ano_* only
-bool ano_audio_init(const AnoAudioConfig *cfg);   // spawns mixer thread; null backend if headless
-void ano_audio_shutdown(void);
+bool audio_init(const AnoAudioConfig *cfg);   // spawns mixer thread; null backend if headless
+void audio_shutdown(void);
 AnoAudioBridge *anoAudioBridge(void);             // opaque; logic-side endpoints below
 
 // producer endpoints (logic thread), mirroring anoptic_render.h shapes
-bool ano_audio_submit(AnoAudioBridge *b, const AnoAudioCommand *cmd); // false = backpressure, retry
-bool ano_audio_poll_event(AnoAudioBridge *b, AnoAudioEvent *out);
-void ano_audio_publish_listener(AnoAudioBridge *b, const AnoAudioListener *l);
-bool ano_audio_acquire_telemetry(AnoAudioBridge *b, AnoAudioTelemetry *out);
+bool audio_submit(AnoAudioBridge *b, const AnoAudioCommand *cmd); // false = backpressure, retry
+bool audio_poll_event(AnoAudioBridge *b, AnoAudioEvent *out);
+void audio_publish_listener(AnoAudioBridge *b, const AnoAudioListener *l);
+bool audio_acquire_telemetry(AnoAudioBridge *b, AnoAudioTelemetry *out);
 
 // offline / conformance path: same graph, no device (finding 2)
-bool ano_audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames);
+bool audio_render_offline(const AnoAudioOfflineDesc *desc, float *out, uint64_t frames);
 ```
 
 Buffers loaded logic-side (WAV PCM16/f32 loader in audio module, converted to canonical f32/48k at load; windowed-sinc resample offline if file rate differs) and registered by command with an owned pointer; audio side adopts the block and retires it back through an event for logic-side free (frees stay off the audio thread). Compressed formats (vorbis/opus) deferred; stb_vorbis is the no-dep candidate if ever needed.
@@ -224,7 +224,7 @@ typedef enum AnoAudioEventKind {
 
 Rules, inherited verbatim from the render bridge:
 
-- `ano_audio_submit` returning false is backpressure: retain and retry next tick, never drop. Event ring is best-effort for coalescible samples with `AEVT_CAPACITY` advisories. `AEVT_SOURCE_RETIRED`, `AEVT_BUFFER_RETIRED`, and `AEVT_MUSIC_BAR` are facts the logic side must not miss; mixer retries them at subsequent block boundaries until they land.
+- `audio_submit` returning false is backpressure: retain and retry next tick, never drop. Event ring is best-effort for coalescible samples with `AEVT_CAPACITY` advisories. `AEVT_SOURCE_RETIRED`, `AEVT_BUFFER_RETIRED`, and `AEVT_MUSIC_BAR` are facts the logic side must not miss; mixer retries them at subsequent block boundaries until they land.
 - POD commands copied by value at submit; fat payloads (buffer data, config blobs) packed into one `mi_malloc` block at submit, adopted by the consumer; frees happen logic-side via retirement events except config blobs, freed at the bar edge that consumes them.
 - Continuous state never rides the rings: listener pose down, telemetry (playhead beat as double, bar, tempo, phrase position, key/mode, sounding chord id, bus meters, block CPU, underruns) up, both latest-wins seqlocks published once per block. Beat-synced visuals read telemetry; bar-edge reactions use `AEVT_MUSIC_BAR`.
 
@@ -236,7 +236,7 @@ This bridge is the public API of the entire stack: logic thread never links agai
 
 Ordered so every phase has a runnable, testable exit criterion. Device backends and DSP work parallelize freely after phase 0.
 
-- Phase 0 〜 scaffolding. Module skeletons, headers, CMake registration; private ring/seqlock copies; mixer thread + block loop against null device; `ano_audio_render_offline` writing WAV. Exit: headless test renders a smoothed sine through a bus to a byte-stable WAV, twice, bit-identical, on a churned heap.
+- Phase 0 〜 scaffolding. Module skeletons, headers, CMake registration; private ring/seqlock copies; mixer thread + block loop against null device; `audio_render_offline` writing WAV. Exit: headless test renders a smoothed sine through a bus to a byte-stable WAV, twice, bit-identical, on a churned heap.
 - Phase 1 〜 first sound. PipeWire backend (dev machine). Exit: audible tone and a WAV one-shot triggered over the bridge from the logic thread; underrun-free steady state; telemetry visible logic-side.
 - Phase 2 〜 mixer feature-complete. Source pool, WAV loader + registration round-trip, buses/inserts/sends from config, constant-power spatialization + listener seqlock, `ACMD_BUS_SET` retargeting, master safety limiter. Exit: demo scene plays positioned one-shots and a looping ambient bed with a moving listener; filter sweep commanded from logic glides without zipper.
 - Phase 3 〜 DSP library complete. Full §12.2 inventory with unit tests per primitive (impulse/step responses pinned as goldens; property tests for detectors and limiter). Exit: console topology instantiates from config and processes pink noise through strips → sends → master to a pinned golden.

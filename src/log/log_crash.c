@@ -26,18 +26,18 @@ static void investigate_previous_flight(const char *dir)
         ano_rlog(ANO_WARN, ANO_BOTH, "blackbox: 1 crash log detected, %s/%s.", dir, newest);
     else if (n > 1)
         ano_rlog(ANO_WARN, ANO_BOTH, "blackbox: %d crash logs detected, newest %s/%s.", n, dir, newest);
-    const char *stamp = ano_fs_session_stamp();
+    const char *stamp = fs_session_stamp();
     bb_prune_suffix(dir, "_CRASH.log", BB_KEEP_LOGS, stamp);
     bb_prune_suffix(dir, "_ano.log",   BB_KEEP_LOGS, stamp);
 }
 
-LogResult<> ano::ano_log_crash_init(void)
+LogResult<> ano::log_crash_init(void)
 {
     // Resolve <logs>/<stamp>_CRASH.log once. Fallbacks: <gamedir>, then CWD.
-    ano_fspath dir = ano_fs_logpath().value_or(ano_fspath{});
+    fspath dir = fs_logpath().value_or(fspath{});
     if (dir.length == 0)
-        dir = ano_fs_gamepath().value_or(ano_fspath{});
-    const char *stamp = ano_fs_session_stamp();
+        dir = fs_gamepath().value_or(fspath{});
+    const char *stamp = fs_session_stamp();
     int n = dir.length > 0
         ? snprintf(bb_crashPath, sizeof bb_crashPath, "%s/%s_CRASH.log", dir.str, stamp)
         : snprintf(bb_crashPath, sizeof bb_crashPath, "%s_CRASH.log", stamp);
@@ -50,12 +50,12 @@ LogResult<> ano::ano_log_crash_init(void)
     return result_if(bb_install() == 0, LogError::platform);
 }
 
-LogResult<> ano::ano_log_crash_thread_arm(void)
+LogResult<> ano::log_crash_thread_arm(void)
 {
     return result_if(bb_thread_arm() == 0, LogError::platform);
 }
 
-void ano::ano_log_crash_thread_disarm(void)
+void ano::log_crash_thread_disarm(void)
 {
     bb_thread_disarm();
 }

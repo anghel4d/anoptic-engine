@@ -48,14 +48,14 @@ static void make_material(void)
 typedef bool (*telem_pred)(const AnoAudioTelemetry *t);
 static bool wait_telemetry(AnoAudioBridge *b, telem_pred pred, uint32_t timeoutMs)
 {
-    uint32_t start = ano_timestamp_ms();
+    uint32_t start = timestamp_ms();
     for (;;) {
         AnoAudioTelemetry t;
-        if (ano_audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
+        if (audio_acquire_telemetry(b, &t).value_or(false) && pred(&t))
             return true;
-        if (ano_timestamp_ms() - start > timeoutMs)
+        if (timestamp_ms() - start > timeoutMs)
             return false;
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
 }
 
@@ -66,8 +66,8 @@ static bool pred_quiet(const AnoAudioTelemetry *t)     { return t->sourcesActive
 // Submit until accepted (backpressure).
 static void must_submit(AnoAudioBridge *b, const AnoAudioCommand *c)
 {
-    while (!ano_audio_submit(b, c))
-        (void)ano_sleep(1000);
+    while (!audio_submit(b, c))
+        (void)sleep_us(1000);
 }
 
 int main(int argc, char **argv)
@@ -87,14 +87,14 @@ int main(int argc, char **argv)
           .sendTarget = { 1 }, .sendLevel = { 0.35f } },
     };
     AnoAudioConfig cfg = { .busCount = 3, .busLayout = layout };
-    CHECK(ano_audio_init(&cfg), "audio world up (console layout)");
+    CHECK(audio_init(&cfg), "audio world up (console layout)");
     AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b) return 1;
     CHECK(wait_telemetry(b, pred_heartbeat, 3000), "mixer heartbeat");
 
-    while (!ano_audio_buffer_register(b, 1, g_bed, BED_FRAMES, 1)) (void)ano_sleep(1000);
-    while (!ano_audio_buffer_register(b, 2, g_click, CLICK_FRAMES, 1)) (void)ano_sleep(1000);
+    while (!audio_buffer_register(b, 1, g_bed, BED_FRAMES, 1)) (void)sleep_us(1000);
+    while (!audio_buffer_register(b, 2, g_click, CLICK_FRAMES, 1)) (void)sleep_us(1000);
 
     // SFX lowpass, swept during the scene.
     AnoAudioCommand fxSet = { .kind = ACMD_FX_SET, .bus = 2, .fxSlot = 0,
@@ -128,7 +128,7 @@ int main(int argc, char **argv)
             .up = { 0.0f, 1.0f, 0.0f },
             .seq = i,
         };
-		(void)ano_audio_publish_listener(b, &l);
+		(void)audio_publish_listener(b, &l);
 
         if (i % (400u / stepMs) == 0u) { // click every 400 ms
             float a = (float)rng_below(&rng, 6283u) / 1000.0f;
@@ -148,35 +148,35 @@ int main(int argc, char **argv)
             must_submit(b, &sweep);
         }
         AnoAudioEvent e;
-        while (ano_audio_poll_event(b, &e).value_or(false))
+        while (audio_poll_event(b, &e).value_or(false))
             if (e.kind == AEVT_SOURCE_RETIRED && e.u.source_id >= 200u)
                 clicksRetired++;
-        (void)ano_sleep(stepMs * 1000u);
+        (void)sleep_us(stepMs * 1000u);
     }
 
     // Wind-down: stop bed, release buffers, collect retirements.
     AnoAudioCommand stopBed = { .kind = ACMD_SOURCE_STOP, .source_id = 100 };
     must_submit(b, &stopBed);
-    while (!ano_audio_buffer_release(b, 1)) (void)ano_sleep(1000);
-    while (!ano_audio_buffer_release(b, 2)) (void)ano_sleep(1000);
+    while (!audio_buffer_release(b, 1)) (void)sleep_us(1000);
+    while (!audio_buffer_release(b, 2)) (void)sleep_us(1000);
 
     bool bedRetired = false;
     uint32_t blocksHome = 0;
-    uint32_t start = ano_timestamp_ms();
+    uint32_t start = timestamp_ms();
     while ((clicksRetired < clicksFired || !bedRetired || blocksHome < 2u)
-           && ano_timestamp_ms() - start < 5000u) {
+           && timestamp_ms() - start < 5000u) {
         AnoAudioEvent e;
-        while (ano_audio_poll_event(b, &e).value_or(false)) {
+        while (audio_poll_event(b, &e).value_or(false)) {
             if (e.kind == AEVT_SOURCE_RETIRED) {
                 if (e.u.source_id == 100u) bedRetired = true;
                 else if (e.u.source_id >= 200u) clicksRetired++;
             }
             if (e.kind == AEVT_BUFFER_RETIRED) {
-                ano_audio_block_free(e.u.buffer.block);
+                audio_block_free(e.u.buffer.block);
                 blocksHome++;
             }
         }
-        (void)ano_sleep(5000);
+        (void)sleep_us(5000);
     }
     CHECK(clicksRetired == clicksFired, "every click retired");
     CHECK(bedRetired, "the bed retired after stop");
@@ -184,12 +184,12 @@ int main(int argc, char **argv)
     CHECK(wait_telemetry(b, pred_quiet, 2000), "voice pool drains to zero");
 
     AnoAudioTelemetry t;
-    if (ano_audio_acquire_telemetry(b, &t).value_or(false))
+    if (audio_acquire_telemetry(b, &t).value_or(false))
         printf("info: scene 〜 %u clicks, blocks %llu, cpu %llu ns/block, underruns %u, clipped %u\n",
                clicksFired, (unsigned long long)t.blockIndex,
                (unsigned long long)t.blockCpuNs, t.underruns, t.clippedSamples);
 
-    ano_audio_shutdown();
+    audio_shutdown();
 
     if (failures) {
         printf("anotest_audioscene: %d FAILURE(S)\n", failures);

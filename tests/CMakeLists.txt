@@ -92,13 +92,13 @@ add_test(NAME anoptic_time COMMAND anotest_time)
 set_tests_properties(anoptic_time PROPERTIES TIMEOUT 30 LABELS "unit")
 
 # Testing for ``anoptic_log.h``
-# Scratch dirs anchor to the test exe dir at runtime (ano_fs_chdir_gamepath / scratch_anchor_to_exe).
+# Scratch dirs anchor to the test exe dir at runtime (fs_chdir_gamepath / scratch_anchor_to_exe).
 add_executable(anotest_logging anotest_logging.c)
 target_link_libraries(anotest_logging PRIVATE anoptic_core)
 add_test(NAME anoptic_logging COMMAND anotest_logging)
 set_tests_properties(anoptic_logging PROPERTIES TIMEOUT 60 LABELS "unit;concurrency")
 
-# Testing for ``anoptic_filesystem.h`` (ano_fspath values, game/user paths, append-file API).
+# Testing for ``anoptic_filesystem.h`` (fspath values, game/user paths, append-file API).
 # Note: the userpath check creates the real per-user game directory and one probe file in it
 # (removed on exit) -- that is the function's actual contract, so it is tested for real.
 add_executable(anotest_filesystem anotest_filesystem.c)
@@ -331,7 +331,7 @@ target_link_libraries(anotest_synthlive PRIVATE anoptic_core)
 target_include_directories(anotest_synthlive PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME anoptic_synthlive COMMAND anotest_synthlive)
 
-# Phase 7: composer in the audio callback (ano_synth_attach_music).
+# Phase 7: composer in the audio callback (synth_attach_music).
 # Sample-identical to batch over shared bars. Live-only: endless piece, bar meaning on downbeat.
 add_executable(anotest_musicdrive anotest_musicdrive.c)
 target_link_libraries(anotest_musicdrive PRIVATE anoptic_core)

@@ -508,7 +508,7 @@ static int bake_kerns(mi_heap_t *scratch, mi_heap_t *heap, const AnoGlyphEntry *
 // Module thread. Scratch for temps. Result blobs on caller heap.
 // Failures leave *out zeroed with no caller-heap block live.
 
-TextResult<AnoFontBake> ano::ano_text_font_bake_ranges(
+TextResult<AnoFontBake> ano::text_font_bake_ranges(
     const AnoBakeRange *ranges, uint32_t rangeCount, mi_heap_t *heap)
 {
     if (ranges == NULL || rangeCount == 0 || heap == NULL)
@@ -542,7 +542,7 @@ TextResult<AnoFontBake> ano::ano_text_font_bake_ranges(
     FT_Face        metricsFace = NULL;
     double         metricsInv = 0.0;
 
-    mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
+    mi_heap_t *scratch ANO_SCOPED_HEAP = heap_create();
     if (scratch == NULL)
         goto fail;
 
@@ -691,10 +691,10 @@ fail:
     return failure(error);
 }
 
-TextResult<AnoFontBake> ano::ano_text_font_bake(
+TextResult<AnoFontBake> ano::text_font_bake(
     AnoFontId font, uint32_t firstCodepoint, uint32_t lastCodepoint,
     mi_heap_t *heap)
 {
     AnoBakeRange range = { .font = font, .first = firstCodepoint, .last = lastCodepoint };
-    return ano_text_font_bake_ranges(&range, 1, heap);
+    return text_font_bake_ranges(&range, 1, heap);
 }

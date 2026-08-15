@@ -194,8 +194,8 @@ bool ano_pipeline_additive_init(VulkanContext* ctx, RendererState* state, Pipeli
 	return true;
 	}();
 
-	ano_aligned_free(geomShaderCode.data);
-	ano_aligned_free(fragShaderCode.data);
+	aligned_free(geomShaderCode.data);
+	aligned_free(fragShaderCode.data);
 	vkDestroyShaderModule(ctx->device, geomShaderModule, NULL);
 	vkDestroyShaderModule(ctx->device, fragShaderModule, NULL);
 	vkDestroyShaderModule(ctx->device, taskModule, NULL);

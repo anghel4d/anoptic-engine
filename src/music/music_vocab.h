@@ -13,7 +13,7 @@
 
 namespace ano {
 
-const char *ano_music_layer_name(uint32_t layer);
+const char *music_layer_name(uint32_t layer);
 
 } // namespace ano
 

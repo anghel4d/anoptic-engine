@@ -150,7 +150,7 @@ static void bb_record_and_flush(const EXCEPTION_POINTERS *xp, const char *signam
     }
 
     // Stage 3: hail mary.
-    ano_log_flush();
+    log_flush();
 }
 
 // Last stop before WER. CONTINUE_SEARCH keeps debugger/WER/exit intact.

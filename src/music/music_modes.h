@@ -15,9 +15,9 @@
 
 namespace ano {
 
-const char *ano_mode_name(AnoMode mode);
-int ano_mode_brightness(AnoMode mode);
-const uint8_t *ano_mode_intervals(AnoMode mode);
+const char *mode_name(AnoMode mode);
+int mode_brightness(AnoMode mode);
+const uint8_t *mode_intervals(AnoMode mode);
 
 } // namespace ano
 

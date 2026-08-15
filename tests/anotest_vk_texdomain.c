@@ -250,7 +250,7 @@ int main(void)
     // Destroy probe objects and return their allocator spans.
     vkDestroyPipeline(ctx->device, pipe, NULL);
     vkDestroyShaderModule(ctx->device, module, NULL);
-    ano_aligned_free(code.data);
+    aligned_free(code.data);
     vkDestroyPipelineLayout(ctx->device, pipeLayout, NULL);
     vkDestroyDescriptorPool(ctx->device, probePool, NULL); // + probeSet
     vkDestroyDescriptorSetLayout(ctx->device, probeLayout, NULL);

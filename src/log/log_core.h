@@ -37,7 +37,7 @@ static_assert(ANO_LOG_TIME_RESV >= 8u + 1u, "prefix budget covers 8-byte HMS + s
 static_assert(ANO_LOG_BATCH_CAP >= ANO_LOG_TIME_RESV + ANO_LOG_MSG_MAX + 2u,
                "batch holds one worst-case rendered record");
 
-// One log file per session: "<stamp>" ANO_LOG_FILESUFFIX via ano_fs_session_stamp().
+// One log file per session: "<stamp>" ANO_LOG_FILESUFFIX via fs_session_stamp().
 #define ANO_LOG_FILESUFFIX "_ano.log"
 
 #endif // ANOPTICENGINE_LOG_CORE_H

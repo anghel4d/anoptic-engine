@@ -29,7 +29,7 @@ static void put_u32(uint8_t *p, uint32_t v)
     p[3] = (uint8_t)(v >> 24);
 }
 
-AudioResult<> ano::ano_audio_wav_write(
+AudioResult<> ano::audio_wav_write(
     const char *path, const float *interleaved,
     uint64_t frames, uint32_t channels, uint32_t sampleRate)
 {
@@ -123,7 +123,7 @@ static uint64_t wav_resample(const float *src, uint64_t srcFrames, uint32_t chan
     return dstFrames;
 }
 
-AudioResult<AnoAudioSamples> ano::ano_audio_wav_load(
+AudioResult<AnoAudioSamples> ano::audio_wav_load(
     const char *path, uint32_t targetRate)
 {
     if (!path)

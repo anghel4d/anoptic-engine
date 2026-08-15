@@ -74,7 +74,7 @@ MemoryResult<MemoryRegion *> memory_region_create() noexcept
     MemoryRegion *region = mi_zalloc_tp(MemoryRegion);
     if (region == nullptr)
         return failure(MemoryError::out_of_memory);
-    region->heap = ano_heap_create();
+    region->heap = heap_create();
     if (region->heap == nullptr) {
         mi_free(region);
         return failure(MemoryError::out_of_memory);
@@ -86,7 +86,7 @@ void memory_region_destroy(MemoryRegion *region) noexcept
 {
     if (region == nullptr)
         return;
-    ano_heap_destroy(region->heap);
+    heap_destroy(region->heap);
     mi_free(region);
 }
 
@@ -94,12 +94,12 @@ MemoryResult<> memory_region_reset(MemoryRegion *region) noexcept
 {
     if (region == nullptr)
         return failure(MemoryError::invalid_argument);
-    mi_heap_t *replacement = ano_heap_create();
+    mi_heap_t *replacement = heap_create();
     if (replacement == nullptr)
         return failure(MemoryError::out_of_memory);
     mi_heap_t *retired = region->heap;
     region->heap = replacement;
-    ano_heap_destroy(retired);
+    heap_destroy(retired);
     return {};
 }
 
@@ -123,7 +123,7 @@ MemoryResult<MemoryVolume *> memory_volume_create(
     MemoryVolume *volume = mi_zalloc_tp(MemoryVolume);
     if (volume == nullptr)
         return failure(MemoryError::out_of_memory);
-    volume->region.heap = ano_heap_create();
+    volume->region.heap = heap_create();
     if (volume->region.heap == nullptr) {
         mi_free(volume);
         return failure(MemoryError::out_of_memory);
@@ -132,7 +132,7 @@ MemoryResult<MemoryVolume *> memory_volume_create(
         volume->data = static_cast<unsigned char *>(mi_heap_zalloc_aligned(
             volume->region.heap, layout.size, layout.alignment));
         if (volume->data == nullptr) {
-            ano_heap_destroy(volume->region.heap);
+            heap_destroy(volume->region.heap);
             mi_free(volume);
             return failure(MemoryError::out_of_memory);
         }
@@ -164,7 +164,7 @@ void memory_volume_release(MemoryVolume *volume) noexcept
     if (__atomic_fetch_sub(&volume->references, size_t{1},
                            __ATOMIC_ACQ_REL) != 1)
         return;
-    ano_heap_destroy(volume->region.heap);
+    heap_destroy(volume->region.heap);
     mi_free(volume);
 }
 

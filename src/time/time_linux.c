@@ -17,31 +17,31 @@ using namespace ano;
 /* Precision Timestamps */
 
 // Returned ticks are nanoseconds (CLOCK_MONOTONIC timespec).
-uint64_t ano::ano_timestamp_ticks() {
+uint64_t ano::timestamp_ticks() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);   // constant clockid + valid pointer: cannot fail
     return (uint64_t)(ts.tv_sec * 1000000000LL) + ts.tv_nsec;
 }
 
 // Identity: Linux ticks are already ns.
-uint64_t ano::ano_ticks_to_ns(uint64_t ticks) {
+uint64_t ano::ticks_to_ns(uint64_t ticks) {
     return ticks;
 }
 
-uint64_t ano::ano_timestamp_raw() {
-    return ano_timestamp_ticks();
+uint64_t ano::timestamp_raw() {
+    return timestamp_ticks();
 }
 
-// Direct timespec; not ano_timestamp_raw / 1000.
-uint64_t ano::ano_timestamp_us() {
+// Direct timespec; not timestamp_raw / 1000.
+uint64_t ano::timestamp_us() {
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)(ts.tv_sec * 1000000LL) + (ts.tv_nsec / 1000);
 }
 
-// Direct timespec; not ano_timestamp_raw / 1e6.
-uint32_t ano::ano_timestamp_ms() {
+// Direct timespec; not timestamp_raw / 1e6.
+uint32_t ano::timestamp_ms() {
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -51,7 +51,7 @@ uint32_t ano::ano_timestamp_ms() {
 
 /* Generic Date-Time Stamps */
 
-TimeResult<int64_t> ano::ano_timestamp_unix() {
+TimeResult<int64_t> ano::timestamp_unix() {
     time_t currentTime;
     currentTime = time(NULL);
 
@@ -62,13 +62,13 @@ TimeResult<int64_t> ano::ano_timestamp_unix() {
     return (int64_t)currentTime;
 }
 
-TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
+TimeResult<datetime> ano::local_datetime(int64_t unix_seconds) {
     time_t t = (time_t)unix_seconds;
     struct tm tm;
     if (localtime_r(&t, &tm) == NULL)
         return failure(TimeError::invalid_argument);
 
-    return (ano_datetime){
+    return (datetime){
         .year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday,
         .hour = tm.tm_hour, .minute = tm.tm_min, .second = tm.tm_sec,
     };
@@ -76,22 +76,22 @@ TimeResult<ano_datetime> ano::ano_localtime(int64_t unix_seconds) {
 
 /* Waiting Facilities */
 
-TimeResult<> ano::ano_busywait(uint64_t ns) {
+TimeResult<> ano::busywait(uint64_t ns) {
     if (ns > MAX_BUSYWAIT_NS)
         return failure(TimeError::invalid_argument);
 
-    uint64_t startTime = ano_timestamp_raw();
+    uint64_t startTime = timestamp_raw();
     uint64_t endTime;
 
     do {
-        endTime = ano_timestamp_raw();
+        endTime = timestamp_raw();
     } while (endTime - startTime < ns);
 
     return {};
 }
 
 // Relative clock_nanosleep(CLOCK_MONOTONIC). Restarts on EINTR.
-TimeResult<> ano::ano_sleep(uint64_t us) {
+TimeResult<> ano::sleep_us(uint64_t us) {
     struct timespec request = {0};
     struct timespec remaining = {0};
 

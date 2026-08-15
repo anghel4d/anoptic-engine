@@ -38,29 +38,29 @@ struct TestArtifact final {
 static ResourceResult<AnoResourceMutableBytes> cook_artifacts(
     const TestArtifact *items, uint64_t count)
 {
-    const auto created = ano_resource_cooker_create(
+    const auto created = resource_cooker_create(
         {.firstDerivedAsset = {count + 2}});
     if (!created)
         return failure(created.error());
     AnoResourceCooker *cooker = *created;
     ResourceResult<> result{};
     for (uint64_t i = 0; i < count && result; ++i)
-        result = ano_resource_cooker_add(
+        result = resource_cooker_add(
             cooker, items[i].asset, items[i].type, items[i].commitGroup,
             items[i].bytes);
     const AnoCookedRevision *revision = nullptr;
     if (result) {
-        const auto cooked = ano_resource_cook(cooker);
+        const auto cooked = resource_cook(cooker);
         if (cooked)
             revision = *cooked;
         else
             result = failure(cooked.error());
     }
-    auto pack = result ? ano_resource_revision_export_pack(revision)
+    auto pack = result ? resource_revision_export_pack(revision)
                        : ResourceResult<AnoResourceMutableBytes>(
                              failure(result.error()));
-    ano_resource_revision_release(revision);
-    ano_resource_cooker_destroy(cooker);
+    resource_revision_release(revision);
+    resource_cooker_destroy(cooker);
     return pack;
 }
 
@@ -151,20 +151,20 @@ static void test_pack_round_trip(void)
               == 0,
           "pack bytes ignore input order and destination history");
 
-    auto openedResult = ano_resource_pack_open({first.data, first.size});
+    auto openedResult = resource_pack_open({first.data, first.size});
     AnoResourcePack *opened = openedResult.value_or(nullptr);
     CHECK(opened != nullptr,
           "authenticated pack opens");
     if (opened == nullptr) {
-        ano_resource_exported_pack_release(second);
-        ano_resource_exported_pack_release(first);
+        resource_exported_pack_release(second);
+        resource_exported_pack_release(first);
         return;
     }
-    const AnoResourceManifest *manifest = ano_resource_pack_manifest(opened);
-    CHECK(ano_resource_manifest_entry_count(manifest) == 3,
+    const AnoResourceManifest *manifest = resource_pack_manifest(opened);
+    CHECK(resource_manifest_entry_count(manifest) == 3,
           "pack exposes its completely validated manifest");
 
-    const auto manifestId = ano_resource_manifest_id(manifest);
+    const auto manifestId = resource_manifest_id(manifest);
     CHECK(manifestId.has_value(),
           "manifest has a content identity");
     bool nonzeroId = false;
@@ -172,13 +172,13 @@ static void test_pack_round_trip(void)
         nonzeroId = nonzeroId || byte != 0;
     CHECK(nonzeroId, "manifest identity is nonzero");
 
-    const auto firstTexture = ano_resource_manifest_find(manifest, {1});
-    const auto secondTexture = ano_resource_manifest_find(manifest, {2});
-    const auto materialEntry = ano_resource_manifest_find(manifest, {3});
+    const auto firstTexture = resource_manifest_find(manifest, {1});
+    const auto secondTexture = resource_manifest_find(manifest, {2});
+    const auto materialEntry = resource_manifest_find(manifest, {3});
     CHECK(firstTexture && secondTexture && materialEntry,
           "dense asset IDs resolve directly");
-    const auto firstView = ano_resource_pack_view(opened, {1});
-    const auto secondView = ano_resource_pack_view(opened, {2});
+    const auto firstView = resource_pack_view(opened, {1});
+    const auto secondView = resource_pack_view(opened, {2});
     CHECK(firstView && secondView && firstView->size == secondView->size,
           "identical artifacts expose equal public ranges");
     CHECK(firstView->size == *texture
@@ -189,31 +189,31 @@ static void test_pack_round_trip(void)
           && materialEntry->dependencyCount == 1,
           "material manifest entry retains its reflected type and dependency");
 
-    const auto dependency = ano_resource_manifest_dependency(manifest, {3}, 0);
+    const auto dependency = resource_manifest_dependency(manifest, {3}, 0);
     CHECK(dependency && dependency->asset.value == 1
           && dependency->type.value == textureType.value,
           "manifest retains the reflected AssetRef target type");
-    CHECK(ano::has_error(ano_resource_manifest_find(manifest, {4}),
+    CHECK(ano::has_error(resource_manifest_find(manifest, {4}),
                          ANO_RESOURCE_NOT_FOUND),
           "manifest rejects an absent stable ID");
 
-    const auto openedRevisionResult = ano_resource_pack_revision(opened);
+    const auto openedRevisionResult = resource_pack_revision(opened);
     const AnoCookedRevision *openedRevision =
         openedRevisionResult.value_or(nullptr);
-    auto revisionView = ano_resource_revision_resolve(
+    auto revisionView = resource_revision_resolve(
         openedRevision, {3}, materialType);
     CHECK(revisionView && revisionView->size == *material
           && memcmp(revisionView->data, materialBytes,
                     static_cast<size_t>(*material)) == 0,
           "pack opening constructs the runtime cooked revision");
-    ano_resource_pack_close(opened);
-    CHECK(ano_resource_revision_resolve(
+    resource_pack_close(opened);
+    CHECK(resource_revision_resolve(
               openedRevision, {3}, materialType).has_value(),
           "retained pack revision owns its authenticated backing volume");
-    ano_resource_revision_release(openedRevision);
+    resource_revision_release(openedRevision);
 
     first.data[64] ^= 1;
-    CHECK(ano::has_error(ano_resource_pack_open({first.data, first.size}),
+    CHECK(ano::has_error(resource_pack_open({first.data, first.size}),
                          ANO_RESOURCE_BAD_MANIFEST),
           "manifest authentication rejects modified bytes");
     first.data[64] ^= 1;
@@ -222,12 +222,12 @@ static void test_pack_round_trip(void)
     const uint64_t manifestSize = read_u64(first.data + 8);
     const uint64_t firstOffset = read_u64(first.data + 64 + manifestSize);
     first.data[payloadOffset + firstOffset] ^= 1;
-    CHECK(ano::has_error(ano_resource_pack_open({first.data, first.size}),
+    CHECK(ano::has_error(resource_pack_open({first.data, first.size}),
                          ANO_RESOURCE_BAD_PACK),
           "artifact authentication rejects modified payload bytes");
     first.data[payloadOffset + firstOffset] ^= 1;
-    ano_resource_exported_pack_release(second);
-    ano_resource_exported_pack_release(first);
+    resource_exported_pack_release(second);
+    resource_exported_pack_release(first);
 }
 
 static void test_pack_rejects_bad_closure(void)

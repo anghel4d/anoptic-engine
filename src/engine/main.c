@@ -164,7 +164,7 @@ ResourceResult<const AnoCookedRevision *> cook_startup_revision(
 {
     if (cooker == nullptr)
         return failure(ANO_RESOURCE_INVALID_ARGUMENT);
-    auto result = ano_resource_cooker_begin(cooker);
+    auto result = resource_cooker_begin(cooker);
     struct SourceImport final {
         AnoResourceSourceId source;
         const char *path;
@@ -177,13 +177,13 @@ ResourceResult<const AnoCookedRevision *> cook_startup_revision(
     };
     for (const SourceImport& source : imports) {
         if (result)
-            result = ano_resource_source_bind(
+            result = resource_source_bind(
                 cooker, source.source, source.path);
         if (result) {
             const AnoResourceImportRequest request = {
                 source.source, source.root, SCENE_GROUP,
             };
-            result = ano_resource_import(cooker, request);
+            result = resource_import(cooker, request);
         }
     }
     if (result)
@@ -191,7 +191,7 @@ ResourceResult<const AnoCookedRevision *> cook_startup_revision(
     if (result)
         result = add_lighting(cooker, CANDLE_LIGHTING, CANDLE_LIGHTS);
 
-    return result ? ano_resource_cook(cooker)
+    return result ? resource_cook(cooker)
                   : ResourceResult<const AnoCookedRevision *>(
                         failure(result.error()));
 }
@@ -202,14 +202,14 @@ ResourceResult<> create_startup_resources(StartupResources *startup)
         return failure(ANO_RESOURCE_INVALID_ARGUMENT);
     *startup = {};
     // Startup scenes occupy ids 1-5.
-    const auto cooker = ano_resource_cooker_create(
+    const auto cooker = resource_cooker_create(
         {.firstDerivedAsset = {6}});
     if (!cooker)
         return failure(cooker.error());
     startup->cooker = *cooker;
     const auto abandon = [startup](AnoResourceError error) -> ResourceResult<> {
-        ano_resource_manager_destroy(startup->manager);
-        ano_resource_cooker_destroy(startup->cooker);
+        resource_manager_destroy(startup->manager);
+        resource_cooker_destroy(startup->cooker);
         *startup = {};
         return failure(error);
     };
@@ -217,8 +217,8 @@ ResourceResult<> create_startup_resources(StartupResources *startup)
         startup->cooker, DEFAULT_SOURCES);
     if (!revision)
         return abandon(revision.error());
-    const auto manager = ano_resource_manager_create(*revision);
-    ano_resource_revision_release(*revision);
+    const auto manager = resource_manager_create(*revision);
+    resource_revision_release(*revision);
     if (!manager)
         return abandon(manager.error());
     startup->manager = *manager;
@@ -235,11 +235,11 @@ ResourceResult<> create_startup_resources(StartupResources *startup)
          SCENE_GROUP, {ANO_RESOURCE_QUALITY_WHOLE}, 1.0f},
     };
     for (const AnoResourceGoal& goal : goals) {
-        const auto set = ano_resource_goal_set(startup->manager, goal);
+        const auto set = resource_goal_set(startup->manager, goal);
         if (!set)
             return abandon(set.error());
     }
-    const auto reconciled = ano_resource_reconcile(startup->manager);
+    const auto reconciled = resource_reconcile(startup->manager);
     return reconciled ? ResourceResult<>{} : abandon(reconciled.error());
 }
 
@@ -249,10 +249,10 @@ ResourceResult<AnoResourceReload *> prepare_startup_resources_reload(
 {
     const auto revision = cook_startup_revision(cooker, sources);
     auto reload = revision
-        ? ano_resource_reload_prepare(manager, *revision)
+        ? resource_reload_prepare(manager, *revision)
         : ResourceResult<AnoResourceReload *>(failure(revision.error()));
     if (revision)
-        ano_resource_revision_release(*revision);
+        resource_revision_release(*revision);
     return reload;
 }
 
@@ -260,11 +260,11 @@ void *prepare_reload_worker(void *argument)
 {
     mi_thread_set_in_threadpool();
     ReloadWorker& worker = *static_cast<ReloadWorker *>(argument);
-    (void)ano_mutex_lock(&worker.mutex);
+    (void)mutex_lock(&worker.mutex);
     for (;;) {
         while (worker.state != RELOAD_WORKER_REQUESTED
                && worker.state != RELOAD_WORKER_STOP)
-            (void)ano_thread_cond_wait(&worker.wake, &worker.mutex);
+            (void)thread_cond_wait(&worker.wake, &worker.mutex);
         if (worker.state == RELOAD_WORKER_STOP) break;
         worker.state = RELOAD_WORKER_RUNNING;
         AnoResourceReload *reload = nullptr;
@@ -275,8 +275,8 @@ void *prepare_reload_worker(void *argument)
         for (;;) {
             const StartupSources sources = worker.sources;
             generation = worker.requestedGeneration;
-            (void)ano_mutex_unlock(&worker.mutex);
-            heap = ano_heap_create();
+            (void)mutex_unlock(&worker.mutex);
+            heap = heap_create();
             const auto prepared = heap
                 ? prepare_startup_resources_reload(
                     worker.cooker, worker.manager, sources)
@@ -284,7 +284,7 @@ void *prepare_reload_worker(void *argument)
                       failure(ANO_RESOURCE_OUT_OF_MEMORY));
             if (prepared) {
                 reload = *prepared;
-                const auto realized = ano_render_resources_prepare_reload(
+                const auto realized = render_resources_prepare_reload(
                     reload, heap);
                 if (realized)
                     publication = *realized;
@@ -293,25 +293,25 @@ void *prepare_reload_worker(void *argument)
                 result = prepared.error();
             }
             reload = nullptr;
-            (void)ano_mutex_lock(&worker.mutex);
+            (void)mutex_lock(&worker.mutex);
             if (generation == worker.requestedGeneration)
                 break;
-            (void)ano_mutex_unlock(&worker.mutex);
-            ano_render_resources_cancel_reload(publication);
+            (void)mutex_unlock(&worker.mutex);
+            render_resources_cancel_reload(publication);
             publication = nullptr;
-            ano_heap_destroy(heap);
+            heap_destroy(heap);
             heap = nullptr;
-            (void)ano_mutex_lock(&worker.mutex);
+            (void)mutex_lock(&worker.mutex);
         }
         worker.heap = heap;
         worker.publication = publication;
         worker.result = result;
         worker.completedGeneration = generation;
         worker.state = RELOAD_WORKER_READY;
-        (void)ano_thread_cond_broadcast(&worker.wake);
+        (void)thread_cond_broadcast(&worker.wake);
         while (worker.state != RELOAD_WORKER_RECLAIM
                && worker.state != RELOAD_WORKER_STOP)
-            (void)ano_thread_cond_wait(&worker.wake, &worker.mutex);
+            (void)thread_cond_wait(&worker.wake, &worker.mutex);
         const bool stop = worker.state == RELOAD_WORKER_STOP;
         const bool discard = worker.discardReady;
         heap = worker.heap;
@@ -319,33 +319,33 @@ void *prepare_reload_worker(void *argument)
         worker.heap = nullptr;
         worker.publication = nullptr;
         worker.discardReady = false;
-        (void)ano_mutex_unlock(&worker.mutex);
-        ano_render_resources_cancel_reload(publication);
-        ano_heap_destroy(heap);
-        (void)ano_mutex_lock(&worker.mutex);
+        (void)mutex_unlock(&worker.mutex);
+        render_resources_cancel_reload(publication);
+        heap_destroy(heap);
+        (void)mutex_lock(&worker.mutex);
         if (stop) break;
         worker.state = worker.requestedGeneration > worker.completedGeneration
             ? RELOAD_WORKER_REQUESTED : RELOAD_WORKER_IDLE;
-        (void)ano_thread_cond_broadcast(&worker.wake);
+        (void)thread_cond_broadcast(&worker.wake);
     }
     worker.state = RELOAD_WORKER_STOP;
-    (void)ano_thread_cond_broadcast(&worker.wake);
-    (void)ano_mutex_unlock(&worker.mutex);
+    (void)thread_cond_broadcast(&worker.wake);
+    (void)mutex_unlock(&worker.mutex);
     return nullptr;
 }
 
 bool reload_worker_start(ReloadWorker& worker)
 {
     worker.state = RELOAD_WORKER_IDLE;
-    if (!ano_mutex_init(&worker.mutex, nullptr)) return false;
-    if (!ano_thread_cond_init(&worker.wake, nullptr)) {
-        (void)ano_mutex_destroy(&worker.mutex);
+    if (!mutex_init(&worker.mutex, nullptr)) return false;
+    if (!thread_cond_init(&worker.wake, nullptr)) {
+        (void)mutex_destroy(&worker.mutex);
         return false;
     }
-    if (!ano_thread_create(&worker.thread, nullptr,
+    if (!thread_create(&worker.thread, nullptr,
                            prepare_reload_worker, &worker)) {
-        (void)ano_thread_cond_destroy(&worker.wake);
-        (void)ano_mutex_destroy(&worker.mutex);
+        (void)thread_cond_destroy(&worker.wake);
+        (void)mutex_destroy(&worker.mutex);
         return false;
     }
     return true;
@@ -354,75 +354,75 @@ bool reload_worker_start(ReloadWorker& worker)
 bool reload_worker_request(ReloadWorker& worker,
                            const StartupSources& sources)
 {
-    (void)ano_mutex_lock(&worker.mutex);
+    (void)mutex_lock(&worker.mutex);
     const bool accepted = worker.state != RELOAD_WORKER_STOP;
     if (accepted) {
         worker.sources = sources;
         ++worker.requestedGeneration;
         if (worker.state == RELOAD_WORKER_IDLE) {
             worker.state = RELOAD_WORKER_REQUESTED;
-            (void)ano_thread_cond_signal(&worker.wake);
+            (void)thread_cond_signal(&worker.wake);
         } else if (worker.state == RELOAD_WORKER_RUNNING) {
-            ano_resource_cooker_cancel(worker.cooker);
+            resource_cooker_cancel(worker.cooker);
         } else if (worker.state == RELOAD_WORKER_READY) {
             worker.discardReady = true;
             worker.state = RELOAD_WORKER_RECLAIM;
-            (void)ano_thread_cond_signal(&worker.wake);
+            (void)thread_cond_signal(&worker.wake);
         }
     }
-    (void)ano_mutex_unlock(&worker.mutex);
+    (void)mutex_unlock(&worker.mutex);
     return accepted;
 }
 
 bool reload_worker_take(ReloadWorker& worker, AnoResourceError *result,
                         AnoRenderResourcePublication **publication)
 {
-    (void)ano_mutex_lock(&worker.mutex);
+    (void)mutex_lock(&worker.mutex);
     const bool ready = worker.state == RELOAD_WORKER_READY;
     if (ready) {
         *result = worker.result;
         *publication = worker.publication;
         worker.state = RELOAD_WORKER_ACTIVE;
     }
-    (void)ano_mutex_unlock(&worker.mutex);
+    (void)mutex_unlock(&worker.mutex);
     return ready;
 }
 
 void reload_worker_reclaim(ReloadWorker& worker)
 {
-    (void)ano_mutex_lock(&worker.mutex);
+    (void)mutex_lock(&worker.mutex);
     if (worker.state == RELOAD_WORKER_ACTIVE
         || worker.state == RELOAD_WORKER_READY) {
         worker.state = RELOAD_WORKER_RECLAIM;
-        (void)ano_thread_cond_signal(&worker.wake);
+        (void)thread_cond_signal(&worker.wake);
     }
-    (void)ano_mutex_unlock(&worker.mutex);
+    (void)mutex_unlock(&worker.mutex);
 }
 
 void reload_worker_stop(ReloadWorker& worker)
 {
     AnoRenderResourcePublication *unclaimed = nullptr;
-    (void)ano_mutex_lock(&worker.mutex);
+    (void)mutex_lock(&worker.mutex);
     while (worker.state == RELOAD_WORKER_REQUESTED
            || worker.state == RELOAD_WORKER_RUNNING)
-        (void)ano_thread_cond_wait(&worker.wake, &worker.mutex);
+        (void)thread_cond_wait(&worker.wake, &worker.mutex);
     if (worker.state == RELOAD_WORKER_READY) {
         unclaimed = worker.publication;
         worker.state = RELOAD_WORKER_ACTIVE;
     }
-    (void)ano_mutex_unlock(&worker.mutex);
-    ano_render_resources_cancel_reload(unclaimed);
+    (void)mutex_unlock(&worker.mutex);
+    render_resources_cancel_reload(unclaimed);
     if (unclaimed) reload_worker_reclaim(worker);
 
-    (void)ano_mutex_lock(&worker.mutex);
+    (void)mutex_lock(&worker.mutex);
     while (worker.state == RELOAD_WORKER_RECLAIM)
-        (void)ano_thread_cond_wait(&worker.wake, &worker.mutex);
+        (void)thread_cond_wait(&worker.wake, &worker.mutex);
     worker.state = RELOAD_WORKER_STOP;
-    (void)ano_thread_cond_signal(&worker.wake);
-    (void)ano_mutex_unlock(&worker.mutex);
-    (void)ano_thread_join(worker.thread, nullptr);
-    (void)ano_thread_cond_destroy(&worker.wake);
-    (void)ano_mutex_destroy(&worker.mutex);
+    (void)thread_cond_signal(&worker.wake);
+    (void)mutex_unlock(&worker.mutex);
+    (void)thread_join(worker.thread, nullptr);
+    (void)thread_cond_destroy(&worker.wake);
+    (void)mutex_destroy(&worker.mutex);
 }
 
 } // namespace
@@ -435,9 +435,9 @@ void reload_worker_stop(ReloadWorker& worker)
 // out: true once enqueued; false on shutdown (command dropped)
 // inv: wait observes g_logicShouldStop
 [[nodiscard]] static bool submit_blocking(AnoRenderBridge* bridge, const RenderCommand* c) {
-	while (!ano_render_submit(bridge, c)) {
+	while (!render_submit(bridge, c)) {
 		if (atomic_load(&g_logicShouldStop)) return false;
-		(void)ano_sleep(1000);
+		(void)sleep_us(1000);
 	}
 	return true;
 }
@@ -530,13 +530,13 @@ static void attach_candle_lighting(AnoRenderBridge *bridge, uint32_t candleSlot)
 		params.localDir[1] = -lights[i].transform[2][1];
 		params.localDir[2] = -lights[i].transform[2][2];
 		const uint32_t id = 100u + i;
-		while (!ano_render_light_attach(
+		while (!render_light_attach(
 				bridge, id, candleSlot, &params,
 				lights[i].transform[3][0], lights[i].transform[3][1],
 				lights[i].transform[3][2])) {
 			if (atomic_load(&g_logicShouldStop))
 				return;
-			(void)ano_sleep(1000);
+			(void)sleep_us(1000);
 		}
 	}
 }
@@ -580,7 +580,7 @@ static void spawn_scene(AnoRenderBridge* bridge) {
 static RenderResult<> hud_text_submit(AnoRenderBridge* bridge, uint32_t text_id,
                                       AnoGlyphInstance* inst, uint32_t shaped) {
 	if (shaped > HUD_TEXT_CAP) shaped = HUD_TEXT_CAP;
-	return ano_render_text_set(bridge, text_id, inst, shaped);
+	return render_text_set(bridge, text_id, inst, shaped);
 }
 
 /* HUD UI */
@@ -689,14 +689,14 @@ static UiResult<> ui_label(
 		return failure(UiError::invalid_argument);
 	if (*gcount >= HUD_UI_GCAP)
 		return failure(UiError::capacity);
-	const auto measured = ano_text_measure(bake, text, sizePx);
+	const auto measured = text_measure(bake, text, sizePx);
 	if (!measured)
 		return failure(UiError::invalid_argument);
 	const float w = measured->width;
 	float ox = rect[0] + ((rect[2] - rect[0]) - w) * 0.5f;
 	float baseline = rect[1] + ((rect[3] - rect[1]) + 0.70f * sizePx) * 0.5f;
 	uint32_t first = *gcount;
-	const auto shaped = ano_text_shape(
+	const auto shaped = text_shape(
 		bake, text, sizePx, (float[2]){ ox, baseline }, color,
 		glyphs + first, HUD_UI_GCAP - first, NULL);
 	if (!shaped)
@@ -707,7 +707,7 @@ static UiResult<> ui_label(
 	float lo[2] = { ox - 2.0f, baseline - bake->ascender * sizePx - 2.0f };
 	float hi[2] = { ox + w + 2.0f, baseline - bake->descender * sizePx + 2.0f };
 	float white[4] = { 1, 1, 1, 1 };
-	return ano_ui_glyphs(
+	return ui_glyphs(
 		b, lo, hi, first, n, white, ANO_UI_REF_NONE, 0)
 		.transform([](uint32_t) {});
 }
@@ -717,7 +717,7 @@ static RenderResult<> submit_menu(AnoRenderBridge* bridge, const AnoFontBake* ba
                                   uint32_t optionsCount)
 {
 	if (!visible)
-		return ano_render_ui_clear(bridge, HUD_UI_MENU);
+		return render_ui_clear(bridge, HUD_UI_MENU);
 	AnoUiPrim prims[24];
 	AnoUiPaint paints[2];
 	AnoUiStop stops[4];
@@ -725,8 +725,8 @@ static RenderResult<> submit_menu(AnoRenderBridge* bridge, const AnoFontBake* ba
 	AnoGlyphInstance glyphs[HUD_UI_GCAP];
 	uint32_t gcount = 0;
 	AnoUiBuilder b;
-	ano_ui_builder_init(&b, prims, 24, NULL, 0, paints, 2, stops, 4);
-	ano_ui_builder_curves(&b, curves, 128);
+	ui_builder_init(&b, prims, 24, NULL, 0, paints, 2, stops, 4);
+	ui_builder_curves(&b, curves, 128);
 	UiComposition ui;
 	const auto& common = HUD_COMMON_STYLE;
 	const auto& style = MENU_STYLE;
@@ -734,12 +734,12 @@ static RenderResult<> submit_menu(AnoRenderBridge* bridge, const AnoFontBake* ba
 		&b, (float[2]){ m->panel[0], m->panel[1] },
 		(float[2]){ m->panel[0], m->panel[3] }, common.plate));
 	float r12[4] = { 12, 12, 12, 12 }, r8[4] = { 8, 8, 8, 8 };
-	ui(ano_ui_shadow(&b, (float[2]){ m->panel[0] + 6, m->panel[1] + 10 },
+	ui(ui_shadow(&b, (float[2]){ m->panel[0] + 6, m->panel[1] + 10 },
 	              (float[2]){ m->panel[2] + 6, m->panel[3] + 10 }, 12.0f, 9.0f, common.shadow.rgba,
 	              ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, &m->panel[0], &m->panel[2], r12, common.white.rgba, 0.0f,
+	ui(ui_rrect(&b, &m->panel[0], &m->panel[2], r12, common.white.rgba, 0.0f,
 	                plateGrad, ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, &m->panel[0], &m->panel[2], r12, common.rim.rgba, 2.0f,
+	ui(ui_rrect(&b, &m->panel[0], &m->panel[2], r12, common.rim.rgba, 2.0f,
 	                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 	float titleRect[4] = { m->panel[0], m->panel[1] + 14, m->panel[2], m->panel[1] + 58 };
 	ui(ui_label(&b, bake, anostr_lit("MENU"), 26.0f, titleRect,
@@ -747,13 +747,13 @@ static RenderResult<> submit_menu(AnoRenderBridge* bridge, const AnoFontBake* ba
 	for (int i = 0; i < 3; i++) {
 		bool hot = hovered == i;
 		if (hot)
-			ui(ano_ui_shadow(&b, &m->button[i][0], &m->button[i][2],
+			ui(ui_shadow(&b, &m->button[i][0], &m->button[i][2],
 			                 8.0f, 8.0f, style.glow.rgba,
 			                 ANO_UI_REF_NONE, ANO_UI_BLEND_ADD));
-		ui(ano_ui_rrect(&b, &m->button[i][0], &m->button[i][2], r8,
+		ui(ui_rrect(&b, &m->button[i][0], &m->button[i][2], r8,
 		                hot ? style.buttonHot.rgba : style.button.rgba, 0.0f,
 		                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-		ui(ano_ui_rrect(&b, &m->button[i][0], &m->button[i][2], r8,
+		ui(ui_rrect(&b, &m->button[i][0], &m->button[i][2], r8,
 		                style.buttonRim.rgba, hot ? 2.0f : 1.0f,
 		                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 		char text[32];
@@ -774,12 +774,12 @@ static RenderResult<> submit_menu(AnoRenderBridge* bridge, const AnoFontBake* ba
 		{ ANO_UI_SEG_LINE, { rb0 + 38.0f, rcy, 0.0f, 0.0f } },
 		{ ANO_UI_SEG_LINE, { rb0 + 22.0f, rcy + 9.0f, 0.0f, 0.0f } },
 	};
-	ui(ano_ui_path_fill(
+	ui(ui_path_fill(
 		&b, play, 3, common.label.rgba,
 		ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 	if (!ui.result)
 		return ui.result;
-	return ano_render_ui_set(bridge, HUD_UI_MENU, 128, &b, glyphs, gcount);
+	return render_ui_set(bridge, HUD_UI_MENU, 128, &b, glyphs, gcount);
 }
 
 /* Music World */
@@ -796,11 +796,11 @@ static AnoMusicEngine *g_music;
 
 static void music_config(AnoMusicConfig *c)
 {
-	*c = ano_music_config_default();
+	*c = music_config_default();
 	c->hasMapper = true;
-	c->mapper = ano_mapping_table_electronic();
+	c->mapper = mapping_table_electronic();
 	c->hasDramaturg = true;
-	c->dramaturg = ano_dramaturg_config_default();
+	c->dramaturg = dramaturg_config_default();
 	c->phraseGroove = true;
 	c->cadenceRit = 0.03;
 	c->wanderPhrases = 6;
@@ -828,43 +828,43 @@ static bool music_world_start(void)
 	music_config(&cfg);
 
 	AnoSynthDesc synthDesc = { .sampleRate = MUSIC_RATE };
-	g_synth = ano_synth_create(&synthDesc).value_or(nullptr);
-	g_music = ano_music_create(&cfg, MUSIC_SEED).value_or(nullptr);
+	g_synth = synth_create(&synthDesc).value_or(nullptr);
+	g_music = music_create(&cfg, MUSIC_SEED).value_or(nullptr);
 	if (g_synth == NULL || g_music == NULL)
 		return false;
-	if (!ano_synth_attach_music(g_synth, g_music))
+	if (!synth_attach_music(g_synth, g_music))
 		return false;
 
 	AnoAudioBusDesc layout[ANO_SYNTH_CONSOLE_BUSES];
-	uint32_t buses = ano_synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
+	uint32_t buses = synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
 
 	// Synth seams: generate, control, poll, stats, commands.
 	AnoAudioConfig acfg = {
 		.sampleRate = MUSIC_RATE,
 		.busCount = buses,
 		.busLayout = layout,
-		.generator         = ano_synth_generator,
+		.generator         = synth_generator,
 		.generatorUser     = g_synth,
-		.generatorControl  = ano_synth_control,
-		.generatorPoll     = ano_synth_poll,
-		.generatorStats    = ano_synth_stats,
-		.generatorCommands = ano_synth_commands,
+		.generatorControl  = synth_control,
+		.generatorPoll     = synth_poll,
+		.generatorStats    = synth_stats,
+		.generatorCommands = synth_commands,
 	};
-	if (!ano_audio_init(&acfg))
+	if (!audio_init(&acfg))
 		return false;
 
 	AnoAudioBridge *ab = anoAudioBridge().value_or(nullptr);
 	AnoAudioOfflineEvent setup[64];
-	uint32_t n = ano_synth_console_setup(setup, 64);
+	uint32_t n = synth_console_setup(setup, 64);
 	// 1000 tries at 1 ms; stuck ring fails setup.
 	for (uint32_t i = 0; i < n; i++) {
 		uint32_t spin = 0;
-		while (!ano_audio_submit(ab, &setup[i].cmd)) {
+		while (!audio_submit(ab, &setup[i].cmd)) {
 			if (++spin >= 1000u) {
 				ano_log(ANO_WARN, "Music: audio command ring full for 1 s; console setup abandoned.");
 				return false;
 			}
-			(void)ano_sleep(1000);
+			(void)sleep_us(1000);
 		}
 	}
 
@@ -872,14 +872,14 @@ static bool music_world_start(void)
 	AnoAudioTelemetry t;
 	bool haveTelem = false;
 	for (uint32_t spin = 0; spin < 200u; spin++) {
-		if (ano_audio_acquire_telemetry(ab, &t).value_or(false)) { haveTelem = true; break; }
-		(void)ano_sleep(5000);
+		if (audio_acquire_telemetry(ab, &t).value_or(false)) { haveTelem = true; break; }
+		(void)sleep_us(5000);
 	}
 	if (!haveTelem) {
 		ano_log(ANO_WARN, "Music: no mixer telemetry after 1 s; transport not started.");
 		return false;
 	}
-	ano_synth_transport_start(g_synth, (t.blockIndex + 8u) * (uint64_t)t.blockFrames);
+	synth_transport_start(g_synth, (t.blockIndex + 8u) * (uint64_t)t.blockFrames);
 	ano_log(ANO_INFO, "Music: composing live at %u Hz (seed %u).", MUSIC_RATE,
 	        (unsigned)MUSIC_SEED);
 	return true;
@@ -894,12 +894,12 @@ static bool music_world_start(void)
 static void music_world_stop(bool drain)
 {
 	if (drain && g_synth != NULL) {
-		ano_synth_transport_stop(g_synth);
-		(void)ano_sleep(50000); // mixer stop + tails
+		synth_transport_stop(g_synth);
+		(void)sleep_us(50000); // mixer stop + tails
 	}
-	ano_audio_shutdown();
-	ano_synth_destroy(g_synth);
-	ano_music_destroy(g_music);
+	audio_shutdown();
+	synth_destroy(g_synth);
+	music_destroy(g_music);
 	g_synth = NULL;
 	g_music = NULL;
 }
@@ -1007,7 +1007,7 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
                                    const MusicState* st, int hovered, uint64_t now)
 {
 	if (!visible)
-		return ano_render_ui_clear(bridge, HUD_UI_MUSIC);
+		return render_ui_clear(bridge, HUD_UI_MUSIC);
 
 	AnoUiPrim prims[40];
 	AnoUiPaint paints[4];
@@ -1015,7 +1015,7 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 	AnoGlyphInstance glyphs[HUD_UI_GCAP];
 	uint32_t gcount = 0;
 	AnoUiBuilder b;
-	ano_ui_builder_init(&b, prims, 40, NULL, 0, paints, 4, stops, 8);
+	ui_builder_init(&b, prims, 40, NULL, 0, paints, 4, stops, 8);
 	UiComposition ui;
 
 	const auto& common = HUD_COMMON_STYLE;
@@ -1024,7 +1024,7 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 		&b, (float[2]){ m->panel[0], m->panel[1] },
 		(float[2]){ m->panel[0], m->panel[3] }, common.plate));
 	float r12[4] = { 12, 12, 12, 12 }, r6[4] = { 6, 6, 6, 6 };
-	ui(ano_ui_shadow(&b, (float[2]){ m->panel[0] + 6, m->panel[1] + 10 },
+	ui(ui_shadow(&b, (float[2]){ m->panel[0] + 6, m->panel[1] + 10 },
 	              (float[2]){ m->panel[2] + 6, m->panel[3] + 10 }, 12.0f, 9.0f, common.shadow.rgba,
 	              ANO_UI_REF_NONE, 0));
 
@@ -1032,14 +1032,14 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 	if (now < st->flashUntil) {
 		float k = (float)(st->flashUntil - now) / 500000.0f;
 		float pulse[4];
-		ano_ui_color_srgb((float[4]){ 0.35f * k, 0.75f * k, 1.00f * k, 0.0f }, pulse);
-		ui(ano_ui_shadow(&b, (float[2]){ m->panel[0] - 2, m->panel[1] - 2 },
+		ui_color_srgb((float[4]){ 0.35f * k, 0.75f * k, 1.00f * k, 0.0f }, pulse);
+		ui(ui_shadow(&b, (float[2]){ m->panel[0] - 2, m->panel[1] - 2 },
 		              (float[2]){ m->panel[2] + 2, m->panel[3] + 2 }, 14.0f, 12.0f, pulse,
 		              ANO_UI_REF_NONE, ANO_UI_BLEND_ADD));
 	}
-	ui(ano_ui_rrect(&b, &m->panel[0], &m->panel[2], r12,
+	ui(ui_rrect(&b, &m->panel[0], &m->panel[2], r12,
 	                common.white.rgba, 0.0f, plateGrad, ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, &m->panel[0], &m->panel[2], r12,
+	ui(ui_rrect(&b, &m->panel[0], &m->panel[2], r12,
 	                common.rim.rgba, 2.0f, ANO_UI_REF_NONE,
 	                ANO_UI_REF_NONE, 0));
 	float titleRect[4] = { m->panel[0], m->panel[1] + 12, m->panel[2], m->panel[1] + 52 };
@@ -1050,30 +1050,30 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 	uint32_t axisGrad = ui(ano::ui_paint_linear(
 		&b, (float[2]){ m->pad[0], m->pad[1] },
 		(float[2]){ m->pad[2], m->pad[1] }, style.axis));
-	ui(ano_ui_rrect(&b, &m->pad[0], &m->pad[2], r6,
+	ui(ui_rrect(&b, &m->pad[0], &m->pad[2], r6,
 	                common.white.rgba, 0.0f, axisGrad, ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, &m->pad[0], &m->pad[2], r6,
+	ui(ui_rrect(&b, &m->pad[0], &m->pad[2], r6,
 	                hovered == MUS_DRAG_XY ? common.rim.rgba : style.dim.rgba,
 	                hovered == MUS_DRAG_XY ? 2.0f : 1.0f,
 	                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 
 	float kx = m->pad[0] + (st->valence * 0.5f + 0.5f) * (m->pad[2] - m->pad[0]);
 	float ky = m->pad[3] - st->energy * (m->pad[3] - m->pad[1]);
-	ui(ano_ui_rrect(&b, (float[2]){ m->pad[0] + 1, ky - 0.5f },
+	ui(ui_rrect(&b, (float[2]){ m->pad[0] + 1, ky - 0.5f },
 	             (float[2]){ m->pad[2] - 1, ky + 0.5f }, (float[4]){ 0, 0, 0, 0 }, style.hair.rgba,
 	             0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, (float[2]){ kx - 0.5f, m->pad[1] + 1 },
+	ui(ui_rrect(&b, (float[2]){ kx - 0.5f, m->pad[1] + 1 },
 	             (float[2]){ kx + 0.5f, m->pad[3] - 1 }, (float[4]){ 0, 0, 0, 0 }, style.hair.rgba,
 	             0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 	float gr = 10.0f + 16.0f * st->energy;
 	float lit[4];
-	ano_ui_color_srgb((float[4]){ 0.30f * (0.3f + st->energy), 0.70f * (0.3f + st->energy),
+	ui_color_srgb((float[4]){ 0.30f * (0.3f + st->energy), 0.70f * (0.3f + st->energy),
 	                              1.00f * (0.3f + st->energy), 0.0f }, lit);
-	ui(ano_ui_shadow(&b, (float[2]){ kx - gr, ky - gr },
+	ui(ui_shadow(&b, (float[2]){ kx - gr, ky - gr },
 	                 (float[2]){ kx + gr, ky + gr }, gr, 9.0f, lit,
 	                 ANO_UI_REF_NONE, ANO_UI_BLEND_ADD));
 	float kr[4] = { 7, 7, 7, 7 };
-	ui(ano_ui_rrect(&b, (float[2]){ kx - 7, ky - 7 },
+	ui(ui_rrect(&b, (float[2]){ kx - 7, ky - 7 },
 	                (float[2]){ kx + 7, ky + 7 }, kr, style.knob.rgba,
 	                0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 
@@ -1081,24 +1081,24 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 	ui(ui_label(&b, bake, anostr_lit("dark  <  brightness  >  bright"),
 	            15.0f, axisRow, style.dim.rgba, glyphs, &gcount));
 
-	ui(ano_ui_rrect(&b, &m->slider[0], &m->slider[2], r6,
+	ui(ui_rrect(&b, &m->slider[0], &m->slider[2], r6,
 	                style.track.rgba, 0.0f, ANO_UI_REF_NONE,
 	                ANO_UI_REF_NONE, 0));
 	float fillX = m->slider[0] + st->tension * (m->slider[2] - m->slider[0]);
 	if (fillX > m->slider[0] + 1.0f) {
 		float hot[4];
-		ano_ui_color_srgb((float[4]){ 0.85f, 0.30f + 0.30f * (1.0f - st->tension), 0.30f,
+		ui_color_srgb((float[4]){ 0.85f, 0.30f + 0.30f * (1.0f - st->tension), 0.30f,
 		                              1.0f }, hot);
-		ui(ano_ui_rrect(&b, &m->slider[0],
+		ui(ui_rrect(&b, &m->slider[0],
 		                (float[2]){ fillX, m->slider[3] }, r6, hot, 0.0f,
 		                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 	}
-	ui(ano_ui_rrect(&b, &m->slider[0], &m->slider[2], r6,
+	ui(ui_rrect(&b, &m->slider[0], &m->slider[2], r6,
 	                hovered == MUS_DRAG_TENSION ? common.rim.rgba : style.dim.rgba,
 	                hovered == MUS_DRAG_TENSION ? 2.0f : 1.0f,
 	                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 	float sy = 0.5f * (m->slider[1] + m->slider[3]);
-	ui(ano_ui_rrect(&b, (float[2]){ fillX - 6, sy - 10 },
+	ui(ui_rrect(&b, (float[2]){ fillX - 6, sy - 10 },
 	                (float[2]){ fillX + 6, sy + 10 },
 	                (float[4]){ 5, 5, 5, 5 }, style.knob.rgba, 0.0f,
 	                ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
@@ -1114,7 +1114,7 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 	int n1, n2;
 	if (st->bar >= 0) {
 		n1 = snprintf(line1, sizeof line1, "bar %d  %s %s  %s", st->bar,
-		              PC_NAMES[st->keyTonic % 12], ano_mode_name((AnoMode)st->mode),
+		              PC_NAMES[st->keyTonic % 12], mode_name((AnoMode)st->mode),
 		              ROMAN[(st->chordDegree >= 0 && st->chordDegree <= 7)
 		                        ? st->chordDegree : 0]);
 		n2 = snprintf(line2, sizeof line2, "composed in %u us on the audio thread",
@@ -1135,7 +1135,7 @@ static RenderResult<> submit_music(AnoRenderBridge* bridge, const AnoFontBake* b
 
 	if (!ui.result)
 		return ui.result;
-	return ano_render_ui_set(bridge, HUD_UI_MUSIC, 96, &b, glyphs, gcount);
+	return render_ui_set(bridge, HUD_UI_MUSIC, 96, &b, glyphs, gcount);
 }
 
 // Bottom-left; resubmit when vpH changes.
@@ -1146,23 +1146,23 @@ static RenderResult<> submit_bar(
 	AnoGlyphInstance glyphs[HUD_UI_GCAP];
 	uint32_t gcount = 0;
 	AnoUiBuilder b;
-	ano_ui_builder_init(&b, prims, 8, NULL, 0, NULL, 0, NULL, 0);
+	ui_builder_init(&b, prims, 8, NULL, 0, NULL, 0, NULL, 0);
 	UiComposition ui;
 	const auto& style = BAR_STYLE;
 	float rect[4] = { 24.0f, vpH - 68.0f, 24.0f + 420.0f, vpH - 24.0f };
 	float r10[4] = { 10, 10, 10, 10 };
-	ui(ano_ui_shadow(&b, (float[2]){ rect[0] + 4, rect[1] + 6 },
+	ui(ui_shadow(&b, (float[2]){ rect[0] + 4, rect[1] + 6 },
 	                 (float[2]){ rect[2] + 4, rect[3] + 6 },
 	                 10.0f, 6.0f, style.shadow.rgba, ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, &rect[0], &rect[2], r10, style.plate.rgba,
+	ui(ui_rrect(&b, &rect[0], &rect[2], r10, style.plate.rgba,
 	                0.0f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
-	ui(ano_ui_rrect(&b, &rect[0], &rect[2], r10, style.rim.rgba,
+	ui(ui_rrect(&b, &rect[0], &rect[2], r10, style.rim.rgba,
 	                1.5f, ANO_UI_REF_NONE, ANO_UI_REF_NONE, 0));
 	ui(ui_label(&b, bake, anostr_lit("M menu · N music · drag the square"),
 	            20.0f, rect, style.label.rgba, glyphs, &gcount));
 	if (!ui.result)
 		return ui.result;
-	return ano_render_ui_set(bridge, HUD_UI_BAR, 16, &b, glyphs, gcount);
+	return render_ui_set(bridge, HUD_UI_BAR, 16, &b, glyphs, gcount);
 }
 
 /* Submit Policy */
@@ -1219,7 +1219,7 @@ static RenderResult<> hud_text_spin(AnoRenderBridge* bridge, uint32_t text_id,
 		case RenderError::backpressure:
 			if (atomic_load(&g_logicShouldStop))
 				return result;
-			(void)ano_sleep(1000);
+			(void)sleep_us(1000);
 			break;
 		}
 	}
@@ -1296,9 +1296,9 @@ hudDone:
 	bool     inW = false, inA = false, inS = false, inD = false, inUp = false, inDown = false;
 	bool     looking = false, haveCursor = false;
 	float    prevCx = 0.0f, prevCy = 0.0f;
-	uint64_t lastCam = ano_timestamp_us();
+	uint64_t lastCam = timestamp_us();
 	uint64_t camSeq = 0;
-	uint64_t lastSnapLog = ano_timestamp_us();
+	uint64_t lastSnapLog = timestamp_us();
 
 	// ANO_MENU opens the menu at boot.
 	bool     menuVisible = getenv("ANO_MENU") != NULL;
@@ -1318,11 +1318,11 @@ hudDone:
 
 	while (!atomic_load(&g_logicShouldStop))
 	{
-		uint64_t now = ano_timestamp_us();
+		uint64_t now = timestamp_us();
 
 		// Drain render->logic: input, picking, slot retirement.
 		RenderEvent ev;
-		while (ano_render_poll_event(bridge, &ev).value_or(false)) {
+		while (render_poll_event(bridge, &ev).value_or(false)) {
 			switch (ev.kind) {
 			case REVENT_INPUT: {
 				const AnoInputEvent* ie = &ev.u.input;
@@ -1445,12 +1445,12 @@ hudDone:
 				view.up[k]     = 0.0f;
 			}
 			view.up[1] = 1.0f;
-			(void)ano_render_publish_view(bridge, &view);
+			(void)render_publish_view(bridge, &view);
 		}
 
 		// ACCEPTED retires the notice; otherwise retry next tick.
 		if (bake != NULL && !noticeCleared && noticeDeadline != 0 && now > noticeDeadline)
-			noticeCleared = ano_render_text_clear(bridge, HUD_TEXT_NOTICE).has_value();
+			noticeCleared = render_text_clear(bridge, HUD_TEXT_NOTICE).has_value();
 
 		// Hover change dirties; a full ring keeps dirty.
 		if (menuVisible && vpW > 0.0f) {
@@ -1476,13 +1476,13 @@ hudDone:
 				AnoAudioCommand c = { .kind = ACMD_MUSIC_AFFECT,
 				                      .affect = { mus.valence, mus.energy, mus.tension },
 				                      .urgent = true };
-				if (ano_audio_submit(ab, &c))
+				if (audio_submit(ab, &c))
 					affectDirty = false; // else: ring full, try again next tick
 			}
 
 			// AEVT_MUSIC_BAR on the audible downbeat (composed two bars ahead).
 			AnoAudioEvent aev;
-			while (ano_audio_poll_event(ab, &aev).value_or(false)) {
+			while (audio_poll_event(ab, &aev).value_or(false)) {
 				if (aev.kind != AEVT_MUSIC_BAR)
 					continue;
 				mus.bar = aev.u.music.bar;
@@ -1502,7 +1502,7 @@ hudDone:
 			}
 			if (musicVisible && now - lastTelem > 500000ull) {
 				AnoAudioTelemetry t;
-				if (ano_audio_acquire_telemetry(ab, &t).value_or(false) && t.genUs != mus.genUs) {
+				if (audio_acquire_telemetry(ab, &t).value_or(false) && t.genUs != mus.genUs) {
 					mus.genUs = t.genUs;
 					musicDirty = true;
 				}
@@ -1530,9 +1530,9 @@ hudDone:
 		// ~1 Hz snapshot log and camera readout.
 		{
 			RenderSnapshot snap;
-			if (noticeDeadline == 0 && ano_render_acquire_snapshot(bridge, &snap).value_or(false))
+			if (noticeDeadline == 0 && render_acquire_snapshot(bridge, &snap).value_or(false))
 				noticeDeadline = now + 15000000ull; // first published frame: arm the notice
-			if (ano_render_acquire_snapshot(bridge, &snap).value_or(false)) {
+			if (render_acquire_snapshot(bridge, &snap).value_or(false)) {
 				if (menuVisible && (vpW != snap.uiWidth || vpH != snap.uiHeight))
 					menuDirty = true; // layout is centered
 				if (musicVisible && (vpW != snap.uiWidth || vpH != snap.uiHeight))
@@ -1547,7 +1547,7 @@ hudDone:
 				if (barSubmitted)
 					barVpH = vpH;
 			}
-			if (ano_render_acquire_snapshot(bridge, &snap).value_or(false) && now - lastSnapLog > 1000000) {
+			if (render_acquire_snapshot(bridge, &snap).value_or(false) && now - lastSnapLog > 1000000) {
 				ano_debug_log(ANO_INFO, "Snapshot: frameId %llu, viewport %ux%u",
 				       (unsigned long long)snap.frameId, snap.vpWidth, snap.vpHeight);
 				lastSnapLog = now;
@@ -1558,7 +1558,7 @@ hudDone:
 					if (len > 0) {
 						const float camOrg[2] = { 24.0f, 210.0f };
 						const float mint[4] = { 0.45f, 0.95f, 0.6f, 1.0f };
-						uint32_t n = ano_text_shape(
+						uint32_t n = text_shape(
 							bake, anostr_view(cam, (size_t)len), 20.0f, camOrg,
 							mint, hud, HUD_TEXT_CAP, NULL).value_or(0u);
 						// 1 s refresh is the retry; no dirty/cooldown.
@@ -1568,7 +1568,7 @@ hudDone:
 				}
 			}
 		}
-		(void)ano_sleep(2000); // ~2 ms logic tick
+		(void)sleep_us(2000); // ~2 ms logic tick
 	}
 	return NULL;
 }
@@ -1579,7 +1579,7 @@ hudDone:
 int main()
 {
     // Bindings and shaders are game-relative; the executable directory is the filesystem root.
-    if (!ano_fs_chdir_gamepath())
+    if (!fs_chdir_gamepath())
         ano_rlog(ANO_WARN, ANO_TERM | ANO_NOW, "Warning: could not set the working directory to the executable's; "
                "assets will load relative to the current working directory.");
 
@@ -1593,17 +1593,17 @@ int main()
     #endif
 
     // Process-wide logger; ANO_LOG_SCOPE_ATTR cleans on scope exit.
-    LogResult<> logAlive ANO_LOG_SCOPE_ATTR = ano_log_init();
+    LogResult<> logAlive ANO_LOG_SCOPE_ATTR = log_init();
     if (!logAlive) {
         ano_log(ANO_FATAL, "Logger initialization failed; something is very wrong.");
         return EXIT_FAILURE;
     }
 
     // Blackbox: fatal signal -> CRASH log + flush.
-    if (!ano_log_crash_init())
+    if (!log_crash_init())
         ano_log(ANO_WARN, "Blackbox failed to arm; a crash will leave no CRASH log.");
 
-    const auto mainStack = ano_thread_main_stack();
+    const auto mainStack = thread_main_stack();
     if (mainStack && *mainStack < ANO_THREAD_STACK_SIZE)
         ano_log(ANO_WARN, "Main-thread stack budget is %zu KiB, under the engine's %zu KiB: "
                 "deep main-thread call chains may overflow (raise `ulimit -s`).",
@@ -1615,7 +1615,7 @@ int main()
     AnoResourceManager *resources = startup.manager;
     if (!startupResult) {
         ano_log(ANO_FATAL, "Resource initialization failed: %s",
-                ano_resource_error_string(startupResult.error()));
+                resource_error_string(startupResult.error()));
         return -1;
     }
     // GLFW + Vulkan on main (window/events pinned; mandatory on macOS).
@@ -1623,8 +1623,8 @@ int main()
     if (!initVulkan(resources))
     {
         ano_log(ANO_FATAL, "Vulkan initialization failed.");
-        ano_resource_manager_destroy(resources);
-        ano_resource_cooker_destroy(startup.cooker);
+        resource_manager_destroy(resources);
+        resource_cooker_destroy(startup.cooker);
         return -1;
     }
 
@@ -1636,15 +1636,15 @@ int main()
 
     // Sole render-command producer.
     anothread_t logicThread;
-    if (!ano_thread_create(&logicThread, NULL, anoLogicThreadMain, NULL))
+    if (!thread_create(&logicThread, NULL, anoLogicThreadMain, NULL))
     {
         ano_log(ANO_FATAL, "Failed to spawn logic thread.");
 #if defined(ANOPTIC_ENGINE_MUSIC)
         music_world_stop(true);
 #endif
         unInitVulkan();
-        ano_resource_manager_destroy(resources);
-        ano_resource_cooker_destroy(startup.cooker);
+        resource_manager_destroy(resources);
+        resource_cooker_destroy(startup.cooker);
         return -1;
     }
 
@@ -1658,10 +1658,10 @@ int main()
     if (!reload_worker_start(reloadWorker)) {
         ano_log(ANO_FATAL, "Resource reload worker did not start.");
         atomic_store(&g_logicShouldStop, true);
-        (void)ano_thread_join(logicThread, NULL);
+        (void)thread_join(logicThread, NULL);
         unInitVulkan();
-        ano_resource_manager_destroy(resources);
-        ano_resource_cooker_destroy(startup.cooker);
+        resource_manager_destroy(resources);
+        resource_cooker_destroy(startup.cooker);
         return -1;
     }
     while (!anoShouldClose())
@@ -1671,13 +1671,13 @@ int main()
             const char *path = getenv("ANO_FRAME_CAPTURE_PATH");
             if (path == nullptr || path[0] == '\0')
                 path = "anoptic-frame.ppm";
-            if (!ano_render_capture_next_frame(path))
+            if (!render_capture_next_frame(path))
                 ano_log(ANO_WARN, "Frame capture request was refused.");
         }
         const bool reloadRequested = atomic_exchange(
             &g_resourceReloadRequested, false);
         if (reloadRequested && publication != nullptr) {
-            ano_render_resources_cancel_reload(publication);
+            render_resources_cancel_reload(publication);
             publication = nullptr;
             reload_worker_reclaim(reloadWorker);
         }
@@ -1692,7 +1692,7 @@ int main()
         }
         if (publication != nullptr) {
             const AnoRenderResourceReloadStatus status =
-                ano_render_resources_poll_reload(&publication);
+                render_resources_poll_reload(&publication);
             if (status != ANO_RENDER_RESOURCE_RELOAD_PENDING) {
                 if (status == ANO_RENDER_RESOURCE_RELOAD_COMMITTED) {
                     const char *replacement = getenv(
@@ -1710,20 +1710,20 @@ int main()
                 reloadWorker, &reloaded, &publication)) {
             if (reloaded != ANO_RESOURCE_OK)
                 ano_log(ANO_ERROR, "Resource epoch reload rejected: %s",
-                        ano_resource_error_string(reloaded));
+                        resource_error_string(reloaded));
             if (publication == nullptr)
                 reload_worker_reclaim(reloadWorker);
         }
         drawFrame();
     }
 
-    ano_render_resources_cancel_reload(publication);
+    render_resources_cancel_reload(publication);
     if (publication) reload_worker_reclaim(reloadWorker);
     reload_worker_stop(reloadWorker);
 
     // Stop the producer first and join. No submit may race bridge destruction in unInitVulkan().
     atomic_store(&g_logicShouldStop, true);
-    (void)ano_thread_join(logicThread, NULL);
+    (void)thread_join(logicThread, NULL);
 
     // Audio teardown after the producer joins.
 #if defined(ANOPTIC_ENGINE_MUSIC)
@@ -1731,14 +1731,14 @@ int main()
 #endif
 
     unInitVulkan();
-    ano_resource_manager_destroy(resources);
-    ano_resource_cooker_destroy(startup.cooker);
+    resource_manager_destroy(resources);
+    resource_cooker_destroy(startup.cooker);
 #else
     // Headless engine: no renderer. Idle console loop.
     ano_rlog(ANO_INFO, ANO_TERM, "Anoptic Engine 〜 headless console mode.");
     while (true) {
         ano_rlog(ANO_INFO, ANO_TERM, "Waiting...");
-        (void)ano_sleep(3 * 1000000);
+        (void)sleep_us(3 * 1000000);
     };
 #endif
 

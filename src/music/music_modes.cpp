@@ -49,18 +49,18 @@ static_assert(ano::Data<decltype(kModeNames)>);
 
 } // namespace
 
-const char *ano::ano_mode_name(AnoMode mode)
+const char *ano::mode_name(AnoMode mode)
 {
     return kModeNames.values[mode_or_ionian(mode).index()];
 }
 
-int ano::ano_mode_brightness(AnoMode mode)
+int ano::mode_brightness(AnoMode mode)
 {
     const auto parsed = Mode::from(mode);
     return parsed ? kModeContracts.values[parsed->index()].brightness : -1;
 }
 
-const uint8_t *ano::ano_mode_intervals(AnoMode mode)
+const uint8_t *ano::mode_intervals(AnoMode mode)
 {
     return kModeContracts.values[mode_or_ionian(mode).index()].intervals;
 }

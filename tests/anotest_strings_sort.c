@@ -615,7 +615,7 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
     enum { N = 200 };
     anostr_t items[N];
     for (uint32_t it = 0; it < iterations; it++) {
-        mi_heap_t *scratch ANO_SCOPED_HEAP = ano_heap_create();
+        mi_heap_t *scratch ANO_SCOPED_HEAP = heap_create();
         if (scratch == NULL) {
             printf("FAIL: soak heap\n");
             failures++;
@@ -631,8 +631,8 @@ static void soak(mi_heap_t *heap, uint32_t iterations)
 
 int main(int argc, char **argv)
 {
-    mi_heap_t *heap ANO_SCOPED_HEAP = ano_heap_create();
-    if (heap == NULL) { printf("FAIL: ano_heap_create\n"); return 1; }
+    mi_heap_t *heap ANO_SCOPED_HEAP = heap_create();
+    if (heap == NULL) { printf("FAIL: heap_create\n"); return 1; }
 
     corpus_init();
     test_collate_prefix();

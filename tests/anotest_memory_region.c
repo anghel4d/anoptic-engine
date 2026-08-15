@@ -103,11 +103,11 @@ void test_scratch_region()
         region, 64).value_or(nullptr);
     ScratchContext context{region, nullptr};
     anothread_t thread{};
-    const bool started = ano_thread_create(
+    const bool started = thread_create(
         &thread, nullptr, allocate_from_scratch_region, &context).has_value();
     CHECK(started, "another worker can allocate from the region");
     if (started)
-        CHECK(ano_thread_join(thread, nullptr), "scratch worker joins");
+        CHECK(thread_join(thread, nullptr), "scratch worker joins");
     CHECK(local != nullptr && context.values != nullptr
               && context.values[0] == UINT64_C(0x1776)
               && context.values[255] == UINT64_C(0x7123),
@@ -227,12 +227,12 @@ void test_volume_publication()
     CHECK(ano::memory_volume_retain(volume),
           "a volume owner may cross a thread boundary");
     anothread_t reader{};
-    const bool started = ano_thread_create(
+    const bool started = thread_create(
         &reader, nullptr, read_retained_volume, &context).has_value();
     CHECK(started, "retained reader starts");
     atomic_store_explicit(&context.start, true, memory_order_release);
     if (started)
-        CHECK(ano_thread_join(reader, nullptr), "retained reader joins");
+        CHECK(thread_join(reader, nullptr), "retained reader joins");
     CHECK(atomic_load_explicit(&context.passed, memory_order_acquire),
           "retained immutable spans survive publication to another thread");
     if (!started)

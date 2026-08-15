@@ -7,7 +7,7 @@
 // Mixer-thread audio world: sole owner of sources/buses/DSP. Lifecycle + command/event protocol.
 // Structural change applies at block boundaries (default 512 frames @ 48 kHz).
 // Commands/events: SPSC rings. Listener + telemetry: latest-wins seqlocks. Transport stays in src/audio/.
-// Device backends selected inside ano_audio_init.
+// Device backends selected inside audio_init.
 
 #pragma once
 
@@ -166,10 +166,10 @@ struct AnoAudioConfig {
 };
 
 // Allocate pools, open backend, spawn mixer. NULL cfg = defaults.
-[[nodiscard]] AudioResult<> ano_audio_init(const AnoAudioConfig *cfg);
+[[nodiscard]] AudioResult<> audio_init(const AnoAudioConfig *cfg);
 
 // Join mixer/device, destroy bridge, release heap. After logic stops producing.
-void ano_audio_shutdown(void);
+void audio_shutdown(void);
 
 
 /* Bridge handle */
@@ -284,7 +284,7 @@ struct AnoAudioCommand {
 };
 
 // Enqueue one command. Retain and retry after backpressure; never drop STOP.
-[[nodiscard]] AudioResult<> ano_audio_submit(
+[[nodiscard]] AudioResult<> audio_submit(
     AnoAudioBridge *bridge, const AnoAudioCommand *cmd);
 
 
@@ -326,7 +326,7 @@ struct AnoAudioEvent {
 };
 
 // Dequeue next event. false if empty. Sole consumer: drain every tick.
-[[nodiscard]] AudioResult<bool> ano_audio_poll_event(
+[[nodiscard]] AudioResult<bool> audio_poll_event(
     AnoAudioBridge *bridge, AnoAudioEvent *out);
 
 
@@ -337,16 +337,16 @@ struct AnoAudioEvent {
 // Shutdown frees remaining resident, queued, or un-polled blocks. No AEVT after shutdown; those blocks are already freed.
 
 // Register interleaved f32 (1-2 ch, engine rate).
-[[nodiscard]] AudioResult<> ano_audio_buffer_register(
+[[nodiscard]] AudioResult<> audio_buffer_register(
     AnoAudioBridge *bridge, uint32_t buffer_id,
     const float *interleaved, uint64_t frames, uint32_t channels);
 
 // Begin buffer retirement. Same backpressure as submit.
-[[nodiscard]] AudioResult<> ano_audio_buffer_release(
+[[nodiscard]] AudioResult<> audio_buffer_release(
     AnoAudioBridge *bridge, uint32_t buffer_id);
 
-// Free AEVT_BUFFER_RETIRED or ano_audio_wav_load block.
-void ano_audio_block_free(void *block);
+// Free AEVT_BUFFER_RETIRED or audio_wav_load block.
+void audio_block_free(void *block);
 
 
 /* Published latest-wins lanes */
@@ -378,11 +378,11 @@ struct AnoAudioTelemetry {
 };
 
 // Publish listener. At most once per logic tick. Single producer.
-[[nodiscard]] AudioResult<> ano_audio_publish_listener(
+[[nodiscard]] AudioResult<> audio_publish_listener(
     AnoAudioBridge *bridge, const AnoAudioListener *l);
 
 // Copy latest telemetry. false before first mixer publish.
-[[nodiscard]] AudioResult<bool> ano_audio_acquire_telemetry(
+[[nodiscard]] AudioResult<bool> audio_acquire_telemetry(
     AnoAudioBridge *bridge, AnoAudioTelemetry *out);
 
 
@@ -428,20 +428,20 @@ struct AnoAudioOfflineDesc {
 };
 
 // Render frames into out[frames * ANO_AUDIO_CHANNELS]. Independent of init.
-[[nodiscard]] AudioResult<> ano_audio_render_offline(
+[[nodiscard]] AudioResult<> audio_render_offline(
     const AnoAudioOfflineDesc *desc, float *out, uint64_t frames);
 
 // Interleaved f32 -> IEEE-float WAV. Truncates existing.
-[[nodiscard]] AudioResult<> ano_audio_wav_write(
+[[nodiscard]] AudioResult<> audio_wav_write(
     const char *path, const float *interleaved,
     uint64_t frames, uint32_t channels, uint32_t sampleRate);
 
 // Load WAV (PCM 16/24/32 or IEEE f32, 1-2 ch) to interleaved f32.
-// Windowed-sinc to targetRate when rates differ. Free with ano_audio_block_free.
+// Windowed-sinc to targetRate when rates differ. Free with audio_block_free.
 // Logic thread only.
 struct AnoAudioSamples final { float *data; uint64_t frames; uint32_t channels; };
 
-[[nodiscard]] AudioResult<AnoAudioSamples> ano_audio_wav_load(
+[[nodiscard]] AudioResult<AnoAudioSamples> audio_wav_load(
     const char *path, uint32_t targetRate);
 
 

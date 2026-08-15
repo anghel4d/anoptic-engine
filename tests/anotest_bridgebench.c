@@ -71,7 +71,7 @@ static void *rb_render_main(void *arg)
             if (v.eye[0] != want || v.eye[1] != want || v.eye[2] != want)
                 atomic_fetch_add_explicit(&g_rbTornViews, 1u, memory_order_relaxed);
         }
-        (void)ano_sleep(1000);
+        (void)sleep_us(1000);
     }
     return NULL;
 }
@@ -81,15 +81,15 @@ static bool wait_heartbeat(AnoAudioBridge *b, uint32_t ms)
 {
     AnoAudioTelemetry t;
     uint64_t first = UINT64_MAX;
-    uint32_t start = ano_timestamp_ms();
-    while (ano_timestamp_ms() - start < ms) {
-        if (ano_audio_acquire_telemetry(b, &t).value_or(false)) {
+    uint32_t start = timestamp_ms();
+    while (timestamp_ms() - start < ms) {
+        if (audio_acquire_telemetry(b, &t).value_or(false)) {
             if (first == UINT64_MAX)
                 first = t.blockIndex;
             else if (t.blockIndex != first)
                 return true;
         }
-        (void)ano_sleep(1000);
+        (void)sleep_us(1000);
     }
     return false;
 }
@@ -103,30 +103,30 @@ int main(int argc, char **argv)
         seconds = 5u;
 
     // Composer + host synth, every mixer hook wired: real per-block work.
-    AnoMusicConfig cfg = ano_music_config_default();
+    AnoMusicConfig cfg = music_config_default();
     cfg.hasMapper = true;
-    cfg.mapper    = ano_mapping_table_default();
+    cfg.mapper    = mapping_table_default();
 
     const AnoSynthDesc synthDesc = { .sampleRate = RATE };
-    AnoSynth *syn = ano_synth_create(&synthDesc).value_or(nullptr);
-    AnoMusicEngine *music = ano_music_create(&cfg, 31337u).value_or(nullptr);
+    AnoSynth *syn = synth_create(&synthDesc).value_or(nullptr);
+    AnoMusicEngine *music = music_create(&cfg, 31337u).value_or(nullptr);
     CHECK(syn && music, "synth + composer");
     if (!syn || !music)
         return 1;
-    CHECK(ano_synth_attach_music(syn, music), "composer drives generator");
+    CHECK(synth_attach_music(syn, music), "composer drives generator");
 
     AnoAudioBusDesc layout[ANO_SYNTH_CONSOLE_BUSES];
-    uint32_t busCount = ano_synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
+    uint32_t busCount = synth_console_layout(layout, ANO_SYNTH_CONSOLE_BUSES);
     AnoAudioConfig acfg = {
         .sampleRate = RATE, .busCount = busCount, .busLayout = layout,
-        .generator         = ano_synth_generator,
+        .generator         = synth_generator,
         .generatorUser     = syn,
-        .generatorControl  = ano_synth_control,
-        .generatorPoll     = ano_synth_poll,
-        .generatorStats    = ano_synth_stats,
-        .generatorCommands = ano_synth_commands,
+        .generatorControl  = synth_control,
+        .generatorPoll     = synth_poll,
+        .generatorStats    = synth_stats,
+        .generatorCommands = synth_commands,
     };
-    CHECK(ano_audio_init(&acfg), "audio world up");
+    CHECK(audio_init(&acfg), "audio world up");
     AnoAudioBridge *b = anoAudioBridge().value_or(nullptr);
     CHECK(b != NULL, "bridge valid");
     if (!b || failures)
@@ -136,13 +136,13 @@ int main(int argc, char **argv)
         return 1;
 
     static AnoAudioOfflineEvent setup[64];
-    uint32_t setupCount = ano_synth_console_setup(setup, 64);
+    uint32_t setupCount = synth_console_setup(setup, 64);
     for (uint32_t i = 0; i < setupCount; ++i)
-        (void)ano_audio_submit(b, &setup[i].cmd);
+        (void)audio_submit(b, &setup[i].cmd);
 
     AnoAudioTelemetry t;
-    CHECK(ano_audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
-    ano_synth_transport_start(syn, (t.blockIndex + 8u) * t.blockFrames);
+    CHECK(audio_acquire_telemetry(b, &t).value_or(false), "telemetry frame");
+    synth_transport_start(syn, (t.blockIndex + 8u) * t.blockFrames);
 
     // ~1 kHz logic tick: acquire + publish every tick, affect every 64th.
     size_t   opCap  = (size_t)seconds * 1200u;
@@ -161,11 +161,11 @@ int main(int argc, char **argv)
     test_rng rng = rng_make(0xB1D6Eu);
     uint64_t lastBlock = UINT64_MAX;
     uint64_t seq = 0;
-    const uint32_t startMs = ano_timestamp_ms();
+    const uint32_t startMs = timestamp_ms();
     const uint32_t runMs   = seconds * 1000u;
-    for (uint64_t tick = 0; ano_timestamp_ms() - startMs < runMs; ++tick) {
+    for (uint64_t tick = 0; timestamp_ms() - startMs < runMs; ++tick) {
         uint64_t t0 = bench_begin();
-        bool ok = ano_audio_acquire_telemetry(b, &t).value_or(false);
+        bool ok = audio_acquire_telemetry(b, &t).value_or(false);
         bench_lat_add(&acq, bench_end(t0));
         if (ok && t.blockIndex != lastBlock) {
             lastBlock = t.blockIndex;
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
             .seq = ++seq,
         };
         t0 = bench_begin();
-		(void)ano_audio_publish_listener(b, &l);
+		(void)audio_publish_listener(b, &l);
         bench_lat_add(&pub, bench_end(t0));
 
         if (tick % 64u == 0u) {
@@ -188,19 +188,19 @@ int main(int argc, char **argv)
                 .affect = { (float)rng_below(&rng, 1000u) / 1000.0f,
                             (float)rng_below(&rng, 1000u) / 1000.0f,
                             (float)rng_below(&rng, 1000u) / 1000.0f } };
-            (void)ano_audio_submit(b, &affect);
+            (void)audio_submit(b, &affect);
         }
-        (void)ano_sleep(1000);
+        (void)sleep_us(1000);
     }
 
-    ano_synth_transport_stop(syn);
-    (void)ano_sleep(50000); // tails ring down
-    ano_audio_shutdown();
+    synth_transport_stop(syn);
+    (void)sleep_us(50000); // tails ring down
+    audio_shutdown();
 
     CHECK(blk.n > 0, "mixer blocks observed");
 
     /* Part 2: the render bridge twin under a synthetic render master. */
-    mi_heap_t *rbHeap = ano_heap_create();
+    mi_heap_t *rbHeap = heap_create();
     CHECK(rbHeap && ano_render_bridge_init(&g_rb, rbHeap, 16, 16), "render bridge init");
     if (failures)
         return 1;
@@ -215,16 +215,16 @@ int main(int argc, char **argv)
 
     atomic_store_explicit(&g_rbRun, true, memory_order_release);
     anothread_t rt;
-    CHECK(ano_thread_create(&rt, NULL, rb_render_main, NULL), "render thread");
+    CHECK(thread_create(&rt, NULL, rb_render_main, NULL), "render thread");
     if (failures)
         return 1;
 
     uint64_t rseq = 0, tornSnaps = 0;
-    const uint32_t rbStartMs = ano_timestamp_ms();
-    for (; ano_timestamp_ms() - rbStartMs < runMs;) {
+    const uint32_t rbStartMs = timestamp_ms();
+    for (; timestamp_ms() - rbStartMs < runMs;) {
         RenderSnapshot snap;
         uint64_t t0 = bench_begin();
-        bool ok = ano_render_acquire_snapshot(&g_rb, &snap).value_or(false);
+        bool ok = render_acquire_snapshot(&g_rb, &snap).value_or(false);
         bench_lat_add(&racq, bench_end(t0));
         if (ok && (snap.vpWidth != (uint32_t)snap.frameId || snap.vpHeight != (uint32_t)snap.frameId))
             tornSnaps++;
@@ -238,12 +238,12 @@ int main(int argc, char **argv)
             .seq = rseq,
         };
         t0 = bench_begin();
-		(void)ano_render_publish_view(&g_rb, &v);
+		(void)render_publish_view(&g_rb, &v);
         bench_lat_add(&rpub, bench_end(t0));
-        (void)ano_sleep(1000);
+        (void)sleep_us(1000);
     }
     atomic_store_explicit(&g_rbRun, false, memory_order_release);
-    (void)ano_thread_join(rt, NULL);
+    (void)thread_join(rt, NULL);
 
     CHECK(tornSnaps == 0, "untorn snapshot reads");
     CHECK(atomic_load_explicit(&g_rbTornViews, memory_order_relaxed) == 0, "untorn view reads");
@@ -256,11 +256,11 @@ int main(int argc, char **argv)
     bench_lat_row("rb publish_view", bench_lat_stats(&rpub));
 
     ano_render_bridge_destroy(&g_rb);
-    ano_heap_destroy(rbHeap);
+    heap_destroy(rbHeap);
     free(racqBuf); free(rpubBuf);
     free(acqBuf); free(pubBuf); free(blkBuf);
-    ano_music_destroy(music);
-    ano_synth_destroy(syn);
+    music_destroy(music);
+    synth_destroy(syn);
     if (failures) {
         printf("anotest_bridgebench: %d FAILURE(S)\n", failures);
         return 1;

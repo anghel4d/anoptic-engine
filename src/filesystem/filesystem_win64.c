@@ -25,9 +25,9 @@ using namespace ano;
 
 // GetModuleFileNameA (not TCHAR). -A mangles paths outside the active codepage.
 // Debt: GetModuleFileNameW + UTF-8.
-FilesystemResult<ano_fspath> ano::ano_fs_gamepath(void) {
+FilesystemResult<fspath> ano::fs_gamepath(void) {
 
-    ano_fspath result = {0};
+    fspath result = {0};
 
     char pathBuffer[MAX_PATH];
     DWORD len = GetModuleFileNameA(NULL, pathBuffer, MAX_PATH);
@@ -49,8 +49,8 @@ FilesystemResult<ano_fspath> ano::ano_fs_gamepath(void) {
     return result;
 }
 
-FilesystemResult<ano_fspath> ano::ano_fs_userpath(void) {
-    ano_fspath result = {0};
+FilesystemResult<fspath> ano::fs_userpath(void) {
+    fspath result = {0};
 
     const char *appdata = getenv("APPDATA");
     if (appdata == NULL || appdata[0] == '\0')
@@ -67,9 +67,9 @@ FilesystemResult<ano_fspath> ano::ano_fs_userpath(void) {
     return result;
 }
 
-FilesystemResult<> ano::ano_fs_chdir_gamepath(void)
+FilesystemResult<> ano::fs_chdir_gamepath(void)
 {
-    const auto dir = ano_fs_gamepath();
+    const auto dir = fs_gamepath();
     if (!dir)
         return failure(dir.error());
     return result_if(_chdir(dir->str) == 0, FilesystemError::io);
@@ -90,12 +90,12 @@ int fs_mkdir(const char *path)
 
 /* Append-Only File */
 
-struct ano::ano_file {
+struct ano::fs_file {
     HANDLE handle;
 };
 
 // FILE_SHARE_DELETE: POSIX unlink parity while open.
-FilesystemResult<ano_file*> ano::ano_fs_open_append(const char *path)
+FilesystemResult<fs_file*> ano::fs_open_append(const char *path)
 {
     if (path == NULL)
         return failure(FilesystemError::invalid_argument);
@@ -106,7 +106,7 @@ FilesystemResult<ano_file*> ano::ano_fs_open_append(const char *path)
     if (handle == INVALID_HANDLE_VALUE)
         return failure(FilesystemError::io);
 
-    ano_file *file = mi_malloc_tp(ano_file);
+    fs_file *file = mi_malloc_tp(fs_file);
     if (file == NULL) {
         CloseHandle(handle);
         return failure(FilesystemError::out_of_memory);
@@ -116,7 +116,7 @@ FilesystemResult<ano_file*> ano::ano_fs_open_append(const char *path)
 }
 
 // Truncate with a throwaway CREATE_ALWAYS (needs GENERIC_WRITE), then reopen FILE_APPEND_DATA.
-FilesystemResult<ano_file*> ano::ano_fs_open_trunc(const char *path)
+FilesystemResult<fs_file*> ano::fs_open_trunc(const char *path)
 {
     if (path == NULL)
         return failure(FilesystemError::invalid_argument);
@@ -127,12 +127,12 @@ FilesystemResult<ano_file*> ano::ano_fs_open_trunc(const char *path)
     if (trunc == INVALID_HANDLE_VALUE)
         return failure(FilesystemError::io);
     CloseHandle(trunc);
-    return ano_fs_open_append(path);
+    return fs_open_append(path);
 }
 
 // written == 0 on TRUE is error (not retry).
-FilesystemResult<> ano::ano_fs_write(
-    ano_file *file, const void *data, size_t length)
+FilesystemResult<> ano::fs_write(
+    fs_file *file, const void *data, size_t length)
 {
     if (file == NULL || (data == NULL && length != 0))
         return failure(FilesystemError::invalid_argument);
@@ -150,7 +150,7 @@ FilesystemResult<> ano::ano_fs_write(
     return {};
 }
 
-FilesystemResult<> ano::ano_fs_sync(ano_file *file)
+FilesystemResult<> ano::fs_sync(fs_file *file)
 {
     if (file == NULL)
         return failure(FilesystemError::invalid_argument);
@@ -158,7 +158,7 @@ FilesystemResult<> ano::ano_fs_sync(ano_file *file)
 }
 
 // Handle freed either way.
-FilesystemResult<> ano::ano_fs_close(ano_file *file)
+FilesystemResult<> ano::fs_close(fs_file *file)
 {
     if (file == NULL)
         return failure(FilesystemError::invalid_argument);

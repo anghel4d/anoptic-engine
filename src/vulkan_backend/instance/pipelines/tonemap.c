@@ -140,8 +140,8 @@ bool ano_vk_init_tonemap(VulkanContext* ctx, RendererState* state)
 	return r == VK_SUCCESS;
 	}();
 
-	ano_aligned_free(vertCode.data);
-	ano_aligned_free(fragCode.data);
+	aligned_free(vertCode.data);
+	aligned_free(fragCode.data);
 	vkDestroyShaderModule(ctx->device, vertModule, NULL);
 	vkDestroyShaderModule(ctx->device, fragModule, NULL);
 
