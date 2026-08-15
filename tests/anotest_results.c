@@ -12,7 +12,7 @@ enum class ParseError {
     missing,
 };
 
-constexpr auto parse(bool valid) -> ano::Result<int, ParseError>
+constexpr auto parse(bool valid) noexcept -> ano::Result<int, ParseError>
 {
     if (valid)
         return 7;
@@ -56,9 +56,69 @@ consteval bool composition_surface()
 
 static_assert(composition_surface());
 
+constexpr auto increment(int value) noexcept
+    -> ano::Result<int, ParseError>
+{
+    return value + 1;
+}
+
+consteval bool named_function_surface()
+{
+    ANO_LET(operation, parse);
+    ANO_LET(named_increment, increment);
+    ANO_LET(double_value,
+            [](int value) constexpr noexcept
+                -> ano::Result<int, ParseError> {
+                return value * 2;
+            });
+    ANO_LET(publish,
+            [](int value) constexpr noexcept
+                -> ano::Result<int, ParseError> {
+                return value + 3;
+            });
+    ANO_LET(project,
+            [](int value) constexpr noexcept { return value * value; });
+
+    static_assert(noexcept(operation(true)));
+    static_assert(ano::detail::ResultInstance<decltype(operation(true))>);
+    const auto direct = operation(true)
+        .and_then(named_increment)
+        .and_then(double_value)
+        .and_then(publish);
+    const auto path = ano::compose(parse)
+        .and_then(named_increment)
+        .and_then(double_value)
+        .and_then(publish)
+        .transform(project);
+    const auto composed = path(true);
+    const auto failed = path(false);
+    return direct && *direct == 19
+        && composed && *composed == 361
+        && ano::has_error(failed, ParseError::invalid);
+}
+
+static_assert(named_function_surface());
+
 } // namespace
 
 int main()
 {
-    return 0;
+    int calls = 0;
+    ANO_LET(observe,
+            [&calls](int value) noexcept
+                -> ano::Result<int, ParseError> {
+                ++calls;
+                return value;
+            });
+
+    const auto failed = parse(false)
+        .and_then(observe)
+        .and_then(observe);
+    if (!ano::has_error(failed, ParseError::invalid) || calls != 0)
+        return 1;
+
+    const auto value = parse(true)
+        .and_then(observe)
+        .and_then(observe);
+    return value && *value == 7 && calls == 2 ? 0 : 1;
 }

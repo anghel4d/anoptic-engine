@@ -14,6 +14,50 @@ namespace ano {
 
 namespace detail {
 
+consteval std::meta::info callable_declaration(std::meta::info type)
+{
+    type = std::meta::dealias(std::meta::remove_cvref(type));
+    if (std::meta::is_pointer_type(type)) {
+        const std::meta::info pointee = std::meta::remove_pointer(type);
+        return std::meta::is_function_type(pointee)
+            ? pointee
+            : std::meta::info{};
+    }
+    if (!std::meta::is_class_type(type))
+        return {};
+
+    std::meta::info call{};
+    for (const std::meta::info declaration : std::meta::members_of(
+             type, std::meta::access_context::unchecked())) {
+        if (std::meta::is_operator_function_template(declaration)
+            && std::meta::operator_of(declaration)
+                == std::meta::op_parentheses)
+            return {};
+        if (!std::meta::is_operator_function(declaration)
+            || std::meta::operator_of(declaration)
+                != std::meta::op_parentheses)
+            continue;
+        if (call != std::meta::info{})
+            return {};
+        call = declaration;
+    }
+    return call;
+}
+
+template<class Operation>
+consteval bool concrete_function()
+{
+    return callable_declaration(^^Operation) != std::meta::info{};
+}
+
+template<class Operation>
+consteval bool nonthrowing_function()
+{
+    const std::meta::info declaration = callable_declaration(^^Operation);
+    return declaration != std::meta::info{}
+        && std::meta::is_noexcept(declaration);
+}
+
 template<class First, class Next>
 struct BoundComposition final {
     [[no_unique_address]] First first;
@@ -54,6 +98,35 @@ struct MappedComposition final {
 };
 
 } // namespace detail
+
+// A named, concrete function value. The wrapper preserves the callable's
+// signature and adds no sequencing semantics of its own.
+template<class Operation>
+struct [[nodiscard]] Function final {
+    static_assert(detail::concrete_function<Operation>(),
+                  "ANO_LET requires one concrete function signature");
+    static_assert(detail::nonthrowing_function<Operation>(),
+                  "ANO_LET functions must be noexcept");
+
+    [[no_unique_address]] Operation operation;
+
+    template<class Self, class... Arguments>
+    [[nodiscard]] constexpr decltype(auto) operator()(
+        this Self&& self, Arguments&&... arguments) noexcept(
+        noexcept(std::forward<Self>(self).operation(
+            std::forward<Arguments>(arguments)...)))
+    {
+        return std::forward<Self>(self).operation(
+            std::forward<Arguments>(arguments)...);
+    }
+};
+
+template<class Operation>
+[[nodiscard]] constexpr auto function(Operation&& operation)
+{
+    using Stored = std::decay_t<Operation>;
+    return Function<Stored>{std::forward<Operation>(operation)};
+}
 
 // A reusable fallible morphism. Composition is direct and allocation-free.
 template<class Operation>
@@ -100,3 +173,6 @@ template<class Operation>
 }
 
 } // namespace ano
+
+#define ANO_LET(name, ...) \
+    const auto name = ::ano::function(__VA_ARGS__)
