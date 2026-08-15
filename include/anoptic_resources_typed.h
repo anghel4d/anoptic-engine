@@ -1442,7 +1442,7 @@ constexpr ResourceResult<> validate(AnoResourceBytes bytes)
 }
 
 template<class Type>
-constexpr DecodeResult<Type> decode(AnoResourceBytes bytes)
+constexpr DecodeResult<Type> decode(AnoResourceBytes bytes) noexcept
 {
     ArtifactView<Type> view{.value = {}, .bytes = bytes};
     const auto decoded = detail::decode_artifact<Type>(

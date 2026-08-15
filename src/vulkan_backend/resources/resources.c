@@ -497,10 +497,10 @@ ResourceResult<> invoke_render_transform(
     (void)visit_render_route(
         type, [&]<auto Declaration, class Input, class Output>() {
             const auto route = ano::compose(ano::decode<Input>)
-                .and_then([&](const ano::ArtifactView<Input>& decoded) {
+                .and_then([&](const ano::ArtifactView<Input>& decoded) noexcept {
                     return [:Declaration:](decoded.value, context);
                 })
-                .transform([&](const Output& output) {
+                .transform([&](const Output& output) noexcept {
                     publish_output(target, output);
                 });
             result = route(context.artifact);
@@ -510,7 +510,8 @@ ResourceResult<> invoke_render_transform(
 
 template<class Input>
 ResourceResult<> prepare_decoded(AnoRenderResidency&, RenderBinding&,
-                                 const Input&, AnoResourceBytes, mi_heap_t*)
+                                 const Input&, AnoResourceBytes,
+                                 mi_heap_t*) noexcept
 {
     return {};
 }
@@ -519,7 +520,7 @@ template<>
 ResourceResult<> prepare_decoded(
     AnoRenderResidency& residency, RenderBinding& binding,
     const schema::Texture& texture,
-    AnoResourceBytes artifact, mi_heap_t*)
+    AnoResourceBytes artifact, mi_heap_t*) noexcept
 {
     const auto pixels = ano::checked_multiply(texture.width, texture.height);
     const auto bytes = pixels
@@ -547,7 +548,7 @@ template<>
 ResourceResult<> prepare_decoded(
     AnoRenderResidency& residency, RenderBinding& binding,
     const schema::Mesh& mesh,
-    AnoResourceBytes artifact, mi_heap_t* heap)
+    AnoResourceBytes artifact, mi_heap_t* heap) noexcept
 {
     if (binding.reuseGeometry) return {};
     if (mesh.vertices.count == 0 || mesh.indices.count == 0
@@ -594,7 +595,7 @@ ResourceResult<> invoke_prepare_transform(
     (void)visit_render_route(
         type, [&]<auto, class Input, class>() {
             const auto route = ano::compose(ano::decode<Input>)
-                .and_then([&](const ano::ArtifactView<Input>& decoded) {
+                .and_then([&](const ano::ArtifactView<Input>& decoded) noexcept {
                     return prepare_decoded(
                         residency, target, decoded.value,
                         decoded.bytes, heap);

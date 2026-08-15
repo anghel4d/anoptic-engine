@@ -12,11 +12,54 @@ enum class ParseError {
     missing,
 };
 
+enum class OtherError {
+    invalid,
+};
+
 constexpr auto parse(bool valid) noexcept -> ano::Result<int, ParseError>
 {
     if (valid)
         return 7;
     return ano::failure(ParseError::invalid);
+}
+
+constexpr auto increment(int value) noexcept
+    -> ano::Result<int, ParseError>
+{
+    return value + 1;
+}
+
+constexpr auto accept(int) noexcept -> ano::Result<void, ParseError>
+{
+    return {};
+}
+
+constexpr auto produce() noexcept -> ano::Result<int, ParseError>
+{
+    return 11;
+}
+
+constexpr auto wrong_domain(float value) noexcept
+    -> ano::Result<int, ParseError>
+{
+    return static_cast<int>(value);
+}
+
+constexpr auto wrong_error(int value) noexcept
+    -> ano::Result<int, OtherError>
+{
+    return value;
+}
+
+constexpr int square(int value) noexcept
+{
+    return value * value;
+}
+
+constexpr auto potentially_throwing(int value)
+    -> ano::Result<int, ParseError>
+{
+    return value;
 }
 
 using ParseResult = decltype(parse(true));
@@ -29,6 +72,24 @@ static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Carrier,
 static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Value, int>);
 static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Error,
                            ParseError>);
+static_assert(ano::ResultOperation<decltype(&parse)>);
+static_assert(ano::PureOperation<decltype(&square)>);
+static_assert(!ano::NonthrowingOperation<decltype(&potentially_throwing)>);
+static_assert(ano::KleisliComposable<decltype(&parse),
+                                     decltype(&increment)>);
+static_assert(ano::KleisliComposable<decltype(&accept),
+                                     decltype(&produce)>);
+static_assert(!ano::KleisliComposable<decltype(&parse),
+                                      decltype(&wrong_domain)>);
+static_assert(!ano::KleisliComposable<decltype(&parse),
+                                      decltype(&wrong_error)>);
+static_assert(std::same_as<
+              ano::ResultOperationAlgebra<decltype(&parse)>::Domain, bool>);
+static_assert(std::same_as<
+              ano::ResultOperationAlgebra<decltype(&parse)>::Value, int>);
+static_assert(std::same_as<
+              ano::ResultOperationAlgebra<decltype(&parse)>::Error,
+              ParseError>);
 
 consteval bool result_surface()
 {
@@ -52,13 +113,13 @@ static_assert(result_surface());
 consteval bool composition_surface()
 {
     constexpr auto path = ano::compose(parse)
-        .and_then([](int value) -> ano::Result<int, ParseError> {
+        .and_then([](int value) noexcept -> ano::Result<int, ParseError> {
             return value + 1;
         })
-        .and_then([](int value) -> ano::Result<int, ParseError> {
+        .and_then([](int value) noexcept -> ano::Result<int, ParseError> {
             return value * 2;
         })
-        .transform([](int value) { return value + 3; });
+        .transform([](int value) noexcept { return value + 3; });
     const auto value = path(true);
     const auto error = path(false);
     return value && *value == 19
@@ -66,12 +127,6 @@ consteval bool composition_surface()
 }
 
 static_assert(composition_surface());
-
-constexpr auto increment(int value) noexcept
-    -> ano::Result<int, ParseError>
-{
-    return value + 1;
-}
 
 consteval bool named_function_surface()
 {
@@ -87,8 +142,7 @@ consteval bool named_function_surface()
                 -> ano::Result<int, ParseError> {
                 return value + 3;
             });
-    ANO_LET(project,
-            [](int value) constexpr noexcept { return value * value; });
+    ANO_LET(project, square);
 
     static_assert(noexcept(operation(true)));
     static_assert(ano::ResultCarrier<decltype(operation(true))>);
@@ -109,6 +163,17 @@ consteval bool named_function_surface()
 }
 
 static_assert(named_function_surface());
+
+consteval bool unit_composition_surface()
+{
+    constexpr auto throughUnit = ano::compose(accept).and_then(produce);
+    constexpr auto fromUnit = ano::compose(produce).and_then(increment);
+    const auto first = throughUnit(1);
+    const auto second = fromUnit();
+    return first && *first == 11 && second && *second == 12;
+}
+
+static_assert(unit_composition_surface());
 
 } // namespace
 
