@@ -68,11 +68,11 @@ struct BoundComposition final {
     {
         auto outcome = std::forward<Self>(self).first(
             std::forward<Input>(input));
-        static_assert(ResultInstance<decltype(outcome)>,
+        static_assert(ResultCarrier<decltype(outcome)>,
                       "fallible composition stages return ano::Result");
         auto result = std::move(outcome).and_then(
             std::forward<Self>(self).next);
-        static_assert(ResultInstance<decltype(result)>,
+        static_assert(ResultCarrier<decltype(result)>,
                       "and_then stages return ano::Result");
         return result;
     }
@@ -88,11 +88,11 @@ struct MappedComposition final {
     {
         auto outcome = std::forward<Self>(self).first(
             std::forward<Input>(input));
-        static_assert(ResultInstance<decltype(outcome)>,
+        static_assert(ResultCarrier<decltype(outcome)>,
                       "fallible composition stages return ano::Result");
         auto result = std::move(outcome).transform(
             std::forward<Self>(self).next);
-        static_assert(ResultInstance<decltype(result)>);
+        static_assert(ResultCarrier<decltype(result)>);
         return result;
     }
 };
@@ -138,7 +138,7 @@ struct [[nodiscard]] FallibleComposition final {
     {
         auto result = std::forward<Self>(self).operation(
             std::forward<Input>(input));
-        static_assert(detail::ResultInstance<decltype(result)>,
+        static_assert(ResultCarrier<decltype(result)>,
                       "fallible composition stages return ano::Result");
         return result;
     }

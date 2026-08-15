@@ -19,6 +19,17 @@ constexpr auto parse(bool valid) noexcept -> ano::Result<int, ParseError>
     return ano::failure(ParseError::invalid);
 }
 
+using ParseResult = decltype(parse(true));
+
+static_assert(ano::ResultCarrier<ParseResult>);
+static_assert(ano::ResultCarrier<const ParseResult&>);
+static_assert(!ano::ResultCarrier<int>);
+static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Carrier,
+                           ParseResult>);
+static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Value, int>);
+static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Error,
+                           ParseError>);
+
 consteval bool result_surface()
 {
     const auto value = parse(true);
@@ -80,7 +91,7 @@ consteval bool named_function_surface()
             [](int value) constexpr noexcept { return value * value; });
 
     static_assert(noexcept(operation(true)));
-    static_assert(ano::detail::ResultInstance<decltype(operation(true))>);
+    static_assert(ano::ResultCarrier<decltype(operation(true))>);
     const auto direct = operation(true)
         .and_then(named_increment)
         .and_then(double_value)
