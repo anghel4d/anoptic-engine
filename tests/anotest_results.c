@@ -34,6 +34,12 @@ struct ThrowingMoveError final {
     ThrowingMoveError(ThrowingMoveError&&) noexcept(false) {}
 };
 
+struct ThrowingMoveValue final {
+    ThrowingMoveValue() = default;
+    ThrowingMoveValue(const ThrowingMoveValue&) noexcept = default;
+    ThrowingMoveValue(ThrowingMoveValue&&) noexcept(false) {}
+};
+
 struct MoveOnlyValue final {
     MoveOnlyValue() = default;
     MoveOnlyValue(const MoveOnlyValue&) = delete;
@@ -180,6 +186,18 @@ constexpr int square(int value) noexcept
     return value * value;
 }
 
+constexpr ThrowingMoveValue throwing_value(int) noexcept
+{
+    return {};
+}
+
+int referenceValue{};
+
+constexpr int& reference_value(int) noexcept
+{
+    return referenceValue;
+}
+
 constexpr auto potentially_throwing(int value)
     -> ano::Result<int, ParseError>
 {
@@ -194,8 +212,6 @@ auto unsafe_error_operation(int value) noexcept
 
 using ParseResult = decltype(parse(true));
 
-static_assert(ano::detail::operationShape<decltype(&parse)>.coherent());
-static_assert(ano::detail::operationShape<decltype(&parse)>.carrier.valid);
 static_assert(ano::detail::inspect_result(
                   ^^ano::Result<int, ParseError>).valid);
 static_assert(!ano::detail::inspect_result(^^int).valid);
@@ -235,6 +251,10 @@ static_assert(ano::KleisliComposable<decltype(&parse),
                                      decltype(&increment)>);
 static_assert(ano::KleisliComposable<decltype(&accept),
                                      decltype(&produce)>);
+static_assert(!ano::ResultTransformable<decltype(&parse),
+                                        decltype(&throwing_value)>);
+static_assert(!ano::ResultTransformable<decltype(&parse),
+                                        decltype(&reference_value)>);
 static_assert(!ano::KleisliComposable<decltype(&parse),
                                       decltype(&wrong_domain)>);
 static_assert(!ano::KleisliComposable<decltype(&parse),
@@ -316,6 +336,8 @@ consteval bool error_mapping_surface()
         .map_error([](ParseError) noexcept {
             return OtherError::invalid;
         });
+    constexpr auto mappedTwice = mapped.map_error(
+        [](OtherError) noexcept { return ParseError::missing; });
     static_assert(ano::ResultOperation<decltype(mapped)>);
     static_assert(std::is_empty_v<decltype(mapped)>);
     static_assert(std::same_as<
@@ -326,10 +348,12 @@ consteval bool error_mapping_surface()
     const auto error = mapped(false);
     const auto unitError = mappedUnit(-1);
     const auto nullaryValue = mappedNullary();
+    const auto twiceError = mappedTwice(false);
     return value && *value == 7
         && ano::has_error(error, OtherError::invalid)
         && ano::has_error(unitError, OtherError::invalid)
-        && nullaryValue && *nullaryValue == 11;
+        && nullaryValue && *nullaryValue == 11
+        && ano::has_error(twiceError, ParseError::missing);
 }
 
 static_assert(error_mapping_surface());
@@ -387,7 +411,9 @@ consteval bool scan_surface()
         && (*prefix)[0] == 1
         && (*prefix)[1] == 3
         && ano::has_error(sourceError, ParseError::invalid)
-        && ano::has_error(foldError, ParseError::missing);
+        && ano::has_error(foldError, ParseError::missing)
+        && fallibleOutput[0] == 1
+        && fallibleOutput[1] == 0;
 }
 
 static_assert(scan_surface());
