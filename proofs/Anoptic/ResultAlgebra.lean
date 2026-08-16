@@ -159,6 +159,157 @@ def pureFoldRole (State Item : Type u) :
     CallableRole (pureFoldShape State Item) :=
   .fold (by simp)
 
+/-! ## Raw parameter-list normalization -/
+
+/-- The categorical unit lifted into the callable shape's universe. -/
+abbrev ParameterUnit : Type u := ULift.{u} Unit
+
+/-- A reflected parameter list denotes one categorical domain object. -/
+def ParameterDomain : List (Type u) → Type u
+  | [] => ParameterUnit
+  | [parameter] => parameter
+  | first :: second :: rest => first × ParameterDomain (second :: rest)
+
+/-- The source-language presentation of a declaration with several parameters. -/
+def CurriedCallable : List (Type u) → Type u → Type u
+  | [], Return => Return
+  | parameter :: parameters, Return =>
+      parameter → CurriedCallable parameters Return
+
+/-- Turn a reflected parameter list into one function over its product domain. -/
+def uncurryParameters {Return : Type u} :
+    (parameters : List (Type u)) →
+      CurriedCallable parameters Return → ParameterDomain parameters → Return
+  | [], function, _ => function
+  | [_], function, value => function value
+  | _ :: second :: rest, function, value =>
+      uncurryParameters (second :: rest) (function value.1) value.2
+
+/-- Recover the source-language parameter presentation from one product arrow. -/
+def curryParameters {Return : Type u} :
+    (parameters : List (Type u)) →
+      (ParameterDomain parameters → Return) → CurriedCallable parameters Return
+  | [], function => function (ULift.up ())
+  | [_], function => function
+  | _ :: second :: rest, function =>
+      fun first => curryParameters (second :: rest)
+        (fun remaining => function (first, remaining))
+
+@[simp] theorem uncurry_curry_parameters {Return : Type u}
+    (parameters : List (Type u))
+    (function : ParameterDomain parameters → Return) :
+    uncurryParameters parameters (curryParameters parameters function) =
+      function := by
+  funext input
+  induction parameters with
+  | nil =>
+      rcases input with ⟨input⟩
+      cases input
+      rfl
+  | cons first rest induction =>
+      cases rest with
+      | nil => rfl
+      | cons second tail =>
+          rcases input with ⟨head, remaining⟩
+          simpa [uncurryParameters, curryParameters] using
+            induction (fun tailValue => function (head, tailValue)) remaining
+
+@[simp] theorem curry_uncurry_parameters {Return : Type u}
+    (parameters : List (Type u))
+    (function : CurriedCallable parameters Return) :
+    curryParameters parameters (uncurryParameters parameters function) =
+      function := by
+  induction parameters with
+  | nil => rfl
+  | cons first rest induction =>
+      cases rest with
+      | nil => rfl
+      | cons second tail =>
+          funext head
+          simpa [uncurryParameters, curryParameters] using
+            induction (function head)
+
+/-- Normalization changes only parameter presentation, never result semantics. -/
+def CallableShape.normalizeParameters (shape : CallableShape.{u}) :
+    CallableShape.{u} where
+  Parameters := [ParameterDomain shape.Parameters]
+  Return := shape.Return
+  carrier := shape.carrier
+
+@[simp] theorem CallableShape.normalizeParameters_arity
+    (shape : CallableShape.{u}) : shape.normalizeParameters.arity = 1 :=
+  rfl
+
+@[simp] theorem CallableShape.normalizeParameters_return
+    (shape : CallableShape.{u}) : shape.normalizeParameters.Return = shape.Return :=
+  rfl
+
+@[simp] theorem CallableShape.normalizeParameters_carrier
+    (shape : CallableShape.{u}) :
+    shape.normalizeParameters.carrier = shape.carrier :=
+  rfl
+
+/-- Every reflected parameter list therefore admits one normalized graph edge. -/
+def CallableShape.normalizedOperationRole (shape : CallableShape.{u}) :
+    CallableRole shape.normalizeParameters :=
+  .operation (by simp)
+
+@[simp] theorem normalize_nullary_shape (Value Error : Type u) :
+    (CallableShape.result [] Value Error).normalizeParameters =
+      CallableShape.result [ParameterUnit] Value Error :=
+  rfl
+
+@[simp] theorem normalize_unary_shape (Domain Value Error : Type u) :
+    (CallableShape.result [Domain] Value Error).normalizeParameters =
+      CallableShape.result [Domain] Value Error :=
+  rfl
+
+@[simp] theorem normalize_binary_shape (Left Right Value Error : Type u) :
+    (CallableShape.result [Left, Right] Value Error).normalizeParameters =
+      CallableShape.result [Left × Right] Value Error :=
+  rfl
+
+/-- Pure declarations lower through the same product-domain normalization. -/
+def normalizePure {Return : Type u} (parameters : List (Type u))
+    (function : CurriedCallable parameters Return) :
+    Composition.Pure (ParameterDomain parameters) Return :=
+  ⟨uncurryParameters parameters function⟩
+
+/-- Fallible declarations become ordinary unary Kleisli arrows after normalization. -/
+def normalizeFallible {Value Error : Type u} (parameters : List (Type u))
+    (function : CurriedCallable parameters (Outcome.Result Value Error)) :
+    Composition.Fallible Error (ParameterDomain parameters) Value :=
+  ⟨uncurryParameters parameters function⟩
+
+@[simp] theorem normalizePure_binary_run
+    {Left Right Value : Type u}
+    (function : Left → Right → Value) (left : Left) (right : Right) :
+    (normalizePure [Left, Right] function).run (left, right) =
+      function left right :=
+  rfl
+
+@[simp] theorem normalizeFallible_binary_run
+    {Left Right Value Error : Type u}
+    (function : Left → Right → Outcome.Result Value Error)
+    (left : Left) (right : Right) :
+    (normalizeFallible [Left, Right] function).run (left, right) =
+      function left right :=
+  rfl
+
+/-- Fixing one input of a binary declaration produces an ordinary unary edge. -/
+def partialFirst
+    {Fixed Remaining Value Error : Type u}
+    (function : Fixed → Remaining → Outcome.Result Value Error)
+    (fixed : Fixed) : Composition.Fallible Error Remaining Value :=
+  normalizeFallible [Remaining] (function fixed)
+
+@[simp] theorem partialFirst_run
+    {Fixed Remaining Value Error : Type u}
+    (function : Fixed → Remaining → Outcome.Result Value Error)
+    (fixed : Fixed) (remaining : Remaining) :
+    (partialFirst function fixed).run remaining = function fixed remaining :=
+  rfl
+
 /-- Structural recognition and permission to invoke are independent facts. -/
 structure CallableDeclaration where
   shape : CallableShape.{u}
