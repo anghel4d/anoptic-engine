@@ -99,8 +99,9 @@
       gcc17Overlay = final: _previous: {
         gcc17 = final.callPackage ./nix/toolchains/gcc17.nix {
           nixpkgsSource = nixpkgs.outPath;
+          stdenv = final.gcc16Stdenv;
         };
-        gcc17Stdenv = final.overrideCC final.gccStdenv final.buildPackages.gcc17;
+        gcc17Stdenv = final.overrideCC final.gcc16Stdenv final.buildPackages.gcc17;
       };
       systems = [
         "x86_64-linux"
