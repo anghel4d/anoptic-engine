@@ -17,7 +17,7 @@ namespace ResultAlgebra
 The mathematical surface is deliberately smaller than the C++ implementation.
 
 For a fixed error type `E`, `Outcome.Result · E` is the sum functor
-`R_E A = A + E`. Its Kleisli arrows are `A → R_E B`. The C++ concepts decide
+`R_E A = E + A`. Its Kleisli arrows are `A → R_E B`. The C++ concepts decide
 which declarations may denote those arrows; Lean starts after that admission
 decision and proves the resulting operations.
 
