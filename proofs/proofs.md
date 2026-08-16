@@ -6,6 +6,9 @@ Lean runtime.
 
 - `Polynomial`, `Semantic`, `Compiler`, `Module`, `Composition`, `Refinement`,
   and `Transaction` define the reusable abstract algebras.
+- `ResultAlgebra` proves exact carrier factorization, explicitly tagged
+  inspection, safety-certified Kleisli composition, and exact-source
+  construction for conditional results.
 - `Semantic` distinguishes API-shape morphisms from algebra homomorphisms. The
   latter additionally map carriers and effects and satisfy a commuting law.
 - `Module` keeps a projection-local `CompiledSignature` separate from the

@@ -11,6 +11,7 @@ import Anoptic.Compiler
 import Anoptic.Module
 import Anoptic.Composition
 import Anoptic.Outcome
+import Anoptic.ResultAlgebra
 import Anoptic.Structural
 import Anoptic.Linear
 import Anoptic.Memory
