@@ -135,6 +135,8 @@
 !/.agents/skills/
 !/.agents/skills/anoptic-c-ultra/
 !/.agents/skills/anoptic-c-ultra/**
+!/.agents/skills/algebraic-reflect/
+!/.agents/skills/algebraic-reflect/**
 !/.agents/skills/cpp-reflection-status-2026-08-02/
 !/.agents/skills/cpp-reflection-status-2026-08-02/**
 
@@ -186,4 +188,5 @@ SKILL.md
 !/AGENTS.md
 !/.claude/skills/**/SKILL.md
 !/.agents/skills/anoptic-c-ultra/SKILL.md
+!/.agents/skills/algebraic-reflect/SKILL.md
 !/.agents/skills/cpp-reflection-status-2026-08-02/SKILL.md

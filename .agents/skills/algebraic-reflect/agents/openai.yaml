@@ -1,0 +1,7 @@
+interface:
+  display_name: "algebraic_reflect"
+  short_description: "Prove reflected type replacements before implementation"
+  default_prompt: "Use $algebraic-reflect to prove this reflected type replacement in Lean before deleting and rebuilding the C++ implementation."
+
+policy:
+  allow_implicit_invocation: false
