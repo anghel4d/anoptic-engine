@@ -55,6 +55,7 @@
 !/docs/**/*.txt
 !/docs/**/*.h
 !/docs/**/*.tsx
+!/docs/anoptic-corrections.md
 
 # Runtime resources: shader sources + compiled spv, fonts + licenses, images, notes
 !/resources/
