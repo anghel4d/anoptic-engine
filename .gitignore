@@ -46,7 +46,13 @@
 !/cmake/
 !/cmake/**/
 !/cmake/**/*.cmake
+!/cmake/**/*.cpp
 !/cmake/**/*.md
+
+# Nix toolchain definitions
+!/nix/
+!/nix/**/
+!/nix/**/*.nix
 
 # Docs: markdown plus the checked-in references (miniaudio.h, shadertoy txt, canvas tsx)
 !/docs/

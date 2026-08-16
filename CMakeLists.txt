@@ -43,14 +43,21 @@ if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
 endif()
 include(CheckCXXSourceCompiles)
 set(ANO_REQUIRED_FLAGS_SAVED "${CMAKE_REQUIRED_FLAGS}")
-set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -std=gnu++26 -freflection")
-check_cxx_source_compiles("#include <meta>\nstatic_assert(std::meta::is_type(^^int));\nint main(){}" ANO_GCC16_REFLECTION)
+set(CMAKE_REQUIRED_FLAGS
+    "${CMAKE_REQUIRED_FLAGS} -std=gnu++26 -freflection -fno-exceptions -fno-rtti -nostdlib++")
+file(READ "${CMAKE_SOURCE_DIR}/cmake/probes/cxx26_capabilities.cpp"
+     ANO_CXX26_CAPABILITY_SOURCE)
+check_cxx_source_compiles("${ANO_CXX26_CAPABILITY_SOURCE}"
+                          ANO_CXX26_CAPABILITIES)
 set(CMAKE_REQUIRED_FLAGS "${ANO_REQUIRED_FLAGS_SAVED}")
 unset(ANO_REQUIRED_FLAGS_SAVED)
-if(NOT ANO_GCC16_REFLECTION)
-    message(FATAL_ERROR "GCC ${CMAKE_CXX_COMPILER_VERSION} failed the required C++26 reflection probe")
+unset(ANO_CXX26_CAPABILITY_SOURCE)
+if(NOT ANO_CXX26_CAPABILITIES)
+    message(FATAL_ERROR
+            "GCC ${CMAKE_CXX_COMPILER_VERSION} failed Anoptic's required C++26 capability probe")
 endif()
-message(STATUS "C++26 reflection: GCC ${CMAKE_CXX_COMPILER_VERSION} (-freflection)")
+message(STATUS
+        "C++26 reflection capabilities: GCC ${CMAKE_CXX_COMPILER_VERSION} (-freflection)")
 
 # Emit compile_commands.json for clangd.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

@@ -36,7 +36,9 @@
   # declining just means building locally.
   nixConfig = {
     extra-substituters = [ "https://anoptic-games.cachix.org" ];
-    extra-trusted-public-keys = [ "anoptic-games.cachix.org-1:NzC+ISlxMEO0Apg4Nq44AB2NptMUc2NrybDBt6eZqII=" ];
+    extra-trusted-public-keys = [
+      "anoptic-games.cachix.org-1:NzC+ISlxMEO0Apg4Nq44AB2NptMUc2NrybDBt6eZqII="
+    ];
   };
 
   inputs = {
@@ -89,6 +91,12 @@
     }:
     let
       lib = nixpkgs.lib;
+      gcc17Overlay = final: _previous: {
+        gcc17 = final.callPackage ./nix/toolchains/gcc17.nix {
+          nixpkgsSource = nixpkgs.outPath;
+        };
+        gcc17Stdenv = final.overrideCC final.gccStdenv final.buildPackages.gcc17;
+      };
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -368,7 +376,10 @@
       perSystem =
         system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ gcc17Overlay ];
+          };
           host = pkgs.stdenv.hostPlatform;
           isLinux = host.isLinux;
           archTag = if host.isx86_64 then "x64" else "aarch64";
@@ -378,11 +389,8 @@
           # Darwin remains evaluable but CMake rejects it until its compiler supports P2996.
           # llvmPackages_latest is still 22.1.8; pin the 23.1.0-rc1 set explicitly.
           llvmPkgs = pkgs.llvmPackages_23;
-          engineStdenv =
-            if isLinux then
-              pkgs.gcc16Stdenv
-            else
-              llvmPkgs.stdenv;
+          engineStdenv = if isLinux then pkgs.gcc16Stdenv else llvmPkgs.stdenv;
+          engineGcc17Stdenv = if isLinux then pkgs.gcc17Stdenv else llvmPkgs.stdenv;
 
           # The proof kernel is pinned independently of Nixpkgs release cadence while
           # retaining its audited source-build expression and sandbox integration.
@@ -422,6 +430,16 @@
               // args
             );
 
+          mkHostGcc17 =
+            args:
+            mkEngine (
+              {
+                inherit pkgs;
+                stdenv = engineGcc17Stdenv;
+              }
+              // args
+            );
+
           # Windows cross: MinGW-w64 ucrt64. x86_64-linux hosts only.
           crossPkgs = pkgs.pkgsCross.ucrt64;
           mkWin =
@@ -430,6 +448,16 @@
               {
                 pkgs = crossPkgs;
                 stdenv = crossPkgs.gcc16Stdenv;
+              }
+              // args
+            );
+
+          mkWinGcc17 =
+            args:
+            mkEngine (
+              {
+                pkgs = crossPkgs;
+                stdenv = crossPkgs.gcc17Stdenv;
               }
               // args
             );
@@ -480,6 +508,21 @@
             }
           );
 
+          gcc17Native = lib.optionalAttrs isLinux (
+            mkVariants mkHostGcc17 {
+              "release-gcc17-${hostTag}" = {
+                buildType = "Release";
+              };
+              "debug-gcc17-${hostTag}" = {
+                buildType = "Debug";
+              };
+              "release-headless-gcc17-${hostTag}" = {
+                buildType = "Release";
+                headless = true;
+              };
+            }
+          );
+
           windows = lib.optionalAttrs (system == "x86_64-linux") (
             let
               w = mkVariants mkWin {
@@ -502,6 +545,24 @@
             w // { release-wsl = w.release-windows-x64; }
           );
 
+          gcc17Windows = lib.optionalAttrs (system == "x86_64-linux") (
+            let
+              w = mkVariants mkWinGcc17 {
+                release-gcc17-windows-x64 = {
+                  buildType = "Release";
+                };
+                debug-gcc17-windows-x64 = {
+                  buildType = "Debug";
+                };
+                release-headless-gcc17-windows-x64 = {
+                  buildType = "Release";
+                  headless = true;
+                };
+              };
+            in
+            w // { release-gcc17-wsl = w.release-gcc17-windows-x64; }
+          );
+
           # Host-resolved short names.
           aliases = {
             default = native."release-${hostTag}";
@@ -513,68 +574,78 @@
           }
           // lib.optionalAttrs isLinux {
             anygpu = native."release-${hostTag}-anygpu";
+            gcc17 = gcc17Native."release-gcc17-${hostTag}";
           };
 
           # Sandbox test suites. Building one runs it. Sanitized suites run headless.
           # GPU-real sanitizer runs are `nix run -- 6|7`.
           # tests-full (experimental): full suite incl. Vulkan device tests on lavapipe.
-          checks = mkVariants mkHost (
-            {
-              tests-headless = {
-                buildType = "Debug";
-                headless = true;
-                tests = true;
-              };
-            }
-            // lib.optionalAttrs isLinux {
-              tests-asan = {
-                buildType = "Debug";
-                headless = true;
-                tests = true;
-                sanitize = "asan";
-              };
-              tests-tsan = {
-                buildType = "Debug";
-                headless = true;
-                tests = true;
-                sanitize = "tsan";
-              };
-              tests-full = {
-                buildType = "Debug";
-                tests = true;
-                softwareVulkan = true;
-              };
-            }
-          ) // {
-            proofs = pkgs.runCommand "anoptic-proofs" {
-              nativeBuildInputs = [ leanToolchain engineStdenv.cc pkgs.diffutils ];
-            } ''
-              cp -r ${self}/proofs proofs
-              chmod -R +w proofs
-              cd proofs
-              ${engineStdenv.cc}/bin/g++ \
-                -std=gnu++26 -freflection -fno-exceptions -fno-rtti \
-                -nostdlib++ -I${self}/include -I${mimalloc-src}/include \
-                cpp/resource_schema_certificate.cpp \
-                -o "$TMPDIR/resource-schema-certificate"
-              if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/resource-schema-certificate" \
-                  | grep -q 'libstdc++'; then
-                echo "resource-schema certificate linked the forbidden C++ runtime" >&2
-                exit 1
-              fi
-              "$TMPDIR/resource-schema-certificate" \
-                > "$TMPDIR/ResourceSchema.lean"
-              if ! cmp -s Anoptic/Generated/ResourceSchema.lean \
-                  "$TMPDIR/ResourceSchema.lean"; then
-                echo "reflected resource schema differs from the checked Lean certificate" >&2
-                diff -u Anoptic/Generated/ResourceSchema.lean \
-                  "$TMPDIR/ResourceSchema.lean" >&2 || true
-                exit 1
-              fi
-              lake build
-              touch $out
-            '';
-          };
+          checks =
+            mkVariants mkHost (
+              {
+                tests-headless = {
+                  buildType = "Debug";
+                  headless = true;
+                  tests = true;
+                };
+              }
+              // lib.optionalAttrs isLinux {
+                tests-asan = {
+                  buildType = "Debug";
+                  headless = true;
+                  tests = true;
+                  sanitize = "asan";
+                };
+                tests-tsan = {
+                  buildType = "Debug";
+                  headless = true;
+                  tests = true;
+                  sanitize = "tsan";
+                };
+                tests-full = {
+                  buildType = "Debug";
+                  tests = true;
+                  softwareVulkan = true;
+                };
+              }
+            )
+            // {
+              proofs =
+                pkgs.runCommand "anoptic-proofs"
+                  {
+                    nativeBuildInputs = [
+                      leanToolchain
+                      engineStdenv.cc
+                      pkgs.diffutils
+                    ];
+                  }
+                  ''
+                    cp -r ${self}/proofs proofs
+                    chmod -R +w proofs
+                    cd proofs
+                    ${engineStdenv.cc}/bin/g++ \
+                      -std=gnu++26 -freflection -fno-exceptions -fno-rtti \
+                      -nostdlib++ -I${self}/include -I${mimalloc-src}/include \
+                      cpp/resource_schema_certificate.cpp \
+                      -o "$TMPDIR/resource-schema-certificate"
+                    if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/resource-schema-certificate" \
+                        | grep -q 'libstdc++'; then
+                      echo "resource-schema certificate linked the forbidden C++ runtime" >&2
+                      exit 1
+                    fi
+                    "$TMPDIR/resource-schema-certificate" \
+                      > "$TMPDIR/ResourceSchema.lean"
+                    if ! cmp -s Anoptic/Generated/ResourceSchema.lean \
+                        "$TMPDIR/ResourceSchema.lean"; then
+                      echo "reflected resource schema differs from the checked Lean certificate" >&2
+                      diff -u Anoptic/Generated/ResourceSchema.lean \
+                        "$TMPDIR/ResourceSchema.lean" >&2 || true
+                      exit 1
+                    fi
+                    lake build
+                    touch $out
+                  '';
+            };
 
           # nixglhost: harvests the host NVIDIA userspace at runtime (non-NixOS).
           nixglhost = if isLinux then nix-gl-host.packages.${system}.default else null;
@@ -848,6 +919,31 @@
                   }
                 );
           }
+          // lib.optionalAttrs isLinux {
+            gcc17 = (pkgs.mkShell.override { stdenv = engineGcc17Stdenv; }) (
+              {
+                name = "anoptic-linux-gcc17";
+                hardeningDisable = fortifyOff;
+                nativeBuildInputs = shellTools ++ [ pkgs.wayland-scanner ];
+                buildInputs =
+                  (with pkgs; [
+                    vulkan-headers
+                    vulkan-loader
+                  ])
+                  ++ shellRenderLibs
+                  ++ lib.optional (vvlShell != null) vvlShell;
+                NIX_LDFLAGS = "-rpath ${lib.makeLibraryPath shellRenderLibs}";
+                ANO_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${host.parsed.cpu.name}.json";
+                shellHook = ''
+                  echo "[anoptic] Linux GCC 17 target 〜 $($CXX --version | head -1)"
+                ''
+                + submodulePinWarn;
+              }
+              // lib.optionalAttrs (vvlShell != null) {
+                VK_LAYER_PATH = "${vvlShell}/share/vulkan/explicit_layer.d";
+              }
+            );
+          }
           // lib.optionalAttrs (system == "x86_64-linux") {
             # Interactive cross env. Artifact path: nix build .#release-wsl
             windows = (crossPkgs.mkShell.override { stdenv = crossPkgs.gcc16Stdenv; }) {
@@ -865,12 +961,29 @@
               ''
               + submodulePinWarn;
             };
+            windows-gcc17 = (crossPkgs.mkShell.override { stdenv = crossPkgs.gcc17Stdenv; }) {
+              name = "anoptic-windows-gcc17";
+              hardeningDisable = fortifyOff;
+              nativeBuildInputs = shellTools;
+              buildInputs = [
+                crossPkgs.vulkan-headers
+                crossPkgs.vulkan-loader
+                crossPkgs.windows.pthreads
+              ];
+              shellHook = ''
+                echo "[anoptic] Windows GCC 17 target 〜 $($CC --version | head -1)"
+                echo "[anoptic] configure with: cmake \$cmakeFlags -G Ninja -S . -B build/Windows-GCC17"
+              ''
+              + submodulePinWarn;
+            };
           };
         in
         {
           packages =
             native
+            // gcc17Native
             // windows
+            // gcc17Windows
             // aliases
             // checks
             // nvidiaLaunchers
