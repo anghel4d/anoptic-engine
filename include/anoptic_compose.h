@@ -313,6 +313,15 @@ template<class Value, class Next>
 concept Accepts = (Next::nullary && std::same_as<Value, void>)
     || (!Next::nullary && std::same_as<Value, typename Next::Domain>);
 
+template<class Value>
+consteval bool nothrow_value()
+{
+    if constexpr (std::is_void_v<Value>)
+        return true;
+    else
+        return NothrowConstructibleFrom<Value, Value&&>;
+}
+
 template<class Left, class Mapper>
 consteval bool error_mappable()
 {
@@ -337,8 +346,7 @@ consteval bool error_mappable()
             return std::is_object_v<NewError>
                 && ResultError<NewError>
                 && NothrowConstructibleFrom<NewError, Mapped>
-                && (std::is_void_v<Value>
-                    || NothrowConstructibleFrom<Value, Value&&>);
+                && nothrow_value<Value>();
         }
     }
 }
@@ -521,8 +529,7 @@ struct ErrorMapped final {
     [[no_unique_address]] Mapper mapper;
 
     static_assert(ResultError<Error>);
-    static_assert(std::is_void_v<Value>
-                  || NothrowConstructibleFrom<Value, Value&&>);
+    static_assert(nothrow_value<Value>());
 
     [[nodiscard]] constexpr Carrier operator()() const noexcept
         requires Algebra::nullary
@@ -763,12 +770,14 @@ using ResultMorphism = Function<Operation>;
 
 template<std::meta::info Declaration>
 struct Lifted final {
-    static_assert(std::meta::is_function(Declaration));
+    static_assert(std::meta::is_function(Declaration),
+                  "lift requires a reflection of a function");
     static constexpr auto shape =
         detail::inspect_operation(std::meta::type_of(Declaration));
-    static_assert(shape.parameter != std::meta::info{}
-                  && std::meta::is_noexcept(shape.declaration)
-                  && shape.carrier.valid);
+    static_assert(shape.concrete && shape.supportedArity
+                  && shape.nonthrowing);
+    static_assert(shape.carrier.valid,
+                  "lifted function must return a Result");
 
     using Return = [:shape.result:];
     using Parameter = [:shape.parameter:];

@@ -80,9 +80,22 @@ constexpr auto accept(int) noexcept -> ano::Result<void, ParseError>
     return {};
 }
 
+constexpr auto reject(int value) noexcept -> ano::Result<void, ParseError>
+{
+    if (value < 0)
+        return ano::failure(ParseError::missing);
+    return {};
+}
+
 constexpr auto produce() noexcept -> ano::Result<int, ParseError>
 {
     return 11;
+}
+
+constexpr auto produce_unsigned() noexcept
+    -> ano::Result<unsigned, ParseError>
+{
+    return 13u;
 }
 
 constexpr auto wrong_domain(float value) noexcept
@@ -221,6 +234,10 @@ static_assert(ano::KleisliPairable<decltype(&check_format),
                                    decltype(&check_extent)>);
 static_assert(!ano::KleisliPairable<decltype(&check_format),
                                     decltype(&wrong_domain)>);
+static_assert(!ano::AllPairable<
+              decltype(ano::lift<^^check_format>),
+              decltype(ano::lift<^^check_extent>),
+              decltype(ano::lift<^^wrong_domain>)>);
 static_assert(ano::detail::foldShape<decltype(&sum_step)>.concrete);
 static_assert(ano::detail::foldShape<decltype(&sum_step)>.supportedArity);
 static_assert(ano::detail::foldShape<decltype(&sum_step)>.nonthrowing);
@@ -282,16 +299,31 @@ static_assert(composition_surface());
 consteval bool error_mapping_surface()
 {
     constexpr auto mapped = ano::lift<^^parse>
-        .map_error(to_other_error);
+        .map_error([](ParseError) noexcept {
+            return OtherError::invalid;
+        });
+    constexpr auto mappedUnit = ano::lift<^^reject>
+        .map_error([](ParseError) noexcept {
+            return OtherError::invalid;
+        });
+    constexpr auto mappedNullary = ano::lift<^^produce>
+        .map_error([](ParseError) noexcept {
+            return OtherError::invalid;
+        });
     static_assert(ano::ResultOperation<decltype(mapped)>);
+    static_assert(std::is_empty_v<decltype(mapped)>);
     static_assert(std::same_as<
                   typename ano::ResultOperationAlgebra<
                       decltype(mapped)>::Error,
                   OtherError>);
     const auto value = mapped(true);
     const auto error = mapped(false);
+    const auto unitError = mappedUnit(-1);
+    const auto nullaryValue = mappedNullary();
     return value && *value == 7
-        && ano::has_error(error, OtherError::invalid);
+        && ano::has_error(error, OtherError::invalid)
+        && ano::has_error(unitError, OtherError::invalid)
+        && nullaryValue && *nullaryValue == 11;
 }
 
 static_assert(error_mapping_surface());
@@ -304,7 +336,10 @@ consteval bool pairing_surface()
         ano::lift<^^check_format>,
         ano::lift<^^check_extent>,
         ano::lift<^^check_version>);
+    constexpr auto nullary = ano::pair(
+        ano::lift<^^produce>, ano::lift<^^produce_unsigned>);
     static_assert(ano::ResultOperation<decltype(paired)>);
+    static_assert(std::is_empty_v<decltype(paired)>);
     static_assert(ano::AllPairable<
                   decltype(ano::lift<^^check_format>),
                   decltype(ano::lift<^^check_extent>),
@@ -313,6 +348,7 @@ consteval bool pairing_surface()
     const auto pairValue = paired(4);
     const auto pairError = paired(-1);
     const auto allValue = gathered(4);
+    const auto nullaryValue = nullary();
     return pairValue
         && pairValue->first == 5
         && pairValue->second == 6u
@@ -320,7 +356,10 @@ consteval bool pairing_surface()
         && allValue
         && allValue->first.first == 5
         && allValue->first.second == 6u
-        && allValue->second == 7L;
+        && allValue->second == 7L
+        && nullaryValue
+        && nullaryValue->first == 11
+        && nullaryValue->second == 13u;
 }
 
 static_assert(pairing_surface());
