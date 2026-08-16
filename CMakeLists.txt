@@ -35,11 +35,11 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # Reflection is canonical on this branch. There is no second descriptor implementation.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    message(FATAL_ERROR "Clang ${CMAKE_CXX_COMPILER_VERSION} has no C++26 reflection as of 2026-08-01; use GCC 16.1+ for hyper-c-reflection")
+    message(FATAL_ERROR "Clang ${CMAKE_CXX_COMPILER_VERSION} has no required C++26 reflection support; use GCC 16.1+")
 endif()
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
         OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16.1)
-    message(FATAL_ERROR "hyper-c-reflection requires GCC 16.1+ (got ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
+    message(FATAL_ERROR "Anoptic requires GCC 16.1+ (got ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
 endif()
 include(CheckCXXSourceCompiles)
 set(ANO_REQUIRED_FLAGS_SAVED "${CMAKE_REQUIRED_FLAGS}")

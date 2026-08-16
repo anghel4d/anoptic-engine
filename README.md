@@ -160,7 +160,7 @@ nix develop --command ./build.sh  1
 
 The stable Nix shell provides GCC 16.2; `nix develop .#gcc17` provides the pinned experimental GCC 17 snapshot. Both carry cmake, ninja, glslc + glslangValidator, lldb, LLVM inspection tools, Vulkan headers, loader, validation layers, and the X11 + Wayland client libraries. Renderer builds compile both window backends and select at runtime; the single-backend `-wayland`/`-x11` packages are explicit targets. For GPU-less test runs, point `VK_ICD_FILENAMES` at `$ANO_LAVAPIPE_ICD` (exported by the shell). The foreign-distro GPU plumbing — why host ICDs fail to load under the Nix loader, the `nixglhost` bridge, lavapipe's limits — is documented in `docs/nix/NIX_LINUX.md`.
 
-Without Nix: install `clang 20+`, `CMake`, `Ninja`, `glslc` yourself I guess. You'll also need to install your distro's Vulkan SDK. Then you can run `build.sh` and pray.
+Without Nix: install `GCC 16.1+`, `CMake`, `Ninja`, `glslc` yourself I guess. You'll also need to install your distro's Vulkan SDK. Then you can run `build.sh` and pray.
 
 If your config is cursed and that doesn't work, just use Nix okay?
 
