@@ -74,7 +74,7 @@ Here's a list of the valid build targets:
 - `nix build .#headless`: server release build. No renderer, GPU, or display.
 - `nix build .#release-headless`: same as `.#headless`.
 - `nix build .#release-wsl`: cross-built Windows `.exe` with renderer (see [Building for Windows with WSL](#building-for-windows-with-wsl)).
-- `nix build .#gcc17`: the same full renderer through the pinned experimental GCC 17 snapshot.
+- `nix build .#gcc17`: an explicit GCC 17-named entry for the same pinned compiler lane.
 - `nix build .#release-gcc17-windows-x64`: the Windows UCRT renderer through that same GCC 17 snapshot.
 - `nix build .#anygpu` — Linux renderer with mesa's Vulkan ICDs bundled as a driver default (`VK_ADD_DRIVER_FILES`, opt out by setting it empty): AMD/Intel/NVK hardware works on any distro with no host driver packages.
 - `nix build .#tests-headless` — CTest suite in the sandbox (`.#tests-asan`, `.#tests-tsan`, `.#tests-full` on Linux; `tests-full` runs the renderer suite under Xvfb, and the Vulkan device tests skip where no device can run the renderer). The suites are packages — build them explicitly; `nix flake check` only evaluates.
@@ -83,7 +83,7 @@ Here's a list of the valid build targets:
 **In general:**
 `nix build .#<type>[-headless]-<platform>-<arch>[-wayland|-x11|-anygpu]`: any permutation, e.g. `.#release-linux-x64-x11`.
 
-`nix develop` opens the stable dev shell; `nix develop .#gcc17` selects the experimental snapshot. `.#windows` and `.#windows-gcc17` are the corresponding MinGW-w64 UCRT cross shells.
+`nix develop` opens the pinned GCC 17 dev shell; `nix develop .#gcc17` is its explicit compiler-named entry. `.#windows` and `.#windows-gcc17` are the corresponding MinGW-w64 UCRT cross shells.
 
 Private assets instead of the public pack:
 ```bash
@@ -126,7 +126,7 @@ Install the MSYS2 UCRT64 GCC and Ninja packages:
 pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja
 ```
 
-GCC 16.1 or newer is required for C++26 reflection. `build.bat` uses
+GCC 17 or newer is required for C++26 reflection. `build.bat` uses
 `C:\msys64\ucrt64\bin` by default; set `MSYS2_UCRT64` to override it.
 
 Additional guidance:
@@ -141,7 +141,7 @@ WSL has no Linux Vulkan driver, so the renderer runs there only as a **Windows**
 
 WSL's Vulkan devices (Mesa `dozen` and `llvmpipe`) are not supported render targets. The **headless** build needs no GPU or display at all: `nix build .#headless` / `build.sh 3` run fine in WSL, containers, and GPU-less servers.
 
-**MSYS2 UCRT64 GCC 16.1+ + Windows Vulkan SDK** (no Nix): the `build.bat` path:
+**UCRT64 GCC 17+ + Windows Vulkan SDK** (no Nix): the `build.bat` path:
 
 ```powershell
 .\build.bat 1
@@ -158,9 +158,9 @@ If your config is cursed and that doesn't work, just use Nix okay?
 nix develop --command ./build.sh  1
 ```
 
-The stable Nix shell provides GCC 16.2; `nix develop .#gcc17` provides the pinned experimental GCC 17 snapshot. Both carry cmake, ninja, glslc + glslangValidator, lldb, LLVM inspection tools, Vulkan headers, loader, validation layers, and the X11 + Wayland client libraries. Renderer builds compile both window backends and select at runtime; the single-backend `-wayland`/`-x11` packages are explicit targets. For GPU-less test runs, point `VK_ICD_FILENAMES` at `$ANO_LAVAPIPE_ICD` (exported by the shell). The foreign-distro GPU plumbing — why host ICDs fail to load under the Nix loader, the `nixglhost` bridge, lavapipe's limits — is documented in `docs/nix/NIX_LINUX.md`.
+The Nix shell provides Anoptic's pinned GCC 17 toolchain; `nix develop .#gcc17` is an explicit alias for the same compiler lane. It carries cmake, ninja, glslc + glslangValidator, lldb, LLVM inspection tools, Vulkan headers, loader, validation layers, and the X11 + Wayland client libraries. Renderer builds compile both window backends and select at runtime; the single-backend `-wayland`/`-x11` packages are explicit targets. For GPU-less test runs, point `VK_ICD_FILENAMES` at `$ANO_LAVAPIPE_ICD` (exported by the shell). The foreign-distro GPU plumbing — why host ICDs fail to load under the Nix loader, the `nixglhost` bridge, lavapipe's limits — is documented in `docs/nix/NIX_LINUX.md`.
 
-Without Nix: install `GCC 16.1+`, `CMake`, `Ninja`, `glslc` yourself I guess. You'll also need to install your distro's Vulkan SDK. Then you can run `build.sh` and pray.
+Without Nix: install `GCC 17+`, `CMake`, `Ninja`, `glslc` yourself I guess. You'll also need to install your distro's Vulkan SDK. Then you can run `build.sh` and pray.
 
 If your config is cursed and that doesn't work, just use Nix okay?
 

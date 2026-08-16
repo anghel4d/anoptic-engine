@@ -17,11 +17,11 @@
   #   nix build .#tests-asan|tests-tsan    sanitized non-GPU suite        (Linux)
   #   nix build .#tests-full               full suite under Xvfb; device tests skip sans capable GPU (Linux)
   #   nix build .#proofs                   machine-check the Lean semantic kernel
-  #   nix develop .#gcc17                  experimental GCC 17 snapshot lane
-  #   nix build .#gcc17                    full renderer through GCC 17
-  #   nix build .#tests-gcc17-headless     tests through GCC 17
-  #   nix build .#proofs-gcc17             C++/Lean certificates through GCC 17
-  #   nix build .#release-gcc17-windows-x64   full UCRT renderer through GCC 17
+  #   nix develop .#gcc17                  explicit alias for the canonical GCC 17 lane
+  #   nix build .#gcc17                    explicit alias for the canonical renderer
+  #   nix build .#tests-gcc17-headless     explicit alias for the GCC 17 tests
+  #   nix build .#proofs-gcc17             explicit alias for the GCC 17 certificates
+  #   nix build .#release-gcc17-windows-x64   explicit alias for the UCRT renderer
   #   nix flake check --no-build --all-systems   eval-only sweep; plain flake check BUILDS+runs the Linux suites (they are checks outputs)
   #
   # Impure side 〜 your working tree, output in ./build/<label>/ like build.sh:
@@ -47,9 +47,8 @@
   };
 
   inputs = {
-    # GCC 16.2 plus MinGW-w64 14 form the stable lane. The experimental lane
-    # imports one official GCC 17 weekly snapshot without replacing nixpkgs's
-    # global stdenv or rebuilding the engine's dependency closure.
+    # Anoptic replaces only the compiler in its engine stdenvs with the pinned
+    # GCC 17 snapshot. Nixpkgs and the dependency closure remain unchanged.
     nixpkgs.url = "github:NixOS/nixpkgs/29559bdc8fb34e51837dd5dae865eb6f20f42be3";
 
     # Pinned submodule sources, revs match .gitmodules.
@@ -171,7 +170,7 @@
       '';
 
       # One engine derivation for every permutation.
-      # pkgs/stdenv: host package set + compiler (native GCC 16.2, or MinGW GCC 16.2 cross).
+      # pkgs/stdenv: host package set plus Anoptic's pinned GCC 17 compiler.
       # variant: qualified attr name, becomes the pname suffix.
       # buildType: Release | Debug. headless: no renderer, no GLFW/Vulkan.
       # wayland/x11: Linux renderer backends (both on = runtime-selected).
@@ -391,11 +390,11 @@
           archTag = if host.isx86_64 then "x64" else "aarch64";
           hostTag = (if isLinux then "linux" else "macos") + "-" + archTag;
 
-          # Reflection is canonical on this branch. Linux uses the pinned GCC 16.2 stdenv;
+          # Reflection is canonical on this branch. Linux uses the pinned GCC 17 stdenv;
           # Darwin remains evaluable but CMake rejects it until its compiler supports P2996.
           # llvmPackages_latest is still 22.1.8; pin the 23.1.0-rc1 set explicitly.
           llvmPkgs = pkgs.llvmPackages_23;
-          engineStdenv = if isLinux then pkgs.gcc16Stdenv else llvmPkgs.stdenv;
+          engineStdenv = if isLinux then pkgs.gcc17Stdenv else llvmPkgs.stdenv;
           engineGcc17Stdenv = if isLinux then pkgs.gcc17Stdenv else llvmPkgs.stdenv;
 
           # The proof kernel is pinned independently of Nixpkgs release cadence while
@@ -453,7 +452,7 @@
             mkEngine (
               {
                 pkgs = crossPkgs;
-                stdenv = crossPkgs.gcc16Stdenv;
+                stdenv = crossPkgs.gcc17Stdenv;
               }
               // args
             );
@@ -620,8 +619,8 @@
             gcc17 = gcc17Native."release-gcc17-${hostTag}";
           };
 
-          # Explicit experimental validation. These are packages rather than
-          # flake checks so the stable lane does not build GCC 17 implicitly.
+          # Explicit GCC 17-named validation entries for scripts and people
+          # that want the compiler lane in the attribute name.
           gcc17Validation = lib.optionalAttrs isLinux (
             mkVariants mkHostGcc17 {
               tests-gcc17-headless = {
@@ -972,7 +971,7 @@
           }
           // lib.optionalAttrs (system == "x86_64-linux") {
             # Interactive cross env. Artifact path: nix build .#release-wsl
-            windows = (crossPkgs.mkShell.override { stdenv = crossPkgs.gcc16Stdenv; }) {
+            windows = (crossPkgs.mkShell.override { stdenv = crossPkgs.gcc17Stdenv; }) {
               name = "anoptic-windows";
               hardeningDisable = fortifyOff;
               nativeBuildInputs = shellTools;

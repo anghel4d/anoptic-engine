@@ -37,13 +37,41 @@ struct Callable final {
     constexpr int operator()(int value) const noexcept { return value + 1; }
 };
 
+constexpr auto closure = [](int value) noexcept { return value + 1; };
+
+struct GenericCallable final {
+    template<class Type>
+    constexpr Type apply(Type value) const noexcept { return value; }
+};
+
+template<class Type>
+struct ProbeBase {};
+
+template<class Type>
+struct ProbeDerived : ProbeBase<Type> {
+    auto value() noexcept(noexcept(Type{})) { return Type{}; }
+};
+
 template<class>
 struct Carrier;
 
 using RecordAlias = Record;
 
+consteval std::meta::info generic_member()
+{
+    for (const std::meta::info declaration : std::meta::members_of(
+             ^^GenericCallable, std::meta::access_context::unchecked()))
+        if (std::meta::is_function_template(declaration)
+            && std::meta::has_identifier(declaration)
+            && std::meta::identifier_of(declaration) == "apply")
+            return declaration;
+    return {};
+}
+
 consteval bool supports_anoptic_cxx26()
 {
+    static_assert(sizeof(std::meta::info) == sizeof(void*));
+    static_assert(alignof(std::meta::info) == alignof(void*));
     static_assert(std::meta::is_type(^^Record));
     static_assert(std::meta::dealias(^^RecordAlias) == ^^Record);
     static_assert(std::meta::template_of(^^Carrier<int>) == ^^Carrier);
@@ -80,6 +108,33 @@ consteval bool supports_anoptic_cxx26()
             foundCall = true;
     }
 
+    bool foundClosureCall = false;
+    for (const std::meta::info declaration : std::meta::members_of(
+             ^^decltype(closure), std::meta::access_context::unchecked()))
+        if (std::meta::is_operator_function(declaration)
+            && std::meta::operator_of(declaration)
+                == std::meta::op_parentheses)
+            foundClosureCall = true;
+
+    constexpr std::meta::info memberTemplate = generic_member();
+    if (memberTemplate == std::meta::info{}
+        || !std::meta::can_substitute(memberTemplate, {^^int})
+        || GenericCallable{}.template [:memberTemplate:]<int>(17) != 17)
+        return false;
+
+    constexpr auto probeBases = std::define_static_array(
+        std::meta::bases_of(
+            ^^ProbeDerived<int>, std::meta::access_context::unchecked()));
+    static_assert(probeBases.size() == 1);
+    static_assert(std::meta::type_of(probeBases[0]) == ^^ProbeBase<int>);
+    bool inspectedSpecialization = false;
+    for (const std::meta::info declaration : std::meta::members_of(
+             ^^ProbeDerived<int>, std::meta::access_context::unchecked()))
+        if (std::meta::has_identifier(declaration)
+            && std::meta::identifier_of(declaration) == "value")
+            inspectedSpecialization = std::meta::is_noexcept(declaration)
+                && std::meta::return_type_of(declaration) == ^^int;
+
     constexpr auto bases = std::define_static_array(
         std::meta::bases_of(
             ^^Derived, std::meta::access_context::unchecked()));
@@ -89,7 +144,8 @@ consteval bool supports_anoptic_cxx26()
     constexpr const char* name = std::define_static_string("anoptic");
     constexpr const Marker* marker = std::define_static_object(Marker{13});
 
-    return sum == 5 && foundCall && base.value == 11
+    return sum == 5 && foundCall && foundClosureCall
+        && inspectedSpecialization && base.value == 11
         && name[0] == 'a' && name[6] == 'c' && marker->value == 13;
 }
 

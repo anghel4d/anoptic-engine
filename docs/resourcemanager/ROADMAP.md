@@ -307,7 +307,7 @@ compilers consume their own projections of the same `declarations` witness.
 The reflection compiler uses the complete implemented C++26 facility:
 
 ```text
-GCC 16.1+
+Anoptic's pinned GCC 17
 -std=gnu++26 -freflection -fno-exceptions -fno-rtti -nostdlib++
 ```
 
@@ -331,10 +331,10 @@ proof-carrying compatibility products.
 | `std::meta::exception` and `static_assert` | Attach structural failures to the responsible declaration |
 | Templates | Parameterize inherently typed interfaces such as `AssetRef<T>`, typed views, and operations over a selected type; they do not encode a parallel metaprogram |
 
-Reflection query ranges are stabilized with `std::define_static_array` before
-`template for`, as required by GCC 16.1. The implementation does not depend on
-arbitrary token injection, arbitrary generated function bodies, runtime
-`std::meta::info`, or facilities absent from GCC 16.1.
+Transient reflection query ranges are stabilized with
+`std::define_static_array` before `template for`, as required by the C++26
+expansion lifetime model. The implementation does not depend on arbitrary token
+injection, arbitrary generated function bodies, or runtime `std::meta::info`.
 
 An expanded field operation has direct ordinary C++ semantics:
 

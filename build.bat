@@ -9,8 +9,8 @@ if not defined MSYS2_UCRT64 set "MSYS2_UCRT64=C:\msys64\ucrt64\bin"
 if not defined CMAKE_BIN   set "CMAKE_BIN=C:\Program Files\CMake\bin"
 set "PATH=%MSYS2_UCRT64%;%PATH%"
 where cmake >nul 2>&1 || set "PATH=%CMAKE_BIN%;%PATH%"
-where gcc >nul 2>&1 || (echo ERROR: gcc not found. Install MSYS2 UCRT64 GCC 16.1+ or set MSYS2_UCRT64. & exit /b 1)
-where g++ >nul 2>&1 || (echo ERROR: g++ not found. Install MSYS2 UCRT64 GCC 16.1+ or set MSYS2_UCRT64. & exit /b 1)
+where gcc >nul 2>&1 || (echo ERROR: gcc not found. Install UCRT64 GCC 17+ or set MSYS2_UCRT64. & exit /b 1)
+where g++ >nul 2>&1 || (echo ERROR: g++ not found. Install UCRT64 GCC 17+ or set MSYS2_UCRT64. & exit /b 1)
 where cmake >nul 2>&1 || (echo ERROR: cmake not found. Install CMake or set CMAKE_BIN. & exit /b 1)
 where ninja >nul 2>&1 || (echo ERROR: ninja not found. Install it with: pacman -S mingw-w64-ucrt-x86_64-ninja & exit /b 1)
 

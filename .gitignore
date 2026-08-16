@@ -53,6 +53,7 @@
 !/nix/
 !/nix/**/
 !/nix/**/*.nix
+!/nix/toolchains/gcc17-meta-info-layout.patch
 
 # Docs: markdown plus the checked-in references (miniaudio.h, shadertoy txt, canvas tsx)
 !/docs/

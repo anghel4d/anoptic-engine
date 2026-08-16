@@ -40,7 +40,7 @@ let
   seedVersion = stdenv.cc.cc.version or stdenv.cc.version;
   buildBootstrapVersion = bootstrapBuildStdenv.cc.cc.version or bootstrapBuildStdenv.cc.version;
 
-  unwrapped = callPackage gccSnapshotFunction {
+  unwrapped = (callPackage gccSnapshotFunction {
     inherit noSysDirs;
     majorMinorVersion = "17";
     _systemInfo = {
@@ -59,7 +59,9 @@ let
     buildPackages = buildPackages // {
       stdenv = bootstrapBuildStdenv;
     };
-  };
+  }).overrideAttrs (previous: {
+    patches = (previous.patches or [ ]) ++ [ ./gcc17-meta-info-layout.patch ];
+  });
 in
 assert lib.assertMsg (lib.hasInfix versionsImport upstreamExpression)
   "The pinned nixpkgs GCC expression changed its version-table boundary";

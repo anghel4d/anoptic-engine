@@ -87,7 +87,7 @@ toolchain_path="$script_dir/cmake/platforms/${toolchain_file}"
 
 # P2996 reflection is canonical here; Darwin has no supported compiler yet.
 if [ "$(uname -s)" = "Darwin" ]; then
-    echo "Error: Anoptic requires GCC 16.1+; no supported Darwin compiler is available." >&2
+    echo "Error: Anoptic requires GCC 17+; no supported Darwin compiler is available." >&2
     exit 1
 else
     platform_args="-DCMAKE_TOOLCHAIN_FILE=${toolchain_path}"
