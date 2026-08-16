@@ -450,9 +450,6 @@ consteval bool scannable()
 
 } // namespace detail
 
-template<NonthrowingOperation Operation>
-struct Function;
-
 namespace detail {
 
 template<ResultOperation First, ResultOperation Next>
@@ -658,6 +655,10 @@ struct [[nodiscard]] Function final {
 
     template<class Next>
         requires KleisliComposable<Operation, std::decay_t<Next>>
+            && detail::NothrowConstructibleFrom<
+                Operation, const Operation&>
+            && detail::NothrowConstructibleFrom<
+                std::decay_t<Next>, Next>
     [[nodiscard]] constexpr auto and_then(
         this const Function& self, Next&& next)
     {
@@ -670,6 +671,10 @@ struct [[nodiscard]] Function final {
 
     template<class Mapper>
         requires ResultTransformable<Operation, std::decay_t<Mapper>>
+            && detail::NothrowConstructibleFrom<
+                Operation, const Operation&>
+            && detail::NothrowConstructibleFrom<
+                std::decay_t<Mapper>, Mapper>
     [[nodiscard]] constexpr auto transform(
         this const Function& self, Mapper&& mapper)
     {
@@ -683,6 +688,10 @@ struct [[nodiscard]] Function final {
     template<class Mapper>
         requires ResultOperation<Operation>
             && ErrorMappable<Operation, std::decay_t<Mapper>>
+            && detail::NothrowConstructibleFrom<
+                Operation, const Operation&>
+            && detail::NothrowConstructibleFrom<
+                std::decay_t<Mapper>, Mapper>
     [[nodiscard]] constexpr auto map_error(
         this const Function& self, Mapper&& mapper)
     {
@@ -802,6 +811,8 @@ inline constexpr auto lift = Function{Lifted<Declaration>{}};
 
 template<class Operation>
     requires NonthrowingOperation<std::decay_t<Operation>>
+        && detail::NothrowConstructibleFrom<
+            std::decay_t<Operation>, Operation>
 [[nodiscard]] constexpr auto function(Operation&& operation)
 {
     using Stored = std::decay_t<Operation>;
@@ -811,6 +822,8 @@ template<class Operation>
 
 template<class Operation>
     requires ResultOperation<std::decay_t<Operation>>
+        && detail::NothrowConstructibleFrom<
+            std::decay_t<Operation>, Operation>
 [[nodiscard]] constexpr auto compose(Operation&& operation)
 {
     using Stored = std::decay_t<Operation>;
@@ -820,6 +833,8 @@ template<class Operation>
 
 template<class Left, class Right>
     requires KleisliPairable<std::decay_t<Left>, std::decay_t<Right>>
+        && detail::NothrowConstructibleFrom<std::decay_t<Left>, Left>
+        && detail::NothrowConstructibleFrom<std::decay_t<Right>, Right>
 [[nodiscard]] constexpr auto pair(Left&& left, Right&& right)
 {
     using LeftOperation = std::decay_t<Left>;

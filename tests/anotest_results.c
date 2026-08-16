@@ -40,6 +40,18 @@ struct MoveOnlyValue final {
     MoveOnlyValue(MoveOnlyValue&&) noexcept = default;
 };
 
+struct MoveOnlyOperation final {
+    MoveOnlyOperation() = default;
+    MoveOnlyOperation(const MoveOnlyOperation&) = delete;
+    MoveOnlyOperation(MoveOnlyOperation&&) noexcept = default;
+
+    [[nodiscard]] constexpr auto operator()(int value) const noexcept
+        -> ano::Result<int, ParseError>
+    {
+        return value;
+    }
+};
+
 template<class Error>
 concept FailureAvailable = requires(Error&& error) {
     ano::failure(std::forward<Error>(error));
@@ -60,6 +72,11 @@ template<class Carrier, class Error>
 concept HasErrorAvailable = requires(const Carrier& carrier,
                                      const Error& error) {
     { ano::has_error(carrier, error) } -> std::same_as<bool>;
+};
+
+template<class Operation>
+concept FunctionAvailable = requires(Operation&& operation) {
+    ano::function(std::forward<Operation>(operation));
 };
 
 constexpr auto parse(bool valid) noexcept -> ano::Result<int, ParseError>
@@ -202,6 +219,9 @@ static_assert(!ano::ResultError<ThrowingMoveError>);
 static_assert(ano::ResultCarrier<
               ano::Result<int, ThrowingMoveError>>);
 static_assert(!ano::ResultOperation<decltype(&unsafe_error_operation)>);
+static_assert(ano::ResultOperation<MoveOnlyOperation>);
+static_assert(FunctionAvailable<MoveOnlyOperation>);
+static_assert(!FunctionAvailable<MoveOnlyOperation&>);
 static_assert(!FailureAvailable<const char (&)[2]>);
 static_assert(UnitResultIfAvailable<AdversarialError>);
 static_assert(!UnitResultIfAvailable<AdversarialError&>);
