@@ -40,8 +40,10 @@
   };
 
   inputs = {
-    # GCC 16 plus MinGW-w64 14 for the C++26 Windows cross-toolchain.
-    nixpkgs.url = "github:NixOS/nixpkgs/a2442f68c83d284dc103a58595990047ed1fa0cc";
+    # GCC 16.2 plus MinGW-w64 14 for the C++26 Windows cross-toolchain.
+    # No gcc17 / gccSnapshot / gccNightly in nixpkgs; official weekly snapshots
+    # exist (LATEST-17) but are unpackaged and not a supported engine compiler.
+    nixpkgs.url = "github:NixOS/nixpkgs/29559bdc8fb34e51837dd5dae865eb6f20f42be3";
 
     # Pinned submodule sources, revs match .gitmodules.
     mimalloc-src = {
@@ -155,7 +157,7 @@
       '';
 
       # One engine derivation for every permutation.
-      # pkgs/stdenv: host package set + compiler (native GCC 16, or MinGW GCC 16 cross).
+      # pkgs/stdenv: host package set + compiler (native GCC 16.2, or MinGW GCC 16.2 cross).
       # variant: qualified attr name, becomes the pname suffix.
       # buildType: Release | Debug. headless: no renderer, no GLFW/Vulkan.
       # wayland/x11: Linux renderer backends (both on = runtime-selected).
@@ -372,14 +374,15 @@
           archTag = if host.isx86_64 then "x64" else "aarch64";
           hostTag = (if isLinux then "linux" else "macos") + "-" + archTag;
 
-          # Reflection is canonical on this branch. Linux uses the pinned GCC 16 stdenv;
+          # Reflection is canonical on this branch. Linux uses the pinned GCC 16.2 stdenv;
           # Darwin remains evaluable but CMake rejects it until its compiler supports P2996.
-          llvmLatest = pkgs.llvmPackages_latest;
+          # llvmPackages_latest is still 22.1.8; pin the 23.1.0-rc1 set explicitly.
+          llvmPkgs = pkgs.llvmPackages_23;
           engineStdenv =
             if isLinux then
               pkgs.gcc16Stdenv
             else
-              llvmLatest.stdenv;
+              llvmPkgs.stdenv;
 
           # The proof kernel is pinned independently of Nixpkgs release cadence while
           # retaining its audited source-build expression and sandbox integration.
@@ -770,8 +773,8 @@
               leanToolchain
             ])
             ++ [
-              llvmLatest.llvm
-              llvmLatest.lldb
+              llvmPkgs.llvm
+              llvmPkgs.lldb
             ];
           vvlShell = vvlFor pkgs host;
 
