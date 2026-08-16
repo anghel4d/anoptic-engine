@@ -89,6 +89,112 @@ theorem valid_reconstructs {Carrier : Type u}
 
 end Inspection
 
+/-! ## One reflected callable shape -/
+
+/-- Reflection records one callable carrier; arity-specific APIs refine it. -/
+structure CallableShape where
+  Parameters : List (Type u)
+  Return : Type u
+  carrier : Inspection Return
+
+namespace CallableShape
+
+def arity (shape : CallableShape.{u}) : Nat :=
+  shape.Parameters.length
+
+def pure (parameters : List (Type u)) (Return : Type u) :
+    CallableShape.{u} where
+  Parameters := parameters
+  Return := Return
+  carrier := .invalid
+
+def result (parameters : List (Type u)) (Value Error : Type u) :
+    CallableShape.{u} where
+  Parameters := parameters
+  Return := Outcome.Result Value Error
+  carrier := .valid (factor Value Error)
+
+@[simp] theorem pure_arity (parameters : List (Type u)) (Return : Type u) :
+    (pure parameters Return).arity = parameters.length :=
+  rfl
+
+@[simp] theorem result_arity (parameters : List (Type u))
+    (Value Error : Type u) :
+    (result parameters Value Error).arity = parameters.length :=
+  rfl
+
+@[simp] theorem result_reconstructs (parameters : List (Type u))
+    (Value Error : Type u) :
+    (result parameters Value Error).Return = Outcome.Result Value Error :=
+  rfl
+
+end CallableShape
+
+/-- Unary/nullary result arrows and binary folds are arity refinements. -/
+inductive CallableRole (shape : CallableShape.{u}) : Type (u + 1) where
+  | operation (supported : shape.arity ≤ 1)
+  | fold (binary : shape.arity = 2)
+
+def resultOperationShape (Domain Value Error : Type u) :
+    CallableShape.{u} :=
+  CallableShape.result [Domain] Value Error
+
+def pureFoldShape (State Item : Type u) : CallableShape.{u} :=
+  CallableShape.pure [State, Item] State
+
+@[simp] theorem resultOperationShape_is_unary
+    (Domain Value Error : Type u) :
+    (resultOperationShape Domain Value Error).arity = 1 :=
+  rfl
+
+@[simp] theorem pureFoldShape_is_binary (State Item : Type u) :
+    (pureFoldShape State Item).arity = 2 :=
+  rfl
+
+def resultOperationRole (Domain Value Error : Type u) :
+    CallableRole (resultOperationShape Domain Value Error) :=
+  .operation (by simp)
+
+def pureFoldRole (State Item : Type u) :
+    CallableRole (pureFoldShape State Item) :=
+  .fold (by simp)
+
+/-- Structural recognition and permission to invoke are independent facts. -/
+structure CallableDeclaration where
+  shape : CallableShape.{u}
+  nonthrowing : Bool
+  exactlyInvocable : Bool
+
+def CallableDeclaration.StructurallyResult
+    (declaration : CallableDeclaration.{u}) : Prop :=
+  declaration.shape.carrier.isValid = true
+
+def CallableDeclaration.OperationallyAdmitted
+    (declaration : CallableDeclaration.{u}) : Prop :=
+  declaration.nonthrowing = true ∧ declaration.exactlyInvocable = true
+
+def structurallyValidButThrowing (Domain Value Error : Type u) :
+    CallableDeclaration.{u} :=
+  ⟨resultOperationShape Domain Value Error, false, true⟩
+
+theorem structural_recognition_does_not_admit_invocation
+    (Domain Value Error : Type u) :
+    (structurallyValidButThrowing Domain Value Error).StructurallyResult ∧
+      ¬(structurallyValidButThrowing Domain Value Error).OperationallyAdmitted := by
+  simp [structurallyValidButThrowing,
+    CallableDeclaration.StructurallyResult,
+    CallableDeclaration.OperationallyAdmitted,
+    resultOperationShape, CallableShape.result,
+    Inspection.isValid]
+
+/-- The old flag implication accepted an unsupported non-nullary callable. -/
+def LegacyCoherent (nullary supportedArity : Bool) : Bool :=
+  !nullary || supportedArity
+
+@[simp] theorem legacy_coherent_is_too_weak :
+    LegacyCoherent false false = true :=
+  rfl
+
 /-! ## Reflected operation compatibility -/
 
 /-- The portion of one reflected operation declaration used by composition. -/
@@ -189,8 +295,241 @@ theorem compose_assoc {SafeError : Type u → Prop}
   Composition.Fallible.failure_short_circuits
     first.arrow second.arrow input error failed
 
+/-- Functorial value mapping preserves the error carrier. -/
+def transform {SafeError : Type u → Prop} {Error Input Value Next : Type u}
+    (arrow : Morphism SafeError Error Input Value)
+    (mapper : Value → Next) : Morphism SafeError Error Input Next :=
+  ⟨arrow.safeError,
+    ⟨fun input => Outcome.map mapper (arrow.arrow.run input)⟩⟩
+
+/-- Error mapping preserves successful values and changes only the error factor. -/
+def mapError {SafeError : Type u → Prop}
+    {Error NextError Input Value : Type u}
+    (safeError : SafeError NextError)
+    (arrow : Morphism SafeError Error Input Value)
+    (mapper : Error → NextError) :
+    Morphism SafeError NextError Input Value :=
+  ⟨safeError,
+    ⟨fun input =>
+      match arrow.arrow.run input with
+      | .error error => .error (mapper error)
+      | .ok value => .ok value⟩⟩
+
+/-- Fail-fast applicative pairing evaluates two arrows on one shared witness. -/
+def pair {SafeError : Type u → Prop}
+    {Error Witness Left Right : Type u}
+    (left : Morphism SafeError Error Witness Left)
+    (right : Morphism SafeError Error Witness Right) :
+    Morphism SafeError Error Witness (Left × Right) :=
+  ⟨left.safeError,
+    ⟨fun witness =>
+      match left.arrow.run witness with
+      | .error error => .error error
+      | .ok leftValue =>
+          match right.arrow.run witness with
+          | .error error => .error error
+          | .ok rightValue => .ok (leftValue, rightValue)⟩⟩
+
+@[simp] theorem transform_identity {SafeError : Type u → Prop}
+    {Error Input Value : Type u}
+    (arrow : Morphism SafeError Error Input Value) :
+    transform arrow id = arrow := by
+  apply ext
+  apply Composition.Fallible.ext
+  intro input
+  exact Outcome.map_id (arrow.arrow.run input)
+
+theorem transform_comp {SafeError : Type u → Prop}
+    {Error Input A B C : Type u}
+    (arrow : Morphism SafeError Error Input A)
+    (first : A → B) (second : B → C) :
+    transform (transform arrow first) second =
+      transform arrow (second ∘ first) := by
+  apply ext
+  apply Composition.Fallible.ext
+  intro input
+  exact Outcome.map_comp first second (arrow.arrow.run input)
+
+@[simp] theorem mapError_identity {SafeError : Type u → Prop}
+    {Error Input Value : Type u}
+    (arrow : Morphism SafeError Error Input Value) :
+    mapError arrow.safeError arrow id = arrow := by
+  apply ext
+  apply Composition.Fallible.ext
+  intro input
+  cases result : arrow.arrow.run input <;> simp [mapError, result]
+
+theorem mapError_comp {SafeError : Type u → Prop}
+    {Error MiddleError NextError Input Value : Type u}
+    (middleSafe : SafeError MiddleError)
+    (nextSafe : SafeError NextError)
+    (arrow : Morphism SafeError Error Input Value)
+    (first : Error → MiddleError) (second : MiddleError → NextError) :
+    mapError nextSafe (mapError middleSafe arrow first) second =
+      mapError nextSafe arrow (second ∘ first) := by
+  apply ext
+  apply Composition.Fallible.ext
+  intro input
+  cases result : arrow.arrow.run input <;> simp [mapError, result]
+
+@[simp] theorem pair_left_error {SafeError : Type u → Prop}
+    {Error Witness Left Right : Type u}
+    (left : Morphism SafeError Error Witness Left)
+    (right : Morphism SafeError Error Witness Right)
+    (witness : Witness) (error : Error)
+    (failed : left.arrow.run witness = .error error) :
+    (pair left right).arrow.run witness = .error error := by
+  simp [pair, failed]
+
+@[simp] theorem pair_right_error {SafeError : Type u → Prop}
+    {Error Witness Left Right : Type u}
+    (left : Morphism SafeError Error Witness Left)
+    (right : Morphism SafeError Error Witness Right)
+    (witness : Witness) (leftValue : Left) (error : Error)
+    (leftSucceeded : left.arrow.run witness = .ok leftValue)
+    (rightFailed : right.arrow.run witness = .error error) :
+    (pair left right).arrow.run witness = .error error := by
+  simp [pair, leftSucceeded, rightFailed]
+
+@[simp] theorem pair_both_error_selects_left {SafeError : Type u → Prop}
+    {Error Witness Left Right : Type u}
+    (left : Morphism SafeError Error Witness Left)
+    (right : Morphism SafeError Error Witness Right)
+    (witness : Witness) (leftError rightError : Error)
+    (leftFailed : left.arrow.run witness = .error leftError)
+    (_rightFailed : right.arrow.run witness = .error rightError) :
+    (pair left right).arrow.run witness = .error leftError :=
+  pair_left_error left right witness leftError leftFailed
+
+@[simp] theorem pair_succeeds {SafeError : Type u → Prop}
+    {Error Witness Left Right : Type u}
+    (left : Morphism SafeError Error Witness Left)
+    (right : Morphism SafeError Error Witness Right)
+    (witness : Witness) (leftValue : Left) (rightValue : Right)
+    (leftSucceeded : left.arrow.run witness = .ok leftValue)
+    (rightSucceeded : right.arrow.run witness = .ok rightValue) :
+    (pair left right).arrow.run witness = .ok (leftValue, rightValue) := by
+  simp [pair, leftSucceeded, rightSucceeded]
+
+@[simp] theorem pair_succeeds_iff {SafeError : Type u → Prop}
+    {Error Witness Left Right : Type u}
+    (left : Morphism SafeError Error Witness Left)
+    (right : Morphism SafeError Error Witness Right)
+    (witness : Witness) (leftValue : Left) (rightValue : Right) :
+    (pair left right).arrow.run witness = .ok (leftValue, rightValue) ↔
+      left.arrow.run witness = .ok leftValue ∧
+        right.arrow.run witness = .ok rightValue := by
+  constructor
+  · intro paired
+    simp only [pair] at paired
+    split at paired <;> rename_i leftResult
+    · contradiction
+    · split at paired <;> rename_i rightResult
+      · contradiction
+      · cases paired
+        exact ⟨leftResult, rightResult⟩
+  · rintro ⟨leftResult, rightResult⟩
+    exact pair_succeeds left right witness leftValue rightValue
+      leftResult rightResult
+
+def reassociate (value : (A × B) × C) : A × (B × C) :=
+  (value.1.1, value.1.2, value.2)
+
+/-- Pairing is associative up to the canonical product associator. -/
+theorem pair_assoc {SafeError : Type u → Prop}
+    {Error Witness A B C : Type u}
+    (first : Morphism SafeError Error Witness A)
+    (second : Morphism SafeError Error Witness B)
+    (third : Morphism SafeError Error Witness C) :
+    transform (pair (pair first second) third) reassociate =
+      pair first (pair second third) := by
+  apply ext
+  apply Composition.Fallible.ext
+  intro witness
+  cases firstResult : first.arrow.run witness with
+  | error error =>
+      simp [transform, pair, Outcome.map, Outcome.bind, firstResult]
+  | ok firstValue =>
+      cases secondResult : second.arrow.run witness with
+      | error error =>
+          simp [transform, pair, Outcome.map, Outcome.bind,
+            firstResult, secondResult]
+      | ok secondValue =>
+          cases thirdResult : third.arrow.run witness <;>
+            simp [transform, pair, Outcome.map, Outcome.bind, Outcome.pure,
+              reassociate, firstResult, secondResult, thirdResult]
+
 end Morphism
 end Checked
+
+/-! ## One bounded scan skeleton -/
+
+/-- Observable scan state includes the caller-owned written prefix on failure. -/
+structure ScanObservation (Error State : Type u) where
+  written : List State
+  outcome : Outcome.Result (List State) Error
+
+/-- A bounded scan interprets every step through the result algebra. -/
+def scan (step : State → Item → Outcome.Result State Error) :
+    Nat → State → List Item → ScanObservation Error State
+  | 0, _, _ => ⟨[], .ok []⟩
+  | _ + 1, _, [] => ⟨[], .ok []⟩
+  | fuel + 1, state, item :: items =>
+      match step state item with
+      | .error error => ⟨[], .error error⟩
+      | .ok next =>
+          let tail := scan step fuel next items
+          ⟨next :: tail.written,
+            Outcome.map (List.cons next) tail.outcome⟩
+
+/-- The pure specialization contains no failure branch. -/
+def scanPure (step : State → Item → State) : Nat → State → List Item → List State
+  | 0, _, _ => []
+  | _ + 1, _, [] => []
+  | fuel + 1, state, item :: items =>
+      let next := step state item
+      next :: scanPure step fuel next items
+
+@[simp] theorem scanPure_length (step : State → Item → State)
+    (fuel : Nat) (state : State) (items : List Item) :
+    (scanPure step fuel state items).length = min fuel items.length := by
+  induction fuel generalizing state items with
+  | zero => rfl
+  | succ fuel induction =>
+      cases items with
+      | nil => rfl
+      | cons item items =>
+          simp [scanPure, induction]
+
+/-- Lifting a pure fold step into `Result` preserves the exact bounded scan. -/
+theorem scan_lift_pure (Error : Type u) (step : State → Item → State)
+    (fuel : Nat) (state : State) (items : List Item) :
+    let observation := scan (Error := Error)
+      (fun current item => .ok (step current item)) fuel state items
+    observation.written = scanPure step fuel state items ∧
+      observation.outcome = .ok (scanPure step fuel state items) := by
+  induction fuel generalizing state items with
+  | zero => simp [scan, scanPure]
+  | succ fuel induction =>
+      cases items with
+      | nil => simp [scan, scanPure]
+      | cons item items =>
+          simp only [scan, scanPure]
+          have tail := induction (state := step state item) (items := items)
+          simp only at tail
+          rcases tail with ⟨written, outcome⟩
+          constructor
+          · exact congrArg (List.cons (step state item)) written
+          · rw [outcome]
+            rfl
+
+@[simp] theorem scan_first_failure
+    (step : State → Item → Outcome.Result State Error)
+    (fuel : Nat) (state : State) (item : Item) (items : List Item)
+    (error : Error) (failed : step state item = .error error) :
+    scan step (fuel + 1) state (item :: items) =
+      ⟨[], .error error⟩ := by
+  simp [scan, failed]
 
 /-! ## Exact construction witnesses for `result_if` -/
 
