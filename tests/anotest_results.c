@@ -124,6 +124,32 @@ constexpr auto check_version(int witness) noexcept
     return static_cast<long>(witness + 3);
 }
 
+constexpr int positiveSamples[] = {1, 2, 3};
+constexpr int mixedSamples[] = {1, -2, 3};
+
+constexpr auto sample_range(int selection) noexcept
+    -> ano::Result<std::span<const int>, ParseError>
+{
+    if (selection == 0)
+        return ano::failure(ParseError::invalid);
+    return selection == 1
+        ? std::span<const int>{positiveSamples}
+        : std::span<const int>{mixedSamples};
+}
+
+constexpr int sum_step(int state, const int& item) noexcept
+{
+    return state + item;
+}
+
+constexpr auto checked_sum_step(int state, const int& item) noexcept
+    -> ano::Result<int, ParseError>
+{
+    if (item < 0)
+        return ano::failure(ParseError::missing);
+    return state + item;
+}
+
 constexpr int square(int value) noexcept
 {
     return value * value;
@@ -195,6 +221,14 @@ static_assert(ano::KleisliPairable<decltype(&check_format),
                                    decltype(&check_extent)>);
 static_assert(!ano::KleisliPairable<decltype(&check_format),
                                     decltype(&wrong_domain)>);
+static_assert(ano::detail::foldShape<decltype(&sum_step)>.concrete);
+static_assert(ano::detail::foldShape<decltype(&sum_step)>.supportedArity);
+static_assert(ano::detail::foldShape<decltype(&sum_step)>.nonthrowing);
+static_assert(ano::FoldStep<decltype(&sum_step), int, const int&>);
+static_assert(ano::KleisliFoldStep<
+              decltype(&checked_sum_step), int, const int&, ParseError>);
+static_assert(!ano::PureOperation<decltype(&sum_step)>);
+static_assert(!ano::ResultOperation<decltype(&checked_sum_step)>);
 static_assert(std::same_as<
               ano::ResultOperationAlgebra<decltype(&parse)>::Domain, bool>);
 static_assert(std::same_as<
@@ -290,6 +324,28 @@ consteval bool pairing_surface()
 }
 
 static_assert(pairing_surface());
+
+consteval bool scan_surface()
+{
+    int pureOutput[2]{};
+    int fallibleOutput[3]{};
+    const auto pure = ano::lift<^^sample_range>.scan_into(
+        0, sum_step, std::span<int>{pureOutput});
+    const auto fallible = ano::lift<^^sample_range>.scan_into(
+        0, checked_sum_step, std::span<int>{fallibleOutput});
+
+    const auto prefix = pure(1);
+    const auto sourceError = pure(0);
+    const auto foldError = fallible(2);
+    return prefix
+        && prefix->size() == 2
+        && (*prefix)[0] == 1
+        && (*prefix)[1] == 3
+        && ano::has_error(sourceError, ParseError::invalid)
+        && ano::has_error(foldError, ParseError::missing);
+}
+
+static_assert(scan_surface());
 
 consteval bool named_function_surface()
 {

@@ -39,6 +39,24 @@ struct OperationShape final {
 
 static_assert(std::regular<OperationShape>);
 
+struct FoldShape final {
+    std::meta::info declaration{};
+    std::meta::info stateParameter{};
+    std::meta::info itemParameter{};
+    std::meta::info stateDomain{};
+    std::meta::info itemDomain{};
+    std::meta::info result{};
+    ResultShape carrier{};
+    bool concrete{};
+    bool supportedArity{};
+    bool nonthrowing{};
+
+    friend constexpr bool operator==(const FoldShape&,
+                                     const FoldShape&) = default;
+};
+
+static_assert(std::regular<FoldShape>);
+
 consteval std::meta::info callable_declaration(std::meta::info type)
 {
     type = std::meta::dealias(std::meta::remove_cvref(type));
@@ -71,6 +89,13 @@ consteval std::meta::info callable_declaration(std::meta::info type)
     return call;
 }
 
+consteval std::meta::info parameter_type(std::meta::info parameter)
+{
+    return std::meta::is_type(parameter)
+        ? parameter
+        : std::meta::type_of(parameter);
+}
+
 consteval OperationShape inspect_operation(std::meta::info type)
 {
     OperationShape shape{};
@@ -95,10 +120,37 @@ consteval OperationShape inspect_operation(std::meta::info type)
     shape.nullary = arity == 0;
     shape.parameter = shape.nullary
         ? ^^void
-        : (std::meta::is_type(parameters[first])
-               ? parameters[first]
-               : std::meta::type_of(parameters[first]));
+        : parameter_type(parameters[first]);
     shape.domain = std::meta::remove_cvref(shape.parameter);
+    shape.result = std::meta::return_type_of(shape.declaration);
+    shape.carrier = inspect_result(shape.result);
+    return shape;
+}
+
+consteval FoldShape inspect_fold(std::meta::info type)
+{
+    FoldShape shape{};
+    shape.declaration = callable_declaration(type);
+    if (shape.declaration == std::meta::info{})
+        return shape;
+
+    shape.concrete = true;
+    shape.nonthrowing = std::meta::is_noexcept(shape.declaration);
+
+    const auto parameters = std::meta::parameters_of(shape.declaration);
+    const size_t first = !parameters.empty()
+            && std::meta::is_function_parameter(parameters[0])
+            && std::meta::is_explicit_object_parameter(parameters[0])
+        ? 1
+        : 0;
+    if (parameters.size() - first != 2)
+        return shape;
+
+    shape.supportedArity = true;
+    shape.stateParameter = parameter_type(parameters[first]);
+    shape.itemParameter = parameter_type(parameters[first + 1]);
+    shape.stateDomain = std::meta::remove_cvref(shape.stateParameter);
+    shape.itemDomain = std::meta::remove_cvref(shape.itemParameter);
     shape.result = std::meta::return_type_of(shape.declaration);
     shape.carrier = inspect_result(shape.result);
     return shape;
@@ -107,6 +159,10 @@ consteval OperationShape inspect_operation(std::meta::info type)
 template<class Type>
 inline constexpr OperationShape operationShape =
     inspect_operation(^^std::remove_cvref_t<Type>);
+
+template<class Type>
+inline constexpr FoldShape foldShape =
+    inspect_fold(^^std::remove_cvref_t<Type>);
 
 template<class Type>
 consteval bool declared_invocation()
@@ -152,6 +208,56 @@ consteval bool nothrow_error()
     else {
         using Error = [:shape.carrier.error:];
         return ResultError<Error>;
+    }
+}
+
+template<class Step, class State, class Item>
+consteval bool fold_step()
+{
+    using Operation = std::remove_cvref_t<Step>;
+    using StoredState = std::remove_cvref_t<State>;
+    constexpr auto shape = foldShape<Operation>;
+    if constexpr (!shape.concrete || !shape.supportedArity
+                  || !shape.nonthrowing || shape.carrier.valid) {
+        return false;
+    } else {
+        using StateDomain = [:shape.stateDomain:];
+        using ItemDomain = [:shape.itemDomain:];
+        using Return = [:shape.result:];
+        return std::movable<StoredState>
+            && std::same_as<StateDomain, StoredState>
+            && std::same_as<ItemDomain, std::remove_cvref_t<Item>>
+            && std::same_as<Return, StoredState>
+            && std::is_nothrow_invocable_r_v<
+                StoredState, const Operation&, StoredState, Item>;
+    }
+}
+
+template<class Step, class State, class Item, class Error>
+consteval bool kleisli_fold_step()
+{
+    using Operation = std::remove_cvref_t<Step>;
+    using StoredState = std::remove_cvref_t<State>;
+    using StoredError = std::remove_cvref_t<Error>;
+    constexpr auto shape = foldShape<Operation>;
+    if constexpr (!shape.concrete || !shape.supportedArity
+                  || !shape.nonthrowing || !shape.carrier.valid) {
+        return false;
+    } else {
+        using StateDomain = [:shape.stateDomain:];
+        using ItemDomain = [:shape.itemDomain:];
+        using ReflectedCarrier = [:shape.result:];
+        using Carrier = std::remove_cvref_t<ReflectedCarrier>;
+        using Value = [:shape.carrier.value:];
+        using ActualError = [:shape.carrier.error:];
+        return std::movable<StoredState>
+            && std::same_as<StateDomain, StoredState>
+            && std::same_as<ItemDomain, std::remove_cvref_t<Item>>
+            && std::same_as<Value, StoredState>
+            && std::same_as<ActualError, StoredError>
+            && ResultError<StoredError>
+            && std::is_nothrow_invocable_r_v<
+                Carrier, const Operation&, StoredState, Item>;
     }
 }
 
@@ -280,6 +386,61 @@ concept KleisliPairable = SameResultError<Left, Right>
             && std::is_nothrow_invocable_v<
                 const Right&,
                 const typename ResultOperationAlgebra<Right>::Domain&>));
+
+template<class Step, class State, class Item>
+concept FoldStep = detail::fold_step<Step, State, Item>();
+
+template<class Step, class State, class Item, class Error>
+concept KleisliFoldStep =
+    detail::kleisli_fold_step<Step, State, Item, Error>();
+
+template<class Range>
+concept ScanRange = std::is_object_v<Range>
+    && std::ranges::contiguous_range<const Range>
+    && std::ranges::sized_range<const Range>
+    && requires(const Range& range) {
+        { std::ranges::data(range) } noexcept;
+        { std::ranges::size(range) } noexcept;
+    };
+
+template<class Range>
+    requires ScanRange<Range>
+using RangeValue = std::ranges::range_value_t<const Range>;
+
+namespace detail {
+
+template<class Operation, class State, class Step, bool Fallible>
+consteval bool scannable()
+{
+    using Source = std::remove_cvref_t<Operation>;
+    using StoredState = std::remove_cvref_t<State>;
+    using Fold = std::remove_cvref_t<Step>;
+    if constexpr (!ResultOperation<Source>) {
+        return false;
+    } else {
+        using Algebra = ResultOperationAlgebra<Source>;
+        using Range = typename Algebra::Value;
+        if constexpr (!ScanRange<Range>) {
+            return false;
+        } else {
+            using Item = std::ranges::range_reference_t<const Range>;
+            constexpr bool safeState =
+                std::is_trivially_copyable_v<StoredState>
+                && std::is_nothrow_copy_constructible_v<StoredState>
+                && std::is_nothrow_move_constructible_v<StoredState>
+                && std::is_nothrow_copy_assignable_v<StoredState>
+                && std::is_nothrow_move_assignable_v<StoredState>;
+            if constexpr (Fallible)
+                return safeState && KleisliFoldStep<
+                    Fold, StoredState, Item, typename Algebra::Error>;
+            else
+                return safeState
+                    && FoldStep<Fold, StoredState, Item>;
+        }
+    }
+}
+
+} // namespace detail
 
 template<NonthrowingOperation Operation>
 struct Function;
@@ -523,6 +684,74 @@ struct [[nodiscard]] Function final {
         return Function<Mapped>{Mapped{
             self.operation,
             MapOperation(std::forward<Mapper>(mapper))}};
+    }
+
+    // Scan a contiguous result range into caller-owned storage. If the output
+    // is shorter than the input, the written prefix is returned.
+    template<class State, class Step>
+        requires (detail::scannable<
+            Operation, State, std::decay_t<Step>, false>())
+    [[nodiscard]] constexpr auto scan_into(
+        this const Function& self,
+        State initial,
+        Step&& step,
+        std::span<State> output)
+    {
+        using ResultAlgebra = ResultOperationAlgebra<Operation>;
+        using Range = typename ResultAlgebra::Value;
+        using Fold = std::decay_t<Step>;
+        auto scan = [initial,
+                     fold = Fold(std::forward<Step>(step)),
+                     output](const Range& values) noexcept {
+            State state = initial;
+            const size_t available = std::ranges::size(values);
+            const size_t count = available < output.size()
+                ? available
+                : output.size();
+            const auto data = std::ranges::data(values);
+            for (size_t i = 0; i < count; ++i) {
+                state = fold(std::move(state), data[i]);
+                output[i] = state;
+            }
+            return std::span<State>{output.data(), count};
+        };
+        return self.transform(std::move(scan));
+    }
+
+    template<class State, class Step>
+        requires (detail::scannable<
+            Operation, State, std::decay_t<Step>, true>())
+    [[nodiscard]] constexpr auto scan_into(
+        this const Function& self,
+        State initial,
+        Step&& step,
+        std::span<State> output)
+    {
+        using ResultAlgebra = ResultOperationAlgebra<Operation>;
+        using Range = typename ResultAlgebra::Value;
+        using Error = typename ResultAlgebra::Error;
+        using Fold = std::decay_t<Step>;
+        auto scan = [initial,
+                     fold = Fold(std::forward<Step>(step)),
+                     output](const Range& values) noexcept
+            -> Result<std::span<State>, Error> {
+            State state = initial;
+            const size_t available = std::ranges::size(values);
+            const size_t count = available < output.size()
+                ? available
+                : output.size();
+            const auto data = std::ranges::data(values);
+            for (size_t i = 0; i < count; ++i) {
+                auto next = fold(std::move(state), data[i]);
+                if (!next)
+                    return Result<std::span<State>, Error>(
+                        std::unexpect, std::move(next).error());
+                state = std::move(next).value();
+                output[i] = state;
+            }
+            return std::span<State>{output.data(), count};
+        };
+        return self.and_then(std::move(scan));
     }
 };
 
