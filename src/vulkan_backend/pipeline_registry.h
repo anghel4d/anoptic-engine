@@ -4,6 +4,7 @@
 #include <meta>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "vulkan_backend/components.h"
 
@@ -39,12 +40,12 @@ consteval auto ano_reflect_pipeline_registry()
             static_assert((spec.kind == AnoPipelineKind::skeleton) == (spec.shader == AnoShaderFamily::none));
             static_assert((spec.kind == AnoPipelineKind::skeleton) == (spec.schedule == AnoPipelineSchedule::none));
             if (seen[index])
-                __builtin_abort();
+                abort();
             seen[index] = true;
             result.values[index] = spec;
             if constexpr (spec.drawSlot != ANO_NO_DRAW_SLOT) {
                 if (drawSlots[spec.drawSlot])
-                    __builtin_abort();
+                    abort();
                 drawSlots[spec.drawSlot] = true;
                 ++result.drawCount;
             }
@@ -54,7 +55,7 @@ consteval auto ano_reflect_pipeline_registry()
     }
     for (uint32_t i = 0; i < PIPELINE_TYPE_COUNT; ++i)
         if (!seen[i] || (i < result.drawCount && !drawSlots[i]))
-            __builtin_abort();
+            abort();
     return result;
 }
 

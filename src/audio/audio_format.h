@@ -158,7 +158,7 @@ consteval auto ano_reflect_audio_samples()
     for (const AnoAudioSampleMapping& mapping : result.values)
         if (mapping.storage.bytes == 0 ||
             mapping.storage.bytes * 8u != mapping.storage.bits)
-            __builtin_abort();
+            abort();
     return result;
 }
 
@@ -168,7 +168,7 @@ consteval auto ano_reflect_audio_channels()
         AnoAudioChannelLayout, AnoAudioChannelProjection>();
     for (const AnoAudioChannelProjection& mapping : result.values)
         if (mapping.count == 0 || mapping.count > 2 || mapping.waveMask == 0)
-            __builtin_abort();
+            abort();
     return result;
 }
 
@@ -186,7 +186,7 @@ consteval auto ano_reflect_audio_backends()
         if ((capability.directSampleMask | capability.convertedSampleMask) == 0 ||
             (capability.directSampleMask & capability.convertedSampleMask) != 0 ||
             capability.layoutMask == 0 || capability.interleaveMask == 0)
-            __builtin_abort();
+            abort();
     return result;
 }
 

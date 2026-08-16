@@ -14,7 +14,7 @@ CheckOptions:
       -bits/*,-debug/*,-experimental/*,-ext/*,-parallel/*,-tr1/*,-backward/*,-__/*,
       version,compare,initializer_list,new,coroutine,contracts,meta,
       cstddef,cstdint,climits,cfloat,cstdarg,stdfloat,
-      type_traits,concepts,limits,bit,utility,source_location,ratio,numbers,
+      type_traits,concepts,limits,bit,cmath,utility,source_location,ratio,numbers,
       atomic,array,span,mdspan,string_view,optional,expected,
       inplace_vector,simd,bitset,cassert,
       stdbit.h,stdckdint.h,cstdalign,cstdbool,

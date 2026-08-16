@@ -13,8 +13,10 @@
 
 #pragma once
 
+#include <cmath>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <anoptic_results.h>
 
 namespace ano {
@@ -327,18 +329,18 @@ static_assert(sizeof(UiColor) == sizeof(float) * 4u);
 
 consteval float ui_srgb_channel(float value)
 {
-    if (!__builtin_isfinite(value))
-        __builtin_abort();
+    if (!std::isfinite(value))
+        abort();
     const float channel = value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value;
     return channel <= 0.04045f
         ? channel / 12.92f
-        : __builtin_powf((channel + 0.055f) / 1.055f, 2.4f);
+        : std::pow((channel + 0.055f) / 1.055f, 2.4f);
 }
 
 consteval UiColor ui_srgb(float red, float green, float blue, float alpha)
 {
-    if (!__builtin_isfinite(alpha))
-        __builtin_abort();
+    if (!std::isfinite(alpha))
+        abort();
     return {{ ui_srgb_channel(red) * alpha,
               ui_srgb_channel(green) * alpha,
               ui_srgb_channel(blue) * alpha,
@@ -369,8 +371,8 @@ struct UiStops final {
         static_assert(sizeof...(Stops) == Count);
         UiSrgbStop authored[Count] = { input... };
         for (size_t i = 0; i < Count; ++i) {
-            if (!__builtin_isfinite(authored[i].t))
-                __builtin_abort();
+            if (!std::isfinite(authored[i].t))
+                abort();
             const UiColor color = ui_srgb(authored[i].red, authored[i].green,
                                           authored[i].blue, authored[i].alpha);
             values[i] = AnoUiStop{

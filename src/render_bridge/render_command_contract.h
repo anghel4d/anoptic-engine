@@ -32,14 +32,14 @@ consteval auto reflect_fields()
     ano::reflect_field_uses<RenderCommand, AnoRenderFieldUse>(result, used);
     ano::reflect_field_uses<RenderUpdateBatch, AnoRenderFieldUse>(result, used);
     if (used != result.declared)
-        __builtin_abort();
+        abort();
     for (size_t i = 0; i < commands.count; ++i) {
         const AnoRenderCommandPayload payload = commands.values[i].payload;
         const bool fieldsExpected = payload == AnoRenderCommandPayload::create ||
                                     payload == AnoRenderCommandPayload::update ||
                                     payload == AnoRenderCommandPayload::bulk_update;
         if (fieldsExpected != (result.allowed[i] != 0))
-            __builtin_abort();
+            abort();
     }
     return result;
 }

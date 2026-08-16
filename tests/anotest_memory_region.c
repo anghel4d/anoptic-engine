@@ -34,6 +34,12 @@ struct TestVolumePlan final {
     ano::MemorySegment<WideValue> wide;
 };
 
+static_assert([] consteval {
+    const auto widened = ano::checked_add(uint8_t{255}, uint16_t{1});
+    return widened && *widened == 256
+        && !ano::checked_add(uint16_t{UINT16_MAX}, uint8_t{1});
+}());
+
 consteval bool layout_is_reflected()
 {
     TestVolumePlan plan{

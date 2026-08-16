@@ -98,7 +98,7 @@ consteval AnoDrawKernelRegistry ano_reflect_draw_kernels()
     for (const auto& geometry : seen)
         for (bool present : geometry)
             if (!present)
-                __builtin_abort();
+                abort();
     return result;
 }
 

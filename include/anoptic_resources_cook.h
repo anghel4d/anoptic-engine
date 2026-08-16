@@ -90,12 +90,11 @@ ResourceResult<> encode_cooked_artifact(
 {
     const auto& context =
         *static_cast<const CookArtifactContext<ArtifactType> *>(opaque);
-    const EncodeResult encoded = encode(context.source, destination);
-    if (!encoded)
-        return failure(encoded.error());
-    if (*encoded != destination.size)
-        return failure(ANO_RESOURCE_NON_CANONICAL);
-    return {};
+    return encode(context.source, destination).and_then(
+        [&](uint64_t encoded) noexcept {
+            return result_if(encoded == destination.size,
+                             ANO_RESOURCE_NON_CANONICAL);
+        });
 }
 
 } // namespace detail

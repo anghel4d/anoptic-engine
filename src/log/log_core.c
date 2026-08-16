@@ -16,6 +16,7 @@ using namespace ano;
 #include <anoptic_filesystem.h>
 #include <anoptic_time.h>
 
+#include <bit>
 #include <mimalloc.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -847,7 +848,8 @@ LogResult<> ano::log_init(void)
     atomic_store_explicit(&g_drainerParked, false, memory_order_relaxed);
 
     g_ring.mask  = ANO_LOG_RING_LINES - 1;
-    g_ring.shift = (uint32_t)__builtin_ctzll(ANO_LOG_RING_LINES);
+    g_ring.shift = static_cast<uint32_t>(
+        std::countr_zero(uint64_t{ANO_LOG_RING_LINES}));
     g_ring.buf   = static_cast<char *>(
         aligned_malloc(ANO_LOG_RING_BYTES, ANO_LOG_RING_ALIGN));
     if (g_ring.buf == NULL) {

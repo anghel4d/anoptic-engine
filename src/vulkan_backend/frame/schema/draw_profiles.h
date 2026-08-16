@@ -10,6 +10,7 @@
 #include <meta>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 enum class AnoDrawGeometry : uint8_t {
     vertex,
@@ -89,7 +90,7 @@ consteval bool ano_validate_draw_profiles()
             static_assert(geometry < ANO_DRAW_GEOMETRY_COUNT);
             static_assert(submission < ANO_DRAW_SUBMISSION_COUNT);
             if (seen[geometry][submission])
-                __builtin_abort();
+                abort();
             seen[geometry][submission] = true;
         } else {
             static_assert([:profile:] == AnoDrawProfile::count);

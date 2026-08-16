@@ -425,10 +425,9 @@ ResourceResult<AnoResourcePack *> ano::resource_pack_open(
     const uint64_t payloadOffset = ano::detail::read_unsigned(
         bytes.data + 24, 8);
     const auto manifestEnd = ano::checked_add(packHeaderSize, manifestSize);
-    const auto expectedPayload = manifestEnd
-        ? ano::checked_add(*manifestEnd, placementBytes)
-        : ano::ArithmeticResult<uint64_t>(
-              ano::failure(manifestEnd.error()));
+    const auto expectedPayload = manifestEnd.and_then([=](uint64_t end) noexcept {
+        return ano::checked_add(end, placementBytes);
+    });
     if (!expectedPayload || *expectedPayload != payloadOffset
         || payloadOffset > bytes.size)
         return failure(ANO_RESOURCE_BAD_PACK);
@@ -506,11 +505,10 @@ ResourceResult<AnoResourcePack *> ano::resource_pack_open(
         const auto payloadBase = ano::checked_add(
             plan.bytes.reservation.offset,
             static_cast<size_t>(payloadOffset));
-        const auto artifactOffset = payloadBase
-            ? ano::checked_add(
-                  *payloadBase, static_cast<size_t>(placement.offset))
-            : ano::ArithmeticResult<size_t>(
-                  ano::failure(payloadBase.error()));
+        const auto artifactOffset = payloadBase.and_then([&](size_t base) noexcept {
+            return ano::checked_add(
+                base, static_cast<size_t>(placement.offset));
+        });
         if (!artifactOffset) {
             result = ANO_RESOURCE_OVERFLOW;
             break;
@@ -622,10 +620,8 @@ ResourceResult<const AnoCookedRevision *> ano::resource_pack_revision(
 {
     if (pack == nullptr)
         return failure(ANO_RESOURCE_INVALID_ARGUMENT);
-    const auto retained = resource_revision_retain(pack->revision);
-    if (!retained)
-        return failure(retained.error());
-    return pack->revision;
+    return resource_revision_retain(pack->revision)
+        .transform([=] noexcept { return pack->revision; });
 }
 
 const AnoResourceManifest *ano::resource_pack_manifest(

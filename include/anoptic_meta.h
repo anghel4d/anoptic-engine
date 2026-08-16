@@ -11,6 +11,7 @@
 #include <meta>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string_view>
 #include <type_traits>
 #include "anoptic_results.h"
@@ -22,16 +23,24 @@ enum class ArithmeticError : uint8_t { overflow, invalid_alignment };
 template<class Value = void>
 using ArithmeticResult = Result<Value, ArithmeticError>;
 
+namespace detail {
+template<class Left, class Right>
+using ArithmeticValue = std::conditional_t<(sizeof(Left) >= sizeof(Right)),
+                                            Left, Right>;
+}
+
 template<class Left, class Right>
     requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>)
 [[nodiscard]] constexpr auto checked_add(Left lhs, Right rhs) noexcept
-    -> ArithmeticResult<std::common_type_t<Left, Right>>
+    -> ArithmeticResult<detail::ArithmeticValue<Left, Right>>
 {
-    using Value = std::common_type_t<Left, Right>;
-    Value value{};
-    if (__builtin_add_overflow(lhs, rhs, &value))
+    using Value = detail::ArithmeticValue<Left, Right>;
+    const Value left = static_cast<Value>(lhs);
+    const Value right = static_cast<Value>(rhs);
+    constexpr Value maximum = static_cast<Value>(~Value{});
+    if (right > maximum - left)
         return failure(ArithmeticError::overflow);
-    return value;
+    return left + right;
 }
 
 template<class Value, class Increment>
@@ -39,23 +48,22 @@ template<class Value, class Increment>
 [[nodiscard]] constexpr ArithmeticResult<> checked_accumulate(
     Value& value, Increment increment) noexcept
 {
-    const auto sum = checked_add(value, increment);
-    if (!sum)
-        return failure(sum.error());
-    value = static_cast<Value>(*sum);
-    return {};
+    return checked_add(value, increment).transform(
+        [&](auto sum) noexcept { value = static_cast<Value>(sum); });
 }
 
 template<class Left, class Right>
     requires (std::is_unsigned_v<Left> && std::is_unsigned_v<Right>)
 [[nodiscard]] constexpr auto checked_multiply(Left lhs, Right rhs) noexcept
-    -> ArithmeticResult<std::common_type_t<Left, Right>>
+    -> ArithmeticResult<detail::ArithmeticValue<Left, Right>>
 {
-    using Value = std::common_type_t<Left, Right>;
-    Value value{};
-    if (__builtin_mul_overflow(lhs, rhs, &value))
+    using Value = detail::ArithmeticValue<Left, Right>;
+    const Value left = static_cast<Value>(lhs);
+    const Value right = static_cast<Value>(rhs);
+    constexpr Value maximum = static_cast<Value>(~Value{});
+    if (right != 0 && left > maximum / right)
         return failure(ArithmeticError::overflow);
-    return value;
+    return left * right;
 }
 
 template<class Count, class Width>
@@ -199,7 +207,7 @@ consteval auto reflect_enum_values(Projection projection)
                       && raw < static_cast<int64_t>(FirstValue + Count)) {
             constexpr size_t index = static_cast<size_t>(raw) - FirstValue;
             if (seen[index])
-                __builtin_abort();
+                abort();
             seen[index] = true;
             result.values[index] =
                 projection.template operator()<enumerator>();
@@ -207,7 +215,7 @@ consteval auto reflect_enum_values(Projection projection)
     }
     for (bool present : seen)
         if (!present)
-            __builtin_abort();
+            abort();
     return result;
 }
 
@@ -223,7 +231,7 @@ consteval auto reflect_enum_names(std::string_view prefix, EnumNameCase nameCase
             constexpr auto raw = static_cast<int64_t>([:enumerator:]);
             constexpr auto identifier = std::meta::identifier_of(enumerator);
             if (!identifier.starts_with(prefix))
-                __builtin_abort();
+                abort();
             char transformed[identifier.size() + 1] = {};
             size_t length = 0;
             if (raw != emptyValue)
@@ -320,7 +328,7 @@ consteval uint32_t reflect_bit_flags()
         constexpr uint32_t value = static_cast<uint32_t>([:bit:]);
         static_assert(value != 0 && (value & (value - 1u)) == 0);
         if (result & value)
-            __builtin_abort();
+            abort();
         result |= value;
     }
     return result;
@@ -337,7 +345,7 @@ consteval void reflect_field_uses(EnumFieldRegistry<Count>& result, uint32_t& us
         if constexpr (annotations.size() == 1) {
             constexpr Use use = std::meta::extract<Use>(annotations[0]);
             if (use.fields == 0 || (use.fields & ~result.declared) != 0 || use.commands == 0 || (use.commands & ~commandMask) != 0)
-                __builtin_abort();
+                abort();
             used |= use.fields;
             for (size_t i = 0; i < Count; ++i)
                 if (use.commands & (1u << i))

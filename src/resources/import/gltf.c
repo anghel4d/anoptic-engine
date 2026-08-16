@@ -14,6 +14,7 @@ using namespace ano;
 #include <stb_image.h>
 
 #include <limits.h>
+#include <cmath>
 #include <meta>
 #include <stddef.h>
 #include <stdint.h>
@@ -92,7 +93,7 @@ consteval MaterialFeature extension_feature(std::meta::info member)
     constexpr std::string_view prefix = "KHR_materials_";
     std::string_view name = std::meta::identifier_of(member);
     if (!name.starts_with(prefix))
-        __builtin_abort();
+        abort();
     name.remove_prefix(prefix.size());
     static constexpr auto features = std::define_static_array(
         std::meta::enumerators_of(^^MaterialFeature));
@@ -100,7 +101,7 @@ consteval MaterialFeature extension_feature(std::meta::info member)
         if (ano::detail::semantic_name_equal(
                 name, std::meta::identifier_of(feature)))
             return [:feature:];
-    __builtin_abort();
+    abort();
 }
 
 consteval size_t texture_slot_count(std::meta::info sourceType,
@@ -880,9 +881,9 @@ AnoResourceError decode_image(AnoResourceCooker& cooker,
     const auto pixelCount = ano::checked_multiply(
         static_cast<uint64_t>(decodedWidth),
         static_cast<uint64_t>(decodedHeight));
-    const auto bytes = pixelCount
-        ? ano::checked_multiply(*pixelCount, UINT64_C(4))
-        : ano::ArithmeticResult<uint64_t>(failure(pixelCount.error()));
+    const auto bytes = pixelCount.and_then([](uint64_t pixels) noexcept {
+        return ano::checked_multiply(pixels, UINT64_C(4));
+    });
     if (!bytes) {
         stbi_image_free(*pixels);
         *pixels = nullptr;
@@ -1013,7 +1014,7 @@ AnoResourceError build_mesh(const AnoGltfData& data,
             break;
         }
         for (float value : vertices[vertex].position)
-            if (!__builtin_isfinite(value))
+            if (!std::isfinite(value))
                 result = ANO_RESOURCE_NON_CANONICAL;
     }
     if (result == ANO_RESOURCE_OK) {

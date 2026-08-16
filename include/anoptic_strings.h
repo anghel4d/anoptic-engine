@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <bit>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -131,7 +132,7 @@ static inline uint32_t anostr_prefix_key_(anostr_t s)
     uint32_t p;
     memcpy(&p, s.prefix, 4);
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    p = __builtin_bswap32(p);
+    p = std::byteswap(p);
 #endif
     return p;
 }

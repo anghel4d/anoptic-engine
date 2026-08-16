@@ -146,7 +146,7 @@ consteval TextureUsage material_texture_usage(MaterialTextureSlot sought)
             static_assert(annotations.size() == 1);
             return std::meta::extract<MaterialTextureUse>(annotations[0]).usage;
         }
-    __builtin_abort();
+    abort();
 }
 
 inline constexpr size_t materialTextureCount =

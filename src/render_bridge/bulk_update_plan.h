@@ -15,6 +15,7 @@
 
 using namespace ano;
 
+#include <bit>
 #include <stddef.h>
 #include <stdint.h>
 #include <type_traits>
@@ -44,7 +45,7 @@ void segment_copy(RenderUpdateBatch& packed, void* destination,
     using Pointer = [:std::meta::type_of(Member):];
     using Element = std::remove_cv_t<std::remove_pointer_t<Pointer>>;
     packed.[:Member:] = static_cast<Pointer>(destination);
-    __builtin_memcpy(destination, source, static_cast<size_t>(count) * sizeof(Element));
+    memcpy(destination, source, static_cast<size_t>(count) * sizeof(Element));
 }
 
 using SegmentSource = const void* (*)(const RenderUpdateBatch&) noexcept;
@@ -72,8 +73,8 @@ consteval size_t reflect_segment_count()
 
 inline constexpr size_t segmentCount = reflect_segment_count();
 static_assert(allowedFields != 0u && segmentCount > 0u && segmentCount <= UINT8_MAX);
-inline constexpr size_t planCount = size_t{1} << __builtin_popcount(allowedFields);
-inline constexpr size_t maskDomain = size_t{1} << (32u - __builtin_clz(allowedFields));
+inline constexpr size_t planCount = size_t{1} << std::popcount(allowedFields);
+inline constexpr size_t maskDomain = size_t{1} << std::bit_width(allowedFields);
 inline constexpr uint8_t invalidPlan = UINT8_MAX;
 static_assert(planCount == 16u && planCount < invalidPlan && maskDomain <= UINT8_MAX);
 
@@ -140,7 +141,7 @@ consteval BulkPlanRegistry reflect_plans()
         }
     }
     if (segmentIndex != segmentCount || alwaysCount != 1u || usedFields != allowedFields)
-        __builtin_abort();
+        abort();
 
     // Required first, then descending alignment.
     for (size_t i = 1u; i < segmentCount; ++i) {
@@ -175,7 +176,7 @@ consteval BulkPlanRegistry reflect_plans()
         result.selection[fields] = static_cast<uint8_t>(planIndex++);
     }
     if (planIndex != planCount)
-        __builtin_abort();
+        abort();
     return result;
 }
 

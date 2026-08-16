@@ -9,6 +9,7 @@
 
 #include "music_det.h"
 
+#include <bit>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -236,7 +237,7 @@ static uint64_t mt_randbelow(AnoMusicRng *r, uint64_t n)
 {
     if (n == 0)
         return 0;
-    uint32_t k = 64u - (uint32_t)__builtin_clzll(n); // n.bit_length()
+    const uint32_t k = std::bit_width(n);
     if (k <= 32u) {
         uint32_t v;
         do

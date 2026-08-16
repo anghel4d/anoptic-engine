@@ -19,7 +19,6 @@ using Result = std::expected<Value, Error>;
 namespace detail {
 
 struct ResultShape final {
-    std::meta::info carrier{};
     std::meta::info value{};
     std::meta::info error{};
     bool valid{};
@@ -37,22 +36,11 @@ consteval ResultShape inspect_result(std::meta::info type)
         || !std::meta::is_type(arguments[1]))
         return {};
 
-    return {type, arguments[0], arguments[1], true};
+    return {arguments[0], arguments[1], true};
 }
 
 template<class Type>
-consteval ResultShape inspect_result()
-{
-    return inspect_result(^^Type);
-}
-
-template<class Type>
-inline constexpr ResultShape resultShape = inspect_result<Type>();
-
-consteval bool result_type(std::meta::info type)
-{
-    return inspect_result(type).valid;
-}
+inline constexpr ResultShape resultShape = inspect_result(^^Type);
 
 } // namespace detail
 
@@ -63,13 +51,17 @@ template<ResultCarrier Type>
 struct ResultAlgebra final {
     static constexpr auto shape = detail::resultShape<Type>;
 
-    using Carrier = [:shape.carrier:];
+    using Carrier = std::remove_cvref_t<Type>;
     using Value = [:shape.value:];
     using Error = [:shape.error:];
+
+    static_assert(std::same_as<Carrier, std::expected<Value, Error>>);
 };
 
 template<class Error>
+    requires std::constructible_from<std::remove_cvref_t<Error>, Error>
 [[nodiscard]] constexpr auto failure(Error&& error)
+    noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<Error>, Error>)
     -> std::unexpected<std::remove_cvref_t<Error>>
 {
     return std::unexpected<std::remove_cvref_t<Error>>(
@@ -77,7 +69,9 @@ template<class Error>
 }
 
 template<class Error>
+    requires std::constructible_from<std::remove_cvref_t<Error>, Error>
 [[nodiscard]] constexpr auto result_if(bool condition, Error&& error)
+    noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<Error>, Error>)
     -> Result<void, std::remove_cvref_t<Error>>
 {
     if (!condition)
@@ -86,8 +80,12 @@ template<class Error>
 }
 
 template<class Value, class Error>
+    requires std::constructible_from<std::remove_cvref_t<Value>, Value>
+        && std::constructible_from<std::remove_cvref_t<Error>, Error>
 [[nodiscard]] constexpr auto result_if(
     bool condition, Value&& value, Error&& error)
+    noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<Value>, Value>
+             && std::is_nothrow_constructible_v<std::remove_cvref_t<Error>, Error>)
     -> Result<std::remove_cvref_t<Value>, std::remove_cvref_t<Error>>
 {
     if (!condition)
@@ -96,8 +94,11 @@ template<class Value, class Error>
 }
 
 template<ResultCarrier Self, class Error>
+    requires std::equality_comparable_with<
+        typename ResultAlgebra<Self>::Error, Error>
 [[nodiscard]] constexpr bool has_error(const Self& self,
                                        const Error& error)
+    noexcept(noexcept(self.error() == error))
 {
     return !self && self.error() == error;
 }

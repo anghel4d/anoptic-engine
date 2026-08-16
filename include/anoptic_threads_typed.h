@@ -108,7 +108,7 @@ struct SpscRing final {
         const uint32_t read = atomic_load_explicit(&head, memory_order_acquire);
         if ((write - read) > mask)
             return false;
-        __builtin_memcpy(buffer + (write & mask), &value, sizeof(T));
+        memcpy(buffer + (write & mask), &value, sizeof(T));
         atomic_store_explicit(&tail, write + 1u, memory_order_release);
         return true;
     }
@@ -119,7 +119,7 @@ struct SpscRing final {
         const uint32_t write = atomic_load_explicit(&tail, memory_order_acquire);
         if (read == write)
             return false;
-        __builtin_memcpy(&value, buffer + (read & mask), sizeof(T));
+        memcpy(&value, buffer + (read & mask), sizeof(T));
         atomic_store_explicit(&head, read + 1u, memory_order_release);
         return true;
     }
@@ -181,8 +181,8 @@ struct ByteSpscRing final {
         const uint32_t read = atomic_load_explicit(&head, memory_order_acquire);
         if ((write - read) > mask)
             return false;
-        __builtin_memcpy(buffer + static_cast<size_t>(write & mask) * stride,
-                         value, stride);
+        memcpy(buffer + static_cast<size_t>(write & mask) * stride,
+               value, stride);
         atomic_store_explicit(&tail, write + 1u, memory_order_release);
         return true;
     }
@@ -193,9 +193,8 @@ struct ByteSpscRing final {
         const uint32_t write = atomic_load_explicit(&tail, memory_order_acquire);
         if (read == write)
             return false;
-        __builtin_memcpy(value,
-                         buffer + static_cast<size_t>(read & mask) * stride,
-                         stride);
+        memcpy(value, buffer + static_cast<size_t>(read & mask) * stride,
+               stride);
         atomic_store_explicit(&head, read + 1u, memory_order_release);
         return true;
     }
@@ -235,8 +234,7 @@ struct SeqPub final {
         const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&value);
         for (size_t i = 0; i < laneCount; ++i) {
             uint64_t word;
-            __builtin_memcpy(&word, bytes + sizeof(uint64_t) * i,
-                             sizeof(uint64_t));
+            memcpy(&word, bytes + sizeof(uint64_t) * i, sizeof(uint64_t));
             atomic_store_explicit(&lanes[i], word, memory_order_relaxed);
         }
         atomic_store_explicit(&version, sequence + 2u, memory_order_release);
@@ -253,8 +251,7 @@ struct SeqPub final {
             for (size_t i = 0; i < laneCount; ++i) {
                 const uint64_t word =
                     atomic_load_explicit(&lanes[i], memory_order_relaxed);
-                __builtin_memcpy(bytes + sizeof(uint64_t) * i, &word,
-                                 sizeof(uint64_t));
+                memcpy(bytes + sizeof(uint64_t) * i, &word, sizeof(uint64_t));
             }
             atomic_thread_fence(memory_order_acquire);
             const uint64_t after =

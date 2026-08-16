@@ -213,7 +213,7 @@ consteval PbrFeatureFlags pbr_material_feature(schema::MaterialFeature sought)
             return PBR_FEATURE_NONE;
         return pbr_named_feature(name);
     }
-    __builtin_abort();
+    abort();
 }
 
 consteval PbrFeatureFlags pbr_texture_feature(
@@ -240,7 +240,7 @@ consteval PbrFeatureFlags pbr_texture_feature(
             return PBR_FEATURE_NONE;
         }
     }
-    __builtin_abort();
+    abort();
 }
 
 template<class Destination, class Source>
@@ -496,7 +496,7 @@ ResourceResult<> invoke_render_transform(
     ResourceResult<> result = failure(ANO_RESOURCE_UNSUPPORTED);
     (void)visit_render_route(
         type, [&]<auto Declaration, class Input, class Output>() {
-            const auto route = ano::compose(ano::decode<Input>)
+            const auto route = ano::lift<^^ano::decode<Input>>
                 .and_then([&](const ano::ArtifactView<Input>& decoded) noexcept {
                     return [:Declaration:](decoded.value, context);
                 })
@@ -523,9 +523,9 @@ ResourceResult<> prepare_decoded(
     AnoResourceBytes artifact, mi_heap_t*) noexcept
 {
     const auto pixels = ano::checked_multiply(texture.width, texture.height);
-    const auto bytes = pixels
-        ? ano::checked_multiply(*pixels, UINT64_C(4))
-        : ano::ArithmeticResult<uint64_t>(ano::failure(pixels.error()));
+    const auto bytes = pixels.and_then([](uint64_t count) noexcept {
+        return ano::checked_multiply(count, UINT64_C(4));
+    });
     if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0
         || !bytes || *bytes != texture.bytes.count || *bytes > SIZE_MAX)
@@ -594,7 +594,7 @@ ResourceResult<> invoke_prepare_transform(
     ResourceResult<> result = failure(ANO_RESOURCE_UNSUPPORTED);
     (void)visit_render_route(
         type, [&]<auto, class Input, class>() {
-            const auto route = ano::compose(ano::decode<Input>)
+            const auto route = ano::lift<^^ano::decode<Input>>
                 .and_then([&](const ano::ArtifactView<Input>& decoded) noexcept {
                     return prepare_decoded(
                         residency, target, decoded.value,
@@ -710,10 +710,9 @@ AnoResourceError plan_asset(
         || previous->bindings[index].sourceType.value != type.value;
     const auto artifact = resource_epoch_resolve(
         candidate.source, asset, type);
-    auto dependencyResult = artifact
-        ? resource_epoch_dependencies(candidate.source, asset)
-        : ResourceResult<std::span<const AnoResourceDependency>>(
-              failure(artifact.error()));
+    auto dependencyResult = artifact.and_then([&](AnoResourceBytes) noexcept {
+        return resource_epoch_dependencies(candidate.source, asset);
+    });
     AnoResourceError result = dependencyResult
         ? ANO_RESOURCE_OK : dependencyResult.error();
     const auto dependencies = dependencyResult.value_or(
@@ -872,9 +871,9 @@ ResourceResult<GpuTexture> realize_texture(
         return failure(ANO_RESOURCE_NON_CANONICAL);
     const auto pixelCount = ano::checked_multiply(
         texture.width, texture.height);
-    const auto requiredBytes = pixelCount
-        ? ano::checked_multiply(*pixelCount, UINT64_C(4))
-        : ArithmeticResult<uint64_t>(failure(pixelCount.error()));
+    const auto requiredBytes = pixelCount.and_then([](uint64_t count) noexcept {
+        return ano::checked_multiply(count, UINT64_C(4));
+    });
     if (!requiredBytes || *requiredBytes != texture.bytes.count
         || *requiredBytes > SIZE_MAX)
         return failure(ANO_RESOURCE_NON_CANONICAL);

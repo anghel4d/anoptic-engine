@@ -191,9 +191,8 @@ ResourceResult<const AnoCookedRevision *> cook_startup_revision(
     if (result)
         result = add_lighting(cooker, CANDLE_LIGHTING, CANDLE_LIGHTS);
 
-    return result ? resource_cook(cooker)
-                  : ResourceResult<const AnoCookedRevision *>(
-                        failure(result.error()));
+    return result.and_then(
+        [&] noexcept { return resource_cook(cooker); });
 }
 
 ResourceResult<> create_startup_resources(StartupResources *startup)
@@ -248,9 +247,9 @@ ResourceResult<AnoResourceReload *> prepare_startup_resources_reload(
     const StartupSources& sources)
 {
     const auto revision = cook_startup_revision(cooker, sources);
-    auto reload = revision
-        ? resource_reload_prepare(manager, *revision)
-        : ResourceResult<AnoResourceReload *>(failure(revision.error()));
+    auto reload = revision.and_then([&](const AnoCookedRevision *cooked) noexcept {
+        return resource_reload_prepare(manager, cooked);
+    });
     if (revision)
         resource_revision_release(*revision);
     return reload;

@@ -29,13 +29,13 @@ consteval auto reflect_fields()
     uint32_t used = 0;
     ano::reflect_field_uses<AnoAudioCommand, AnoAudioFieldUse>(result, used);
     if (used != result.declared)
-        __builtin_abort();
+        abort();
     for (size_t i = 0; i < commands.count; ++i) {
         const AnoAudioCommandPayload payload = commands.values[i].payload;
         const bool partial = payload == AnoAudioCommandPayload::source_update ||
                              payload == AnoAudioCommandPayload::bus_update;
         if (partial != (result.allowed[i] != 0))
-            __builtin_abort();
+            abort();
     }
     return result;
 }

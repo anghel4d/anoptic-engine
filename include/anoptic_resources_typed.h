@@ -301,7 +301,7 @@ constexpr void hash_u64(Sha256& hash, uint64_t value)
 #if __has_builtin(__builtin_constexpr_diag)
     __builtin_constexpr_diag(2, "", message.data());
 #endif
-    __builtin_abort();
+    abort();
 }
 
 consteval bool specialization_of(std::meta::info type,
@@ -740,7 +740,7 @@ consteval void validate_transform(std::meta::info declaration)
         reject("resource transforms must be noexcept functions", declaration);
     const std::meta::info result = std::meta::dealias(
         std::meta::return_type_of(declaration));
-    if (!detail::result_type(result))
+    if (!detail::inspect_result(result).valid)
         reject("resource transforms return ano::Result<Artifact, Error>",
                declaration);
     const auto resultArguments = std::meta::template_arguments_of(result);
@@ -857,7 +857,7 @@ constexpr size_t enum_index(Enum value)
             return index;
         ++index;
     }
-    __builtin_abort();
+    abort();
 }
 
 constexpr bool byte_range(uint64_t size, uint64_t offset, uint64_t count)
@@ -1172,9 +1172,9 @@ constexpr void decode_value(uint64_t offset, DecodeContext& context,
         }
         const auto fixedBytes = checked_multiply(
             count, wire_size(^^Element));
-        const auto payloadEnd = fixedBytes
-            ? checked_add(context.payloadCursor, *fixedBytes)
-            : ArithmeticResult<uint64_t>(failure(fixedBytes.error()));
+        const auto payloadEnd = fixedBytes.and_then([&](uint64_t bytes) noexcept {
+            return checked_add(context.payloadCursor, bytes);
+        });
         if (!payloadEnd
             || !byte_range(context.bytes.size, spanOffset, *fixedBytes)) {
             context.error = ANO_RESOURCE_OUT_OF_BOUNDS;
@@ -1445,11 +1445,8 @@ template<class Type>
 constexpr DecodeResult<Type> decode(AnoResourceBytes bytes) noexcept
 {
     ArtifactView<Type> view{.value = {}, .bytes = bytes};
-    const auto decoded = detail::decode_artifact<Type>(
-        bytes, &view.value, nullptr, 0, false);
-    if (!decoded)
-        return failure(decoded.error());
-    return view;
+    return detail::decode_artifact<Type>(bytes, &view.value, nullptr, 0, false)
+        .transform([&](uint64_t) noexcept { return view; });
 }
 
 template<class Type>

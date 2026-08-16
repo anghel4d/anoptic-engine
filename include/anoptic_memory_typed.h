@@ -75,14 +75,12 @@ template<Data T>
     uint64_t initialCapacity = 8) noexcept
 {
     const uint64_t previous = capacity;
-    const auto reserved = reserve_array(
-        values, capacity, required, initialCapacity);
-    if (!reserved)
-        return failure(reserved.error());
-    if (capacity != previous)
-        memset(values + previous, 0,
-               static_cast<size_t>(capacity - previous) * sizeof(T));
-    return {};
+    return reserve_array(values, capacity, required, initialCapacity)
+        .transform([&] noexcept {
+            if (capacity != previous)
+                memset(values + previous, 0,
+                       static_cast<size_t>(capacity - previous) * sizeof(T));
+        });
 }
 
 template<Data T>
@@ -132,10 +130,10 @@ struct MimallocAllocator {
     [[nodiscard]] T *allocate(size_t count)
     {
         if (count > SIZE_MAX / sizeof(T))
-            __builtin_trap();
+            abort();
         T *result = mi_mallocn_tp(T, count);
         if (result == nullptr)
-            __builtin_trap();
+            abort();
         return result;
     }
 
@@ -223,12 +221,11 @@ template<Data T, size_t Alignment>
         || segment.reservation.size % sizeof(T) != 0
         || segment.reservation.size / sizeof(T) != segment.count)
         return failure(MemoryError::invalid_layout);
-    const auto view = memory_volume_write(
-        volume, segment.reservation);
-    if (!view)
-        return failure(view.error());
-    return std::span<T>{
-        reinterpret_cast<T *>(view->data()), segment.count};
+    return memory_volume_write(volume, segment.reservation)
+        .transform([=](std::span<uint8_t> view) noexcept {
+            return std::span<T>{
+                reinterpret_cast<T *>(view.data()), segment.count};
+        });
 }
 
 template<Data T, size_t Alignment>
@@ -239,12 +236,11 @@ template<Data T, size_t Alignment>
         || segment.reservation.size % sizeof(T) != 0
         || segment.reservation.size / sizeof(T) != segment.count)
         return failure(MemoryError::invalid_layout);
-    const auto view = memory_volume_view(
-        volume, segment.reservation);
-    if (!view)
-        return failure(view.error());
-    return std::span<const T>{
-        reinterpret_cast<const T *>(view->data()), segment.count};
+    return memory_volume_view(volume, segment.reservation)
+        .transform([=](std::span<const uint8_t> view) noexcept {
+            return std::span<const T>{
+                reinterpret_cast<const T *>(view.data()), segment.count};
+        });
 }
 
 template<Data T>

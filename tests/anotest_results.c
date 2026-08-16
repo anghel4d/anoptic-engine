@@ -90,6 +90,8 @@ static_assert(std::same_as<
 static_assert(std::same_as<
               ano::ResultOperationAlgebra<decltype(&parse)>::Error,
               ParseError>);
+static_assert(ano::ResultOperation<decltype(ano::lift<^^parse>)>);
+static_assert(std::is_empty_v<decltype(ano::lift<^^parse>)>);
 
 consteval bool result_surface()
 {
@@ -98,8 +100,7 @@ consteval bool result_surface()
     const ano::Result<void, ParseError> unit{};
     const ano::Result<void, ParseError> failed =
         ano::failure(ParseError::missing);
-    return ano::detail::result_type(^^decltype(value))
-        && value && *value == 7
+    return value && *value == 7
         && ano::has_error(error, ParseError::invalid)
         && unit && ano::has_error(failed, ParseError::missing)
         && ano::result_if(true, ParseError::invalid)
@@ -112,7 +113,7 @@ static_assert(result_surface());
 
 consteval bool composition_surface()
 {
-    constexpr auto path = ano::compose(parse)
+    constexpr auto path = ano::lift<^^parse>
         .and_then([](int value) noexcept -> ano::Result<int, ParseError> {
             return value + 1;
         })
@@ -150,7 +151,7 @@ consteval bool named_function_surface()
         .and_then(named_increment)
         .and_then(double_value)
         .and_then(publish);
-    const auto path = ano::compose(parse)
+    const auto path = ano::lift<^^parse>
         .and_then(named_increment)
         .and_then(double_value)
         .and_then(publish)
@@ -166,8 +167,8 @@ static_assert(named_function_surface());
 
 consteval bool unit_composition_surface()
 {
-    constexpr auto throughUnit = ano::compose(accept).and_then(produce);
-    constexpr auto fromUnit = ano::compose(produce).and_then(increment);
+    constexpr auto throughUnit = ano::lift<^^accept>.and_then(ano::lift<^^produce>);
+    constexpr auto fromUnit = ano::lift<^^produce>.and_then(ano::lift<^^increment>);
     const auto first = throughUnit(1);
     const auto second = fromUnit();
     return first && *first == 11 && second && *second == 12;

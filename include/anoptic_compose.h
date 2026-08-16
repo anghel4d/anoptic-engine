@@ -110,30 +110,15 @@ consteval bool declared_invocation()
 }
 
 template<class Type>
-concept WrappedOperation = requires {
-    typename std::remove_cvref_t<Type>::AnopticOperation;
-};
-
-template<class Type, bool = WrappedOperation<Type>>
-struct OperationSource final {
-    using type = std::remove_cvref_t<Type>;
-};
-
-template<class Type>
-struct OperationSource<Type, true> final {
-    using type = typename std::remove_cvref_t<Type>::AnopticOperation;
-};
-
-template<class Type>
-using OperationSourceType = typename OperationSource<Type>::type;
-
-template<class Type>
-[[nodiscard]] constexpr decltype(auto) unwrap_operation(Type&& operation)
+consteval bool nothrow_result_error()
 {
-    if constexpr (WrappedOperation<Type>)
-        return std::forward<Type>(operation).operation;
-    else
-        return std::forward<Type>(operation);
+    constexpr auto shape = operationShape<Type>;
+    if constexpr (!shape.carrier.valid) {
+        return false;
+    } else {
+        using Error = [:shape.carrier.error:];
+        return std::is_nothrow_move_constructible_v<Error>;
+    }
 }
 
 } // namespace detail
@@ -152,7 +137,8 @@ concept NonthrowingOperation = SupportedOperation<Type>
 
 template<class Type>
 concept ResultOperation = NonthrowingOperation<Type>
-    && detail::operationShape<Type>.carrier.valid;
+    && detail::operationShape<Type>.carrier.valid
+    && detail::nothrow_result_error<Type>();
 
 template<class Type>
 concept PureOperation = NonthrowingOperation<Type>
@@ -177,9 +163,15 @@ struct ResultOperationAlgebra final {
     using Operation = std::remove_cvref_t<Type>;
     using Parameter = [:shape.parameter:];
     using Domain = [:shape.domain:];
-    using Carrier = [:shape.carrier.carrier:];
+    using ReflectedResult = [:shape.result:];
+    using Carrier = std::remove_cvref_t<ReflectedResult>;
     using Value = [:shape.carrier.value:];
     using Error = [:shape.carrier.error:];
+
+    static_assert(std::same_as<Carrier, std::expected<Value, Error>>);
+    static_assert(std::same_as<Domain, std::remove_cvref_t<Parameter>>);
+    static_assert(std::is_void_v<Value> || std::is_object_v<Value>);
+    static_assert(nullary == std::is_void_v<Domain>);
 };
 
 template<class Left, class Right>
@@ -205,10 +197,7 @@ concept ResultTransformable = ResultOperation<Left> && PureOperation<Mapper>
             && std::same_as<typename ResultOperationAlgebra<Left>::Value,
                             typename OperationAlgebra<Mapper>::Domain>));
 
-template<ResultOperation Operation>
-struct ResultMorphism;
-
-template<PureOperation Operation>
+template<NonthrowingOperation Operation>
 struct Function;
 
 namespace detail {
@@ -277,107 +266,87 @@ struct MappedComposition<First, Mapper, true> final {
 
 } // namespace detail
 
-// A named, concrete pure function value. It carries no sequencing semantics.
-template<PureOperation Operation>
+// A named function value. Result-valued functions additionally expose checked
+// Kleisli and functor composition.
+template<NonthrowingOperation Operation>
 struct [[nodiscard]] Function final {
-    using AnopticOperation = Operation;
     using Algebra = OperationAlgebra<Operation>;
+    using Return = typename Algebra::Return;
+    using Argument = std::conditional_t<
+        Algebra::nullary, int, typename Algebra::Parameter>;
 
     [[no_unique_address]] Operation operation;
 
-    template<class Self>
+    [[nodiscard]] constexpr Return operator()() const noexcept
         requires Algebra::nullary
-    [[nodiscard]] constexpr auto operator()(this Self&& self) noexcept
-        -> typename Algebra::Return
     {
-        return std::forward<Self>(self).operation();
+        return operation();
     }
 
-    template<class Self, class Input>
-        requires (!Algebra::nullary
-                  && std::same_as<std::remove_cvref_t<Input>,
-                                  typename Algebra::Domain>)
-    [[nodiscard]] constexpr auto operator()(
-        this Self&& self, Input&& input) noexcept -> typename Algebra::Return
+    [[nodiscard]] constexpr Return operator()(Argument input) const noexcept
+        requires (!Algebra::nullary)
     {
-        return std::forward<Self>(self).operation(
-            std::forward<Input>(input));
+        return operation(std::forward<Argument>(input));
+    }
+
+    template<class Next>
+        requires KleisliComposable<Operation, std::decay_t<Next>>
+    [[nodiscard]] constexpr auto and_then(Next&& next) const
+    {
+        using NextOperation = std::decay_t<Next>;
+        using Bound = detail::BoundComposition<Operation, NextOperation>;
+        return Function<Bound>{Bound{
+            operation, NextOperation(std::forward<Next>(next))}};
+    }
+
+    template<class Mapper>
+        requires ResultTransformable<Operation, std::decay_t<Mapper>>
+    [[nodiscard]] constexpr auto transform(Mapper&& mapper) const
+    {
+        using MapOperation = std::decay_t<Mapper>;
+        using Mapped = detail::MappedComposition<Operation, MapOperation>;
+        return Function<Mapped>{Mapped{
+            operation, MapOperation(std::forward<Mapper>(mapper))}};
     }
 };
 
-template<PureOperation Operation>
+template<NonthrowingOperation Operation>
 Function(Operation) -> Function<Operation>;
 
-// A Result-valued arrow. Its fluent operations are the checked Kleisli and
-// functor compositions of the reflected domain, value and error types.
 template<ResultOperation Operation>
-struct [[nodiscard]] ResultMorphism final {
-    using AnopticOperation = Operation;
-    using Algebra = ResultOperationAlgebra<Operation>;
+using ResultMorphism = Function<Operation>;
 
-    [[no_unique_address]] Operation operation;
+template<std::meta::info Declaration>
+struct Lifted final {
+    static_assert(std::meta::is_function(Declaration));
+    static constexpr auto shape =
+        detail::inspect_operation(std::meta::type_of(Declaration));
+    static_assert(shape.supportedArity && shape.nonthrowing
+                  && shape.carrier.valid);
 
-    template<class Self>
-        requires Algebra::nullary
-    [[nodiscard]] constexpr auto operator()(this Self&& self) noexcept
-        -> typename Algebra::Carrier
+    using Return = [:shape.result:];
+    using Parameter = [:shape.parameter:];
+    using Argument = std::conditional_t<
+        shape.nullary, int, Parameter>;
+
+    [[nodiscard]] constexpr Return operator()() const noexcept
+        requires (shape.nullary)
     {
-        return std::forward<Self>(self).operation();
+        return [:Declaration:]();
     }
 
-    template<class Self, class Input>
-        requires (!Algebra::nullary
-                  && std::same_as<std::remove_cvref_t<Input>,
-                                  typename Algebra::Domain>)
-    [[nodiscard]] constexpr auto operator()(
-        this Self&& self, Input&& input) noexcept -> typename Algebra::Carrier
+    [[nodiscard]] constexpr Return operator()(Argument input) const noexcept
+        requires (!shape.nullary)
     {
-        return std::forward<Self>(self).operation(
-            std::forward<Input>(input));
-    }
-
-    template<class Self, class Next>
-        requires KleisliComposable<
-            Operation, detail::OperationSourceType<Next>>
-    [[nodiscard]] constexpr auto and_then(this Self&& self, Next&& next)
-    {
-        auto&& nextOperation = detail::unwrap_operation(
-            std::forward<Next>(next));
-        using NextOperation = std::decay_t<decltype(nextOperation)>;
-        using Bound = detail::BoundComposition<Operation, NextOperation>;
-        return ResultMorphism<Bound>{
-            Bound{std::forward<Self>(self).operation,
-                  std::forward<decltype(nextOperation)>(nextOperation)}};
-    }
-
-    template<class Self, class Mapper>
-        requires ResultTransformable<
-            Operation, detail::OperationSourceType<Mapper>>
-    [[nodiscard]] constexpr auto transform(this Self&& self, Mapper&& mapper)
-    {
-        auto&& mapOperation = detail::unwrap_operation(
-            std::forward<Mapper>(mapper));
-        using MapOperation = std::decay_t<decltype(mapOperation)>;
-        using Mapped = detail::MappedComposition<Operation, MapOperation>;
-        return ResultMorphism<Mapped>{
-            Mapped{std::forward<Self>(self).operation,
-                   std::forward<decltype(mapOperation)>(mapOperation)}};
+        return [:Declaration:](std::forward<Argument>(input));
     }
 };
 
-template<ResultOperation Operation>
-ResultMorphism(Operation) -> ResultMorphism<Operation>;
+template<std::meta::info Declaration>
+inline constexpr auto lift = Function{Lifted<Declaration>{}};
 
 template<class Operation>
-    requires ResultOperation<std::decay_t<Operation>>
-[[nodiscard]] constexpr auto function(Operation&& operation)
-{
-    using Stored = std::decay_t<Operation>;
-    return ResultMorphism{Stored(std::forward<Operation>(operation))};
-}
-
-template<class Operation>
-    requires PureOperation<std::decay_t<Operation>>
+    requires NonthrowingOperation<std::decay_t<Operation>>
 [[nodiscard]] constexpr auto function(Operation&& operation)
 {
     using Stored = std::decay_t<Operation>;
@@ -385,14 +354,11 @@ template<class Operation>
 }
 
 template<class Operation>
-    requires ResultOperation<detail::OperationSourceType<Operation>>
+    requires ResultOperation<std::decay_t<Operation>>
 [[nodiscard]] constexpr auto compose(Operation&& operation)
 {
-    auto&& source = detail::unwrap_operation(
-        std::forward<Operation>(operation));
-    using Stored = std::decay_t<decltype(source)>;
-    return ResultMorphism{Stored(
-        std::forward<decltype(source)>(source))};
+    using Stored = std::decay_t<Operation>;
+    return Function{Stored(std::forward<Operation>(operation))};
 }
 
 } // namespace ano
