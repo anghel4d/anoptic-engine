@@ -6,9 +6,11 @@ Lean runtime.
 
 - `Polynomial`, `Semantic`, `Compiler`, `Module`, `Composition`, `Refinement`,
   and `Transaction` define the reusable abstract algebras.
-- `ResultAlgebra` proves exact carrier factorization, explicitly tagged
-  inspection, safety-certified Kleisli composition, and exact-source
-  construction for conditional results.
+- `ResultAlgebra` proves the runtime mathematics denoted by the admitted C++
+  surface: Kleisli composition, value and error maps, fail-fast pairing,
+  bounded inclusive scan, conditional results, and finite-parameter/product
+  normalization. It does not pretend to re-prove the compiler's reflection,
+  `noexcept`, or construction judgments.
 - `Semantic` distinguishes API-shape morphisms from algebra homomorphisms. The
   latter additionally map carriers and effects and satisfy a commuting law.
 - `Module` keeps a projection-local `CompiledSignature` separate from the

@@ -27,10 +27,11 @@ The semantic kernel uses Lean 4.33.0 and `Std` only. Its Lake library is `Anopti
 19. `Semantic.Effect.state` and `stateResult` give lawful functorial codomains for state-owning and partial state-owning interpreters; the latter is `StateT(State, Result)`.
 20. `Outcome` through `Diagnostics` prove selected abstract sum, value,
     ownership, transport, clock, filesystem, string, and diagnostic laws.
-    `ResultAlgebra` additionally proves exact reconstruction from reflected
-    value/error factors, safety-certified Kleisli closure and associativity,
-    and that stored-type construction alone cannot establish construction from
-    the actual source type.
+    `ResultAlgebra` additionally proves the admitted Kleisli operations,
+    value/error-map laws, fail-fast pairing, bounded inclusive scan, and the
+    isomorphism between a finite parameter list and one product-domain arrow.
+    Its normalization commutes with Kleisli postcomposition. Reflection,
+    `noexcept`, and construction constraints remain C++ compile-time checks.
 21. `Gltf` through `Engine` prove selected abstract domain carriers and laws;
     they are not production implementation witnesses.
 22. `Coverage.allInterfacesChecked` is exhaustive over its handwritten

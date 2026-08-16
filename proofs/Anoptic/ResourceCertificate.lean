@@ -17,6 +17,13 @@ def artifactFingerprints : List String := artifacts.map (·.fingerprint)
 def importerExtensions : List String := importers.map (·.extension)
 def importerProducerIds : List Nat := importers.map (·.producerId)
 
+def lowerHexDigit (character : Char) : Bool :=
+  let code := character.toNat
+  (0x30 ≤ code && code ≤ 0x39) || (0x61 ≤ code && code ≤ 0x66)
+
+def fingerprintWellFormed (fingerprint : String) : Bool :=
+  fingerprint.length == 64 && fingerprint.toList.all lowerHexDigit
+
 def dependencyTargets : List String :=
   artifacts.flatMap (·.dependencies)
 
@@ -45,7 +52,7 @@ theorem artifact_names_unique : artifactNames.Nodup := by decide
 theorem artifact_type_ids_nonzero : artifactTypeIds.all (· != 0) = true := by decide
 theorem artifact_type_ids_unique : artifactTypeIds.Nodup := by decide
 theorem artifact_fingerprints_well_formed :
-    artifactFingerprints.all (fun fingerprint => fingerprint.length = 64) = true := by
+    artifactFingerprints.all fingerprintWellFormed = true := by
   decide
 theorem artifact_fingerprints_unique : artifactFingerprints.Nodup := by decide
 theorem dependency_targets_exist : namesKnown dependencyTargets = true := by decide
