@@ -8,6 +8,8 @@
 #include "anoptic_results.h"
 
 #include <concepts>
+#include <ranges>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -205,6 +207,36 @@ template<class Value, class Next>
 concept Accepts = (Next::nullary && std::same_as<Value, void>)
     || (!Next::nullary && std::same_as<Value, typename Next::Domain>);
 
+template<class Left, class Mapper>
+consteval bool error_mappable()
+{
+    using First = std::remove_cvref_t<Left>;
+    using Map = std::remove_cvref_t<Mapper>;
+    if constexpr (!ResultOperation<First> || !PureOperation<Map>) {
+        return false;
+    } else {
+        using FirstAlgebra = ResultOperationAlgebra<First>;
+        using MapAlgebra = OperationAlgebra<Map>;
+        using OldError = typename FirstAlgebra::Error;
+        if constexpr (MapAlgebra::nullary
+                      || !std::same_as<OldError,
+                                       typename MapAlgebra::Domain>
+                      || !std::is_nothrow_invocable_v<
+                          const Map&, OldError&&>) {
+            return false;
+        } else {
+            using Mapped = std::invoke_result_t<const Map&, OldError&&>;
+            using NewError = std::remove_cvref_t<Mapped>;
+            using Value = typename FirstAlgebra::Value;
+            return std::is_object_v<NewError>
+                && ResultError<NewError>
+                && NothrowConstructibleFrom<NewError, Mapped>
+                && (std::is_void_v<Value>
+                    || NothrowConstructibleFrom<Value, Value&&>);
+        }
+    }
+}
+
 } // namespace detail
 
 template<class Left, class Right>
@@ -221,6 +253,33 @@ template<class Left, class Mapper>
 concept ResultTransformable = ResultOperation<Left> && PureOperation<Mapper>
     && detail::Accepts<typename ResultOperationAlgebra<Left>::Value,
                        OperationAlgebra<Mapper>>;
+
+template<class Left, class Mapper>
+concept ErrorMappable = detail::error_mappable<Left, Mapper>();
+
+template<class Left, class Right>
+concept KleisliPairable = SameResultError<Left, Right>
+    && (ResultOperationAlgebra<Left>::nullary
+        == ResultOperationAlgebra<Right>::nullary)
+    && std::is_object_v<typename ResultOperationAlgebra<Left>::Value>
+    && std::is_object_v<typename ResultOperationAlgebra<Right>::Value>
+    && detail::NothrowConstructibleFrom<
+        typename ResultOperationAlgebra<Left>::Value,
+        typename ResultOperationAlgebra<Left>::Value&&>
+    && detail::NothrowConstructibleFrom<
+        typename ResultOperationAlgebra<Right>::Value,
+        typename ResultOperationAlgebra<Right>::Value&&>
+    && (ResultOperationAlgebra<Left>::nullary
+        || (std::same_as<typename ResultOperationAlgebra<Left>::Domain,
+                         typename ResultOperationAlgebra<Right>::Domain>
+            && std::is_object_v<
+                typename ResultOperationAlgebra<Left>::Domain>
+            && std::is_nothrow_invocable_v<
+                const Left&,
+                const typename ResultOperationAlgebra<Left>::Domain&>
+            && std::is_nothrow_invocable_v<
+                const Right&,
+                const typename ResultOperationAlgebra<Right>::Domain&>));
 
 template<NonthrowingOperation Operation>
 struct Function;
@@ -285,6 +344,123 @@ struct MappedComposition final {
     }
 };
 
+template<ResultOperation First, PureOperation Mapper>
+    requires ErrorMappable<First, Mapper>
+struct ErrorMapped final {
+    using Algebra = ResultOperationAlgebra<First>;
+    using Argument = std::conditional_t<
+        Algebra::nullary, int, typename Algebra::Parameter>;
+    using Value = typename Algebra::Value;
+    using OldError = typename Algebra::Error;
+    using Mapped = std::invoke_result_t<const Mapper&, OldError&&>;
+    using Error = std::remove_cvref_t<Mapped>;
+    using Carrier = Result<Value, Error>;
+
+    [[no_unique_address]] First first;
+    [[no_unique_address]] Mapper mapper;
+
+    static_assert(ResultError<Error>);
+    static_assert(std::is_void_v<Value>
+                  || NothrowConstructibleFrom<Value, Value&&>);
+
+    [[nodiscard]] constexpr Carrier operator()() const noexcept
+        requires Algebra::nullary
+    {
+        return remap(first());
+    }
+
+    [[nodiscard]] constexpr Carrier operator()(Argument input) const noexcept
+        requires (!Algebra::nullary)
+    {
+        return remap(first(std::forward<Argument>(input)));
+    }
+
+private:
+    [[nodiscard]] constexpr Carrier remap(
+        typename Algebra::Carrier result) const noexcept
+    {
+        if (result) {
+            if constexpr (std::is_void_v<Value>)
+                return Carrier{};
+            else
+                return Carrier(
+                    std::in_place, std::move(result).value());
+        }
+        return Carrier(
+            std::unexpect,
+            mapper(std::move(result).error()));
+    }
+};
+
+template<class Domain, bool Nullary>
+struct PairArgument final {
+    using type = const Domain&;
+};
+
+template<class Domain>
+struct PairArgument<Domain, true> final {
+    using type = int;
+};
+
+// Pairing is fail-fast and left-biased: left runs first, and its error wins
+// when both operations would fail for the same witness.
+template<ResultOperation Left, ResultOperation Right>
+    requires KleisliPairable<Left, Right>
+struct PairedComposition final {
+    using LeftAlgebra = ResultOperationAlgebra<Left>;
+    using RightAlgebra = ResultOperationAlgebra<Right>;
+    static constexpr bool nullary = LeftAlgebra::nullary;
+
+    using Domain = typename LeftAlgebra::Domain;
+    using Argument = typename PairArgument<Domain, nullary>::type;
+    using LeftValue = typename LeftAlgebra::Value;
+    using RightValue = typename RightAlgebra::Value;
+    using Value = std::pair<LeftValue, RightValue>;
+    using Error = typename LeftAlgebra::Error;
+    using Carrier = Result<Value, Error>;
+
+    [[no_unique_address]] Left left;
+    [[no_unique_address]] Right right;
+
+    static_assert(NothrowConstructibleFrom<LeftValue, LeftValue&&>);
+    static_assert(NothrowConstructibleFrom<RightValue, RightValue&&>);
+    static_assert(ResultError<Error>);
+
+    [[nodiscard]] constexpr Carrier operator()() const noexcept
+        requires nullary
+    {
+        auto first = left();
+        if (!first)
+            return Carrier(
+                std::unexpect, std::move(first).error());
+        auto second = right();
+        if (!second)
+            return Carrier(
+                std::unexpect, std::move(second).error());
+        return Carrier(
+            std::in_place,
+            std::move(first).value(),
+            std::move(second).value());
+    }
+
+    [[nodiscard]] constexpr Carrier operator()(Argument witness) const noexcept
+        requires (!nullary)
+    {
+        auto first = left(witness);
+        if (!first)
+            return Carrier(
+                std::unexpect, std::move(first).error());
+        auto second = right(witness);
+        if (!second)
+            return Carrier(
+                std::unexpect, std::move(second).error());
+        return Carrier(
+            std::in_place,
+            std::move(first).value(),
+            std::move(second).value());
+    }
+};
+
 } // namespace detail
 
 // A named function value. Result-valued functions additionally expose checked
@@ -335,6 +511,19 @@ struct [[nodiscard]] Function final {
             self.operation,
             MapOperation(std::forward<Mapper>(mapper))}};
     }
+
+    template<class Mapper>
+        requires ResultOperation<Operation>
+            && ErrorMappable<Operation, std::decay_t<Mapper>>
+    [[nodiscard]] constexpr auto map_error(
+        this const Function& self, Mapper&& mapper)
+    {
+        using MapOperation = std::decay_t<Mapper>;
+        using Mapped = detail::ErrorMapped<Operation, MapOperation>;
+        return Function<Mapped>{Mapped{
+            self.operation,
+            MapOperation(std::forward<Mapper>(mapper))}};
+    }
 };
 
 template<NonthrowingOperation Operation>
@@ -378,6 +567,7 @@ template<class Operation>
 [[nodiscard]] constexpr auto function(Operation&& operation)
 {
     using Stored = std::decay_t<Operation>;
+    static_assert(std::move_constructible<Stored>);
     return Function{Stored(std::forward<Operation>(operation))};
 }
 
@@ -385,7 +575,80 @@ template<class Operation>
     requires ResultOperation<std::decay_t<Operation>>
 [[nodiscard]] constexpr auto compose(Operation&& operation)
 {
+    using Stored = std::decay_t<Operation>;
+    static_assert(std::move_constructible<Stored>);
     return function(std::forward<Operation>(operation));
+}
+
+template<class Left, class Right>
+    requires KleisliPairable<std::decay_t<Left>, std::decay_t<Right>>
+[[nodiscard]] constexpr auto pair(Left&& left, Right&& right)
+{
+    using LeftOperation = std::decay_t<Left>;
+    using RightOperation = std::decay_t<Right>;
+    using Paired = detail::PairedComposition<
+        LeftOperation, RightOperation>;
+    return Function<Paired>{Paired{
+        LeftOperation(std::forward<Left>(left)),
+        RightOperation(std::forward<Right>(right))}};
+}
+
+namespace detail {
+
+template<class First>
+consteval bool all_pairable()
+{
+    return ResultOperation<std::decay_t<First>>;
+}
+
+template<class First, class Second, class... Rest>
+consteval bool all_pairable()
+{
+    using Left = std::decay_t<First>;
+    using Right = std::decay_t<Second>;
+    if constexpr (!KleisliPairable<Left, Right>) {
+        return false;
+    } else if constexpr (sizeof...(Rest) == 0) {
+        return true;
+    } else {
+        using Paired = Function<PairedComposition<Left, Right>>;
+        return all_pairable<Paired, Rest...>();
+    }
+}
+
+template<class Operation>
+[[nodiscard]] constexpr auto all_impl(Operation&& operation)
+{
+    return function(std::forward<Operation>(operation));
+}
+
+template<class Left, class Right, class... Rest>
+[[nodiscard]] constexpr auto all_impl(
+    Left&& left, Right&& right, Rest&&... rest)
+{
+    auto paired = ::ano::pair(
+        std::forward<Left>(left), std::forward<Right>(right));
+    if constexpr (sizeof...(Rest) == 0)
+        return paired;
+    else
+        return all_impl(
+            std::move(paired), std::forward<Rest>(rest)...);
+}
+
+} // namespace detail
+
+template<class... Operations>
+concept AllPairable = sizeof...(Operations) > 0
+    && detail::all_pairable<Operations...>();
+
+// all(f, g, h) is the left-associated variadic pairing of one shared witness.
+// Evaluation is always f, then g, then h; the first error is returned.
+template<class... Operations>
+    requires AllPairable<Operations...>
+[[nodiscard]] constexpr auto all(Operations&&... operations)
+{
+    return detail::all_impl(
+        std::forward<Operations>(operations)...);
 }
 
 } // namespace ano

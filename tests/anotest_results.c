@@ -97,6 +97,33 @@ constexpr auto wrong_error(int value) noexcept
     return value;
 }
 
+constexpr OtherError to_other_error(ParseError) noexcept
+{
+    return OtherError::invalid;
+}
+
+constexpr auto check_format(int witness) noexcept
+    -> ano::Result<int, ParseError>
+{
+    if (witness < 0)
+        return ano::failure(ParseError::missing);
+    return witness + 1;
+}
+
+constexpr auto check_extent(int witness) noexcept
+    -> ano::Result<unsigned, ParseError>
+{
+    if (witness < 0)
+        return ano::failure(ParseError::invalid);
+    return static_cast<unsigned>(witness + 2);
+}
+
+constexpr auto check_version(int witness) noexcept
+    -> ano::Result<long, ParseError>
+{
+    return static_cast<long>(witness + 3);
+}
+
 constexpr int square(int value) noexcept
 {
     return value * value;
@@ -162,6 +189,12 @@ static_assert(!ano::KleisliComposable<decltype(&parse),
                                       decltype(&wrong_domain)>);
 static_assert(!ano::KleisliComposable<decltype(&parse),
                                       decltype(&wrong_error)>);
+static_assert(ano::ErrorMappable<decltype(&parse),
+                                 decltype(&to_other_error)>);
+static_assert(ano::KleisliPairable<decltype(&check_format),
+                                   decltype(&check_extent)>);
+static_assert(!ano::KleisliPairable<decltype(&check_format),
+                                    decltype(&wrong_domain)>);
 static_assert(std::same_as<
               ano::ResultOperationAlgebra<decltype(&parse)>::Domain, bool>);
 static_assert(std::same_as<
@@ -212,6 +245,52 @@ consteval bool composition_surface()
 
 static_assert(composition_surface());
 
+consteval bool error_mapping_surface()
+{
+    constexpr auto mapped = ano::lift<^^parse>
+        .map_error(to_other_error);
+    static_assert(ano::ResultOperation<decltype(mapped)>);
+    static_assert(std::same_as<
+                  typename ano::ResultOperationAlgebra<
+                      decltype(mapped)>::Error,
+                  OtherError>);
+    const auto value = mapped(true);
+    const auto error = mapped(false);
+    return value && *value == 7
+        && ano::has_error(error, OtherError::invalid);
+}
+
+static_assert(error_mapping_surface());
+
+consteval bool pairing_surface()
+{
+    constexpr auto paired = ano::pair(
+        ano::lift<^^check_format>, ano::lift<^^check_extent>);
+    constexpr auto gathered = ano::all(
+        ano::lift<^^check_format>,
+        ano::lift<^^check_extent>,
+        ano::lift<^^check_version>);
+    static_assert(ano::ResultOperation<decltype(paired)>);
+    static_assert(ano::AllPairable<
+                  decltype(ano::lift<^^check_format>),
+                  decltype(ano::lift<^^check_extent>),
+                  decltype(ano::lift<^^check_version>)>);
+
+    const auto pairValue = paired(4);
+    const auto pairError = paired(-1);
+    const auto allValue = gathered(4);
+    return pairValue
+        && pairValue->first == 5
+        && pairValue->second == 6u
+        && ano::has_error(pairError, ParseError::missing)
+        && allValue
+        && allValue->first.first == 5
+        && allValue->first.second == 6u
+        && allValue->second == 7L;
+}
+
+static_assert(pairing_surface());
+
 consteval bool named_function_surface()
 {
     ANO_LET(operation, parse);
@@ -227,9 +306,12 @@ consteval bool named_function_surface()
                 return value + 3;
             });
     ANO_LET(project, square);
+    constexpr auto existing = ano::lift<^^parse>;
+    ANO_LET(rebound, existing);
 
     static_assert(noexcept(operation(true)));
     static_assert(ano::ResultCarrier<decltype(operation(true))>);
+    static_assert(ano::ResultOperation<decltype(rebound)>);
     const auto direct = operation(true)
         .and_then(named_increment)
         .and_then(double_value)
@@ -241,8 +323,10 @@ consteval bool named_function_surface()
         .transform(project);
     const auto composed = path(true);
     const auto failed = path(false);
+    const auto reboundValue = rebound(true);
     return direct && *direct == 19
         && composed && *composed == 361
+        && reboundValue && *reboundValue == 7
         && ano::has_error(failed, ParseError::invalid);
 }
 
