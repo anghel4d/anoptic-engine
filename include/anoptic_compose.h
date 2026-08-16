@@ -59,24 +59,29 @@ consteval std::meta::info callable_declaration(std::meta::info type)
     return call;
 }
 
-consteval OperationShape inspect_operation(std::meta::info type)
+consteval OperationShape inspect_declaration(std::meta::info declaration)
 {
     OperationShape shape{};
-    shape.declaration = callable_declaration(type);
+    shape.declaration = declaration;
     if (shape.declaration == std::meta::info{})
         return shape;
     shape.concrete = true;
 
     const auto parameters = std::meta::parameters_of(shape.declaration);
-    if (parameters.size() > 1)
+    const size_t first = !parameters.empty()
+            && std::meta::is_function_parameter(parameters[0])
+            && std::meta::is_explicit_object_parameter(parameters[0])
+        ? 1
+        : 0;
+    if (parameters.size() - first > 1)
         return shape;
     shape.supportedArity = true;
-    shape.nullary = parameters.empty();
+    shape.nullary = parameters.size() == first;
     shape.parameter = shape.nullary
         ? ^^void
-        : (std::meta::is_type(parameters[0])
-               ? parameters[0]
-               : std::meta::type_of(parameters[0]));
+        : (std::meta::is_type(parameters[first])
+               ? parameters[first]
+               : std::meta::type_of(parameters[first]));
     shape.domain = std::meta::remove_cvref(shape.parameter);
     shape.result = std::meta::return_type_of(shape.declaration);
     shape.carrier = inspect_result(shape.result);
@@ -84,8 +89,22 @@ consteval OperationShape inspect_operation(std::meta::info type)
     return shape;
 }
 
+consteval OperationShape inspect_operation(std::meta::info type)
+{
+    return inspect_declaration(callable_declaration(type));
+}
+
 template<class Type>
-inline constexpr OperationShape operationShape = inspect_operation(^^Type);
+struct OperationInspector {
+    static consteval OperationShape inspect()
+    {
+        return inspect_operation(^^Type);
+    }
+};
+
+template<class Type>
+inline constexpr OperationShape operationShape =
+    OperationInspector<std::remove_cvref_t<Type>>::inspect();
 
 template<class Type>
 consteval bool declared_invocation()
@@ -96,16 +115,29 @@ consteval bool declared_invocation()
         return false;
     } else if constexpr (shape.nullary) {
         using Return = [:shape.result:];
-        return requires(const Operation& operation) {
-            { operation() } noexcept -> std::same_as<Return>;
-        };
+        if constexpr (std::meta::is_class_member(shape.declaration))
+            return requires(const Operation& operation) {
+                { operation.[:shape.declaration:]() }
+                    noexcept -> std::same_as<Return>;
+            };
+        else
+            return requires(const Operation& operation) {
+                { operation() } noexcept -> std::same_as<Return>;
+            };
     } else {
         using Parameter = [:shape.parameter:];
         using Return = [:shape.result:];
-        return requires(const Operation& operation, Parameter argument) {
-            { operation(std::forward<Parameter>(argument)) }
-                noexcept -> std::same_as<Return>;
-        };
+        if constexpr (std::meta::is_class_member(shape.declaration))
+            return requires(const Operation& operation, Parameter argument) {
+                { operation.[:shape.declaration:](
+                      std::forward<Parameter>(argument)) }
+                    noexcept -> std::same_as<Return>;
+            };
+        else
+            return requires(const Operation& operation, Parameter argument) {
+                { operation(std::forward<Parameter>(argument)) }
+                    noexcept -> std::same_as<Return>;
+            };
     }
 }
 
@@ -277,38 +309,79 @@ struct [[nodiscard]] Function final {
 
     [[no_unique_address]] Operation operation;
 
-    [[nodiscard]] constexpr Return operator()() const noexcept
+    template<class Self>
+    [[nodiscard]] constexpr Return operator()(this Self&& self) noexcept
         requires Algebra::nullary
     {
-        return operation();
+        return std::forward<Self>(self).operation();
     }
 
-    [[nodiscard]] constexpr Return operator()(Argument input) const noexcept
+    template<class Self>
+    [[nodiscard]] constexpr Return operator()(
+        this Self&& self, Argument input) noexcept
         requires (!Algebra::nullary)
     {
-        return operation(std::forward<Argument>(input));
+        return std::forward<Self>(self).operation(
+            std::forward<Argument>(input));
     }
 
-    template<class Next>
+    template<class Self, class Next>
         requires KleisliComposable<Operation, std::decay_t<Next>>
-    [[nodiscard]] constexpr auto and_then(Next&& next) const
+    [[nodiscard]] constexpr auto and_then(
+        this Self&& self, Next&& next)
     {
         using NextOperation = std::decay_t<Next>;
         using Bound = detail::BoundComposition<Operation, NextOperation>;
         return Function<Bound>{Bound{
-            operation, NextOperation(std::forward<Next>(next))}};
+            std::forward<Self>(self).operation,
+            NextOperation(std::forward<Next>(next))}};
     }
 
-    template<class Mapper>
+    template<class Self, class Mapper>
         requires ResultTransformable<Operation, std::decay_t<Mapper>>
-    [[nodiscard]] constexpr auto transform(Mapper&& mapper) const
+    [[nodiscard]] constexpr auto transform(
+        this Self&& self, Mapper&& mapper)
     {
         using MapOperation = std::decay_t<Mapper>;
         using Mapped = detail::MappedComposition<Operation, MapOperation>;
         return Function<Mapped>{Mapped{
-            operation, MapOperation(std::forward<Mapper>(mapper))}};
+            std::forward<Self>(self).operation,
+            MapOperation(std::forward<Mapper>(mapper))}};
     }
 };
+
+namespace detail {
+
+template<NonthrowingOperation Operation>
+consteval OperationShape inspect_function()
+{
+    constexpr std::meta::info type = ^^Function<Operation>;
+    constexpr std::meta::info self = std::meta::add_lvalue_reference(
+        std::meta::add_const(type));
+    std::meta::info call{};
+    for (const std::meta::info declaration : std::meta::members_of(
+             type, std::meta::access_context::unchecked())) {
+        if (!std::meta::is_operator_function_template(declaration)
+            || std::meta::operator_of(declaration)
+                != std::meta::op_parentheses
+            || !std::meta::can_substitute(declaration, {self}))
+            continue;
+        if (call != std::meta::info{})
+            return {};
+        call = std::meta::substitute(declaration, {self});
+    }
+    return inspect_declaration(call);
+}
+
+template<NonthrowingOperation Operation>
+struct OperationInspector<Function<Operation>> {
+    static consteval OperationShape inspect()
+    {
+        return inspect_function<Operation>();
+    }
+};
+
+} // namespace detail
 
 template<NonthrowingOperation Operation>
 Function(Operation) -> Function<Operation>;

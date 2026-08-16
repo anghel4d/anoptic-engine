@@ -13,6 +13,9 @@
 
 namespace ano {
 
+static_assert(sizeof(std::meta::info) == sizeof(void*));
+static_assert(alignof(std::meta::info) == alignof(void*));
+
 template<class Value, class Error>
 using Result = std::expected<Value, Error>;
 
