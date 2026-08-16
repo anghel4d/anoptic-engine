@@ -740,7 +740,7 @@ consteval void validate_transform(std::meta::info declaration)
         reject("resource transforms must be noexcept functions", declaration);
     const std::meta::info result = std::meta::dealias(
         std::meta::return_type_of(declaration));
-    if (!detail::inspect_result(result).valid)
+    if (detail::inspect_result(result).error == std::meta::info{})
         reject("resource transforms return ano::Result<Artifact, Error>",
                declaration);
     const auto resultArguments = std::meta::template_arguments_of(result);

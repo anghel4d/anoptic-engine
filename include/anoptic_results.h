@@ -24,7 +24,6 @@ namespace detail {
 struct ResultShape final {
     std::meta::info value{};
     std::meta::info error{};
-    bool valid{};
 };
 
 consteval ResultShape inspect_result(std::meta::info type)
@@ -39,7 +38,7 @@ consteval ResultShape inspect_result(std::meta::info type)
         || !std::meta::is_type(arguments[1]))
         return {};
 
-    return {arguments[0], arguments[1], true};
+    return {arguments[0], arguments[1]};
 }
 
 template<class Type>
@@ -48,7 +47,7 @@ inline constexpr ResultShape resultShape = inspect_result(^^Type);
 } // namespace detail
 
 template<class Type>
-concept ResultCarrier = detail::resultShape<Type>.valid;
+concept ResultCarrier = detail::resultShape<Type>.error != std::meta::info{};
 
 template<ResultCarrier Type>
 struct ResultAlgebra final {
@@ -57,8 +56,6 @@ struct ResultAlgebra final {
     using Carrier = std::remove_cvref_t<Type>;
     using Value = [:shape.value:];
     using Error = [:shape.error:];
-
-    static_assert(std::same_as<Carrier, std::expected<Value, Error>>);
 };
 
 template<class Error>

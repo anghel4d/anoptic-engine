@@ -18,13 +18,8 @@ namespace detail {
 struct OperationShape final {
     std::meta::info declaration{};
     std::meta::info parameter{};
-    std::meta::info domain{};
     std::meta::info result{};
     ResultShape carrier{};
-    bool concrete{};
-    bool supportedArity{};
-    bool nullary{};
-    bool nonthrowing{};
 };
 
 consteval std::meta::info callable_declaration(std::meta::info type)
@@ -59,13 +54,12 @@ consteval std::meta::info callable_declaration(std::meta::info type)
     return call;
 }
 
-consteval OperationShape inspect_declaration(std::meta::info declaration)
+consteval OperationShape inspect_operation(std::meta::info type)
 {
     OperationShape shape{};
-    shape.declaration = declaration;
+    shape.declaration = callable_declaration(type);
     if (shape.declaration == std::meta::info{})
         return shape;
-    shape.concrete = true;
 
     const auto parameters = std::meta::parameters_of(shape.declaration);
     const size_t first = !parameters.empty()
@@ -75,45 +69,28 @@ consteval OperationShape inspect_declaration(std::meta::info declaration)
         : 0;
     if (parameters.size() - first > 1)
         return shape;
-    shape.supportedArity = true;
-    shape.nullary = parameters.size() == first;
-    shape.parameter = shape.nullary
+    shape.parameter = parameters.size() == first
         ? ^^void
         : (std::meta::is_type(parameters[first])
                ? parameters[first]
                : std::meta::type_of(parameters[first]));
-    shape.domain = std::meta::remove_cvref(shape.parameter);
     shape.result = std::meta::return_type_of(shape.declaration);
     shape.carrier = inspect_result(shape.result);
-    shape.nonthrowing = std::meta::is_noexcept(shape.declaration);
     return shape;
 }
 
-consteval OperationShape inspect_operation(std::meta::info type)
-{
-    return inspect_declaration(callable_declaration(type));
-}
-
-template<class Type>
-struct OperationInspector {
-    static consteval OperationShape inspect()
-    {
-        return inspect_operation(^^Type);
-    }
-};
-
 template<class Type>
 inline constexpr OperationShape operationShape =
-    OperationInspector<std::remove_cvref_t<Type>>::inspect();
+    inspect_operation(^^std::remove_cvref_t<Type>);
 
 template<class Type>
 consteval bool declared_invocation()
 {
     using Operation = std::remove_cvref_t<Type>;
     constexpr auto shape = operationShape<Operation>;
-    if constexpr (!shape.supportedArity) {
+    if constexpr (shape.parameter == std::meta::info{}) {
         return false;
-    } else if constexpr (shape.nullary) {
+    } else if constexpr (shape.parameter == ^^void) {
         using Return = [:shape.result:];
         if constexpr (std::meta::is_class_member(shape.declaration))
             return requires(const Operation& operation) {
@@ -145,9 +122,9 @@ template<class Type>
 consteval bool nothrow_result_error()
 {
     constexpr auto shape = operationShape<Type>;
-    if constexpr (!shape.carrier.valid) {
+    if constexpr (shape.carrier.error == std::meta::info{})
         return false;
-    } else {
+    else {
         using Error = [:shape.carrier.error:];
         return std::is_nothrow_move_constructible_v<Error>;
     }
@@ -156,55 +133,47 @@ consteval bool nothrow_result_error()
 } // namespace detail
 
 template<class Type>
-concept ConcreteOperation = detail::operationShape<Type>.concrete;
-
-template<class Type>
-concept SupportedOperation = ConcreteOperation<Type>
-    && detail::operationShape<Type>.supportedArity;
-
-template<class Type>
-concept NonthrowingOperation = SupportedOperation<Type>
-    && detail::operationShape<Type>.nonthrowing
+concept NonthrowingOperation = detail::operationShape<Type>.declaration
+        != std::meta::info{}
+    && detail::operationShape<Type>.parameter != std::meta::info{}
+    && std::meta::is_noexcept(detail::operationShape<Type>.declaration)
     && detail::declared_invocation<Type>();
 
 template<class Type>
 concept ResultOperation = NonthrowingOperation<Type>
-    && detail::operationShape<Type>.carrier.valid
+    && detail::operationShape<Type>.carrier.error != std::meta::info{}
     && detail::nothrow_result_error<Type>();
 
 template<class Type>
 concept PureOperation = NonthrowingOperation<Type>
-    && !detail::operationShape<Type>.carrier.valid;
+    && detail::operationShape<Type>.carrier.error == std::meta::info{};
 
-template<SupportedOperation Type>
-struct OperationAlgebra final {
+template<NonthrowingOperation Type>
+struct OperationAlgebra {
     static constexpr auto shape = detail::operationShape<Type>;
-    static constexpr bool nullary = shape.nullary;
+    static constexpr bool nullary = shape.parameter == ^^void;
 
     using Operation = std::remove_cvref_t<Type>;
     using Parameter = [:shape.parameter:];
-    using Domain = [:shape.domain:];
+    using Domain = [:std::meta::remove_cvref(shape.parameter):];
     using Return = [:shape.result:];
 };
 
 template<ResultOperation Type>
-struct ResultOperationAlgebra final {
-    static constexpr auto shape = detail::operationShape<Type>;
-    static constexpr bool nullary = shape.nullary;
-
-    using Operation = std::remove_cvref_t<Type>;
-    using Parameter = [:shape.parameter:];
-    using Domain = [:shape.domain:];
-    using ReflectedResult = [:shape.result:];
-    using Carrier = std::remove_cvref_t<ReflectedResult>;
-    using Value = [:shape.carrier.value:];
-    using Error = [:shape.carrier.error:];
-
-    static_assert(std::same_as<Carrier, std::expected<Value, Error>>);
-    static_assert(std::same_as<Domain, std::remove_cvref_t<Parameter>>);
-    static_assert(std::is_void_v<Value> || std::is_object_v<Value>);
-    static_assert(nullary == std::is_void_v<Domain>);
+struct ResultOperationAlgebra final : OperationAlgebra<Type> {
+    using Base = OperationAlgebra<Type>;
+    using Carrier = std::remove_cvref_t<typename Base::Return>;
+    using Value = [:Base::shape.carrier.value:];
+    using Error = [:Base::shape.carrier.error:];
 };
+
+namespace detail {
+
+template<class Value, class Next>
+concept Accepts = (Next::nullary && std::same_as<Value, void>)
+    || (!Next::nullary && std::same_as<Value, typename Next::Domain>);
+
+} // namespace detail
 
 template<class Left, class Right>
 concept SameResultError = ResultOperation<Left> && ResultOperation<Right>
@@ -213,86 +182,62 @@ concept SameResultError = ResultOperation<Left> && ResultOperation<Right>
 
 template<class Left, class Right>
 concept KleisliComposable = SameResultError<Left, Right>
-    && ((std::same_as<typename ResultOperationAlgebra<Left>::Value, void>
-         && ResultOperationAlgebra<Right>::nullary)
-        || (!std::same_as<typename ResultOperationAlgebra<Left>::Value, void>
-            && !ResultOperationAlgebra<Right>::nullary
-            && std::same_as<typename ResultOperationAlgebra<Left>::Value,
-                            typename ResultOperationAlgebra<Right>::Domain>));
+    && detail::Accepts<typename ResultOperationAlgebra<Left>::Value,
+                       ResultOperationAlgebra<Right>>;
 
 template<class Left, class Mapper>
 concept ResultTransformable = ResultOperation<Left> && PureOperation<Mapper>
-    && ((std::same_as<typename ResultOperationAlgebra<Left>::Value, void>
-         && OperationAlgebra<Mapper>::nullary)
-        || (!std::same_as<typename ResultOperationAlgebra<Left>::Value, void>
-            && !OperationAlgebra<Mapper>::nullary
-            && std::same_as<typename ResultOperationAlgebra<Left>::Value,
-                            typename OperationAlgebra<Mapper>::Domain>));
+    && detail::Accepts<typename ResultOperationAlgebra<Left>::Value,
+                       OperationAlgebra<Mapper>>;
 
 template<NonthrowingOperation Operation>
 struct Function;
 
 namespace detail {
 
-template<ResultOperation First, ResultOperation Next,
-         bool = ResultOperationAlgebra<First>::nullary>
-    requires KleisliComposable<First, Next>
-struct BoundComposition;
-
 template<ResultOperation First, ResultOperation Next>
     requires KleisliComposable<First, Next>
-struct BoundComposition<First, Next, false> final {
-    [[no_unique_address]] First first;
-    [[no_unique_address]] Next next;
+struct BoundComposition final {
+    using Algebra = ResultOperationAlgebra<First>;
+    using Argument = std::conditional_t<
+        Algebra::nullary, int, typename Algebra::Parameter>;
 
-    using Parameter = typename ResultOperationAlgebra<First>::Parameter;
-
-    [[nodiscard]] constexpr auto operator()(Parameter input) const noexcept
-    {
-        return first(std::forward<Parameter>(input)).and_then(next);
-    }
-};
-
-template<ResultOperation First, ResultOperation Next>
-    requires KleisliComposable<First, Next>
-struct BoundComposition<First, Next, true> final {
     [[no_unique_address]] First first;
     [[no_unique_address]] Next next;
 
     [[nodiscard]] constexpr auto operator()() const noexcept
+        requires Algebra::nullary
     {
         return first().and_then(next);
     }
-};
 
-template<ResultOperation First, PureOperation Mapper,
-         bool = ResultOperationAlgebra<First>::nullary>
-    requires ResultTransformable<First, Mapper>
-struct MappedComposition;
-
-template<ResultOperation First, PureOperation Mapper>
-    requires ResultTransformable<First, Mapper>
-struct MappedComposition<First, Mapper, false> final {
-    [[no_unique_address]] First first;
-    [[no_unique_address]] Mapper mapper;
-
-    using Parameter = typename ResultOperationAlgebra<First>::Parameter;
-
-    [[nodiscard]] constexpr auto operator()(Parameter input) const noexcept
+    [[nodiscard]] constexpr auto operator()(Argument input) const noexcept
+        requires (!Algebra::nullary)
     {
-        return first(std::forward<Parameter>(input)).transform(mapper);
+        return first(std::forward<Argument>(input)).and_then(next);
     }
 };
 
 template<ResultOperation First, PureOperation Mapper>
     requires ResultTransformable<First, Mapper>
-struct MappedComposition<First, Mapper, true> final {
+struct MappedComposition final {
+    using Algebra = ResultOperationAlgebra<First>;
+    using Argument = std::conditional_t<
+        Algebra::nullary, int, typename Algebra::Parameter>;
+
     [[no_unique_address]] First first;
     [[no_unique_address]] Mapper mapper;
 
     [[nodiscard]] constexpr auto operator()() const noexcept
+        requires Algebra::nullary
     {
         return first().transform(mapper);
+    }
+
+    [[nodiscard]] constexpr auto operator()(Argument input) const noexcept
+        requires (!Algebra::nullary)
+    {
+        return first(std::forward<Argument>(input)).transform(mapper);
     }
 };
 
@@ -309,79 +254,44 @@ struct [[nodiscard]] Function final {
 
     [[no_unique_address]] Operation operation;
 
-    template<class Self>
-    [[nodiscard]] constexpr Return operator()(this Self&& self) noexcept
+    [[nodiscard]] constexpr Return operator()(
+        this const Function& self) noexcept
         requires Algebra::nullary
     {
-        return std::forward<Self>(self).operation();
+        return self.operation();
     }
 
-    template<class Self>
     [[nodiscard]] constexpr Return operator()(
-        this Self&& self, Argument input) noexcept
+        this const Function& self, Argument input) noexcept
         requires (!Algebra::nullary)
     {
-        return std::forward<Self>(self).operation(
-            std::forward<Argument>(input));
+        return self.operation(std::forward<Argument>(input));
     }
 
-    template<class Self, class Next>
+    template<class Next>
         requires KleisliComposable<Operation, std::decay_t<Next>>
     [[nodiscard]] constexpr auto and_then(
-        this Self&& self, Next&& next)
+        this const Function& self, Next&& next)
     {
         using NextOperation = std::decay_t<Next>;
         using Bound = detail::BoundComposition<Operation, NextOperation>;
         return Function<Bound>{Bound{
-            std::forward<Self>(self).operation,
+            self.operation,
             NextOperation(std::forward<Next>(next))}};
     }
 
-    template<class Self, class Mapper>
+    template<class Mapper>
         requires ResultTransformable<Operation, std::decay_t<Mapper>>
     [[nodiscard]] constexpr auto transform(
-        this Self&& self, Mapper&& mapper)
+        this const Function& self, Mapper&& mapper)
     {
         using MapOperation = std::decay_t<Mapper>;
         using Mapped = detail::MappedComposition<Operation, MapOperation>;
         return Function<Mapped>{Mapped{
-            std::forward<Self>(self).operation,
+            self.operation,
             MapOperation(std::forward<Mapper>(mapper))}};
     }
 };
-
-namespace detail {
-
-template<NonthrowingOperation Operation>
-consteval OperationShape inspect_function()
-{
-    constexpr std::meta::info type = ^^Function<Operation>;
-    constexpr std::meta::info self = std::meta::add_lvalue_reference(
-        std::meta::add_const(type));
-    std::meta::info call{};
-    for (const std::meta::info declaration : std::meta::members_of(
-             type, std::meta::access_context::unchecked())) {
-        if (!std::meta::is_operator_function_template(declaration)
-            || std::meta::operator_of(declaration)
-                != std::meta::op_parentheses
-            || !std::meta::can_substitute(declaration, {self}))
-            continue;
-        if (call != std::meta::info{})
-            return {};
-        call = std::meta::substitute(declaration, {self});
-    }
-    return inspect_declaration(call);
-}
-
-template<NonthrowingOperation Operation>
-struct OperationInspector<Function<Operation>> {
-    static consteval OperationShape inspect()
-    {
-        return inspect_function<Operation>();
-    }
-};
-
-} // namespace detail
 
 template<NonthrowingOperation Operation>
 Function(Operation) -> Function<Operation>;
@@ -394,22 +304,23 @@ struct Lifted final {
     static_assert(std::meta::is_function(Declaration));
     static constexpr auto shape =
         detail::inspect_operation(std::meta::type_of(Declaration));
-    static_assert(shape.supportedArity && shape.nonthrowing
-                  && shape.carrier.valid);
+    static_assert(shape.parameter != std::meta::info{}
+                  && std::meta::is_noexcept(shape.declaration)
+                  && shape.carrier.error != std::meta::info{});
 
     using Return = [:shape.result:];
     using Parameter = [:shape.parameter:];
     using Argument = std::conditional_t<
-        shape.nullary, int, Parameter>;
+        shape.parameter == ^^void, int, Parameter>;
 
     [[nodiscard]] constexpr Return operator()() const noexcept
-        requires (shape.nullary)
+        requires (shape.parameter == ^^void)
     {
         return [:Declaration:]();
     }
 
     [[nodiscard]] constexpr Return operator()(Argument input) const noexcept
-        requires (!shape.nullary)
+        requires (shape.parameter != ^^void)
     {
         return [:Declaration:](std::forward<Argument>(input));
     }
@@ -430,8 +341,7 @@ template<class Operation>
     requires ResultOperation<std::decay_t<Operation>>
 [[nodiscard]] constexpr auto compose(Operation&& operation)
 {
-    using Stored = std::decay_t<Operation>;
-    return Function{Stored(std::forward<Operation>(operation))};
+    return function(std::forward<Operation>(operation));
 }
 
 } // namespace ano
