@@ -74,13 +74,16 @@ Here's a list of the valid build targets:
 - `nix build .#headless`: server release build. No renderer, GPU, or display.
 - `nix build .#release-headless`: same as `.#headless`.
 - `nix build .#release-wsl`: cross-built Windows `.exe` with renderer (see [Building for Windows with WSL](#building-for-windows-with-wsl)).
+- `nix build .#gcc17`: the same full renderer through the pinned experimental GCC 17 snapshot.
+- `nix build .#release-gcc17-windows-x64`: the Windows UCRT renderer through that same GCC 17 snapshot.
 - `nix build .#anygpu` — Linux renderer with mesa's Vulkan ICDs bundled as a driver default (`VK_ADD_DRIVER_FILES`, opt out by setting it empty): AMD/Intel/NVK hardware works on any distro with no host driver packages.
 - `nix build .#tests-headless` — CTest suite in the sandbox (`.#tests-asan`, `.#tests-tsan`, `.#tests-full` on Linux; `tests-full` runs the renderer suite under Xvfb, and the Vulkan device tests skip where no device can run the renderer). The suites are packages — build them explicitly; `nix flake check` only evaluates.
+- `nix build .#tests-gcc17-headless .#proofs-gcc17`: compile and run the public test surface and reflected C++/Lean certificates with GCC 17.
 
 **In general:**
 `nix build .#<type>[-headless]-<platform>-<arch>[-wayland|-x11|-anygpu]`: any permutation, e.g. `.#release-linux-x64-x11`.
 
-`nix develop` opens the dev shell; `nix develop .#windows` is the MinGW-w64 cross shell.
+`nix develop` opens the stable dev shell; `nix develop .#gcc17` selects the experimental snapshot. `.#windows` and `.#windows-gcc17` are the corresponding MinGW-w64 UCRT cross shells.
 
 Private assets instead of the public pack:
 ```bash
@@ -155,7 +158,7 @@ If your config is cursed and that doesn't work, just use Nix okay?
 nix develop --command ./build.sh  1
 ```
 
-The Nix shell provides clang/lld 22, cmake, ninja, glslc + glslangValidator, lldb, llvm-ar, Vulkan headers, loader, and validation layers, and the X11 + Wayland client libraries. Renderer builds compile both window backends and select at runtime; the single-backend `-wayland`/`-x11` packages are explicit targets. For GPU-less test runs, point `VK_ICD_FILENAMES` at `$ANO_LAVAPIPE_ICD` (exported by the shell). The foreign-distro GPU plumbing — why host ICDs fail to load under the Nix loader, the `nixglhost` bridge, lavapipe's limits — is documented in `docs/nix/NIX_LINUX.md`.
+The stable Nix shell provides GCC 16.2; `nix develop .#gcc17` provides the pinned experimental GCC 17 snapshot. Both carry cmake, ninja, glslc + glslangValidator, lldb, LLVM inspection tools, Vulkan headers, loader, validation layers, and the X11 + Wayland client libraries. Renderer builds compile both window backends and select at runtime; the single-backend `-wayland`/`-x11` packages are explicit targets. For GPU-less test runs, point `VK_ICD_FILENAMES` at `$ANO_LAVAPIPE_ICD` (exported by the shell). The foreign-distro GPU plumbing — why host ICDs fail to load under the Nix loader, the `nixglhost` bridge, lavapipe's limits — is documented in `docs/nix/NIX_LINUX.md`.
 
 Without Nix: install `clang 20+`, `CMake`, `Ninja`, `glslc` yourself I guess. You'll also need to install your distro's Vulkan SDK. Then you can run `build.sh` and pray.
 

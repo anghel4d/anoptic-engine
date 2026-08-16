@@ -17,6 +17,11 @@
   #   nix build .#tests-asan|tests-tsan    sanitized non-GPU suite        (Linux)
   #   nix build .#tests-full               full suite under Xvfb; device tests skip sans capable GPU (Linux)
   #   nix build .#proofs                   machine-check the Lean semantic kernel
+  #   nix develop .#gcc17                  experimental GCC 17 snapshot lane
+  #   nix build .#gcc17                    full renderer through GCC 17
+  #   nix build .#tests-gcc17-headless     tests through GCC 17
+  #   nix build .#proofs-gcc17             C++/Lean certificates through GCC 17
+  #   nix build .#release-gcc17-windows-x64   full UCRT renderer through GCC 17
   #   nix flake check --no-build --all-systems   eval-only sweep; plain flake check BUILDS+runs the Linux suites (they are checks outputs)
   #
   # Impure side 〜 your working tree, output in ./build/<label>/ like build.sh:
@@ -42,9 +47,9 @@
   };
 
   inputs = {
-    # GCC 16.2 plus MinGW-w64 14 for the C++26 Windows cross-toolchain.
-    # No gcc17 / gccSnapshot / gccNightly in nixpkgs; official weekly snapshots
-    # exist (LATEST-17) but are unpackaged and not a supported engine compiler.
+    # GCC 16.2 plus MinGW-w64 14 form the stable lane. The experimental lane
+    # imports one official GCC 17 weekly snapshot without replacing nixpkgs's
+    # global stdenv or rebuilding the engine's dependency closure.
     nixpkgs.url = "github:NixOS/nixpkgs/29559bdc8fb34e51837dd5dae865eb6f20f42be3";
 
     # Pinned submodule sources, revs match .gitmodules.
@@ -462,6 +467,43 @@
               // args
             );
 
+          mkProofs =
+            name: stdenv:
+            pkgs.runCommand name
+              {
+                nativeBuildInputs = [
+                  leanToolchain
+                  stdenv.cc
+                  pkgs.diffutils
+                ];
+              }
+              ''
+                cp -r ${self}/proofs proofs
+                chmod -R +w proofs
+                cd proofs
+                ${stdenv.cc}/bin/g++ \
+                  -std=gnu++26 -freflection -fno-exceptions -fno-rtti \
+                  -nostdlib++ -I${self}/include -I${mimalloc-src}/include \
+                  cpp/resource_schema_certificate.cpp \
+                  -o "$TMPDIR/resource-schema-certificate"
+                if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/resource-schema-certificate" \
+                    | grep -q 'libstdc++'; then
+                  echo "resource-schema certificate linked the forbidden C++ runtime" >&2
+                  exit 1
+                fi
+                "$TMPDIR/resource-schema-certificate" \
+                  > "$TMPDIR/ResourceSchema.lean"
+                if ! cmp -s Anoptic/Generated/ResourceSchema.lean \
+                    "$TMPDIR/ResourceSchema.lean"; then
+                  echo "reflected resource schema differs from the checked Lean certificate" >&2
+                  diff -u Anoptic/Generated/ResourceSchema.lean \
+                    "$TMPDIR/ResourceSchema.lean" >&2 || true
+                  exit 1
+                fi
+                lake build
+                touch $out
+              '';
+
           native = mkVariants mkHost (
             {
               "release-${hostTag}" = {
@@ -577,6 +619,21 @@
             gcc17 = gcc17Native."release-gcc17-${hostTag}";
           };
 
+          # Explicit experimental validation. These are packages rather than
+          # flake checks so the stable lane does not build GCC 17 implicitly.
+          gcc17Validation = lib.optionalAttrs isLinux (
+            mkVariants mkHostGcc17 {
+              tests-gcc17-headless = {
+                buildType = "Debug";
+                headless = true;
+                tests = true;
+              };
+            }
+            // {
+              proofs-gcc17 = mkProofs "anoptic-proofs-gcc17" engineGcc17Stdenv;
+            }
+          );
+
           # Sandbox test suites. Building one runs it. Sanitized suites run headless.
           # GPU-real sanitizer runs are `nix run -- 6|7`.
           # tests-full (experimental): full suite incl. Vulkan device tests on lavapipe.
@@ -610,41 +667,7 @@
               }
             )
             // {
-              proofs =
-                pkgs.runCommand "anoptic-proofs"
-                  {
-                    nativeBuildInputs = [
-                      leanToolchain
-                      engineStdenv.cc
-                      pkgs.diffutils
-                    ];
-                  }
-                  ''
-                    cp -r ${self}/proofs proofs
-                    chmod -R +w proofs
-                    cd proofs
-                    ${engineStdenv.cc}/bin/g++ \
-                      -std=gnu++26 -freflection -fno-exceptions -fno-rtti \
-                      -nostdlib++ -I${self}/include -I${mimalloc-src}/include \
-                      cpp/resource_schema_certificate.cpp \
-                      -o "$TMPDIR/resource-schema-certificate"
-                    if ${pkgs.binutils}/bin/readelf -d "$TMPDIR/resource-schema-certificate" \
-                        | grep -q 'libstdc++'; then
-                      echo "resource-schema certificate linked the forbidden C++ runtime" >&2
-                      exit 1
-                    fi
-                    "$TMPDIR/resource-schema-certificate" \
-                      > "$TMPDIR/ResourceSchema.lean"
-                    if ! cmp -s Anoptic/Generated/ResourceSchema.lean \
-                        "$TMPDIR/ResourceSchema.lean"; then
-                      echo "reflected resource schema differs from the checked Lean certificate" >&2
-                      diff -u Anoptic/Generated/ResourceSchema.lean \
-                        "$TMPDIR/ResourceSchema.lean" >&2 || true
-                      exit 1
-                    fi
-                    lake build
-                    touch $out
-                  '';
+              proofs = mkProofs "anoptic-proofs" engineStdenv;
             };
 
           # nixglhost: harvests the host NVIDIA userspace at runtime (non-NixOS).
@@ -832,7 +855,7 @@
                 '';
             };
 
-          # Inspection tools remain available even though GCC 16 is the canonical frontend.
+          # Inspection tools remain available independently of the selected frontend.
           shellTools =
             (with pkgs; [
               cmake
@@ -845,7 +868,9 @@
             ])
             ++ [
               llvmPkgs.llvm
-              llvmPkgs.lldb
+              # LLVM 23 rc1's LLDB carries a stale nixpkgs patch. The stable LLDB
+              # remains a debugger only; it does not participate in compilation.
+              pkgs.lldb
             ];
           vvlShell = vvlFor pkgs host;
 
@@ -986,6 +1011,7 @@
             // gcc17Windows
             // aliases
             // checks
+            // gcc17Validation
             // nvidiaLaunchers
             // {
               play = playLauncher;
