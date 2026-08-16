@@ -91,6 +91,19 @@ struct RenderResourceContext {
 
 namespace {
 
+constexpr ano::ArithmeticResult<uint64_t> texture_pixel_count(
+    const schema::Texture& texture) noexcept
+{
+    return ano::checked_multiply(
+        uint64_t{texture.width}, uint64_t{texture.height});
+}
+
+constexpr ano::ArithmeticResult<uint64_t> rgba8_byte_count(
+    uint64_t pixels) noexcept
+{
+    return ano::checked_multiply(pixels, UINT64_C(4));
+}
+
 struct TransformEndpoints final {
     std::meta::info input;
     std::meta::info output;
@@ -522,13 +535,16 @@ ResourceResult<> prepare_decoded(
     const schema::Texture& texture,
     AnoResourceBytes artifact, mi_heap_t*) noexcept
 {
-    const auto pixels = ano::checked_multiply(texture.width, texture.height);
-    const auto bytes = pixels.and_then([](uint64_t count) noexcept {
-        return ano::checked_multiply(count, UINT64_C(4));
-    });
+    const auto bytes = ano::lift<^^texture_pixel_count>
+        .and_then(ano::lift<^^rgba8_byte_count>)
+        .map_error([](ano::ArithmeticError) noexcept {
+            return ANO_RESOURCE_NON_CANONICAL;
+        })(texture);
+    if (!bytes)
+        return failure(bytes.error());
     if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0
-        || !bytes || *bytes != texture.bytes.count || *bytes > SIZE_MAX)
+        || *bytes != texture.bytes.count || *bytes > SIZE_MAX)
         return failure(ANO_RESOURCE_NON_CANONICAL);
     const ano::ArtifactView<schema::Texture> view = {
         .value = texture, .bytes = artifact};
@@ -869,12 +885,14 @@ ResourceResult<GpuTexture> realize_texture(
     if (texture.format != TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0)
         return failure(ANO_RESOURCE_NON_CANONICAL);
-    const auto pixelCount = ano::checked_multiply(
-        texture.width, texture.height);
-    const auto requiredBytes = pixelCount.and_then([](uint64_t count) noexcept {
-        return ano::checked_multiply(count, UINT64_C(4));
-    });
-    if (!requiredBytes || *requiredBytes != texture.bytes.count
+    const auto requiredBytes = ano::lift<^^texture_pixel_count>
+        .and_then(ano::lift<^^rgba8_byte_count>)
+        .map_error([](ano::ArithmeticError) noexcept {
+            return ANO_RESOURCE_NON_CANONICAL;
+        })(texture);
+    if (!requiredBytes)
+        return failure(requiredBytes.error());
+    if (*requiredBytes != texture.bytes.count
         || *requiredBytes > SIZE_MAX)
         return failure(ANO_RESOURCE_NON_CANONICAL);
     RenderBinding* target = binding(
