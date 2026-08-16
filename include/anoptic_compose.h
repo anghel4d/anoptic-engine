@@ -126,7 +126,7 @@ consteval bool nothrow_result_error()
         return false;
     else {
         using Error = [:shape.carrier.error:];
-        return std::is_nothrow_move_constructible_v<Error>;
+        return ResultError<Error>;
     }
 }
 
@@ -162,9 +162,10 @@ struct OperationAlgebra {
 template<ResultOperation Type>
 struct ResultOperationAlgebra final : OperationAlgebra<Type> {
     using Base = OperationAlgebra<Type>;
-    using Carrier = std::remove_cvref_t<typename Base::Return>;
-    using Value = [:Base::shape.carrier.value:];
-    using Error = [:Base::shape.carrier.error:];
+    using CarrierAlgebra = ResultAlgebra<typename Base::Return>;
+    using Carrier = typename CarrierAlgebra::Carrier;
+    using Value = typename CarrierAlgebra::Value;
+    using Error = typename CarrierAlgebra::Error;
 };
 
 namespace detail {

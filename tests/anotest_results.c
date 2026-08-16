@@ -16,6 +16,52 @@ enum class OtherError {
     invalid,
 };
 
+struct AdversarialError final {
+    AdversarialError() = default;
+    AdversarialError(const AdversarialError&) noexcept(false) {}
+    AdversarialError(AdversarialError&&) noexcept = default;
+
+    friend bool operator==(const AdversarialError&,
+                           const AdversarialError&) noexcept(false)
+    {
+        return true;
+    }
+};
+
+struct ThrowingMoveError final {
+    ThrowingMoveError() = default;
+    ThrowingMoveError(const ThrowingMoveError&) noexcept = default;
+    ThrowingMoveError(ThrowingMoveError&&) noexcept(false) {}
+};
+
+struct MoveOnlyValue final {
+    MoveOnlyValue() = default;
+    MoveOnlyValue(const MoveOnlyValue&) = delete;
+    MoveOnlyValue(MoveOnlyValue&&) noexcept = default;
+};
+
+template<class Error>
+concept FailureAvailable = requires(Error&& error) {
+    ano::failure(std::forward<Error>(error));
+};
+
+template<class Error>
+concept UnitResultIfAvailable = requires(Error&& error) {
+    ano::result_if(true, std::forward<Error>(error));
+};
+
+template<class Value, class Error>
+concept ValueResultIfAvailable = requires(Value&& value, Error&& error) {
+    ano::result_if(true, std::forward<Value>(value),
+                   std::forward<Error>(error));
+};
+
+template<class Carrier, class Error>
+concept HasErrorAvailable = requires(const Carrier& carrier,
+                                     const Error& error) {
+    { ano::has_error(carrier, error) } -> std::same_as<bool>;
+};
+
 constexpr auto parse(bool valid) noexcept -> ano::Result<int, ParseError>
 {
     if (valid)
@@ -62,6 +108,12 @@ constexpr auto potentially_throwing(int value)
     return value;
 }
 
+auto unsafe_error_operation(int value) noexcept
+    -> ano::Result<int, ThrowingMoveError>
+{
+    return value;
+}
+
 using ParseResult = decltype(parse(true));
 
 static_assert(ano::detail::inspect_result(
@@ -74,6 +126,20 @@ static_assert(ano::detail::inspect_result(
 static_assert(ano::ResultCarrier<ParseResult>);
 static_assert(ano::ResultCarrier<const ParseResult&>);
 static_assert(!ano::ResultCarrier<int>);
+static_assert(!ano::ResultError<ThrowingMoveError>);
+static_assert(ano::ResultCarrier<
+              ano::Result<int, ThrowingMoveError>>);
+static_assert(!ano::ResultOperation<decltype(&unsafe_error_operation)>);
+static_assert(!FailureAvailable<const char (&)[2]>);
+static_assert(UnitResultIfAvailable<AdversarialError>);
+static_assert(!UnitResultIfAvailable<AdversarialError&>);
+static_assert(ValueResultIfAvailable<MoveOnlyValue, ParseError>);
+static_assert(!ValueResultIfAvailable<MoveOnlyValue&, ParseError>);
+static_assert(!ValueResultIfAvailable<int, AdversarialError&>);
+static_assert(!HasErrorAvailable<
+              ano::Result<int, AdversarialError>, AdversarialError>);
+static_assert(noexcept(ano::result_if(
+                  true, 1, ParseError::invalid)));
 static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Carrier,
                            ParseResult>);
 static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Value, int>);
@@ -97,6 +163,9 @@ static_assert(std::same_as<
 static_assert(std::same_as<
               ano::ResultOperationAlgebra<decltype(&parse)>::Error,
               ParseError>);
+static_assert(std::same_as<
+              ano::ResultOperationAlgebra<decltype(&parse)>::CarrierAlgebra,
+              ano::ResultAlgebra<ParseResult>>);
 static_assert(ano::ResultOperation<decltype(ano::lift<^^parse>)>);
 static_assert(std::is_empty_v<decltype(ano::lift<^^parse>)>);
 
@@ -187,6 +256,11 @@ static_assert(unit_composition_surface());
 
 int main()
 {
+    if (ano::result_if(false, AdversarialError{}))
+        return 1;
+    if (!ano::result_if(true, MoveOnlyValue{}, ParseError::invalid))
+        return 1;
+
     int calls = 0;
     ANO_LET(observe,
             [&calls](int value) noexcept

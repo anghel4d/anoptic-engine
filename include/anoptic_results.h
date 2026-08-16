@@ -19,6 +19,10 @@ static_assert(alignof(std::meta::info) == alignof(void*));
 template<class Value, class Error>
 using Result = std::expected<Value, Error>;
 
+template<class Error>
+concept ResultError = std::is_nothrow_move_constructible_v<
+    std::remove_cvref_t<Error>>;
+
 namespace detail {
 
 struct ResultShape final {
@@ -51,6 +55,18 @@ consteval ResultShape inspect_result(std::meta::info type)
 template<class Type>
 inline constexpr ResultShape resultShape = inspect_result(^^Type);
 
+template<class Target, class Source>
+concept NothrowConstructibleFrom =
+    std::constructible_from<Target, Source>
+    && std::is_nothrow_constructible_v<Target, Source>;
+
+template<class Left, class Right>
+concept NothrowEqualityComparableWith =
+    std::equality_comparable_with<Left, Right>
+    && requires(const Left& left, const Right& right) {
+        { static_cast<bool>(left == right) } noexcept -> std::same_as<bool>;
+    };
+
 } // namespace detail
 
 template<class Type>
@@ -66,55 +82,60 @@ struct ResultAlgebra final {
 
     static_assert(std::same_as<Carrier, std::expected<Value, Error>>,
                   "carrier is not the expected<Value, Error> it decomposes to");
-    static_assert(std::is_nothrow_move_constructible_v<Error>,
+    static_assert(ResultError<Error>,
                   "ano::Result error types must be nothrow-movable");
 };
 
 template<class Error>
-    requires std::constructible_from<std::remove_cvref_t<Error>, Error>
-[[nodiscard]] constexpr auto failure(Error&& error)
-    noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<Error>, Error>)
+    requires (!std::is_array_v<std::remove_reference_t<Error>>)
+        && ResultError<Error>
+        && detail::NothrowConstructibleFrom<
+            std::remove_cvref_t<Error>, Error>
+[[nodiscard]] constexpr auto failure(Error&& error) noexcept
     -> std::unexpected<std::remove_cvref_t<Error>>
 {
-    static_assert(!std::is_array_v<std::remove_reference_t<Error>>,
-                  "array errors decay unexpectedly; wrap it");
-    return std::unexpected<std::remove_cvref_t<Error>>(
-        std::forward<Error>(error));
+    using StoredError = std::remove_cvref_t<Error>;
+    return std::unexpected<StoredError>(
+        std::in_place, std::forward<Error>(error));
 }
 
 template<class Error>
-    requires std::constructible_from<std::remove_cvref_t<Error>, Error>
-[[nodiscard]] constexpr auto result_if(bool condition, Error&& error)
-    noexcept
+    requires ResultError<Error>
+        && detail::NothrowConstructibleFrom<
+            std::remove_cvref_t<Error>, Error>
+[[nodiscard]] constexpr auto result_if(bool condition, Error&& error) noexcept
     -> Result<void, std::remove_cvref_t<Error>>
 {
+    using Output = Result<void, std::remove_cvref_t<Error>>;
     if (!condition)
-        return failure(std::forward<Error>(error));
-    return {};
+        return Output(std::unexpect, std::forward<Error>(error));
+    return Output{};
 }
 
 template<class Value, class Error>
-    requires std::move_constructible<std::remove_cvref_t<Value>>
-        && std::constructible_from<std::remove_cvref_t<Error>, Error>
+    requires ResultError<Error>
+        && detail::NothrowConstructibleFrom<
+            std::remove_cvref_t<Value>, Value>
+        && detail::NothrowConstructibleFrom<
+            std::remove_cvref_t<Error>, Error>
 [[nodiscard]] constexpr auto result_if(
-    bool condition, Value&& value, Error&& error)
-    noexcept(std::is_nothrow_constructible_v<std::remove_cvref_t<Value>, Value>)
+    bool condition, Value&& value, Error&& error) noexcept
     -> Result<std::remove_cvref_t<Value>, std::remove_cvref_t<Error>>
 {
+    using Output = Result<
+        std::remove_cvref_t<Value>, std::remove_cvref_t<Error>>;
     if (!condition)
-        return failure(std::forward<Error>(error));
-    return std::forward<Value>(value);
+        return Output(std::unexpect, std::forward<Error>(error));
+    return Output(std::in_place, std::forward<Value>(value));
 }
 
 template<ResultCarrier Self, class Error>
-    requires std::equality_comparable_with<
+    requires detail::NothrowEqualityComparableWith<
         typename ResultAlgebra<Self>::Error, Error>
 [[nodiscard]] constexpr bool has_error(const Self& self,
                                        const Error& error) noexcept
 {
-    static_assert(noexcept(self.error() == error),
-                  "error comparison must not throw");
-    return !self && self.error() == error;
+    return !self && static_cast<bool>(self.error() == error);
 }
 
 } // namespace ano
