@@ -1,9 +1,9 @@
 ---
 name: cpp-reflection-status-2026-08-02
-description: Manual, timestamped capability reference for adopted C++26 reflection on GCC 16.1. Invoke only when the user explicitly names $cpp-reflection-status-2026-08-02 or explicitly asks to load this status skill; do not infer invocation from mentions of reflection, std::meta, constexpr, consteval, annotations, generation, schemas, templates, registries, compiler support, or ordinary reflection implementation and review.
+description: Manual capability reference for adopted C++26 reflection on Anoptic's pinned GCC 17 toolchain. Invoke only when the user explicitly names $cpp-reflection-status-2026-08-02 or explicitly asks to load this status skill; do not infer invocation from mentions of reflection, std::meta, constexpr, consteval, annotations, generation, schemas, templates, registries, compiler support, or ordinary reflection implementation and review.
 ---
 
-# C++26 Reflection Status - 2026-08-02
+# C++26 Reflection Status - GCC 17
 
 Use this skill as a dated capability snapshot and as a design posture. Treat adopted, implemented reflection as a serious compile-time programming substrate, not merely a serialization convenience.
 
@@ -41,13 +41,14 @@ This follows the WG21 design direction recorded in [P3466R1](https://www.open-st
 
 ## Verified baseline
 
-Assume the following only after confirming the build selects GCC 16.1 or newer:
+Assume this surface only after confirming the build selects Anoptic's pinned
+GCC 17 toolchain:
 
 ```text
 -std=gnu++26 -freflection
 ```
 
-The 2026-08-02 probe corpus verified the important surface with:
+The 2026-08-16 probe corpus verified the important surface with:
 
 ```text
 -std=gnu++26 -freflection -fno-exceptions -fno-rtti -nostdlib++
@@ -58,14 +59,14 @@ The 2026-08-02 probe corpus verified the important surface with:
 ## Workflow
 
 1. Identify the requested compiler and date.
-2. If the user asks about "today," "current," a compiler newer than GCC 16.1, or work after 2026-08-02, verify status against primary sources before answering:
+2. If the user asks about "today," "current," a newer compiler snapshot, or work after 2026-08-16, verify status against primary sources before answering:
    - GCC C++ status: `https://gcc.gnu.org/projects/cxx-status.html`
-   - GCC release notes: `https://gcc.gnu.org/gcc-16/changes.html`
+   - GCC 17 snapshots: `https://gcc.gnu.org/pub/gcc/snapshots/LATEST-17/`
    - WG21 papers and adoption records: `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/`
 3. Read [references/capabilities.md](references/capabilities.md) when the task needs exact APIs, syntax, limitations, or examples.
 4. Select the strongest supported mechanism. Prefer a direct reflection solution over emulating reflection with traits or macros.
 5. For implementation work, compile a minimal probe before restructuring a module. Use the production flags, including `-nostdlib++`, `-fno-exceptions`, and `-fno-rtti` when those are project policy.
-6. Stabilize query results with `std::define_static_array(...)` before `template for` on GCC 16.1. Direct expansion over a temporary `vector<info>` failed in the recovered probe corpus.
+6. Stabilize transient query results with `std::define_static_array(...)` before `template for`. This is the C++26 lifetime model for expansion over reflection vectors, not a GCC 16 workaround.
 7. Turn structural omissions into compile-time failures with `static_assert` or `std::meta::exception`.
 8. Inspect emitted data/code when generating large per-type specializations. Reflection itself has no runtime traversal cost, but its products may affect code size and layout.
 
@@ -101,7 +102,26 @@ Use the complete stack together:
 
 This is reflective metaprogramming in ordinary C++ control flow. Do not reduce it to "loop over fields," and do not rebuild a template metaprogram beside it.
 
-## Hard boundaries in GCC 16.1
+## GCC 17 coverage that changes engine code
+
+- `members_of` exposes closure `operator()` declarations and omits undeclared
+  global builtins. Inspect callables and namespaces directly; do not maintain
+  a parallel trait registry or builtin denylist.
+- A reflected member-function template can be specialized with
+  `can_substitute` and `substitute`, then spliced through its object or as an
+  address. A callable wrapper may therefore remain a real member template
+  while its concrete public arrow is recovered at translation time.
+- Reflection queries instantiate an otherwise unused specialization before
+  answering type, deduced return, deferred `noexcept`, base, and substitution
+  questions. Do not ODR-use a declaration merely to make reflection truthful.
+- `std::meta::info` has pointer size and pointer alignment in every Anoptic GCC
+  17 lane. Never mix a translation unit using that layout with GCC 16-built
+  reflection objects.
+
+These are implementation corrections to the adopted language, not new Anoptic
+extensions. The headers should express the standard design directly.
+
+## Hard boundaries in GCC 17
 
 - No arbitrary token injection or arbitrary generated function bodies.
 - `define_aggregate` generates aggregate data members, alignment, bit fields, `no_unique_address`, and annotations; it is not a general AST builder.
@@ -109,7 +129,8 @@ This is reflective metaprogramming in ordinary C++ control flow. Do not reduce i
 - No arbitrary legacy attribute reflection; use C++26 annotations `[[=value]]` on declarations you control.
 - No reflected array-element subobjects.
 - No P3598 reflection inside contract assertions.
-- No `std::meta::apply_result`, `is_applicable_type`, or `is_nothrow_applicable_type` in GCC 16.1.
+- Do not assume proposed or renamed reflection APIs merely because an older
+  paper used them. Confirm the adopted spelling in the pinned `<meta>` header.
 - Foreign semantics enter the compile-time program as typed declarations, annotations, or `constexpr` data. Reflection-driven algorithms compile JSON, GLSL, SPIR-V, multimedia, and Vulkan structure from that source; never use domain specificity to justify duplicated registries or routes.
 
 ## Decision rule

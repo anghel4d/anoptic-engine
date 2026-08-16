@@ -1,4 +1,4 @@
-# Verified C++26 reflection capabilities - 2026-08-02
+# Verified C++26 reflection capabilities - 2026-08-16
 
 ## Contents
 
@@ -8,19 +8,28 @@
 4. Annotations and parameters
 5. Expansion, splicing, and generation
 6. Reflected type computation
-7. Known GCC 16.1 limits
+7. GCC 17 correctness boundary
 8. Primary sources
 
 ## Status and flags
 
-This snapshot reconciles adopted WG21 C++26 papers with GCC's status page, GCC 16.1's installed `<meta>` header, and local compiler probes.
+This snapshot reconciles adopted WG21 C++26 papers with GCC's status page,
+Anoptic's pinned GCC 17 `<meta>` header, and local compiler probes. The
+toolchain uses the official `17-20260809` weekly snapshot plus the upstream
+August 12 `std::meta::info` layout correction.
 
 ```text
-g++ (GCC) 16.1.0
+g++ (GCC) 17.0.0 20260809 (experimental)
 -std=gnu++26 -freflection -fno-exceptions -fno-rtti -nostdlib++
 ```
 
-The facilities below are standardized for C++26 and present in GCC 16.1 unless listed under limits.
+The facilities below are standardized for C++26 and present in the pinned
+compiler unless listed under limits.
+
+```cpp
+static_assert(sizeof(std::meta::info) == sizeof(void*));
+static_assert(alignof(std::meta::info) == alignof(void*));
+```
 
 ## Core reflection and identity
 
@@ -46,7 +55,7 @@ The facilities below are standardized for C++26 and present in GCC 16.1 unless l
 
 | Capability | Illustrative spelling | Typical use |
 | --- | --- | --- |
-| Enumerate members | `members_of(^^T, ctx)` | Inspect class or namespace contents. |
+| Enumerate members | `members_of(^^T, ctx)` | Inspect class or namespace contents, including closure call operators; undeclared global builtins are omitted. |
 | Enumerate fields | `nonstatic_data_members_of(^^T, ctx)` | Parsing, serialization, hashing, projection, ABI generation. |
 | Enumerate static fields | `static_data_members_of(^^T, ctx)` | Declaration-owned constants and registries. |
 | Enumerate bases and subobjects | `bases_of`, `subobjects_of` | Structural visitors across direct bases and fields. |
@@ -75,7 +84,7 @@ The facilities below are standardized for C++26 and present in GCC 16.1 unless l
 
 | Capability | Illustrative spelling | Typical use |
 | --- | --- | --- |
-| Stabilize reflection ranges | `std::define_static_array(members_of(^^T, ctx))` | GCC 16.1-safe input to expansion statements. |
+| Stabilize reflection ranges | `std::define_static_array(members_of(^^T, ctx))` | Give a transient reflection vector static storage suitable for expansion statements. |
 | Expand heterogeneous statements | `template for (constexpr info m : members) { ... }` | Replace index sequences and recursive template iteration. |
 | Use normal compile-time control flow | `if constexpr`, loops, local variables, containers | Compute over program structure in ordinary C++. |
 | Splice types and values | `using T = [:type_info:];`, `[:constant_info:]` | Reify computed types and constants. |
@@ -83,7 +92,8 @@ The facilities below are standardized for C++26 and present in GCC 16.1 unless l
 | Splice base subobjects | `object.[:base:]` | Uniform direct-base and field traversal. |
 | Splice functions | `[:fn:](args...)`, `object.[:method:](args...)` | Compile-time-generated dispatch. |
 | Form reflected member pointers | `&[:member:]` | Generated member tables. |
-| Inspect and compute template specializations | `template_of`, `template_arguments_of`, `can_substitute`, `substitute` | Select generic implementations using ordinary consteval logic. |
+| Inspect and compute template specializations | `template_of`, `template_arguments_of`, `can_substitute`, `substitute` | Instantiate and inspect specializations, including unused declarations with deduced return types or deferred `noexcept`. |
+| Reify member-function templates | `object.template [:member:]<T>(value)`, `&template[:member:]<T>` | Specialize and directly invoke or address a reflected member template without a handwritten dispatch layer. |
 | Materialize static data | `std::define_static_string`, `define_static_array`, `define_static_object` | Persistent names, registries, capability matrices, descriptors. |
 | Reflect constant arrays and strings | `reflect_constant_array`, `reflect_constant_string` | Low-level static-data generation. |
 | Run declaration-level compile-time work | `consteval { validate(^^T); }` | Execute validation without a dummy variable. |
@@ -93,7 +103,7 @@ The facilities below are standardized for C++26 and present in GCC 16.1 unless l
 
 ## Reflected type computation
 
-GCC 16.1 exposes reflected equivalents of the normal type-trait families. Operate on `info` values and splice results back into code.
+GCC 17 exposes reflected equivalents of the normal type-trait families. Operate on `info` values and splice results back into code.
 
 | Family | Available operations | Typical use |
 | --- | --- | --- |
@@ -108,13 +118,25 @@ GCC 16.1 exposes reflected equivalents of the normal type-trait families. Operat
 | Tuple/variant structure | `tuple_size`, `tuple_element`, `variant_size`, `variant_alternative` | Heterogeneous structural generation. |
 | Deterministic ordering | `type_order` | Stable compile-time registries. |
 
-## Known GCC 16.1 limits
+## GCC 17 correctness boundary
 
-- Missing `std::meta::apply_result`.
-- Missing `std::meta::is_applicable_type`.
-- Missing `std::meta::is_nothrow_applicable_type`.
+The engine relies on four GCC 17 corrections that GCC 16.2 does not provide:
+
+| Surface | GCC 17 contract |
+| --- | --- |
+| Member discovery | Closure `operator()` is present. `members_of(^^::)` excludes undeclared `__builtin_*` declarations. |
+| Member-template splicing | Spliced non-static member templates preserve their `BASELINK`; specialization, direct invocation, and address formation are valid. |
+| Template inspection | Specializations are instantiated before queries resolve deduced `auto`, deferred `noexcept`, bases, and `can_substitute`, including function types returning references. |
+| Reflection layout | `std::meta::info` has the size and alignment of `void*`. GCC 16 and GCC 17 reflection objects are not ABI-compatible. |
+
+`std::define_static_array` remains the correct bridge from transient reflection
+vectors to `template for`; it is not retired by these compiler corrections.
+
+Current language boundaries:
+
 - P3598 contract splicing is not implemented; a recovered probe caused an ICE.
-- Expanding directly over a temporary reflection vector failed; stabilize with `std::define_static_array`.
+- Expansion over a transient reflection vector requires
+  `std::define_static_array` under the adopted expansion model.
 - Arbitrary token injection, arbitrary function-body synthesis, enum synthesis, arbitrary legacy attribute reflection, runtime reflections, and reflected array-element subobjects are unavailable.
 - `define_aggregate` is deliberately limited to generated aggregate data members.
 
@@ -132,4 +154,7 @@ GCC 16.1 exposes reflected equivalents of the normal type-trait families. Operat
 - P3560R2, Error Handling in Reflection: `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3560r2.html`
 - P3795R2, Miscellaneous Reflection Cleanup: `https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/p3795r2.html`
 - GCC C++ status: `https://gcc.gnu.org/projects/cxx-status.html`
-- GCC 16 changes: `https://gcc.gnu.org/gcc-16/changes.html`
+- GCC 17 snapshots: `https://gcc.gnu.org/pub/gcc/snapshots/LATEST-17/`
+- GCC PR124794, member-function template splicing: `https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124794`
+- GCC PR124628, unused specializations and deferred types: `https://gcc.gnu.org/bugzilla/show_bug.cgi?id=124628`
+- GCC `std::meta::info` layout correction: `https://gcc.gnu.org/g:89c1412dfc26d141a6d8732b269c3e30eff44613`

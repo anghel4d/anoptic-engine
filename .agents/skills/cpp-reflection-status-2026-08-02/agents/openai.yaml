@@ -1,6 +1,6 @@
 interface:
-  display_name: "C++ Reflection Status 2026-08-02"
-  short_description: "Verified constexpr C++26 reflection on GCC 16.1"
+  display_name: "C++ Reflection Status: GCC 17"
+  short_description: "Verified full C++26 reflection on pinned GCC 17"
   default_prompt: "Use $cpp-reflection-status-2026-08-02 to solve this with ordinary constexpr/consteval computation and the strongest standardized, GCC-supported reflection and generation facilities."
 
 policy:
