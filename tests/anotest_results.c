@@ -64,6 +64,13 @@ constexpr auto potentially_throwing(int value)
 
 using ParseResult = decltype(parse(true));
 
+static_assert(ano::detail::inspect_result(
+                  ^^ano::Result<int, ParseError>).valid);
+static_assert(!ano::detail::inspect_result(^^int).valid);
+static_assert(ano::detail::inspect_result(
+                  ^^const ano::Result<int, ParseError>&)
+              == ano::detail::inspect_result(
+                  ^^ano::Result<int, ParseError>));
 static_assert(ano::ResultCarrier<ParseResult>);
 static_assert(ano::ResultCarrier<const ParseResult&>);
 static_assert(!ano::ResultCarrier<int>);

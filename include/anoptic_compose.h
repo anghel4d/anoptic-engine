@@ -122,7 +122,7 @@ template<class Type>
 consteval bool nothrow_result_error()
 {
     constexpr auto shape = operationShape<Type>;
-    if constexpr (shape.carrier.error == std::meta::info{})
+    if constexpr (!shape.carrier.valid)
         return false;
     else {
         using Error = [:shape.carrier.error:];
@@ -141,12 +141,12 @@ concept NonthrowingOperation = detail::operationShape<Type>.declaration
 
 template<class Type>
 concept ResultOperation = NonthrowingOperation<Type>
-    && detail::operationShape<Type>.carrier.error != std::meta::info{}
+    && detail::operationShape<Type>.carrier.valid
     && detail::nothrow_result_error<Type>();
 
 template<class Type>
 concept PureOperation = NonthrowingOperation<Type>
-    && detail::operationShape<Type>.carrier.error == std::meta::info{};
+    && !detail::operationShape<Type>.carrier.valid;
 
 template<NonthrowingOperation Type>
 struct OperationAlgebra {
@@ -306,7 +306,7 @@ struct Lifted final {
         detail::inspect_operation(std::meta::type_of(Declaration));
     static_assert(shape.parameter != std::meta::info{}
                   && std::meta::is_noexcept(shape.declaration)
-                  && shape.carrier.error != std::meta::info{});
+                  && shape.carrier.valid);
 
     using Return = [:shape.result:];
     using Parameter = [:shape.parameter:];
