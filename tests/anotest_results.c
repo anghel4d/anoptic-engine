@@ -116,6 +116,12 @@ auto unsafe_error_operation(int value) noexcept
 
 using ParseResult = decltype(parse(true));
 
+static_assert(ano::detail::operationShape<decltype(&parse)>.coherent());
+static_assert(ano::detail::operationShape<decltype(&parse)>.concrete);
+static_assert(ano::detail::operationShape<decltype(&parse)>.supportedArity);
+static_assert(!ano::detail::operationShape<decltype(&parse)>.nullary);
+static_assert(ano::detail::operationShape<decltype(&parse)>.nonthrowing);
+static_assert(ano::detail::operationShape<decltype(&parse)>.carrier.valid);
 static_assert(ano::detail::inspect_result(
                   ^^ano::Result<int, ParseError>).valid);
 static_assert(!ano::detail::inspect_result(^^int).valid);
@@ -168,6 +174,7 @@ static_assert(std::same_as<
               ano::ResultAlgebra<ParseResult>>);
 static_assert(ano::ResultOperation<decltype(ano::lift<^^parse>)>);
 static_assert(std::is_empty_v<decltype(ano::lift<^^parse>)>);
+static_assert(std::is_empty_v<ano::ResultMorphism<ano::Lifted<^^parse>>>);
 
 consteval bool result_surface()
 {
