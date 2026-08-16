@@ -41,8 +41,6 @@ static_assert(std::regular<OperationShape>);
 
 struct FoldShape final {
     std::meta::info declaration{};
-    std::meta::info stateParameter{};
-    std::meta::info itemParameter{};
     std::meta::info stateDomain{};
     std::meta::info itemDomain{};
     std::meta::info result{};
@@ -147,10 +145,10 @@ consteval FoldShape inspect_fold(std::meta::info type)
         return shape;
 
     shape.supportedArity = true;
-    shape.stateParameter = parameter_type(parameters[first]);
-    shape.itemParameter = parameter_type(parameters[first + 1]);
-    shape.stateDomain = std::meta::remove_cvref(shape.stateParameter);
-    shape.itemDomain = std::meta::remove_cvref(shape.itemParameter);
+    shape.stateDomain = std::meta::remove_cvref(
+        parameter_type(parameters[first]));
+    shape.itemDomain = std::meta::remove_cvref(
+        parameter_type(parameters[first + 1]));
     shape.result = std::meta::return_type_of(shape.declaration);
     shape.carrier = inspect_result(shape.result);
     return shape;
@@ -411,10 +409,6 @@ concept ScanRange = std::is_object_v<Range>
         { std::ranges::size(range) } noexcept;
     };
 
-template<class Range>
-    requires ScanRange<Range>
-using RangeValue = std::ranges::range_value_t<const Range>;
-
 namespace detail {
 
 template<class Operation, class State, class Step, bool Fallible>
@@ -447,10 +441,6 @@ consteval bool scannable()
         }
     }
 }
-
-} // namespace detail
-
-namespace detail {
 
 template<ResultOperation First, ResultOperation Next>
     requires KleisliComposable<First, Next>
@@ -826,8 +816,6 @@ template<class Operation>
             std::decay_t<Operation>, Operation>
 [[nodiscard]] constexpr auto compose(Operation&& operation)
 {
-    using Stored = std::decay_t<Operation>;
-    static_assert(std::move_constructible<Stored>);
     return function(std::forward<Operation>(operation));
 }
 

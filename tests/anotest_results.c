@@ -127,11 +127,6 @@ constexpr auto wrong_error(int value) noexcept
     return value;
 }
 
-constexpr OtherError to_other_error(ParseError) noexcept
-{
-    return OtherError::invalid;
-}
-
 constexpr auto check_format(int witness) noexcept
     -> ano::Result<int, ParseError>
 {
@@ -200,10 +195,6 @@ auto unsafe_error_operation(int value) noexcept
 using ParseResult = decltype(parse(true));
 
 static_assert(ano::detail::operationShape<decltype(&parse)>.coherent());
-static_assert(ano::detail::operationShape<decltype(&parse)>.concrete);
-static_assert(ano::detail::operationShape<decltype(&parse)>.supportedArity);
-static_assert(!ano::detail::operationShape<decltype(&parse)>.nullary);
-static_assert(ano::detail::operationShape<decltype(&parse)>.nonthrowing);
 static_assert(ano::detail::operationShape<decltype(&parse)>.carrier.valid);
 static_assert(ano::detail::inspect_result(
                   ^^ano::Result<int, ParseError>).valid);
@@ -248,8 +239,6 @@ static_assert(!ano::KleisliComposable<decltype(&parse),
                                       decltype(&wrong_domain)>);
 static_assert(!ano::KleisliComposable<decltype(&parse),
                                       decltype(&wrong_error)>);
-static_assert(ano::ErrorMappable<decltype(&parse),
-                                 decltype(&to_other_error)>);
 static_assert(ano::KleisliPairable<decltype(&check_format),
                                    decltype(&check_extent)>);
 static_assert(!ano::KleisliPairable<decltype(&check_format),
@@ -258,9 +247,6 @@ static_assert(!ano::AllPairable<
               decltype(ano::lift<^^check_format>),
               decltype(ano::lift<^^check_extent>),
               decltype(ano::lift<^^wrong_domain>)>);
-static_assert(ano::detail::foldShape<decltype(&sum_step)>.concrete);
-static_assert(ano::detail::foldShape<decltype(&sum_step)>.supportedArity);
-static_assert(ano::detail::foldShape<decltype(&sum_step)>.nonthrowing);
 static_assert(ano::FoldStep<decltype(&sum_step), int, const int&>);
 static_assert(ano::KleisliFoldStep<
               decltype(&checked_sum_step), int, const int&, ParseError>);

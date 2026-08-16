@@ -104,6 +104,12 @@ constexpr ano::ArithmeticResult<uint64_t> rgba8_byte_count(
     return ano::checked_multiply(pixels, UINT64_C(4));
 }
 
+inline constexpr auto texture_byte_count = ano::lift<^^texture_pixel_count>
+    .and_then(ano::lift<^^rgba8_byte_count>)
+    .map_error([](ano::ArithmeticError) noexcept {
+        return ANO_RESOURCE_NON_CANONICAL;
+    });
+
 struct TransformEndpoints final {
     std::meta::info input;
     std::meta::info output;
@@ -535,11 +541,7 @@ ResourceResult<> prepare_decoded(
     const schema::Texture& texture,
     AnoResourceBytes artifact, mi_heap_t*) noexcept
 {
-    const auto bytes = ano::lift<^^texture_pixel_count>
-        .and_then(ano::lift<^^rgba8_byte_count>)
-        .map_error([](ano::ArithmeticError) noexcept {
-            return ANO_RESOURCE_NON_CANONICAL;
-        })(texture);
+    const auto bytes = texture_byte_count(texture);
     if (!bytes)
         return failure(bytes.error());
     if (texture.format != schema::TextureFormat::rgba8 || texture.mipCount != 1
@@ -885,11 +887,7 @@ ResourceResult<GpuTexture> realize_texture(
     if (texture.format != TextureFormat::rgba8 || texture.mipCount != 1
         || texture.width == 0 || texture.height == 0)
         return failure(ANO_RESOURCE_NON_CANONICAL);
-    const auto requiredBytes = ano::lift<^^texture_pixel_count>
-        .and_then(ano::lift<^^rgba8_byte_count>)
-        .map_error([](ano::ArithmeticError) noexcept {
-            return ANO_RESOURCE_NON_CANONICAL;
-        })(texture);
+    const auto requiredBytes = texture_byte_count(texture);
     if (!requiredBytes)
         return failure(requiredBytes.error());
     if (*requiredBytes != texture.bytes.count
