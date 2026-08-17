@@ -72,8 +72,10 @@ concept NothrowEqualityComparableWith =
 template<class Type>
 concept ResultCarrier = detail::resultShape<Type>.valid;
 
+namespace detail {
+
 template<ResultCarrier Type>
-struct ResultAlgebra final {
+struct ResultSignature final {
     static constexpr auto shape = detail::resultShape<Type>;
 
     using Carrier = std::remove_cvref_t<Type>;
@@ -85,6 +87,8 @@ struct ResultAlgebra final {
     static_assert(ResultError<Error>,
                   "ano::Result error types must be nothrow-movable");
 };
+
+} // namespace detail
 
 template<class Error>
     requires (!std::is_array_v<std::remove_reference_t<Error>>)
@@ -131,7 +135,7 @@ template<class Value, class Error>
 
 template<ResultCarrier Self, class Error>
     requires detail::NothrowEqualityComparableWith<
-        typename ResultAlgebra<Self>::Error, Error>
+        typename detail::ResultSignature<Self>::Error, Error>
 [[nodiscard]] constexpr bool has_error(const Self& self,
                                        const Error& error) noexcept
 {

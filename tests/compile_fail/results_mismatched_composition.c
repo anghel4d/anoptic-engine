@@ -19,4 +19,4 @@ auto consume(float value) noexcept -> ano::Result<int, Error>
     return static_cast<int>(value);
 }
 
-const auto path = ano::compose(parse).and_then(consume);
+const auto path = ano::function(parse).and_then(consume);

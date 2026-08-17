@@ -72,12 +72,12 @@ their composition is
 ```
 
 `anoptic_compose.h` represents that arrow directly as
-`compose(f).and_then(g)`. `transform(h)` lifts a pure `h : B -> C` through the
-same result. Both operations are `constexpr`, retain concrete callable types,
-allocate nothing, and compile to direct calls. The reflected `Result` classifier
-rejects a stage outside the `T + E` algebra during instantiation. This interface
-does not imply a scheduler: owner-thread transfer, transactional state, and
-publication remain explicit effects supplied by their modules.
+`function(f).and_then(g)`. `transform(h)` lifts a direct `h : B -> C` through
+the same result. Both operations are `constexpr`, retain concrete callable
+types, allocate nothing, and compile to direct calls. The reflected `Result`
+classifier rejects a stage outside the `T + E` algebra during instantiation.
+This interface does not imply a scheduler: owner-thread transfer, transactional
+state, and publication remain explicit effects supplied by their modules.
 
 ## Public type laws
 

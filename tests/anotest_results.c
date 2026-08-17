@@ -85,6 +85,11 @@ concept FunctionAvailable = requires(Operation&& operation) {
     ano::function(std::forward<Operation>(operation));
 };
 
+template<class... Operations>
+concept PairAvailable = requires(Operations&&... operations) {
+    ano::pair(std::forward<Operations>(operations)...);
+};
+
 constexpr auto parse(bool valid) noexcept -> ano::Result<int, ParseError>
 {
     if (valid)
@@ -212,13 +217,6 @@ auto unsafe_error_operation(int value) noexcept
 
 using ParseResult = decltype(parse(true));
 
-static_assert(ano::detail::inspect_result(
-                  ^^ano::Result<int, ParseError>).valid);
-static_assert(!ano::detail::inspect_result(^^int).valid);
-static_assert(ano::detail::inspect_result(
-                  ^^const ano::Result<int, ParseError>&)
-              == ano::detail::inspect_result(
-                  ^^ano::Result<int, ParseError>));
 static_assert(ano::ResultCarrier<ParseResult>);
 static_assert(ano::ResultCarrier<const ParseResult&>);
 static_assert(!ano::ResultCarrier<int>);
@@ -239,13 +237,9 @@ static_assert(!HasErrorAvailable<
               ano::Result<int, AdversarialError>, AdversarialError>);
 static_assert(noexcept(ano::result_if(
                   true, 1, ParseError::invalid)));
-static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Carrier,
-                           ParseResult>);
-static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Value, int>);
-static_assert(std::same_as<ano::ResultAlgebra<ParseResult>::Error,
-                           ParseError>);
 static_assert(ano::ResultOperation<decltype(&parse)>);
-static_assert(ano::PureOperation<decltype(&square)>);
+static_assert(ano::NonthrowingOperation<decltype(&square)>);
+static_assert(!ano::ResultOperation<decltype(&square)>);
 static_assert(!ano::NonthrowingOperation<decltype(&potentially_throwing)>);
 static_assert(ano::KleisliComposable<decltype(&parse),
                                      decltype(&increment)>);
@@ -263,28 +257,17 @@ static_assert(ano::KleisliPairable<decltype(&check_format),
                                    decltype(&check_extent)>);
 static_assert(!ano::KleisliPairable<decltype(&check_format),
                                     decltype(&wrong_domain)>);
-static_assert(!ano::AllPairable<
+static_assert(!PairAvailable<
               decltype(ano::lift<^^check_format>),
               decltype(ano::lift<^^check_extent>),
               decltype(ano::lift<^^wrong_domain>)>);
 static_assert(ano::FoldStep<decltype(&sum_step), int, const int&>);
 static_assert(ano::KleisliFoldStep<
               decltype(&checked_sum_step), int, const int&, ParseError>);
-static_assert(!ano::PureOperation<decltype(&sum_step)>);
+static_assert(!ano::NonthrowingOperation<decltype(&sum_step)>);
 static_assert(!ano::ResultOperation<decltype(&checked_sum_step)>);
-static_assert(std::same_as<
-              ano::ResultOperationAlgebra<decltype(&parse)>::Domain, bool>);
-static_assert(std::same_as<
-              ano::ResultOperationAlgebra<decltype(&parse)>::Value, int>);
-static_assert(std::same_as<
-              ano::ResultOperationAlgebra<decltype(&parse)>::Error,
-              ParseError>);
-static_assert(std::same_as<
-              ano::ResultOperationAlgebra<decltype(&parse)>::CarrierAlgebra,
-              ano::ResultAlgebra<ParseResult>>);
 static_assert(ano::ResultOperation<decltype(ano::lift<^^parse>)>);
 static_assert(std::is_empty_v<decltype(ano::lift<^^parse>)>);
-static_assert(std::is_empty_v<ano::ResultMorphism<ano::Lifted<^^parse>>>);
 
 consteval bool result_surface()
 {
@@ -341,9 +324,8 @@ consteval bool error_mapping_surface()
     static_assert(ano::ResultOperation<decltype(mapped)>);
     static_assert(std::is_empty_v<decltype(mapped)>);
     static_assert(std::same_as<
-                  typename ano::ResultOperationAlgebra<
-                      decltype(mapped)>::Error,
-                  OtherError>);
+                  decltype(mapped(false)),
+                  ano::Result<int, OtherError>>);
     const auto value = mapped(true);
     const auto error = mapped(false);
     const auto unitError = mappedUnit(-1);
@@ -362,7 +344,7 @@ consteval bool pairing_surface()
 {
     constexpr auto paired = ano::pair(
         ano::lift<^^check_format>, ano::lift<^^check_extent>);
-    constexpr auto gathered = ano::all(
+    constexpr auto gathered = ano::pair(
         ano::lift<^^check_format>,
         ano::lift<^^check_extent>,
         ano::lift<^^check_version>);
@@ -370,23 +352,23 @@ consteval bool pairing_surface()
         ano::lift<^^produce>, ano::lift<^^produce_unsigned>);
     static_assert(ano::ResultOperation<decltype(paired)>);
     static_assert(std::is_empty_v<decltype(paired)>);
-    static_assert(ano::AllPairable<
+    static_assert(PairAvailable<
                   decltype(ano::lift<^^check_format>),
                   decltype(ano::lift<^^check_extent>),
                   decltype(ano::lift<^^check_version>)>);
 
     const auto pairValue = paired(4);
     const auto pairError = paired(-1);
-    const auto allValue = gathered(4);
+    const auto gatheredValue = gathered(4);
     const auto nullaryValue = nullary();
     return pairValue
         && pairValue->first == 5
         && pairValue->second == 6u
         && ano::has_error(pairError, ParseError::missing)
-        && allValue
-        && allValue->first.first == 5
-        && allValue->first.second == 6u
-        && allValue->second == 7L
+        && gatheredValue
+        && gatheredValue->first.first == 5
+        && gatheredValue->first.second == 6u
+        && gatheredValue->second == 7L
         && nullaryValue
         && nullaryValue->first == 11
         && nullaryValue->second == 13u;

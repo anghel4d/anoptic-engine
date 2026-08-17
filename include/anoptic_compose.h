@@ -174,12 +174,14 @@ concept ResultOperation = NonthrowingOperation<Type>
         return ResultError<Error>;
     }();
 
+namespace detail {
+
 template<class Type>
-concept PureOperation = NonthrowingOperation<Type>
+concept DirectOperation = NonthrowingOperation<Type>
     && !detail::callableShape<Type>.carrier.valid;
 
 template<NonthrowingOperation Type>
-struct OperationAlgebra {
+struct OperationSignature {
     static constexpr auto shape = detail::callableShape<Type>;
     static constexpr bool nullary = shape.arity == 0;
 
@@ -190,12 +192,12 @@ struct OperationAlgebra {
 };
 
 template<ResultOperation Type>
-struct ResultOperationAlgebra final : OperationAlgebra<Type> {
-    using Base = OperationAlgebra<Type>;
+struct ResultOperationSignature final : OperationSignature<Type> {
+    using Base = OperationSignature<Type>;
     using Carrier = std::remove_cvref_t<typename Base::Return>;
-    using CarrierAlgebra = ResultAlgebra<Carrier>;
-    using Value = typename CarrierAlgebra::Value;
-    using Error = typename CarrierAlgebra::Error;
+    using CarrierSignature = ResultSignature<Carrier>;
+    using Value = typename CarrierSignature::Value;
+    using Error = typename CarrierSignature::Error;
 
     static_assert(std::same_as<Carrier, std::expected<Value, Error>>);
     static_assert(std::same_as<typename Base::Domain,
@@ -205,7 +207,10 @@ struct ResultOperationAlgebra final : OperationAlgebra<Type> {
     static_assert(Base::nullary == std::is_void_v<typename Base::Domain>);
 };
 
-namespace detail {
+template<class Left, class Right>
+concept SameResultError = ResultOperation<Left> && ResultOperation<Right>
+    && std::same_as<typename ResultOperationSignature<Left>::Error,
+                    typename ResultOperationSignature<Right>::Error>;
 
 template<class Value, class Next>
 concept Accepts = (Next::nullary && std::same_as<Value, void>)
@@ -214,11 +219,11 @@ concept Accepts = (Next::nullary && std::same_as<Value, void>)
 template<class Left, class Mapper>
 consteval bool transformable()
 {
-    if constexpr (!ResultOperation<Left> || !PureOperation<Mapper>)
+    if constexpr (!ResultOperation<Left> || !DirectOperation<Mapper>)
         return false;
     else {
-        using First = ResultOperationAlgebra<Left>;
-        using Map = OperationAlgebra<Mapper>;
+        using First = ResultOperationSignature<Left>;
+        using Map = OperationSignature<Mapper>;
         return Accepts<typename First::Value, Map>
             && (std::is_void_v<typename Map::Return>
                 || std::is_object_v<typename Map::Return>)
@@ -229,11 +234,11 @@ consteval bool transformable()
 template<class Left, class Mapper>
 consteval bool error_mappable()
 {
-    if constexpr (!ResultOperation<Left> || !PureOperation<Mapper>) {
+    if constexpr (!ResultOperation<Left> || !DirectOperation<Mapper>) {
         return false;
     } else {
-        using First = ResultOperationAlgebra<Left>;
-        using Map = OperationAlgebra<Mapper>;
+        using First = ResultOperationSignature<Left>;
+        using Map = OperationSignature<Mapper>;
         using OldError = typename First::Error;
         if constexpr (Map::nullary
                       || !std::same_as<OldError, typename Map::Domain>
@@ -279,9 +284,9 @@ consteval bool fold_step()
                 return false;
             else {
                 using Carrier = std::remove_cvref_t<Return>;
-                using Algebra = ResultAlgebra<Carrier>;
-                return std::same_as<typename Algebra::Value, StoredState>
-                    && std::same_as<typename Algebra::Error, StoredError>
+                using Signature = ResultSignature<Carrier>;
+                return std::same_as<typename Signature::Value, StoredState>
+                    && std::same_as<typename Signature::Error, StoredError>
                     && ResultError<StoredError>;
             }
         } else {
@@ -294,14 +299,10 @@ consteval bool fold_step()
 } // namespace detail
 
 template<class Left, class Right>
-concept SameResultError = ResultOperation<Left> && ResultOperation<Right>
-    && std::same_as<typename ResultOperationAlgebra<Left>::Error,
-                    typename ResultOperationAlgebra<Right>::Error>;
-
-template<class Left, class Right>
-concept KleisliComposable = SameResultError<Left, Right>
-    && detail::Accepts<typename ResultOperationAlgebra<Left>::Value,
-                       ResultOperationAlgebra<Right>>;
+concept KleisliComposable = detail::SameResultError<Left, Right>
+    && detail::Accepts<
+        typename detail::ResultOperationSignature<Left>::Value,
+        detail::ResultOperationSignature<Right>>;
 
 template<class Left, class Mapper>
 concept ResultTransformable = detail::transformable<Left, Mapper>();
@@ -310,26 +311,31 @@ template<class Left, class Mapper>
 concept ErrorMappable = detail::error_mappable<Left, Mapper>();
 
 template<class Left, class Right>
-concept KleisliPairable = SameResultError<Left, Right>
-    && (ResultOperationAlgebra<Left>::nullary
-        == ResultOperationAlgebra<Right>::nullary)
-    && std::is_object_v<typename ResultOperationAlgebra<Left>::Value>
-    && std::is_object_v<typename ResultOperationAlgebra<Right>::Value>
+concept KleisliPairable = detail::SameResultError<Left, Right>
+    && (detail::ResultOperationSignature<Left>::nullary
+        == detail::ResultOperationSignature<Right>::nullary)
+    && std::is_object_v<
+        typename detail::ResultOperationSignature<Left>::Value>
+    && std::is_object_v<
+        typename detail::ResultOperationSignature<Right>::Value>
     && detail::nothrow_value<
-        typename ResultOperationAlgebra<Left>::Value>()
+        typename detail::ResultOperationSignature<Left>::Value>()
     && detail::nothrow_value<
-        typename ResultOperationAlgebra<Right>::Value>()
-    && (ResultOperationAlgebra<Left>::nullary
-        || (std::same_as<typename ResultOperationAlgebra<Left>::Domain,
-                         typename ResultOperationAlgebra<Right>::Domain>
+        typename detail::ResultOperationSignature<Right>::Value>()
+    && (detail::ResultOperationSignature<Left>::nullary
+        || (std::same_as<
+                typename detail::ResultOperationSignature<Left>::Domain,
+                typename detail::ResultOperationSignature<Right>::Domain>
             && std::is_object_v<
-                typename ResultOperationAlgebra<Left>::Domain>
+                typename detail::ResultOperationSignature<Left>::Domain>
             && std::is_nothrow_invocable_v<
                 const Left&,
-                const typename ResultOperationAlgebra<Left>::Domain&>
+                const typename detail::ResultOperationSignature<
+                    Left>::Domain&>
             && std::is_nothrow_invocable_v<
                 const Right&,
-                const typename ResultOperationAlgebra<Right>::Domain&>));
+                const typename detail::ResultOperationSignature<
+                    Right>::Domain&>));
 
 template<class Step, class State, class Item>
 concept FoldStep = detail::fold_step<
@@ -358,8 +364,8 @@ consteval bool scannable()
     if constexpr (!ResultOperation<Source>) {
         return false;
     } else {
-        using Algebra = ResultOperationAlgebra<Source>;
-        using Range = typename Algebra::Value;
+        using Signature = ResultOperationSignature<Source>;
+        using Range = typename Signature::Value;
         if constexpr (!ScanRange<Range>) {
             return false;
         } else {
@@ -372,7 +378,7 @@ consteval bool scannable()
                 && std::is_nothrow_move_assignable_v<StoredState>;
             if constexpr (callableShape<Fold>.carrier.valid)
                 return safeState && KleisliFoldStep<
-                    Fold, StoredState, Item, typename Algebra::Error>;
+                    Fold, StoredState, Item, typename Signature::Error>;
             else
                 return safeState && FoldStep<
                     Fold, StoredState, Item>;
@@ -388,37 +394,37 @@ enum class CompositionKind {
 
 template<CompositionKind Kind, class First, class Next>
 struct Composition final {
-    using Algebra = ResultOperationAlgebra<First>;
+    using Signature = ResultOperationSignature<First>;
     using Argument = std::conditional_t<
-        Algebra::nullary, int, typename Algebra::Parameter>;
+        Signature::nullary, int, typename Signature::Parameter>;
 
     [[no_unique_address]] First first;
     [[no_unique_address]] Next next;
 
     [[nodiscard]] constexpr auto operator()() const noexcept
-        requires Algebra::nullary
+        requires Signature::nullary
     {
         return apply(first());
     }
 
     [[nodiscard]] constexpr auto operator()(Argument input) const noexcept
-        requires (!Algebra::nullary)
+        requires (!Signature::nullary)
     {
         return apply(first(std::forward<Argument>(input)));
     }
 
 private:
     [[nodiscard]] constexpr auto apply(
-        typename Algebra::Carrier result) const noexcept
+        typename Signature::Carrier result) const noexcept
     {
         if constexpr (Kind == CompositionKind::bind)
             return std::move(result).and_then(next);
         else if constexpr (Kind == CompositionKind::transform)
             return std::move(result).transform(next);
         else {
-            using Value = typename Algebra::Value;
+            using Value = typename Signature::Value;
             using Mapped = std::invoke_result_t<
-                const Next&, typename Algebra::Error&&>;
+                const Next&, typename Signature::Error&&>;
             using Error = std::remove_cvref_t<Mapped>;
             using Carrier = Result<Value, Error>;
             if (result) {
@@ -450,16 +456,16 @@ struct PairArgument<Domain, true> final {
 
 template<class Left, class Right>
 struct PairedComposition final {
-    using LeftAlgebra = ResultOperationAlgebra<Left>;
-    using RightAlgebra = ResultOperationAlgebra<Right>;
-    static constexpr bool nullary = LeftAlgebra::nullary;
+    using LeftSignature = ResultOperationSignature<Left>;
+    using RightSignature = ResultOperationSignature<Right>;
+    static constexpr bool nullary = LeftSignature::nullary;
 
-    using Domain = typename LeftAlgebra::Domain;
+    using Domain = typename LeftSignature::Domain;
     using Argument = typename PairArgument<Domain, nullary>::type;
-    using LeftValue = typename LeftAlgebra::Value;
-    using RightValue = typename RightAlgebra::Value;
+    using LeftValue = typename LeftSignature::Value;
+    using RightValue = typename RightSignature::Value;
     using Carrier = Result<
-        std::pair<LeftValue, RightValue>, typename LeftAlgebra::Error>;
+        std::pair<LeftValue, RightValue>, typename LeftSignature::Error>;
 
     [[no_unique_address]] Left left;
     [[no_unique_address]] Right right;
@@ -494,9 +500,9 @@ private:
 
 template<class Source, class State, class Step>
 struct ScanComposition final {
-    using Algebra = ResultOperationAlgebra<Source>;
-    using Range = typename Algebra::Value;
-    using Error = typename Algebra::Error;
+    using Signature = ResultOperationSignature<Source>;
+    using Range = typename Signature::Value;
+    using Error = typename Signature::Error;
     static constexpr bool fallible = callableShape<Step>.carrier.valid;
 
     State initial;
@@ -531,27 +537,40 @@ struct ScanComposition final {
     }
 };
 
+struct FunctionFactory;
+
 } // namespace detail
 
 template<NonthrowingOperation Operation>
 struct [[nodiscard]] Function final {
-    using Algebra = OperationAlgebra<Operation>;
-    using Return = typename Algebra::Return;
+private:
+    using Signature = detail::OperationSignature<Operation>;
+    using Return = typename Signature::Return;
     using Argument = std::conditional_t<
-        Algebra::nullary, int, typename Algebra::Parameter>;
+        Signature::nullary, int, typename Signature::Parameter>;
 
     [[no_unique_address]] Operation operation;
 
+    constexpr explicit Function(Operation source) noexcept
+        : operation(std::move(source))
+    {}
+
+    template<NonthrowingOperation Other>
+    friend struct Function;
+
+    friend struct detail::FunctionFactory;
+
+public:
     [[nodiscard]] constexpr Return operator()(
         this const Function& self) noexcept
-        requires Algebra::nullary
+        requires Signature::nullary
     {
         return self.operation();
     }
 
     [[nodiscard]] constexpr Return operator()(
         this const Function& self, Argument input) noexcept
-        requires (!Algebra::nullary)
+        requires (!Signature::nullary)
     {
         return self.operation(std::forward<Argument>(input));
     }
@@ -565,8 +584,8 @@ struct [[nodiscard]] Function final {
         using Stored = std::decay_t<Next>;
         using Node = detail::Composition<
             detail::CompositionKind::bind, Operation, Stored>;
-        return Function<Node>{Node{
-            self.operation, Stored(std::forward<Next>(next))}};
+        return Function<Node>(Node{
+            self.operation, Stored(std::forward<Next>(next))});
     }
 
     template<class Mapper>
@@ -578,8 +597,8 @@ struct [[nodiscard]] Function final {
         using Stored = std::decay_t<Mapper>;
         using Node = detail::Composition<
             detail::CompositionKind::transform, Operation, Stored>;
-        return Function<Node>{Node{
-            self.operation, Stored(std::forward<Mapper>(mapper))}};
+        return Function<Node>(Node{
+            self.operation, Stored(std::forward<Mapper>(mapper))});
     }
 
     template<class Mapper>
@@ -591,8 +610,8 @@ struct [[nodiscard]] Function final {
         using Stored = std::decay_t<Mapper>;
         using Node = detail::Composition<
             detail::CompositionKind::mapError, Operation, Stored>;
-        return Function<Node>{Node{
-            self.operation, Stored(std::forward<Mapper>(mapper))}};
+        return Function<Node>(Node{
+            self.operation, Stored(std::forward<Mapper>(mapper))});
     }
 
     template<class State, class Step>
@@ -614,13 +633,21 @@ struct [[nodiscard]] Function final {
     }
 };
 
-template<NonthrowingOperation Operation>
-Function(Operation) -> Function<Operation>;
-
 template<ResultOperation Operation>
 using ResultMorphism = Function<Operation>;
 
 namespace detail {
+
+struct FunctionFactory final {
+    template<class Source>
+        requires NonthrowingOperation<std::decay_t<Source>>
+            && NothrowStorable<std::decay_t<Source>, Source>
+    [[nodiscard]] static constexpr auto make(Source&& source) noexcept
+    {
+        using Stored = std::decay_t<Source>;
+        return Function<Stored>(Stored(std::forward<Source>(source)));
+    }
+};
 
 template<std::meta::info Declaration>
 consteval bool liftable()
@@ -637,12 +664,10 @@ consteval bool liftable()
     }
 }
 
-} // namespace detail
-
 template<std::meta::info Declaration>
-    requires (detail::liftable<Declaration>())
+    requires (liftable<Declaration>())
 struct Lifted final {
-    static constexpr auto shape = detail::inspect_callable(
+    static constexpr auto shape = inspect_callable(
         std::meta::type_of(Declaration));
     using Return = [:shape.result:];
     using Parameter = [:shape.first:];
@@ -662,55 +687,19 @@ struct Lifted final {
     }
 };
 
-template<std::meta::info Declaration>
-    requires (detail::liftable<Declaration>())
-inline constexpr auto lift = Function{Lifted<Declaration>{}};
-
-template<class Operation>
-    requires NonthrowingOperation<std::decay_t<Operation>>
-        && detail::NothrowStorable<std::decay_t<Operation>, Operation>
-[[nodiscard]] constexpr auto function(Operation&& operation)
-    noexcept
-{
-    using Stored = std::decay_t<Operation>;
-    return Function{Stored(std::forward<Operation>(operation))};
-}
-
-template<class Operation>
-    requires ResultOperation<std::decay_t<Operation>>
-        && detail::NothrowStorable<std::decay_t<Operation>, Operation>
-[[nodiscard]] constexpr auto compose(Operation&& operation)
-    noexcept
-{
-    return function(std::forward<Operation>(operation));
-}
-
 template<class Left, class Right>
-    requires KleisliPairable<std::decay_t<Left>, std::decay_t<Right>>
-        && detail::NothrowStorable<std::decay_t<Left>, Left>
-        && detail::NothrowStorable<std::decay_t<Right>, Right>
-[[nodiscard]] constexpr auto pair(Left&& left, Right&& right)
-    noexcept
+[[nodiscard]] constexpr auto pair_two(Left&& left, Right&& right) noexcept
 {
     using LeftOperation = std::decay_t<Left>;
     using RightOperation = std::decay_t<Right>;
-    using Paired = detail::PairedComposition<
-        LeftOperation, RightOperation>;
-    return Function<Paired>{Paired{
+    using Paired = PairedComposition<LeftOperation, RightOperation>;
+    return FunctionFactory::make(Paired{
         LeftOperation(std::forward<Left>(left)),
-        RightOperation(std::forward<Right>(right))}};
-}
-
-namespace detail {
-
-template<class First>
-consteval bool all_pairable()
-{
-    return ResultOperation<std::decay_t<First>>;
+        RightOperation(std::forward<Right>(right))});
 }
 
 template<class First, class Second, class... Rest>
-consteval bool all_pairable()
+consteval bool pairable_pack()
 {
     using Left = std::decay_t<First>;
     using Right = std::decay_t<Second>;
@@ -720,45 +709,53 @@ consteval bool all_pairable()
         return true;
     else {
         using Paired = Function<PairedComposition<Left, Right>>;
-        return all_pairable<Paired, Rest...>();
+        return pairable_pack<Paired, Rest...>();
     }
 }
 
-template<class Operation>
-[[nodiscard]] constexpr auto all_impl(Operation&& operation)
-    noexcept
-{
-    return function(std::forward<Operation>(operation));
-}
-
 template<class Left, class Right, class... Rest>
-[[nodiscard]] constexpr auto all_impl(
+[[nodiscard]] constexpr auto pair_impl(
     Left&& left, Right&& right, Rest&&... rest) noexcept
 {
-    auto paired = ::ano::pair(
+    auto paired = pair_two(
         std::forward<Left>(left), std::forward<Right>(right));
     if constexpr (sizeof...(Rest) == 0)
         return paired;
     else
-        return all_impl(
+        return pair_impl(
             std::move(paired), std::forward<Rest>(rest)...);
 }
 
 } // namespace detail
 
-template<class... Operations>
-concept AllPairable = sizeof...(Operations) > 0
-    && detail::all_pairable<Operations...>();
+template<std::meta::info Declaration>
+    requires (detail::liftable<Declaration>())
+inline constexpr auto lift = detail::FunctionFactory::make(
+    detail::Lifted<Declaration>{});
 
-template<class... Operations>
-    requires AllPairable<Operations...>
-        && (detail::NothrowStorable<
-                std::decay_t<Operations>, Operations> && ...)
-[[nodiscard]] constexpr auto all(Operations&&... operations)
+template<class Operation>
+    requires NonthrowingOperation<std::decay_t<Operation>>
+        && detail::NothrowStorable<std::decay_t<Operation>, Operation>
+[[nodiscard]] constexpr auto function(Operation&& operation)
     noexcept
 {
-    return detail::all_impl(
-        std::forward<Operations>(operations)...);
+    return detail::FunctionFactory::make(
+        std::forward<Operation>(operation));
+}
+
+template<class Left, class Right, class... Rest>
+    requires (detail::pairable_pack<Left, Right, Rest...>())
+        && detail::NothrowStorable<std::decay_t<Left>, Left>
+        && detail::NothrowStorable<std::decay_t<Right>, Right>
+        && (detail::NothrowStorable<std::decay_t<Rest>, Rest> && ...)
+[[nodiscard]] constexpr auto pair(
+    Left&& left, Right&& right, Rest&&... rest)
+    noexcept
+{
+    return detail::pair_impl(
+        std::forward<Left>(left),
+        std::forward<Right>(right),
+        std::forward<Rest>(rest)...);
 }
 
 } // namespace ano
