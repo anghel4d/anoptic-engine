@@ -19,8 +19,12 @@ The Anoptic Game Engine is designed to create games that can handle large number
 Make sure to use `--recursive` to fetch all submodules!
 
 ```bash
-git clone --recursive https://github.com/Anoptic-Games/anoptic-engine.git
+git clone --recursive https://github.com/anghel4d/anoptic-engine.git
 ```
+
+This repository is the public copy of the engine's `main` branch. Development happens in the private `Anoptic-Games/anoptic-engine` repository.
+
+`main` builds as C23. The move to C++26 is in progress on development branches of that private repository and is not public yet.
 
 Set `git config submodule.recurse true`
 or
@@ -52,7 +56,7 @@ This should automagically take care of everything. (Thank you GLSLtesseract!)
 
 Keep reading if that didn't work or if you want to learn about every other build option.
 
-- `nix run github:Anoptic-Games/anoptic-engine`: the same launch with no clone and no submodules.
+- `nix run github:anghel4d/anoptic-engine`: the same launch with no clone and no submodules.
 - `nix run .#nvidia` (or `.#nvidia-debug`): for non-NixOS distros where the Nix loader cannot dlopen host ICDs.
 
 **In general:**
@@ -241,6 +245,10 @@ ANO_DEVICE=intel  ./build/Release/anopticengine   # force Intel iGPU
 ```
 
 If nothing matches ANO_DEVICE, the engine warns and selects a device automatically.
+
+### License
+
+The engine is licensed under the LGPL-3.0 (see [COPYING.LESSER](COPYING.LESSER) and [COPYING](COPYING)). The other projects on this profile are all rights reserved.
 
 ### More
 
