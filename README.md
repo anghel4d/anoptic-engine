@@ -248,7 +248,7 @@ If nothing matches ANO_DEVICE, the engine warns and selects a device automatical
 
 ### License
 
-The engine is licensed under the LGPL-3.0 (see [COPYING.LESSER](COPYING.LESSER) and [COPYING](COPYING)). The other projects on this profile are all rights reserved.
+The engine is licensed under the LGPL-3.0 (see [COPYING.LESSER](COPYING.LESSER) and [COPYING](COPYING)). Most other projects on this profile are all rights reserved.
 
 ### More
 
